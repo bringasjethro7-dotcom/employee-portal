@@ -1598,7 +1598,11 @@ function getShiftForRecord(timeInStr) {
 // ── Date helpers ──
 function todayStr() {
   const d = new Date();
-  return d.toLocaleDateString('en-CA'); // YYYY-MM-DD
+  // Always return YYYY-MM-DD in local time
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
 }
 
 function fmtTime(isoStr) {
@@ -1609,7 +1613,10 @@ function fmtTime(isoStr) {
 
 function fmtDateShort(isoStr) {
   if (!isoStr) return '—';
-  const d = new Date(isoStr);
+  // If it's a YYYY-MM-DD string, append time to avoid UTC timezone shift
+  var dateStr = isoStr.length === 10 ? isoStr + 'T12:00:00' : isoStr;
+  const d = new Date(dateStr);
+  if (isNaN(d)) return '—';
   return d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 }
 
@@ -1937,7 +1944,7 @@ function renderAttTable() {
       ? fmtTime(rec.lunch_out) + (rec.lunch_in ? ' – ' + fmtTime(rec.lunch_in) : ' – …')
       : '—';
     return `<div class="att-row">
-      <span class="date-col">${fmtDateShort(rec.date + 'T12:00:00')}</span>
+      <span class="date-col">${fmtDateShort(rec.date)}</span>
       <span>${shift === 'night' ? '🌙 Night' : '🌅 Morning'}</span>
       <span>${fmtTime(rec.time_in)}</span>
       <span>${lunchStr}</span>
