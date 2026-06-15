@@ -131,6 +131,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <button class="tab active" id="t-emp" onclick="goTab('emp')">👥 Employees</button>
       <button class="tab" id="t-att" onclick="goTab('att')">🕐 Attendance</button>
       <button class="tab" id="t-leave" onclick="goTab('leave')">🏖 Leave Requests</button>
+      <button class="tab" id="t-pin" onclick="goTab('pin')">🔑 PIN Resets <span id="pin-badge" style="display:none;background:#ef4444;color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;"></span></button>
     </div>
 
     <!-- EMPLOYEES -->
@@ -182,6 +183,22 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
         <table>
           <thead><tr><th>Employee</th><th>Date</th><th>Shift</th><th>Time In</th><th>Lunch Out</th><th>Lunch In</th><th>Time Out</th><th>Hours</th><th>Status</th></tr></thead>
           <tbody id="atbody"><tr><td colspan="9" class="es">Click Attendance tab to load.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PIN RESETS -->
+    <div id="p-pin" style="display:none;">
+      <div class="toolbar">
+        <div class="tl">
+          <span style="font-size:13px;color:var(--t2);">Pending PIN reset requests from employees</span>
+        </div>
+        <button class="bsm" onclick="loadPINResets()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Employee</th><th>ID</th><th>Requested</th><th>Status</th><th>New PIN</th><th>Actions</th></tr></thead>
+          <tbody id="pintbody"><tr><td colspan="6" class="es">Click PIN Resets tab to load.</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -248,7 +265,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 <div id="toast"></div>
 
 <script>
-const PASS = "JMBeast_020298";
+const PASS = "admin1234";
 const API  = "https://script.google.com/macros/s/AKfycbwyJADMZz-kOElPy6DybD-PWkDAG2i1JDBTSFtmTjsw3S0SB3wI6yxHdylxyE7s5qY/exec";
 
 let emps=JSON.parse(localStorage.getItem('portal_employees')||'[]'), editIdx=-1;
@@ -276,12 +293,13 @@ function doLogout(){
 }
 
 function goTab(name){
-  ['emp','att','leave'].forEach(function(n){
+  ['emp','att','leave','pin'].forEach(function(n){
     document.getElementById('t-'+n).classList.toggle('active',n===name);
     document.getElementById('p-'+n).style.display=n===name?'block':'none';
   });
   if(name==='att')  loadAtt();
   if(name==='leave')loadLeave();
+  if(name==='pin')  loadPINResets();
 }
 
 function loadFromSheet(){
@@ -473,6 +491,74 @@ function updLeave(row,status){
     .then(function(r){return r.json();})
     .then(function(){toast('Leave '+status+'!');loadLeave();})
     .catch(function(){toast('Update failed.');});
+}
+
+// ── PIN RESETS ──
+var pinResets = [];
+
+function loadPINResets() {
+  var tb = document.getElementById('pintbody');
+  tb.innerHTML = '<tr><td colspan="6" class="es">Loading…</td></tr>';
+  fetch(API + '?action=get_pin_resets')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      pinResets = d.requests || [];
+      var pending = pinResets.filter(function(r) { return r.status === 'pending'; }).length;
+      var badge = document.getElementById('pin-badge');
+      if (pending > 0) { badge.textContent = pending; badge.style.display = 'inline'; }
+      else { badge.style.display = 'none'; }
+      renderPINTable();
+    })
+    .catch(function() { tb.innerHTML = '<tr><td colspan="6" class="es">Could not load.</td></tr>'; });
+}
+
+function renderPINTable() {
+  var tb = document.getElementById('pintbody');
+  if (!pinResets.length) { tb.innerHTML = '<tr><td colspan="6" class="es">No PIN reset requests.</td></tr>'; return; }
+  tb.innerHTML = pinResets.map(function(r) {
+    var dt = r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+    var badge = r.status === 'done'
+      ? '<span style="color:#4ade80;font-size:11px;font-weight:600;">✓ Done</span>'
+      : '<span style="color:var(--o3);font-size:11px;font-weight:600;">⏳ Pending</span>';
+    var actions = r.status === 'pending'
+      ? '<div style="display:flex;gap:6px;align-items:center;">' +
+        '<input type="text" placeholder="New PIN" id="newpin-' + r._row + '" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--t1);font-size:12px;padding:5px 8px;width:90px;font-family:inherit;outline:none;" />' +
+        '<button class="bsm edit" onclick="resetPIN('' + r._row + '','' + r.employee_id + '')">Reset</button>' +
+        '</div>'
+      : '<span style="color:var(--t3);font-size:12px;">—</span>';
+    return '<tr>' +
+      '<td><strong style="color:var(--t1);">' + (r.full_name || '—') + '</strong></td>' +
+      '<td style="font-family:monospace;color:var(--t3);">' + (r.employee_id || '—') + '</td>' +
+      '<td>' + dt + '</td>' +
+      '<td>' + badge + '</td>' +
+      '<td></td>' +
+      '<td>' + actions + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function resetPIN(row, empId) {
+  var newPin = document.getElementById('newpin-' + row).value.trim();
+  if (!newPin || newPin.length < 4) { toast('Enter a valid PIN (min 4 digits).'); return; }
+
+  // Update PIN in Employees sheet
+  fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'change_pin', employee_id: empId, new_pin: newPin }),
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        // Mark reset as done
+        fetch(API + '?action=mark_pin_reset_done&row=' + row)
+          .catch(function() {});
+        toast('PIN reset to ' + newPin + ' for ' + empId + ' ✅');
+        loadPINResets();
+      } else {
+        toast('Failed to reset PIN. Try again.');
+      }
+    })
+    .catch(function() { toast('Could not connect.'); });
 }
 
 function toast(msg){
