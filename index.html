@@ -632,6 +632,103 @@
     .ps-actions { display: none !important; }
   }
 
+  /* ── CLOCKIFY ── */
+  .cfy-timer-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    margin-bottom: 0.5rem;
+  }
+  .cfy-timer-top {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .cfy-timer-left { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
+  .cfy-desc-input {
+    width: 100%;
+    background: var(--bg-card2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-1);
+    font-size: 14px;
+    padding: 10px 14px;
+    outline: none;
+    font-family: inherit;
+    transition: border-color 0.2s;
+  }
+  .cfy-desc-input:focus { border-color: var(--orange-1); }
+  .cfy-desc-input::placeholder { color: var(--text-3); }
+  .cfy-project-select {
+    width: 100%;
+    background: var(--bg-card2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-1);
+    font-size: 13px;
+    padding: 8px 12px;
+    outline: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .cfy-timer-right { display: flex; flex-direction: column; align-items: center; gap: 10px; flex-shrink: 0; }
+  .cfy-timer-display {
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--text-1);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  .cfy-timer-display.running { color: var(--orange-3); }
+  .cfy-start-btn {
+    padding: 10px 32px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, var(--orange-1), var(--orange-2));
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: opacity 0.15s, transform 0.1s;
+    min-width: 100px;
+  }
+  .cfy-start-btn:hover { opacity: 0.88; }
+  .cfy-start-btn:active { transform: scale(0.97); }
+  .cfy-start-btn.stop-btn { background: linear-gradient(135deg, #ef4444, #dc2626); }
+  .cfy-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 1.25rem;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+    transition: background 0.15s;
+  }
+  .cfy-entry:hover { background: rgba(255,255,255,0.02); }
+  .cfy-entry:last-child { border-bottom: none; }
+  .cfy-entry-left { flex: 1; }
+  .cfy-entry-desc { font-size: 14px; font-weight: 500; color: var(--text-1); margin-bottom: 3px; }
+  .cfy-entry-desc.no-desc { color: var(--text-3); font-style: italic; }
+  .cfy-entry-project { font-size: 11px; color: var(--orange-3); }
+  .cfy-entry-time { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+  .cfy-entry-dur { font-size: 14px; font-weight: 500; color: var(--text-2); flex-shrink: 0; }
+  .cfy-entries-wrap { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .cfy-no-entries { padding: 2rem; text-align: center; color: var(--text-3); font-size: 14px; }
+  .cfy-total-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 1.25rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-top: 8px;
+  }
+  .cfy-total-val { font-size: 16px; font-weight: 600; color: var(--orange-3); }
+
   /* ── ATTENDANCE ── */
   .attendance-header {
     display: flex;
@@ -873,6 +970,7 @@
       <button class="tab-btn active" onclick="switchTab('overview', this)">Overview</button>
       <button class="tab-btn" onclick="switchTab('payslips', this)">Payslips</button>
       <button class="tab-btn" onclick="switchTab('attendance', this)">Attendance</button>
+      <button class="tab-btn" onclick="switchTab('clockify', this)">⏱ Time Tracker</button>
       <button class="tab-btn" onclick="switchTab('profile', this)">My profile</button>
     </div>
 
@@ -947,6 +1045,60 @@
           <span>Status</span>
         </div>
         <div id="att-body"><div class="no-payslips">No attendance records yet.</div></div>
+      </div>
+    </div>
+
+    <!-- CLOCKIFY -->
+    <div class="tab-panel" id="tab-clockify">
+      <div class="clockify-wrap" id="clockify-wrap">
+
+        <!-- No API key state -->
+        <div id="cfy-no-key" style="display:none;">
+          <div class="loading-state" style="flex-direction:column;gap:12px;">
+            <div style="font-size:32px;">⏱</div>
+            <div style="font-size:15px;font-weight:500;color:var(--text-1);">Clockify not connected</div>
+            <div style="font-size:13px;color:var(--text-2);text-align:center;">Ask your admin to add your Clockify API key in Google Sheets.</div>
+          </div>
+        </div>
+
+        <!-- Main clockify UI -->
+        <div id="cfy-main" style="display:none;">
+
+          <!-- Timer card -->
+          <div class="cfy-timer-card" id="cfy-timer-card">
+            <div class="cfy-timer-top">
+              <div class="cfy-timer-left">
+                <input class="cfy-desc-input" type="text" id="cfy-desc" placeholder="What are you working on?" />
+                <div class="cfy-project-row">
+                  <select class="cfy-project-select" id="cfy-project">
+                    <option value="">Loading projects…</option>
+                  </select>
+                </div>
+              </div>
+              <div class="cfy-timer-right">
+                <div class="cfy-timer-display" id="cfy-timer-display">00:00:00</div>
+                <button class="cfy-start-btn" id="cfy-start-btn" onclick="toggleTimer()">Start</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Today entries -->
+          <p class="section-eyebrow" style="margin-top:1.5rem;">Today's entries</p>
+          <div id="cfy-today-wrap">
+            <div class="loading-state"><div class="spinner"></div> Loading…</div>
+          </div>
+
+          <!-- Today total -->
+          <div class="cfy-total-bar" id="cfy-total-bar" style="display:none;">
+            <span style="color:var(--text-2);font-size:13px;">Total today</span>
+            <span class="cfy-total-val" id="cfy-total-val">0h 0m</span>
+          </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="cfy-loading" class="loading-state">
+          <div class="spinner"></div> Connecting to Clockify…
+        </div>
       </div>
     </div>
 
@@ -1173,6 +1325,10 @@ function switchTab(name, btn) {
   document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
   if (name === 'attendance') { if (attEmpId) renderAttendance(); }
+  if (name === 'clockify' && !cfyInited && window._currentEmpData) {
+    cfyInited = true;
+    initClockify(window._currentEmpData);
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -1720,6 +1876,215 @@ function renderAttTable() {
       <span>${status}</span>
     </div>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════
+// CLOCKIFY INTEGRATION
+// ══════════════════════════════════════════
+const CLOCKIFY_API = 'https://api.clockify.me/api/v1';
+var cfyApiKey      = null;
+var cfyWorkspaceId = null;
+var cfyUserId      = null;
+var cfyProjects    = [];
+var cfyRunningId   = null;
+var cfyTimerStart  = null;
+var cfyTimerTick   = null;
+var cfyInited      = false;
+
+// Init when tab is clicked
+function initClockify(empData) {
+  if (!empData.clockify_api_key) {
+    document.getElementById('cfy-loading').style.display = 'none';
+    document.getElementById('cfy-no-key').style.display  = 'block';
+    return;
+  }
+  cfyApiKey = empData.clockify_api_key;
+  loadClockifyUser();
+}
+
+function cfyHeaders() {
+  return { 'X-Api-Key': cfyApiKey, 'Content-Type': 'application/json' };
+}
+
+async function loadClockifyUser() {
+  try {
+    var res  = await fetch(CLOCKIFY_API + '/user', { headers: cfyHeaders() });
+    var user = await res.json();
+    cfyUserId      = user.id;
+    cfyWorkspaceId = user.defaultWorkspace;
+    await Promise.all([ loadProjects(), loadTodayEntries(), checkRunningTimer() ]);
+    document.getElementById('cfy-loading').style.display = 'none';
+    document.getElementById('cfy-main').style.display    = 'block';
+  } catch(e) {
+    document.getElementById('cfy-loading').style.display = 'none';
+    document.getElementById('cfy-no-key').style.display  = 'block';
+  }
+}
+
+async function loadProjects() {
+  try {
+    var res  = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/projects?archived=false&page-size=50', { headers: cfyHeaders() });
+    cfyProjects = await res.json();
+    var sel = document.getElementById('cfy-project');
+    sel.innerHTML = '<option value="">No project</option>' +
+      cfyProjects.map(function(p) {
+        return '<option value="' + p.id + '">' + p.name + '</option>';
+      }).join('');
+  } catch(e) {}
+}
+
+async function checkRunningTimer() {
+  try {
+    var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId + '/time-entries?in-progress=true', { headers: cfyHeaders() });
+    var entries = await res.json();
+    if (entries && entries.length > 0) {
+      var entry = entries[0];
+      cfyRunningId  = entry.id;
+      cfyTimerStart = new Date(entry.timeInterval.start);
+      document.getElementById('cfy-desc').value = entry.description || '';
+      if (entry.projectId) document.getElementById('cfy-project').value = entry.projectId;
+      startTimerDisplay();
+      setStopBtn();
+    }
+  } catch(e) {}
+}
+
+async function loadTodayEntries() {
+  try {
+    var now   = new Date();
+    var start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    var url   = CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId +
+                '/time-entries?start=' + start + '&page-size=50';
+    var res     = await fetch(url, { headers: cfyHeaders() });
+    var entries = await res.json();
+    renderTodayEntries(entries);
+  } catch(e) {
+    document.getElementById('cfy-today-wrap').innerHTML = '<div class="cfy-no-entries">Could not load entries.</div>';
+  }
+}
+
+function renderTodayEntries(entries) {
+  var wrap = document.getElementById('cfy-today-wrap');
+  var totalBar = document.getElementById('cfy-total-bar');
+
+  // Filter out running entry (no end time)
+  var completed = entries.filter(function(e) { return e.timeInterval && e.timeInterval.end; });
+
+  if (completed.length === 0) {
+    wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No completed entries today yet.</div></div>';
+    totalBar.style.display = 'none';
+    return;
+  }
+
+  var totalMins = 0;
+  var rows = completed.map(function(e) {
+    var dur  = calcCfyDur(e.timeInterval.start, e.timeInterval.end);
+    totalMins += dur.mins;
+    var proj = cfyProjects.find(function(p) { return p.id === e.projectId; });
+    var startT = new Date(e.timeInterval.start).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
+    var endT   = new Date(e.timeInterval.end).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
+    return '<div class="cfy-entry">' +
+      '<div class="cfy-entry-left">' +
+        '<div class="cfy-entry-desc' + (!e.description ? ' no-desc' : '') + '">' + (e.description || 'No description') + '</div>' +
+        (proj ? '<div class="cfy-entry-project">📁 ' + proj.name + '</div>' : '') +
+        '<div class="cfy-entry-time">' + startT + ' – ' + endT + '</div>' +
+      '</div>' +
+      '<div class="cfy-entry-dur">' + dur.label + '</div>' +
+    '</div>';
+  }).join('');
+
+  wrap.innerHTML = '<div class="cfy-entries-wrap">' + rows + '</div>';
+
+  // Total
+  var th = Math.floor(totalMins / 60);
+  var tm = totalMins % 60;
+  document.getElementById('cfy-total-val').textContent = th + 'h ' + tm + 'm';
+  totalBar.style.display = 'flex';
+}
+
+function calcCfyDur(start, end) {
+  var diff = Math.round((new Date(end) - new Date(start)) / 60000);
+  var h = Math.floor(diff / 60);
+  var m = diff % 60;
+  return { mins: diff, label: (h > 0 ? h + 'h ' : '') + m + 'm' };
+}
+
+// ── TIMER ──
+async function toggleTimer() {
+  if (cfyRunningId) {
+    await stopTimer();
+  } else {
+    await startTimer();
+  }
+}
+
+async function startTimer() {
+  try {
+    var desc    = document.getElementById('cfy-desc').value.trim();
+    var projId  = document.getElementById('cfy-project').value;
+    var body    = { start: new Date().toISOString(), description: desc, billable: false };
+    if (projId) body.projectId = projId;
+    var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/time-entries', {
+      method: 'POST', headers: cfyHeaders(), body: JSON.stringify(body)
+    });
+    var entry = await res.json();
+    cfyRunningId  = entry.id;
+    cfyTimerStart = new Date(entry.timeInterval.start);
+    startTimerDisplay();
+    setStopBtn();
+    showToast('Timer started!');
+  } catch(e) { showToast('Could not start timer. Check API key.'); }
+}
+
+async function stopTimer() {
+  try {
+    await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId + '/time-entries', {
+      method: 'PATCH', headers: cfyHeaders(),
+      body: JSON.stringify({ end: new Date().toISOString() })
+    });
+    cfyRunningId = null;
+    cfyTimerStart = null;
+    clearInterval(cfyTimerTick);
+    cfyTimerTick = null;
+    document.getElementById('cfy-timer-display').textContent = '00:00:00';
+    document.getElementById('cfy-timer-display').classList.remove('running');
+    document.getElementById('cfy-desc').value = '';
+    document.getElementById('cfy-project').value = '';
+    setStartBtn();
+    showToast('Timer stopped!');
+    await loadTodayEntries();
+  } catch(e) { showToast('Could not stop timer.'); }
+}
+
+function startTimerDisplay() {
+  if (cfyTimerTick) clearInterval(cfyTimerTick);
+  updateTimerDisplay();
+  cfyTimerTick = setInterval(updateTimerDisplay, 1000);
+  document.getElementById('cfy-timer-display').classList.add('running');
+}
+
+function updateTimerDisplay() {
+  if (!cfyTimerStart) return;
+  var diff = Math.floor((new Date() - cfyTimerStart) / 1000);
+  var h = Math.floor(diff / 3600);
+  var m = Math.floor((diff % 3600) / 60);
+  var s = diff % 60;
+  document.getElementById('cfy-timer-display').textContent =
+    pad(h) + ':' + pad(m) + ':' + pad(s);
+}
+
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+function setStopBtn() {
+  var btn = document.getElementById('cfy-start-btn');
+  btn.textContent = 'Stop';
+  btn.classList.add('stop-btn');
+}
+
+function setStartBtn() {
+  var btn = document.getElementById('cfy-start-btn');
+  btn.textContent = 'Start';
+  btn.classList.remove('stop-btn');
 }
 
 // ── PARTICLES ──
