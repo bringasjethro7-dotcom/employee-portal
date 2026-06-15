@@ -229,7 +229,7 @@
 
 <script>
 // ── CONFIG ──
-const ADMIN_PASSWORD  = "JMBeast_020298";
+const ADMIN_PASSWORD  = "admin1234";
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyJADMZz-kOElPy6DybD-PWkDAG2i1JDBTSFtmTjsw3S0SB3wI6yxHdylxyE7s5qY/exec";
 
 // ── STATE ──
@@ -484,8 +484,23 @@ function fmtTimeAdmin(iso) {
 }
 
 function fmtDateAdmin(d) {
-  if (!d) return '—';
-  return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  if (!d || d === '') return '—';
+  var dateObj;
+  // If it's already YYYY-MM-DD (10 chars), add time to avoid UTC shift
+  if (typeof d === 'string' && d.length === 10) {
+    dateObj = new Date(d + 'T12:00:00');
+  } else if (typeof d === 'string' && d.includes('T')) {
+    // Full ISO string - extract date part only
+    var datePart = d.split('T')[0];
+    dateObj = new Date(datePart + 'T12:00:00');
+  } else if (typeof d === 'number') {
+    // Timestamp number
+    dateObj = new Date(d);
+  } else {
+    dateObj = new Date(d);
+  }
+  if (isNaN(dateObj)) return '—';
+  return dateObj.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 }
 
 function calcHours(rec) {
@@ -510,7 +525,7 @@ function renderAttTable(records) {
     var lunch = r.lunch_out ? fmtTimeAdmin(r.lunch_out) + (r.lunch_in ? ' – ' + fmtTimeAdmin(r.lunch_in) : ' – …') : '—';
     return '<tr>' +
       '<td><strong style="color:var(--text-1);">' + (r.full_name||r.employee_id) + '</strong><br/><span style="font-size:11px;color:var(--text-3);font-family:monospace;">' + r.employee_id + '</span></td>' +
-      '<td>' + fmtDateAdmin(r.date) + '</td>' +
+      '<td>' + fmtDateAdmin(String(r.date || '')) + '</td>' +
       '<td>' + ((r.shift||'morning') === 'night' ? '🌙 Night' : '🌅 Morning') + '</td>' +
       '<td>' + fmtTimeAdmin(r.time_in) + '</td>' +
       '<td>' + fmtTimeAdmin(r.lunch_out) + '</td>' +
