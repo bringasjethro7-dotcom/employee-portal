@@ -612,16 +612,36 @@ document.getElementById('admin-pass').addEventListener('keydown', e => {
 // ─────────────────────────────────────────────
 // AUTH
 // ─────────────────────────────────────────────
-function adminLogin() {
+async function adminLogin() {
   const pass = document.getElementById('admin-pass').value;
+  const btn  = document.querySelector('.btn-primary');
   if (pass === ADMIN_PASSWORD) {
     document.getElementById('admin-login').style.display = 'none';
     document.getElementById('admin-shell').style.display = 'block';
+    btn.textContent = 'Loading…';
+    await loadEmployeesFromSheet();
     renderTable();
+    btn.textContent = 'Enter admin panel';
   } else {
     document.getElementById('admin-login-err').style.display = 'block';
   }
 }
+async function loadEmployeesFromSheet() {
+  try {
+    const url  = `${APPS_SCRIPT_URL}?action=get_all_employees`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (data.employees && Array.isArray(data.employees)) {
+      employees = data.employees;
+      persist();
+      showAdminToast(`Loaded ${employees.length} employees from Google Sheets ✅`);
+    }
+  } catch(e) {
+    // Fall back to local storage if fetch fails
+    showAdminToast('Using locally saved data (could not reach Sheet)');
+  }
+}
+
 function adminLogout() {
   document.getElementById('admin-shell').style.display = 'none';
   document.getElementById('admin-login').style.display = 'flex';
