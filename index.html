@@ -503,6 +503,134 @@
     border: 2px solid var(--orange-1);
   }
 
+  /* ── PAYSLIP VIEWER ── */
+  .payslip-viewer {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .payslip-viewer.open { display: flex; }
+  .payslip-doc {
+    background: #fff;
+    color: #111;
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    border-radius: 8px;
+    padding: 0;
+    font-family: 'Georgia', serif;
+  }
+  .ps-header {
+    background: #1a1a2e;
+    color: #fff;
+    padding: 1.5rem 2rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .ps-company { font-size: 18px; font-weight: 700; letter-spacing: 0.05em; }
+  .ps-period-label { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+  .ps-title {
+    text-align: center;
+    padding: 1rem 2rem 0.5rem;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #333;
+    border-bottom: 2px solid #e83d00;
+    margin: 0 2rem;
+  }
+  .ps-body { padding: 1.25rem 2rem; }
+  .ps-emp-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 1.5rem;
+    margin-bottom: 1.25rem;
+    font-size: 13px;
+  }
+  .ps-info-row { display: flex; flex-direction: column; }
+  .ps-info-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 2px; }
+  .ps-info-value { font-weight: 600; color: #111; }
+  .ps-divider { border: none; border-top: 1px solid #eee; margin: 1rem 0; }
+  .ps-earnings-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 1rem; }
+  .ps-earnings-table th {
+    background: #f5f5f5;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #666;
+    font-weight: 600;
+  }
+  .ps-earnings-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+  .ps-earnings-table tr:last-child td { border-bottom: none; }
+  .ps-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #1a1a2e;
+    color: #fff;
+    padding: 12px 12px;
+    border-radius: 6px;
+    margin-top: 0.5rem;
+  }
+  .ps-total-label { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; }
+  .ps-total-amount { font-size: 20px; font-weight: 700; color: #ff9a5c; }
+  .ps-footer {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #eee;
+    font-size: 11px;
+    color: #aaa;
+    text-align: center;
+  }
+  .ps-actions {
+    display: flex;
+    gap: 8px;
+    padding: 1rem 2rem;
+    border-top: 1px solid #eee;
+    background: #fafafa;
+    border-radius: 0 0 8px 8px;
+  }
+  .ps-btn-print {
+    flex: 1;
+    padding: 10px;
+    background: #1a1a2e;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .ps-btn-close {
+    padding: 10px 20px;
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    color: #555;
+  }
+
+  @media print {
+    body > *:not(.payslip-viewer) { display: none !important; }
+    .payslip-viewer { position: static !important; background: none !important; padding: 0 !important; }
+    .payslip-doc { max-height: none !important; box-shadow: none !important; }
+    .ps-actions { display: none !important; }
+  }
+
   /* ── ATTENDANCE ── */
   .attendance-header {
     display: flex;
@@ -767,6 +895,7 @@
       <div class="payslip-table">
         <div class="payslip-head">
           <span>Period</span>
+          <span>Hours</span>
           <span>Gross pay</span>
           <span>Status</span>
           <span></span>
@@ -829,6 +958,13 @@
     </div>
   </div>
 </div>
+
+  <!-- PAYSLIP VIEWER MODAL -->
+  <div class="payslip-viewer" id="payslip-viewer">
+    <div class="payslip-doc" id="payslip-doc">
+      <!-- injected by JS -->
+    </div>
+  </div>
 
 <div id="toast"></div>
 
@@ -929,7 +1065,7 @@ function renderDashboard(data) {
   }
 
   // ── INIT ATTENDANCE ──
-  initAttendance(data.employee_id || data.full_name);
+  setTimeout(function() { initAttendance(data.employee_id || data.full_name); }, 100);
 
   // ── HERO SECTION ──
   const hero = document.getElementById('dashboard-hero');
@@ -994,22 +1130,8 @@ function renderDashboard(data) {
   overviewContent.style.display = 'block';
 
   // ── PAYSLIPS ──
-  const payslipList = document.getElementById('payslip-list');
-  const payslips = data.payslips || [];
-  if (payslips.length === 0) {
-    payslipList.innerHTML = '<div class="no-payslips">No payslips available yet.</div>';
-  } else {
-    payslipList.innerHTML = payslips.map(p => `
-      <div class="payslip-row">
-        <span class="payslip-period">${p.period || '—'}</span>
-        <span class="payslip-amount">${p.amount ? formatMoney(p.amount) : '—'}</span>
-        <span class="payslip-status"><span class="badge">Available</span></span>
-        <span>${p.link
-          ? `<a class="btn-dl" href="${p.link}" target="_blank" rel="noopener">⬇ Download</a>`
-          : '<span style="color:var(--text-3);font-size:13px;">—</span>'}</span>
-      </div>
-    `).join('');
-  }
+  window._currentEmpData = data;
+  renderPayslipList(data);
 
   // ── PROFILE ──
   const profileGrid = document.getElementById('profile-grid');
@@ -1049,7 +1171,7 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b   => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
-  if (name === 'attendance' && attEmpId) renderAttendance();
+  if (name === 'attendance') { if (attEmpId) renderAttendance(); }
 }
 
 // ─────────────────────────────────────────────
@@ -1081,6 +1203,131 @@ function toggleRate(btn) {
     btn.innerHTML = 'Show';
     btn.title = 'Show rate';
   }
+}
+
+// ══════════════════════════════════════════
+// PAYSLIP SYSTEM
+// ══════════════════════════════════════════
+function renderPayslipList(data) {
+  const payslipList = document.getElementById('payslip-list');
+  const payslips    = data.payslips || [];
+  const hourlyRate  = data.rate ? parseFloat(data.rate) / 240 : 0;
+
+  if (payslips.length === 0) {
+    payslipList.innerHTML = '<div class="no-payslips">No payslips available yet.</div>';
+    return;
+  }
+
+  // Update head to 5 cols
+  const head = document.querySelector('.payslip-head');
+  if (head) head.style.gridTemplateColumns = '1fr 0.7fr 1fr 100px 100px';
+
+  payslipList.innerHTML = payslips.map((p, i) => {
+    const hours    = p.hours ? parseFloat(p.hours) : null;
+    const gross    = hours !== null ? hours * hourlyRate : (p.amount ? parseFloat(p.amount) : null);
+    const grossFmt = gross !== null ? formatMoney(gross) : '—';
+    const hrsFmt   = hours !== null ? hours + ' hrs' : '—';
+
+    return `<div class="payslip-row" style="grid-template-columns:1fr 0.7fr 1fr 100px 100px;">
+      <span class="payslip-period">${p.period || '—'}</span>
+      <span class="payslip-amount">${hrsFmt}</span>
+      <span class="payslip-amount">${grossFmt}</span>
+      <span class="payslip-status"><span class="badge">Available</span></span>
+      <span>
+        <button class="btn-dl" onclick='openPayslip(${i})'>👁 View</button>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+function openPayslip(idx) {
+  const data    = window._currentEmpData;
+  const p       = data.payslips[idx];
+  const hourly  = data.rate ? parseFloat(data.rate) / 240 : 0;
+  const hours   = p.hours ? parseFloat(p.hours) : null;
+  const gross   = hours !== null ? hours * hourly : (p.amount ? parseFloat(p.amount) : null);
+  const now     = new Date();
+
+  const doc = document.getElementById('payslip-doc');
+  doc.innerHTML = `
+    <div class="ps-header">
+      <div>
+        <div class="ps-company">JMB VIRTUALS</div>
+        <div class="ps-period-label">Pay Period: ${p.period || '—'}</div>
+      </div>
+      <div style="text-align:right;font-size:12px;color:rgba(255,255,255,0.5);">
+        Generated ${now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
+      </div>
+    </div>
+
+    <div class="ps-title">Payslip</div>
+
+    <div class="ps-body">
+      <div class="ps-emp-info">
+        <div class="ps-info-row">
+          <span class="ps-info-label">Employee Name</span>
+          <span class="ps-info-value">${data.full_name || '—'}</span>
+        </div>
+        <div class="ps-info-row">
+          <span class="ps-info-label">Employee ID</span>
+          <span class="ps-info-value">${data.employee_id || '—'}</span>
+        </div>
+        <div class="ps-info-row">
+          <span class="ps-info-label">Position</span>
+          <span class="ps-info-value">${data.position || '—'}</span>
+        </div>
+        <div class="ps-info-row">
+          <span class="ps-info-label">Department</span>
+          <span class="ps-info-value">${data.department || '—'}</span>
+        </div>
+      </div>
+
+      <hr class="ps-divider" />
+
+      <table class="ps-earnings-table">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th>Hours</th>
+            <th style="text-align:right;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Basic Pay</td>
+            <td>${hours !== null ? hours + ' hrs' : '—'}</td>
+            <td style="text-align:right;">${gross !== null ? formatMoney(gross) : '—'}</td>
+          </tr>
+          <tr>
+            <td style="color:#888;font-size:12px;">Hourly Rate</td>
+            <td style="color:#888;font-size:12px;">${formatMoney(hourly)}/hr</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="ps-total-row">
+        <span class="ps-total-label">GROSS PAY</span>
+        <span class="ps-total-amount">${gross !== null ? formatMoney(gross) : '—'}</span>
+      </div>
+
+      <div class="ps-footer">
+        This is a system-generated payslip. No signature required.<br/>
+        JMB Virtuals · ${p.period || ''}
+      </div>
+    </div>
+
+    <div class="ps-actions">
+      <button class="ps-btn-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+      <button class="ps-btn-close" onclick="closePayslip()">Close</button>
+    </div>
+  `;
+
+  document.getElementById('payslip-viewer').classList.add('open');
+}
+
+function closePayslip() {
+  document.getElementById('payslip-viewer').classList.remove('open');
 }
 
 function convertDriveLink(url) {
@@ -1167,11 +1414,11 @@ const SHIFTS = {
 };
 const LUNCH_DURATION = 60; // minutes
 
-let attEmpId   = null;
-let attToday   = null;
-let attRecords = [];   // loaded from Google Sheet via Apps Script
-let todayLog   = {};   // { time_in, lunch_out, lunch_in, time_out }
-let clockTimer = null;
+var attEmpId   = null;
+var attToday   = null;
+var attRecords = [];
+var todayLog   = {};
+var clockTimer = null;
 
 // ── Detect shift from clock-in time ──
 function detectShift(hour, minute) {
