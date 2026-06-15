@@ -1758,6 +1758,9 @@ function updateButtons() {
   const hasLI  = !!tl.lunch_in;
   const hasTO  = !!tl.time_out;
 
+  // Check if Clockify timer is currently running
+  const cfyRunning = !!cfyRunningId;
+
   const btnTI = document.getElementById('btn-time-in');
   const btnLO = document.getElementById('btn-lunch-out');
   const btnLI = document.getElementById('btn-lunch-in');
@@ -1765,15 +1768,21 @@ function updateButtons() {
 
   // Time In
   if (!hasTI) {
-    setBtn(btnTI, 'active', false); // enabled, highlighted
+    setBtn(btnTI, 'active', false);
   } else {
-    setBtn(btnTI, 'done', true); // disabled, green
+    setBtn(btnTI, 'done', true);
     btnTI.textContent = '✓ ' + fmtTime(tl.time_in);
   }
 
-  // Lunch Out — only after Time In, not after Lunch Out
+  // Lunch Out — blocked if Clockify is running
   if (hasTI && !hasLO && !hasTO) {
-    setBtn(btnLO, 'active', false);
+    if (cfyRunning) {
+      setBtn(btnLO, 'default', true);
+      btnLO.title = '⚠ Stop your Clockify timer first';
+    } else {
+      setBtn(btnLO, 'active', false);
+      btnLO.title = '';
+    }
   } else if (hasLO) {
     setBtn(btnLO, 'done', true);
     btnLO.textContent = '✓ ' + fmtTime(tl.lunch_out);
@@ -1781,9 +1790,15 @@ function updateButtons() {
     setBtn(btnLO, 'default', true);
   }
 
-  // Lunch In — only after Lunch Out
+  // Lunch In — blocked if Clockify is running
   if (hasLO && !hasLI) {
-    setBtn(btnLI, 'active', false);
+    if (cfyRunning) {
+      setBtn(btnLI, 'default', true);
+      btnLI.title = '⚠ Stop your Clockify timer first';
+    } else {
+      setBtn(btnLI, 'active', false);
+      btnLI.title = '';
+    }
   } else if (hasLI) {
     setBtn(btnLI, 'done', true);
     btnLI.textContent = '✓ ' + fmtTime(tl.lunch_in);
@@ -1791,14 +1806,37 @@ function updateButtons() {
     setBtn(btnLI, 'default', true);
   }
 
-  // Time Out — after Time In (lunch optional)
+  // Time Out — blocked if Clockify is running
   if (hasTI && !hasTO && (hasLI || !hasLO)) {
-    setBtn(btnTO, 'active', false);
+    if (cfyRunning) {
+      setBtn(btnTO, 'default', true);
+      btnTO.title = '⚠ Stop your Clockify timer first';
+    } else {
+      setBtn(btnTO, 'active', false);
+      btnTO.title = '';
+    }
   } else if (hasTO) {
     setBtn(btnTO, 'done', true);
     btnTO.textContent = '✓ ' + fmtTime(tl.time_out);
   } else {
     setBtn(btnTO, 'default', true);
+  }
+
+  // Show warning banner if Clockify is running and buttons are blocked
+  showClockifyWarning(cfyRunning && hasTI && !hasTO);
+}
+
+function showClockifyWarning(show) {
+  var existing = document.getElementById('cfy-warning-bar');
+  if (show && !existing) {
+    var bar = document.createElement('div');
+    bar.id = 'cfy-warning-bar';
+    bar.style.cssText = 'background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#f87171;margin-bottom:1rem;display:flex;align-items:center;gap:8px;';
+    bar.innerHTML = '⚠ <strong>Clockify timer is still running.</strong> Please stop it before logging Lunch Out or Time Out.';
+    var grid = document.getElementById('time-btn-grid');
+    if (grid) grid.parentNode.insertBefore(bar, grid);
+  } else if (!show && existing) {
+    existing.remove();
   }
 }
 
@@ -2094,6 +2132,8 @@ async function startTimer() {
     startTimerDisplay();
     setStopBtn();
     showToast('Timer started!');
+    // Re-check attendance buttons now that timer started
+    if (typeof updateButtons === 'function') updateButtons();
   } catch(e) { showToast('Could not start timer. Check API key.'); }
 }
 
@@ -2114,6 +2154,8 @@ async function stopTimer() {
     setStartBtn();
     showToast('Timer stopped!');
     await loadTodayEntries();
+    // Re-check attendance buttons now that timer stopped
+    if (typeof updateButtons === 'function') updateButtons();
   } catch(e) { showToast('Could not stop timer.'); }
 }
 
