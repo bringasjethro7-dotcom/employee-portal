@@ -25,6 +25,8 @@
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg-deep); color: var(--text-1); min-height: 100vh; }
+  canvas#admin-bg { position:fixed;inset:0;pointer-events:none;z-index:0; }
+  #admin-login, #admin-shell { position:relative; z-index:1; }
 
   /* LOGIN */
   #admin-login { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; background: radial-gradient(ellipse at 50% 0%, rgba(232,61,0,0.1) 0%, transparent 60%); }
@@ -112,8 +114,9 @@
 </head>
 <body>
 
+<canvas id="admin-bg"></canvas>
 <!-- LOGIN -->
-<div id="admin-login">
+<div id="admin-login" style="display:flex;">
   <div class="login-box">
     <span class="pill-admin">Admin</span>
     <div class="admin-title">Portal admin</div>
@@ -128,7 +131,7 @@
 </div>
 
 <!-- SHELL -->
-<div id="admin-shell">
+<div id="admin-shell" style="display:none;">
   <header>
     <div class="header-title">Portal admin <span class="pill-admin">Admin</span></div>
     <button class="btn-logout" onclick="adminLogout()">Sign out</button>
@@ -258,7 +261,7 @@
 
 <script>
 // ── CONFIG ──
-const ADMIN_PASSWORD  = "JMBeast_020298";
+const ADMIN_PASSWORD  = "admin1234";
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyJADMZz-kOElPy6DybD-PWkDAG2i1JDBTSFtmTjsw3S0SB3wI6yxHdylxyE7s5qY/exec";
 
 // ── STATE ──
@@ -665,6 +668,45 @@ function showAdminToast(msg) {
   t.classList.add('show');
   setTimeout(function() { t.classList.remove('show'); }, 2500);
 }
+// ── BACKGROUND LINES ──
+(function() {
+  var canvas = document.getElementById('admin-bg');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W, H, lines = [];
+  function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+  resize(); window.addEventListener('resize', resize);
+  function rand(a,b) { return Math.random()*(b-a)+a; }
+  function createLine() {
+    return { cx:rand(-W*.2,W*1.2), cy:rand(-H*.2,H*1.2), angle:rand(0,Math.PI*2), length:rand(W*.25,W*.65),
+      speed:rand(.3,.8), rotSpeed:rand(-.003,.003), opacity:0, maxOpacity:rand(.08,.22),
+      fadeIn:true, fadeSpeed:rand(.003,.008), z:rand(.4,1), width:rand(3,8), life:0, maxLife:rand(300,800) };
+  }
+  for (var i=0;i<12;i++){var l=createLine();l.opacity=rand(0,l.maxOpacity);l.life=rand(0,l.maxLife);lines.push(l);}
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    lines.forEach(function(l,i){
+      l.life++; l.angle+=l.rotSpeed;
+      l.cx+=Math.cos(l.angle+Math.PI/2)*l.speed*.3;
+      l.cy+=Math.sin(l.angle+Math.PI/2)*l.speed*.3;
+      if(l.fadeIn){l.opacity+=l.fadeSpeed;if(l.opacity>=l.maxOpacity)l.fadeIn=false;}
+      else if(l.life>l.maxLife*.7){l.opacity-=l.fadeSpeed*.7;}
+      if(l.life>=l.maxLife||l.opacity<=0){lines[i]=createLine();return;}
+      var p=l.z, sl=l.length*p, sw=l.width*p;
+      var cos=Math.cos(l.angle),sin=Math.sin(l.angle);
+      var x1=l.cx-cos*sl/2,y1=l.cy-sin*sl/2,x2=l.cx+cos*sl/2,y2=l.cy+sin*sl/2;
+      var g=ctx.createLinearGradient(x1,y1,x2,y2);
+      var c='255,107,26';
+      g.addColorStop(0,'rgba('+c+',0)');g.addColorStop(.3,'rgba('+c+','+l.opacity*.6+')');
+      g.addColorStop(.5,'rgba('+c+','+l.opacity+')');g.addColorStop(.7,'rgba('+c+','+l.opacity*.6+')');
+      g.addColorStop(1,'rgba('+c+',0)');
+      ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+      ctx.strokeStyle=g;ctx.lineWidth=Math.max(1.5,sw);ctx.lineCap='round';ctx.stroke();
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
 </script>
 </body>
 </html>
