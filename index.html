@@ -406,6 +406,75 @@
     color: var(--text-1);
   }
 
+  /* ── PROFILE PHOTO ── */
+  .dashboard-hero {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.75rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .dashboard-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,107,26,0.06), transparent);
+    pointer-events: none;
+  }
+  .hero-photo {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--orange-1);
+    flex-shrink: 0;
+    box-shadow: 0 0 0 4px rgba(255,107,26,0.15);
+  }
+  .hero-avatar {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--orange-1), var(--orange-2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+    border: 2px solid var(--orange-1);
+    box-shadow: 0 0 0 4px rgba(255,107,26,0.15);
+  }
+  .hero-info { flex: 1; }
+  .hero-name {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-1);
+    margin-bottom: 4px;
+  }
+  .hero-role {
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .hero-id {
+    font-size: 12px;
+    color: var(--text-3);
+    margin-top: 2px;
+    font-family: monospace;
+  }
+  .header-avatar-img {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--orange-1);
+  }
+
   /* ── LOADING ── */
   .loading-state {
     display: flex;
@@ -506,6 +575,15 @@
   </header>
 
   <div class="main-content">
+    <div class="dashboard-hero" id="dashboard-hero" style="display:none;">
+      <div id="hero-photo-wrap"></div>
+      <div class="hero-info">
+        <div class="hero-name" id="hero-name"></div>
+        <div class="hero-role" id="hero-role"></div>
+        <div class="hero-id"   id="hero-id"></div>
+      </div>
+    </div>
+
     <div class="tabs">
       <button class="tab-btn active" onclick="switchTab('overview', this)">Overview</button>
       <button class="tab-btn" onclick="switchTab('payslips', this)">Payslips</button>
@@ -632,9 +710,49 @@ function renderDashboard(data) {
 
   const name = data.full_name || 'Employee';
   const initials = name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+  const photoUrl = data.photo ? convertDriveLink(data.photo) : null;
 
   document.getElementById('header-emp-name').textContent = name;
-  document.getElementById('header-avatar').textContent   = initials;
+
+  // Header avatar — photo or initials
+  const avatarEl = document.getElementById('header-avatar');
+  if (photoUrl) {
+    avatarEl.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = photoUrl;
+    img.alt = name;
+    img.className = 'header-avatar-img';
+    img.onerror = () => { avatarEl.innerHTML = initials; img.remove(); };
+    avatarEl.appendChild(img);
+  } else {
+    avatarEl.textContent = initials;
+  }
+
+  // ── HERO SECTION ──
+  const hero = document.getElementById('dashboard-hero');
+  const heroPhotoWrap = document.getElementById('hero-photo-wrap');
+  document.getElementById('hero-name').textContent = name;
+  document.getElementById('hero-role').textContent = [data.position, data.department].filter(Boolean).join(' · ');
+  document.getElementById('hero-id').textContent   = data.employee_id || '';
+
+  if (photoUrl) {
+    const heroImg = document.createElement('img');
+    heroImg.src       = photoUrl;
+    heroImg.alt       = name;
+    heroImg.className = 'hero-photo';
+    heroImg.onerror   = () => {
+      heroImg.remove();
+      const av = document.createElement('div');
+      av.className   = 'hero-avatar';
+      av.textContent = initials;
+      heroPhotoWrap.appendChild(av);
+    };
+    heroPhotoWrap.innerHTML = '';
+    heroPhotoWrap.appendChild(heroImg);
+  } else {
+    heroPhotoWrap.innerHTML = `<div class="hero-avatar">${initials}</div>`;
+  }
+  hero.style.display = 'flex';
 
   // ── OVERVIEW stats ──
   const overviewLoad = document.getElementById('overview-loading');
@@ -644,12 +762,12 @@ function renderDashboard(data) {
   const coreStats = [
     { icon: '👤', label: 'Name',          value: name,                     sub: data.employee_id || '' },
     { icon: '💼', label: 'Position',      value: data.position || '—',      sub: data.department || '' },
-    { icon: '💰', label: 'Monthly rate',  value: data.rate ? formatMoney(data.rate) : '—', sub: 'Gross' },
+    { icon: '💰', label: 'Monthly rate',  value: data.rate ? formatMoney(data.rate) : '—', sub: `Hourly: ${data.rate ? formatMoney(parseFloat(data.rate) / 240) : '—'}` },
     { icon: '📅', label: 'Start date',    value: formatDate(data.start_date), sub: tenure(data.start_date) },
   ];
 
   // Append custom fields
-  const reservedKeys = ['full_name','employee_id','position','department','rate','start_date','payslips','pin'];
+  const reservedKeys = ['full_name','employee_id','position','department','rate','start_date','payslips','pin','photo'];
   const custom = Object.entries(data).filter(([k]) => !reservedKeys.includes(k));
   custom.forEach(([k, v]) => {
     coreStats.push({ icon: '📌', label: labelify(k), value: v || '—', sub: '' });
@@ -728,6 +846,16 @@ function switchTab(name, btn) {
 // ─────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────
+function convertDriveLink(url) {
+  if (!url) return null;
+  // Convert Google Drive share link to direct image URL
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (match) {
+    return `https://lh3.googleusercontent.com/d/${match[1]}`;
+  }
+  return url; // return as-is if not a Drive link
+}
+
 function formatMoney(val) {
   const n = parseFloat(String(val).replace(/[^\d.]/g, ''));
   if (isNaN(n)) return val;
