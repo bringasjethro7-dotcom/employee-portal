@@ -1264,7 +1264,7 @@ function renderDashboard(data) {
   ];
 
   // Append custom fields
-  const reservedKeys = ['full_name','employee_id','position','department','rate','start_date','payslips','pin','photo'];
+  const reservedKeys = ['full_name','employee_id','position','department','rate','start_date','payslips','pin','photo','clockify_api_key'];
   const custom = Object.entries(data).filter(([k]) => !reservedKeys.includes(k));
   custom.forEach(([k, v]) => {
     coreStats.push({ icon: '📌', label: labelify(k), value: v || '—', sub: '' });
@@ -1930,6 +1930,8 @@ async function loadProjects() {
       cfyProjects.map(function(p) {
         return '<option value="' + p.id + '">' + p.name + '</option>';
       }).join('');
+    // Init task dropdown state
+    document.getElementById('cfy-task').disabled = true;
   } catch(e) {}
 }
 
@@ -1950,17 +1952,37 @@ async function checkRunningTimer() {
 }
 
 async function loadTasks() {
-  var projId = document.getElementById('cfy-project').value;
+  var projId  = document.getElementById('cfy-project').value;
   var taskSel = document.getElementById('cfy-task');
-  if (!projId) { taskSel.style.display = 'none'; return; }
+
+  if (!projId) {
+    taskSel.innerHTML = '<option value="">Select project first…</option>';
+    taskSel.disabled  = true;
+    return;
+  }
+
+  taskSel.innerHTML = '<option value="">Loading tasks…</option>';
+  taskSel.disabled  = true;
+
   try {
-    var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/projects/' + projId + '/tasks?page-size=50', { headers: cfyHeaders() });
+    var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/projects/' + projId + '/tasks?page-size=100&is-active=true', { headers: cfyHeaders() });
     var tasks = await res.json();
-    if (!tasks || tasks.length === 0) { taskSel.style.display = 'none'; return; }
-    taskSel.innerHTML = '<option value="">No task</option>' +
-      tasks.map(function(t) { return '<option value="' + t.id + '">' + t.name + '</option>'; }).join('');
-    taskSel.style.display = 'block';
-  } catch(e) { taskSel.style.display = 'none'; }
+
+    if (!tasks || !tasks.length) {
+      taskSel.innerHTML = '<option value="">No tasks in this project</option>';
+      taskSel.disabled  = false;
+      return;
+    }
+
+    taskSel.innerHTML = '<option value="">No specific task</option>' +
+      tasks.map(function(t) {
+        return '<option value="' + t.id + '">' + t.name + '</option>';
+      }).join('');
+    taskSel.disabled = false;
+  } catch(e) {
+    taskSel.innerHTML = '<option value="">Could not load tasks</option>';
+    taskSel.disabled  = false;
+  }
 }
 
 async function loadTodayEntries() {
