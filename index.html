@@ -302,6 +302,54 @@
     margin-bottom: 1rem;
   }
 
+  /* ── ATTENDANCE SUMMARY ── */
+  .att-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin-bottom: 1.5rem;
+  }
+  .att-sum-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 0.75rem;
+    text-align: center;
+    transition: border-color 0.2s;
+  }
+  .att-sum-item:hover { border-color: var(--border-hi); }
+  .att-sum-icon { font-size: 20px; margin-bottom: 8px; }
+  .att-sum-val  { font-size: 22px; font-weight: 600; color: var(--text-1); margin-bottom: 4px; }
+  .att-sum-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* ── PIN CHANGE ── */
+  .pin-change-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.5rem;
+  }
+  .pin-change-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 1rem;
+  }
+  .pin-msg {
+    font-size: 13px;
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    display: none;
+  }
+  .pin-msg.success { display: block; background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
+  .pin-msg.error   { display: block; background: rgba(239,68,68,0.1);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+
+  @media (max-width: 600px) {
+    .att-summary-cards { grid-template-columns: repeat(3, 1fr); }
+    .pin-change-grid   { grid-template-columns: 1fr; }
+  }
+
   /* ── RATE HIDE/SHOW ── */
   .rate-value-wrap {
     display: flex;
@@ -1542,9 +1590,65 @@
 
     <!-- PROFILE -->
     <div class="tab-panel" id="tab-profile">
-      <p class="section-eyebrow">My profile</p>
-      <div class="profile-grid" id="profile-grid">
-        <!-- injected by JS -->
+
+      <!-- ATTENDANCE SUMMARY CARD -->
+      <p class="section-eyebrow">Monthly attendance summary</p>
+      <div class="att-summary-cards" id="att-summary-cards">
+        <div class="att-sum-item">
+          <div class="att-sum-icon">🕐</div>
+          <div class="att-sum-val" id="sum-hours">—</div>
+          <div class="att-sum-label">Total hours</div>
+        </div>
+        <div class="att-sum-item">
+          <div class="att-sum-icon">📅</div>
+          <div class="att-sum-val" id="sum-days">—</div>
+          <div class="att-sum-label">Days present</div>
+        </div>
+        <div class="att-sum-item">
+          <div class="att-sum-icon">⚠️</div>
+          <div class="att-sum-val" id="sum-late" style="color:#f87171;">—</div>
+          <div class="att-sum-label">Late arrivals</div>
+        </div>
+        <div class="att-sum-item">
+          <div class="att-sum-icon">🏖</div>
+          <div class="att-sum-val" id="sum-leave" style="color:var(--orange-3);">—</div>
+          <div class="att-sum-label">Leave used</div>
+        </div>
+        <div class="att-sum-item">
+          <div class="att-sum-icon">✅</div>
+          <div class="att-sum-val" id="sum-ontime" style="color:#4ade80;">—</div>
+          <div class="att-sum-label">On time</div>
+        </div>
+        <div class="att-sum-item">
+          <div class="att-sum-icon">⏰</div>
+          <div class="att-sum-val" id="sum-overtime" style="color:var(--orange-3);">—</div>
+          <div class="att-sum-label">Overtime hrs</div>
+        </div>
+      </div>
+
+      <!-- PROFILE FIELDS -->
+      <p class="section-eyebrow" style="margin-top:1.5rem;">My profile</p>
+      <div class="profile-grid" id="profile-grid"></div>
+
+      <!-- PIN CHANGE -->
+      <p class="section-eyebrow" style="margin-top:1.5rem;">Change PIN</p>
+      <div class="pin-change-card">
+        <div class="pin-change-grid">
+          <div class="field-group">
+            <label class="field-label">Current PIN</label>
+            <input class="field-input" type="password" id="pin-current" placeholder="Enter current PIN" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">New PIN</label>
+            <input class="field-input" type="password" id="pin-new" placeholder="Enter new PIN (4–8 digits)" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Confirm new PIN</label>
+            <input class="field-input" type="password" id="pin-confirm" placeholder="Repeat new PIN" />
+          </div>
+        </div>
+        <button class="btn-primary" style="width:auto;padding:10px 28px;margin-top:0.5rem;" onclick="changePIN()">Update PIN</button>
+        <div class="pin-msg" id="pin-msg"></div>
       </div>
     </div>
   </div>
@@ -1824,7 +1928,8 @@ function switchTab(name, btn) {
   btn.classList.add('active');
   if (name === 'attendance') { if (attEmpId) renderAttendance(); }
   if (name === 'myid'  && window._currentEmpData) renderIDCard(window._currentEmpData);
-  if (name === 'leave' && leaveEmpId) { updateLeaveBalance(); renderLeaveHistory(); }
+  if (name === 'leave'   && leaveEmpId) { updateLeaveBalance(); renderLeaveHistory(); }
+  if (name === 'profile' && attEmpId)  { renderAttSummary(); }
   if (name === 'clockify' && !cfyInited && window._currentEmpData) {
     cfyInited = true;
     initClockify(window._currentEmpData);
@@ -2226,6 +2331,10 @@ async function loadAttendanceLogs() {
     } catch(e) {}
   }
   renderAttendance();
+  // Update summary if profile tab is visible
+  if (document.getElementById('tab-profile') && document.getElementById('tab-profile').classList.contains('active')) {
+    renderAttSummary();
+  }
 }
 
 // ── Log a time punch ──
@@ -3168,6 +3277,107 @@ function initLeave(empId) {
   document.getElementById('leave-end').min   = today;
   updateLeaveBalance();
   renderLeaveHistory();
+}
+
+// ══════════════════════════════════════════
+// ATTENDANCE SUMMARY
+// ══════════════════════════════════════════
+function renderAttSummary() {
+  var now   = new Date();
+  var month = now.getMonth();
+  var year  = now.getFullYear();
+
+  // Filter this month's records
+  var monthRecs = attRecords.filter(function(r) {
+    if (!r.date) return false;
+    var d = new Date(r.date.length === 10 ? r.date + 'T12:00:00' : r.date);
+    return d.getMonth() === month && d.getFullYear() === year;
+  });
+
+  // Total hours
+  var totalHours = 0;
+  monthRecs.forEach(function(r) {
+    if (!r.time_in || !r.time_out) return;
+    var diff = (new Date(r.time_out) - new Date(r.time_in)) / 3600000;
+    if (r.lunch_out && r.lunch_in) diff -= (new Date(r.lunch_in) - new Date(r.lunch_out)) / 3600000;
+    else if (r.lunch_out) diff -= 1;
+    totalHours += Math.max(0, diff);
+  });
+
+  // Standard hours per shift (9.5hrs = shift - 30min)
+  var standardHrs = 9.5;
+  var daysPresent  = monthRecs.filter(function(r) { return !!r.time_in; }).length;
+  var lateCount    = monthRecs.filter(function(r) { return r.time_in && isLate(r); }).length;
+  var onTimeCount  = daysPresent - lateCount;
+  var overtimeHrs  = Math.max(0, totalHours - (daysPresent * standardHrs));
+
+  // Leave this month
+  var leaveUsed = 0;
+  try {
+    var req = JSON.parse(localStorage.getItem('leave_' + attEmpId) || '[]');
+    leaveUsed = req.filter(function(r) {
+      var d = new Date(r.submitted);
+      return r.status !== 'rejected' && d.getMonth() === month && d.getFullYear() === year;
+    }).reduce(function(sum, r) { return sum + (parseInt(r.days) || 1); }, 0);
+  } catch(e) {}
+
+  document.getElementById('sum-hours').textContent   = totalHours.toFixed(1) + 'h';
+  document.getElementById('sum-days').textContent    = daysPresent;
+  document.getElementById('sum-late').textContent    = lateCount;
+  document.getElementById('sum-ontime').textContent  = onTimeCount;
+  document.getElementById('sum-leave').textContent   = leaveUsed + ' day' + (leaveUsed !== 1 ? 's' : '');
+  document.getElementById('sum-overtime').textContent = overtimeHrs.toFixed(1) + 'h';
+}
+
+// ══════════════════════════════════════════
+// PIN CHANGE
+// ══════════════════════════════════════════
+function changePIN() {
+  var current = document.getElementById('pin-current').value.trim();
+  var newPin   = document.getElementById('pin-new').value.trim();
+  var confirm  = document.getElementById('pin-confirm').value.trim();
+  var msgEl    = document.getElementById('pin-msg');
+
+  function showPinMsg(msg, type) {
+    msgEl.textContent = msg;
+    msgEl.className   = 'pin-msg ' + type;
+  }
+
+  // Validate
+  if (!current || !newPin || !confirm) {
+    showPinMsg('Please fill in all fields.', 'error'); return;
+  }
+  // Verify current PIN against stored session data
+  var data = window._currentEmpData;
+  if (!data) { showPinMsg('Session expired. Please log in again.', 'error'); return; }
+
+  // Check current PIN via Apps Script
+  var empId = data.employee_id;
+  fetch(APPS_SCRIPT_URL + '?id=' + encodeURIComponent(empId) + '&pin=' + encodeURIComponent(current))
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.error) { showPinMsg('Current PIN is incorrect.', 'error'); return; }
+      if (newPin.length < 4 || newPin.length > 8) { showPinMsg('New PIN must be 4–8 digits.', 'error'); return; }
+      if (!/^\d+$/.test(newPin)) { showPinMsg('PIN must contain numbers only.', 'error'); return; }
+      if (newPin !== confirm) { showPinMsg('New PINs do not match.', 'error'); return; }
+      if (newPin === current) { showPinMsg('New PIN must be different from current PIN.', 'error'); return; }
+
+      // Save new PIN via Apps Script
+      fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'change_pin', employee_id: empId, new_pin: newPin }),
+        mode: 'no-cors'
+      }).then(function() {
+        showPinMsg('✅ PIN updated successfully! Use your new PIN next time you log in.', 'success');
+        document.getElementById('pin-current').value = '';
+        document.getElementById('pin-new').value     = '';
+        document.getElementById('pin-confirm').value = '';
+      }).catch(function() {
+        showPinMsg('Could not save. Please try again.', 'error');
+      });
+    })
+    .catch(function() { showPinMsg('Could not verify PIN. Check your connection.', 'error'); });
 }
 
 // ── REGISTER SERVICE WORKER (PWA) ──
