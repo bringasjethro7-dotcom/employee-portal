@@ -891,16 +891,27 @@ function formatDate(dateStr) {
 }
 
 function tenure(dateStr) {
-  if (!dateStr) return '';
-  const parts = dateStr.split(/[-\/]/);
-  if (parts.length < 3) return '';
-  const start = new Date(parts[0], parts[1] - 1, parts[2]);
+  if (!dateStr || dateStr === '—') return '';
+  // Try direct parse first (handles "March 6, 2022", "April 12, 2026", etc.)
+  let start = new Date(dateStr);
+  // If direct parse fails, try YYYY-MM-DD or MM/DD/YYYY
+  if (isNaN(start)) {
+    const parts = dateStr.split(/[-\/]/);
+    if (parts.length >= 3) {
+      const isISO = parts[0].length === 4;
+      const year  = isISO ? +parts[0] : +parts[2];
+      const month = isISO ? +parts[1] - 1 : +parts[0] - 1;
+      const day   = isISO ? +parts[2] : +parts[1];
+      start = new Date(year, month, day);
+    }
+  }
   if (isNaN(start)) return '';
-  const now   = new Date();
-  let months  = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-  const years = Math.floor(months / 12);
-  months = months % 12;
-  const pArr = [];
+  const now    = new Date();
+  let months   = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+  if (months < 0) return '';
+  const years  = Math.floor(months / 12);
+  months       = months % 12;
+  const pArr   = [];
   if (years)  pArr.push(`${years} yr${years !== 1 ? 's' : ''}`);
   if (months) pArr.push(`${months} mo${months !== 1 ? 's' : ''}`);
   return pArr.length ? pArr.join(' ') + ' tenure' : 'New hire';
