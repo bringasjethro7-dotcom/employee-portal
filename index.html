@@ -1949,12 +1949,26 @@ async function checkRunningTimer() {
   } catch(e) {}
 }
 
+async function loadTasks() {
+  var projId = document.getElementById('cfy-project').value;
+  var taskSel = document.getElementById('cfy-task');
+  if (!projId) { taskSel.style.display = 'none'; return; }
+  try {
+    var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/projects/' + projId + '/tasks?page-size=50', { headers: cfyHeaders() });
+    var tasks = await res.json();
+    if (!tasks || tasks.length === 0) { taskSel.style.display = 'none'; return; }
+    taskSel.innerHTML = '<option value="">No task</option>' +
+      tasks.map(function(t) { return '<option value="' + t.id + '">' + t.name + '</option>'; }).join('');
+    taskSel.style.display = 'block';
+  } catch(e) { taskSel.style.display = 'none'; }
+}
+
 async function loadTodayEntries() {
   try {
     var now   = new Date();
     var start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
     var url   = CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId +
-                '/time-entries?start=' + start + '&page-size=50';
+                '/time-entries?start=' + start + '&page-size=50&hydrated=true';
     var res     = await fetch(url, { headers: cfyHeaders() });
     var entries = await res.json();
     renderTodayEntries(entries);
@@ -1980,12 +1994,19 @@ function renderTodayEntries(entries) {
   var rows = completed.map(function(e) {
     var dur  = calcCfyDur(e.timeInterval.start, e.timeInterval.end);
     totalMins += dur.mins;
-    var proj = cfyProjects.find(function(p) { return p.id === e.projectId; });
-    var startT = new Date(e.timeInterval.start).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
-    var endT   = new Date(e.timeInterval.end).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
+    var proj     = cfyProjects.find(function(p) { return p.id === e.projectId; });
+    var taskName = e.task ? e.task.name : null;
+    var startT   = new Date(e.timeInterval.start).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
+    var endT     = new Date(e.timeInterval.end).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
+
+    // Build label: description > task name > 'No description'
+    var mainLabel = e.description || taskName || null;
+    var subLabel  = e.description && taskName ? taskName : null;
+
     return '<div class="cfy-entry">' +
       '<div class="cfy-entry-left">' +
-        '<div class="cfy-entry-desc' + (!e.description ? ' no-desc' : '') + '">' + (e.description || 'No description') + '</div>' +
+        '<div class="cfy-entry-desc' + (!mainLabel ? ' no-desc' : '') + '">' + (mainLabel || 'No description') + '</div>' +
+        (subLabel ? '<div class="cfy-entry-project" style="color:var(--text-2);">🔖 ' + subLabel + '</div>' : '') +
         (proj ? '<div class="cfy-entry-project">📁 ' + proj.name + '</div>' : '') +
         '<div class="cfy-entry-time">' + startT + ' – ' + endT + '</div>' +
       '</div>' +
@@ -2022,8 +2043,10 @@ async function startTimer() {
   try {
     var desc    = document.getElementById('cfy-desc').value.trim();
     var projId  = document.getElementById('cfy-project').value;
+    var taskId  = document.getElementById('cfy-task').value;
     var body    = { start: new Date().toISOString(), description: desc, billable: false };
     if (projId) body.projectId = projId;
+    if (taskId) body.taskId    = taskId;
     var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/time-entries', {
       method: 'POST', headers: cfyHeaders(), body: JSON.stringify(body)
     });
