@@ -1992,9 +1992,21 @@ async function loadTasks() {
 async function loadTodayEntries() {
   try {
     var now   = new Date();
-    var start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    var hour  = now.getHours();
+
+    // If current time is before 7:30 AM, we're still in the previous night shift
+    // So "today" starts at 7:30 AM yesterday
+    // Otherwise "today" starts at 7:30 AM today
+    var startBase = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (hour < 7 || (hour === 7 && now.getMinutes() < 30)) {
+      // Before 7:30 AM — use yesterday's 7:30 AM as start
+      startBase.setDate(startBase.getDate() - 1);
+    }
+    startBase.setHours(7, 30, 0, 0);
+
+    var start = startBase.toISOString();
     var url   = CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId +
-                '/time-entries?start=' + start + '&page-size=50&hydrated=true';
+                '/time-entries?start=' + encodeURIComponent(start) + '&page-size=50&hydrated=true';
     var res     = await fetch(url, { headers: cfyHeaders() });
     var entries = await res.json();
     renderTodayEntries(entries);
