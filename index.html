@@ -1659,6 +1659,12 @@ function initAttendance(empId) {
   updateClock();
   clockTimer = setInterval(updateClock, 1000);
 
+  // Restore today's log from localStorage (survives refresh)
+  var savedToday = localStorage.getItem('att_today_' + attEmpId + '_' + attToday);
+  if (savedToday) {
+    try { todayLog = JSON.parse(savedToday); } catch(e) { todayLog = {}; }
+  }
+
   loadAttendanceLogs();
 }
 
@@ -1682,18 +1688,39 @@ async function loadAttendanceLogs() {
     const data = await res.json();
     if (data.records) {
       attRecords = data.records;
-      // Find today's log
+      // Find today's log from server
       const todayRec = attRecords.find(r => r.date === attToday);
-      todayLog = todayRec || {};
+      // Only use server data if we don't have more complete local data
+      const localToday = localStorage.getItem('att_today_' + attEmpId + '_' + attToday);
+      if (localToday) {
+        try {
+          const localParsed = JSON.parse(localToday);
+          // Merge: prefer local for punches that exist locally
+          todayLog = Object.assign({}, todayRec || {}, localParsed);
+        } catch(e) {
+          todayLog = todayRec || {};
+        }
+      } else {
+        todayLog = todayRec || {};
+      }
     }
   } catch(e) {
-    // offline or script not updated yet — use local session storage
-    const saved = sessionStorage.getItem('att_' + attEmpId);
+    // offline or script not updated yet — use localStorage
+    const saved = localStorage.getItem('att_' + attEmpId);
     if (saved) {
-      attRecords = JSON.parse(saved);
-      const todayRec = attRecords.find(r => r.date === attToday);
-      todayLog = todayRec || {};
+      try {
+        attRecords = JSON.parse(saved);
+      } catch(e2) { attRecords = []; }
     }
+  }
+  // Always restore today's log from localStorage regardless of fetch result
+  const savedToday = localStorage.getItem('att_today_' + attEmpId + '_' + attToday);
+  if (savedToday) {
+    try {
+      const parsed = JSON.parse(savedToday);
+      // Merge with any server data - local takes priority for today
+      todayLog = Object.assign({}, todayLog, parsed);
+    } catch(e) {}
   }
   renderAttendance();
 }
@@ -1715,8 +1742,9 @@ async function logTime(type) {
   if (idx >= 0) attRecords[idx] = { ...attRecords[idx], ...todayLog };
   else attRecords.unshift({ ...todayLog });
 
-  // Save to session storage as backup
-  sessionStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
+  // Save to localStorage (persists across refresh)
+  localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
+  localStorage.setItem('att_today_' + attEmpId + '_' + attToday, JSON.stringify(todayLog));
 
   // Try to save to Apps Script
   try {
