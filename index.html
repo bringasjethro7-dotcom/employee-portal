@@ -268,6 +268,34 @@
     margin-bottom: 1rem;
   }
 
+  /* ── RATE HIDE/SHOW ── */
+  .rate-value-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rate-hidden {
+    letter-spacing: 0.15em;
+    color: var(--text-2);
+    font-size: 20px;
+  }
+  .eye-btn {
+    background: rgba(255,107,26,0.1);
+    border: 1px solid rgba(255,107,26,0.25);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px 8px;
+    color: var(--orange-3);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    line-height: 1.6;
+    transition: background 0.2s, color 0.2s;
+    flex-shrink: 0;
+    font-family: inherit;
+  }
+  .eye-btn:hover { background: rgba(255,107,26,0.2); }
+
   /* ── STAT CARDS ── */
   .stat-grid {
     display: grid;
@@ -762,7 +790,12 @@ function renderDashboard(data) {
   const coreStats = [
     { icon: '👤', label: 'Name',          value: name,                     sub: data.employee_id || '' },
     { icon: '💼', label: 'Position',      value: data.position || '—',      sub: data.department || '' },
-    { icon: '💰', label: 'Monthly rate',  value: data.rate ? formatMoney(data.rate) : '—', sub: `Hourly: ${data.rate ? formatMoney(parseFloat(data.rate) / 240) : '—'}` },
+    { icon: '💰', label: 'Monthly rate',
+      value: data.rate ? `<div class="rate-value-wrap">
+        <span class="rate-display rate-hidden" data-amount="${formatMoney(data.rate)}">••••••</span>
+        <button class="eye-btn" onclick="toggleRate(this)" title="Show rate">Show</button>
+      </div>` : '—',
+      sub: data.rate ? `<span class="hourly-display" style="display:none;">Hourly: ${formatMoney(parseFloat(data.rate) / 240)}</span><span class="hourly-hidden" style="color:var(--text-3);">Hourly: ••••</span>` : '' },
     { icon: '📅', label: 'Start date',    value: formatDate(data.start_date), sub: tenure(data.start_date) },
   ];
 
@@ -846,6 +879,34 @@ function switchTab(name, btn) {
 // ─────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────
+function toggleRate(btn) {
+  const wrap    = btn.closest('.rate-value-wrap');
+  const display = wrap.querySelector('.rate-display');
+  const card    = btn.closest('.stat-card');
+  const hourlyShow = card.querySelector('.hourly-display');
+  const hourlyHide = card.querySelector('.hourly-hidden');
+  const isHidden = display.classList.contains('rate-hidden');
+
+  if (isHidden) {
+    // Show amount
+    display.textContent = display.dataset.amount;
+    display.classList.remove('rate-hidden');
+    display.style.fontSize = '';
+    if (hourlyShow) hourlyShow.style.display = '';
+    if (hourlyHide) hourlyHide.style.display = 'none';
+    btn.innerHTML = 'Hide';
+    btn.title = 'Hide rate';
+  } else {
+    // Hide amount
+    display.textContent = '••••••';
+    display.classList.add('rate-hidden');
+    if (hourlyShow) hourlyShow.style.display = 'none';
+    if (hourlyHide) hourlyHide.style.display = '';
+    btn.innerHTML = 'Show';
+    btn.title = 'Show rate';
+  }
+}
+
 function convertDriveLink(url) {
   if (!url) return null;
   // Convert Google Drive share link to direct image URL
