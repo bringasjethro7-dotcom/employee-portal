@@ -2421,6 +2421,52 @@ function isLate(rec) {
   return inMins > startMins;
 }
 
+// ── Check for incomplete previous session ──
+function checkPreviousSession() {
+  if (!attRecords.length) return;
+  var incomplete = attRecords.find(function(r) {
+    return r.date !== attToday && r.time_in && !r.time_out;
+  });
+  if (!incomplete) return;
+  var bar = document.getElementById('status-bar');
+  if (bar) {
+    bar.style.display = 'block';
+    bar.className = 'status-bar late';
+    bar.innerHTML = 'Incomplete shift from ' + fmtDateShort(incomplete.date) +
+      ' · Time In: ' + fmtTime(incomplete.time_in) +
+      ' <button onclick="forceTimeOut('' + incomplete.date + '')" ' +
+      'style="margin-left:8px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);' +
+      'color:#f87171;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;font-family:inherit;">' +
+      'Time Out Now</button>';
+  }
+}
+
+async function forceTimeOut(date) {
+  var now    = new Date();
+  var isoNow = now.toISOString();
+  var rec    = attRecords.find(function(r) { return r.date === date; });
+  if (!rec) return;
+  rec.time_out = isoNow;
+  localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
+  try {
+    await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'log_attendance',
+        employee_id: attEmpId,
+        date: date,
+        type: 'time_out',
+        timestamp: isoNow,
+        shift: rec.shift || 'night',
+      }),
+      mode: 'no-cors',
+    });
+  } catch(e) {}
+  showToast('Time Out recorded for ' + fmtDateShort(date));
+  await loadAttendanceLogs();
+}
+
 // ── Init attendance tab ──
 function initAttendance(empId) {
   attEmpId = empId;
@@ -2434,7 +2480,17 @@ function initAttendance(empId) {
   // Restore today's log from localStorage (survives refresh)
   var savedToday = localStorage.getItem('att_today_' + attEmpId + '_' + attToday);
   if (savedToday) {
-    try { todayLog = JSON.parse(savedToday); } catch(e) { todayLog = {}; }
+    try {
+      var parsed = JSON.parse(savedToday);
+      // Only restore if it's actually today's log
+      if (parsed.date === attToday) {
+        todayLog = parsed;
+      } else {
+        todayLog = {};
+      }
+    } catch(e) { todayLog = {}; }
+  } else {
+    todayLog = {};
   }
 
   loadAttendanceLogs();
@@ -2495,6 +2551,7 @@ async function loadAttendanceLogs() {
     } catch(e) {}
   }
   renderAttendance();
+  checkPreviousSession();
   // Update summary if profile tab is visible
   if (document.getElementById('tab-profile') && document.getElementById('tab-profile').classList.contains('active')) {
     renderAttSummary();
@@ -2680,16 +2737,16 @@ function updateStatusBar() {
     const mins = minsWorked(tl);
     const late = isLate(tl);
     bar.classList.add(late ? 'late' : 'on-time');
-    bar.textContent = (late ? '⚠ Late · ' : '✓ On Time · ') + fmtHours(mins) + ' worked today';
+    bar.textContent = (late ? 'Late · ' : 'On Time · ') + fmtHours(mins) + ' worked today';
   } else if (tl.lunch_out && !tl.lunch_in) {
     bar.classList.add('info');
-    bar.textContent = '🍽 On lunch break';
+    bar.textContent = 'On lunch break';
   } else {
     bar.classList.add('info');
     const now  = new Date();
     const tin  = new Date(tl.time_in);
     const diff = Math.round((now - tin) / 60000);
-    bar.textContent = '🕐 Currently working · ' + fmtHours(diff) + ' so far';
+    bar.textContent = 'Currently working · ' + fmtHours(diff) + ' so far';
   }
 }
 
