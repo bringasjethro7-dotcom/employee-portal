@@ -138,6 +138,7 @@
     <div class="admin-tabs">
       <button class="admin-tab active" id="tab-emp-btn" onclick="switchAdminTab('employees')">👥 Employees</button>
       <button class="admin-tab" id="tab-att-btn" onclick="switchAdminTab('attendance')">🕐 Attendance</button>
+      <button class="admin-tab" id="tab-leave-btn" onclick="switchAdminTab('leave')">🏖 Leave Requests</button>
     </div>
 
     <!-- EMPLOYEES PANEL -->
@@ -193,6 +194,34 @@
       </div>
     </div>
   </div>
+
+    <!-- LEAVE PANEL -->
+    <div id="admin-panel-leave" style="display:none;">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <select class="search-inp" id="leave-status-filter" onchange="filterLeave()" style="width:160px;">
+            <option value="">All statuses</option>
+            <option value="pending">⏳ Pending</option>
+            <option value="approved">✓ Approved</option>
+            <option value="rejected">✗ Rejected</option>
+          </select>
+          <select class="search-inp" id="leave-type-filter" onchange="filterLeave()" style="width:160px;">
+            <option value="">All types</option>
+            <option value="vacation">🌴 Vacation</option>
+            <option value="sick">🤒 Sick</option>
+            <option value="emergency">🚨 Emergency</option>
+          </select>
+        </div>
+        <button class="btn-small" onclick="loadLeaveRequests()" style="color:var(--orange-3);border-color:rgba(255,107,26,0.3);">↻ Refresh</button>
+      </div>
+      <div class="emp-table-wrap">
+        <table>
+          <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="leave-tbody"><tr><td colspan="8" class="empty-state">Click Leave Requests tab to load.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- EMPLOYEE MODAL -->
@@ -229,7 +258,7 @@
 
 <script>
 // ── CONFIG ──
-const ADMIN_PASSWORD  = "JMBeast_020298";
+const ADMIN_PASSWORD  = "admin1234";
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyJADMZz-kOElPy6DybD-PWkDAG2i1JDBTSFtmTjsw3S0SB3wI6yxHdylxyE7s5qY/exec";
 
 // ── STATE ──
@@ -281,11 +310,82 @@ function loadEmployeesFromSheet() {
 
 // ── TABS ──
 function switchAdminTab(name) {
-  document.getElementById('tab-emp-btn').classList.toggle('active', name === 'employees');
-  document.getElementById('tab-att-btn').classList.toggle('active', name === 'attendance');
+  document.getElementById('tab-emp-btn').classList.toggle('active',   name === 'employees');
+  document.getElementById('tab-att-btn').classList.toggle('active',   name === 'attendance');
+  document.getElementById('tab-leave-btn').classList.toggle('active', name === 'leave');
   document.getElementById('admin-panel-employees').style.display  = name === 'employees'  ? 'block' : 'none';
   document.getElementById('admin-panel-attendance').style.display = name === 'attendance' ? 'block' : 'none';
+  document.getElementById('admin-panel-leave').style.display      = name === 'leave'      ? 'block' : 'none';
   if (name === 'attendance') loadAllAttendance();
+  if (name === 'leave')      loadLeaveRequests();
+}
+
+// ── LEAVE REQUESTS ──
+var allLeaveRequests = [];
+
+function loadLeaveRequests() {
+  var tbody = document.getElementById('leave-tbody');
+  tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Loading…</td></tr>';
+  fetch(APPS_SCRIPT_URL + '?action=get_leave_requests')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      allLeaveRequests = data.requests || [];
+      filterLeave();
+    })
+    .catch(function() {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load. Check Apps Script URL.</td></tr>';
+    });
+}
+
+function filterLeave() {
+  var status = document.getElementById('leave-status-filter').value;
+  var type   = document.getElementById('leave-type-filter').value;
+  var filtered = allLeaveRequests.filter(function(r) {
+    return (!status || r.status === status) && (!type || r.type === type);
+  });
+  renderLeaveTable(filtered);
+}
+
+function renderLeaveTable(requests) {
+  var tbody = document.getElementById('leave-tbody');
+  if (!requests.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No leave requests found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = requests.map(function(r) {
+    var typeLabel = { vacation:'🌴 Vacation', sick:'🤒 Sick', emergency:'🚨 Emergency' }[r.type] || r.type;
+    var startFmt  = r.start ? new Date(r.start + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
+    var endFmt    = r.end   ? new Date(r.end   + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
+    var badge     = r.status === 'approved' ? '<span class="badge-ontime">✓ Approved</span>'
+                  : r.status === 'rejected' ? '<span style="color:#f87171;font-size:11px;font-weight:600;">✗ Rejected</span>'
+                  : '<span style="color:var(--orange-3);font-size:11px;font-weight:600;">⏳ Pending</span>';
+    var actions   = r.status === 'pending'
+      ? '<div style="display:flex;gap:6px;">' +
+        '<button class="btn-small edit" onclick="updateLeave('' + r._row + '','approved')">Approve</button>' +
+        '<button class="btn-small danger" onclick="updateLeave('' + r._row + '','rejected')">Reject</button>' +
+        '</div>'
+      : '<span style="color:var(--text-3);font-size:12px;">—</span>';
+    return '<tr>' +
+      '<td><strong style="color:var(--text-1);">' + (r.full_name || r.employee_id) + '</strong></td>' +
+      '<td>' + typeLabel + '</td>' +
+      '<td>' + startFmt + '</td>' +
+      '<td>' + endFmt   + '</td>' +
+      '<td>' + (r.days||'—') + '</td>' +
+      '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (r.reason||'') + '">' + (r.reason||'—') + '</td>' +
+      '<td>' + badge + '</td>' +
+      '<td>' + actions + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function updateLeave(row, status) {
+  fetch(APPS_SCRIPT_URL + '?action=update_leave_status&row=' + row + '&status=' + status)
+    .then(function(r) { return r.json(); })
+    .then(function() {
+      showAdminToast('Leave request ' + status + '!');
+      loadLeaveRequests();
+    })
+    .catch(function() { showAdminToast('Update failed. Try again.'); });
 }
 
 // ── EMPLOYEE TABLE ──
