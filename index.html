@@ -3069,6 +3069,7 @@ function logTime(type) {
   } catch(e) {}
 
   renderAttendance();
+  if (typeof updateClockifyStartBtn === 'function') updateClockifyStartBtn();
   showToast(typeLabel(type) + ' recorded at ' + fmtTime(isoNow) +
     (type === 'time_out' ? ' (Session ' + todayLog.sessions.length + ')' : ''));
 }
@@ -3198,6 +3199,7 @@ async function loadClockifyUser() {
     await Promise.all([ loadProjects(), loadTodayEntries(), checkRunningTimer() ]);
     document.getElementById('cfy-loading').style.display = 'none';
     document.getElementById('cfy-main').style.display    = 'block';
+    updateClockifyStartBtn();
   } catch(e) {
     document.getElementById('cfy-loading').style.display = 'none';
     document.getElementById('cfy-no-key').style.display  = 'block';
@@ -3357,6 +3359,13 @@ async function toggleTimer() {
 }
 
 async function startTimer() {
+  // Block if employee has not timed in yet
+  var active = getActiveSession();
+  if (!active) {
+    showToast('⚠️ Please Time In first before tracking time.');
+    return;
+  }
+
   try {
     var desc    = document.getElementById('cfy-desc').value.trim();
     var projId  = document.getElementById('cfy-project').value;
@@ -3429,6 +3438,34 @@ function setStartBtn() {
   var btn = document.getElementById('cfy-start-btn');
   btn.textContent = 'Start';
   btn.classList.remove('stop-btn');
+  updateClockifyStartBtn();
+}
+
+function updateClockifyStartBtn() {
+  var btn = document.getElementById('cfy-start-btn');
+  if (!btn || cfyRunningId) return; // if timer already running, don't disable
+  var active = getActiveSession();
+  if (!active) {
+    btn.disabled = true;
+    btn.style.opacity = '0.45';
+    btn.title = 'Time In first to start tracking';
+    // Show hint below timer
+    var hint = document.getElementById('cfy-timein-hint');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'cfy-timein-hint';
+      hint.style.cssText = 'font-size:12px;color:var(--orange-3);text-align:center;margin-top:8px;padding:6px 12px;background:rgba(255,107,26,0.08);border:1px solid rgba(255,107,26,0.2);border-radius:var(--radius-sm);';
+      hint.textContent = '⚠️ You must Time In before tracking time.';
+      btn.parentNode.insertBefore(hint, btn.nextSibling);
+    }
+    hint.style.display = 'block';
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.title = '';
+    var hint = document.getElementById('cfy-timein-hint');
+    if (hint) hint.style.display = 'none';
+  }
 }
 
 // ══════════════════════════════════════════
