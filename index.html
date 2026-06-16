@@ -1821,7 +1821,7 @@
           </div>
           <div class="chat-contacts" id="chat-contacts">
             <!-- Group Chat -->
-            <div class="chat-contact active" id="contact-group" onclick="selectChat('group', 'Group Chat')">
+            <div class="chat-contact active" id="contact-group" data-name="group chat everyone" onclick="selectChat('group', 'Group Chat')">
               <div class="chat-avatar-wrap">
                 <div class="chat-avatar" style="background:linear-gradient(135deg,var(--orange-1),var(--orange-2));">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1830,8 +1830,9 @@
               </div>
               <div class="chat-contact-info">
                 <div class="chat-contact-name">Group Chat</div>
-                <div class="chat-contact-sub">Everyone</div>
+                <div class="chat-contact-sub" id="sub-group">Everyone</div>
               </div>
+              <span class="chat-unread" id="unread-group" style="display:none;"></span>
             </div>
             <!-- Online section label -->
             <div class="chat-section-label" id="online-label">
@@ -1874,7 +1875,7 @@
           </div>
           <div class="chat-contacts" id="chat-contacts">
             <!-- Group Chat -->
-            <div class="chat-contact active" id="contact-group" onclick="selectChat('group', 'Group Chat')">
+            <div class="chat-contact active" id="contact-group" data-name="group chat everyone" onclick="selectChat('group', 'Group Chat')">
               <div class="chat-avatar-wrap">
                 <div class="chat-avatar" style="background:linear-gradient(135deg,var(--orange-1),var(--orange-2));">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1883,8 +1884,9 @@
               </div>
               <div class="chat-contact-info">
                 <div class="chat-contact-name">Group Chat</div>
-                <div class="chat-contact-sub">Everyone</div>
+                <div class="chat-contact-sub" id="sub-group">Everyone</div>
               </div>
+              <span class="chat-unread" id="unread-group" style="display:none;"></span>
             </div>
             <!-- Online section label -->
             <div class="chat-section-label" id="online-label">
@@ -4123,9 +4125,10 @@ function selectChat(empId, name) {
     : (onlineUsers[empId] ? 'Online' : 'Offline');
 
   // Clear unread
-  unreadCounts[empId] = 0;
-  var unreadEl = document.getElementById('unread-' + empId);
-  if (unreadEl) unreadEl.style.display = 'none';
+  var clearKey = empId === 'group' ? 'group' : empId;
+  unreadCounts[clearKey] = 0;
+  var unreadEl = document.getElementById('unread-' + (empId === 'group' ? 'group' : empId));
+  if (unreadEl) { unreadEl.style.display = 'none'; unreadEl.textContent = ''; }
 
   // Load messages
   loadMessages();
@@ -4265,28 +4268,38 @@ function subscribeToMessages() {
         }
       }
 
-      // Show unread badge
+      // For ALL incoming messages from others
       if (m.sender_id !== chatEmpId) {
+        // 1. Play sound always
+        playNotifSound();
+
+        // 2. Move contact to top + show preview
         var chatKey = isGroup ? 'group' : m.sender_id;
-        if (!unreadCounts[chatKey]) unreadCounts[chatKey] = 0;
-        unreadCounts[chatKey]++;
-        var unreadEl = isGroup
-          ? document.querySelector('.chat-contact .chat-unread')
-          : document.getElementById('unread-' + m.sender_id);
-        if (unreadEl) {
-          unreadEl.textContent = unreadCounts[chatKey];
-          unreadEl.style.display = 'inline';
+        moveContactToTop(chatKey, m.sender_name, m.message);
+
+        // 3. Show unread badge only if not currently viewing that chat
+        var viewingThis = chatOpen && ((currentChat === 'group' && isGroup) || (currentChat !== 'group' && isDirect));
+        if (!viewingThis) {
+          if (!unreadCounts[chatKey]) unreadCounts[chatKey] = 0;
+          unreadCounts[chatKey]++;
+          var unreadEl = isGroup
+            ? document.getElementById('unread-group')
+            : document.getElementById('unread-' + m.sender_id);
+          if (unreadEl) {
+            unreadEl.textContent = unreadCounts[chatKey];
+            unreadEl.style.display = 'inline';
+          }
+          // Update nav badge
+          var badge = document.getElementById('msg-badge');
+          var total = Object.values(unreadCounts).reduce(function(a,b){return a+b;}, 0);
+          if (badge) {
+            badge.textContent = total;
+            badge.style.display = total > 0 ? 'inline' : 'none';
+          }
+          // Pulse tab icon
+          var tabDot = document.getElementById('tab-msg-notif');
+          if (tabDot) tabDot.classList.add('show');
         }
-        // Update nav badge
-        var badge = document.getElementById('msg-badge');
-        var total = Object.values(unreadCounts).reduce(function(a,b){return a+b;}, 0);
-        if (badge) {
-          badge.textContent = total;
-          badge.style.display = total > 0 ? 'inline' : 'none';
-        }
-        // Show pulsing red dot on Messages tab icon
-        var tabDot = document.getElementById('tab-msg-notif');
-        if (tabDot) tabDot.classList.toggle('show', total > 0);
       }
     })
     .subscribe();
