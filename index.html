@@ -3954,6 +3954,7 @@ var chatChannel   = null;
 var presenceChannel = null;
 var onlineUsers   = {};
 var unreadCounts  = {};
+var bumpedOrder   = []; // tracks contacts bumped to top, in order
 
 function initChat(data) {
   chatEmpId   = data.employee_id;
@@ -4066,6 +4067,9 @@ function renderContactList(data) {
   online.forEach(function(emp)  { insertContact(emp, onlineLbl); });
   offlineLbl.insertAdjacentElement('afterend', offlineLbl); // keep label in place
   offline.forEach(function(emp) { insertContact(emp, offlineLbl); });
+
+  // Re-apply bump order after list rebuild
+  setTimeout(applyBumpOrder, 0);
 }
 
 function insertContact(emp, afterEl) {
@@ -4316,37 +4320,51 @@ function subscribeToMessages() {
 
 // Move contact to top of sidebar when new message arrives
 function bumpContactToTop(chatKey, senderName, message) {
+  if (chatKey === 'group') return;
+
+  // Update preview text in memory
+  if (senderName) {
+    var firstName = senderName.split(',')[0].trim();
+    var preview   = firstName + ': ' + (message||'').substring(0,28) + ((message||'').length>28?'...':'');
+    // Store for re-render
+    if (!window._chatPreviews) window._chatPreviews = {};
+    window._chatPreviews[chatKey] = preview;
+  }
+
+  // Add to front of bumped order (remove duplicate first)
+  bumpedOrder = bumpedOrder.filter(function(k) { return k !== chatKey; });
+  bumpedOrder.unshift(chatKey);
+
+  // Apply the bump visually
+  applyBumpOrder();
+}
+
+function applyBumpOrder() {
   var contacts = document.getElementById('chat-contacts');
   if (!contacts) return;
 
-  var contactId = chatKey === 'group' ? 'contact-group' : 'contact-' + chatKey;
-  var el = document.getElementById(contactId);
-  if (!el) return;
+  var groupEl = document.getElementById('contact-group');
+  if (!groupEl) return;
 
-  // Update preview subtitle
-  var sub = el.querySelector('.chat-contact-sub');
-  if (sub && senderName) {
-    var firstName = senderName.split(',')[0].trim();
-    sub.textContent = firstName + ': ' + (message||'').substring(0,28) + ((message||'').length>28?'...':'');
-  }
+  // Insert bumped contacts right after group chat, in order
+  // Go in reverse so first bumped ends up on top
+  for (var i = bumpedOrder.length - 1; i >= 0; i--) {
+    var key = bumpedOrder[i];
+    var el  = document.getElementById('contact-' + key);
+    if (!el) continue;
 
-  // For DM contacts only - move to top of list
-  if (chatKey === 'group') return;
-
-  // Find online-label as the anchor point
-  var onlineLabel = document.getElementById('online-label');
-
-  if (onlineLabel) {
-    // Insert el right before the online-label (top of the dynamic list)
-    contacts.insertBefore(el, onlineLabel);
-  } else {
-    // Fallback: insert after group contact
-    var groupEl = document.getElementById('contact-group');
-    if (groupEl && groupEl.nextSibling) {
-      contacts.insertBefore(el, groupEl.nextSibling);
-    } else {
-      contacts.appendChild(el);
+    // Update preview text
+    if (window._chatPreviews && window._chatPreviews[key]) {
+      var sub = el.querySelector('.chat-contact-sub');
+      if (sub) sub.textContent = window._chatPreviews[key];
     }
+
+    // Move right after group contact
+    var next = groupEl.nextSibling;
+    if (next !== el) {
+      contacts.insertBefore(el, next);
+    }
+    groupEl = el; // chain: next item goes after this one
   }
 }
 
