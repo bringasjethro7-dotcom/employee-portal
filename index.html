@@ -1447,6 +1447,7 @@
     * { transition: none !important; }
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
 
@@ -3853,12 +3854,16 @@ function initChat(data) {
   chatEmpId   = data.employee_id;
   chatEmpName = data.full_name;
 
-  if (typeof supabase === 'undefined') {
-    console.error('Supabase SDK not loaded');
+  // Try different ways Supabase SDK might be available
+  var SupabaseLib = window.supabase || window.Supabase || (window.supabaseJs && window.supabaseJs.createClient ? window.supabaseJs : null);
+
+  if (!SupabaseLib || !SupabaseLib.createClient) {
+    console.error('Supabase SDK not loaded, retrying...');
+    setTimeout(function() { initChat(data); }, 1000);
     return;
   }
 
-  supaClient = supabase.createClient(SUPA_URL, SUPA_KEY);
+  supaClient = SupabaseLib.createClient(SUPA_URL, SUPA_KEY);
 
   // Subscribe to messages
   subscribeToMessages();
