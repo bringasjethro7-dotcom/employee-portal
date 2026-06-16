@@ -3970,6 +3970,17 @@ function initChat(data) {
 
   supaClient = SupabaseLib.createClient(SUPA_URL, SUPA_KEY);
 
+  // Pre-warm audio context immediately so first ding plays with no delay
+  setTimeout(function() {
+    try {
+      if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (_ac.state === 'suspended') _ac.resume();
+      var buf = _ac.createBuffer(1, 1, _ac.sampleRate);
+      var src = _ac.createBufferSource();
+      src.buffer = buf; src.connect(_ac.destination); src.start(0);
+    } catch(e) {}
+  }, 500);
+
   // Subscribe to messages
   subscribeToMessages();
 
@@ -4305,26 +4316,29 @@ function subscribeToMessages() {
 
 // Move contact to top of sidebar when new message arrives
 function bumpContactToTop(chatKey, senderName, message) {
+  var contacts = document.getElementById('chat-contacts');
+  if (!contacts) return;
+
   var contactId = chatKey === 'group' ? 'contact-group' : 'contact-' + chatKey;
   var el = document.getElementById(contactId);
   if (!el) return;
 
   // Update preview subtitle
   var sub = el.querySelector('.chat-contact-sub');
-  if (sub && senderName) {
-    var firstName = senderName.split(',')[0].trim();
-    var preview   = firstName + ': ' + (message || '').substring(0, 28);
-    sub.textContent = preview + (message && message.length > 28 ? '...' : '');
+  if (sub) {
+    if (senderName) {
+      var firstName = senderName.split(',')[0].trim();
+      var preview = firstName + ': ' + (message||'').substring(0,28) + ((message||'').length>28?'...':'');
+      sub.textContent = preview;
+    }
   }
 
-  // Move to top - insert right after the group chat if it's a DM contact
+  // For DM contacts: move to be the very first child of chat-contacts
   if (chatKey !== 'group') {
-    var groupEl = document.getElementById('contact-group');
-    var parent  = el.parentNode;
-    if (parent && groupEl) {
-      // Remove and reinsert after group chat
-      parent.removeChild(el);
-      groupEl.insertAdjacentElement('afterend', el);
+    // contacts.firstChild is the group chat contact - insert after it
+    var firstContact = contacts.firstElementChild;
+    if (firstContact && el !== firstContact && el !== firstContact.nextElementSibling) {
+      contacts.insertBefore(el, firstContact.nextElementSibling);
     }
   }
 }
