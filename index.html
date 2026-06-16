@@ -4325,20 +4325,27 @@ function bumpContactToTop(chatKey, senderName, message) {
 
   // Update preview subtitle
   var sub = el.querySelector('.chat-contact-sub');
-  if (sub) {
-    if (senderName) {
-      var firstName = senderName.split(',')[0].trim();
-      var preview = firstName + ': ' + (message||'').substring(0,28) + ((message||'').length>28?'...':'');
-      sub.textContent = preview;
-    }
+  if (sub && senderName) {
+    var firstName = senderName.split(',')[0].trim();
+    sub.textContent = firstName + ': ' + (message||'').substring(0,28) + ((message||'').length>28?'...':'');
   }
 
-  // For DM contacts: move to be the very first child of chat-contacts
-  if (chatKey !== 'group') {
-    // contacts.firstChild is the group chat contact - insert after it
-    var firstContact = contacts.firstElementChild;
-    if (firstContact && el !== firstContact && el !== firstContact.nextElementSibling) {
-      contacts.insertBefore(el, firstContact.nextElementSibling);
+  // For DM contacts only - move to top of list
+  if (chatKey === 'group') return;
+
+  // Find online-label as the anchor point
+  var onlineLabel = document.getElementById('online-label');
+
+  if (onlineLabel) {
+    // Insert el right before the online-label (top of the dynamic list)
+    contacts.insertBefore(el, onlineLabel);
+  } else {
+    // Fallback: insert after group contact
+    var groupEl = document.getElementById('contact-group');
+    if (groupEl && groupEl.nextSibling) {
+      contacts.insertBefore(el, groupEl.nextSibling);
+    } else {
+      contacts.appendChild(el);
     }
   }
 }
