@@ -4265,49 +4265,36 @@ function subscribeToMessages() {
     .channel('messages-channel')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, function(payload) {
       var m = payload.new;
-      // Check if this message belongs to current chat
-      var isGroup  = !m.receiver_id;
-      var isDirect = (m.sender_id === currentChat && m.receiver_id === chatEmpId) ||
-                     (m.sender_id === chatEmpId   && m.receiver_id === currentChat);
-      var chatOpen = document.getElementById('tab-messages').classList.contains('active');
+      if (!m) return;
 
-      if ((currentChat === 'group' && isGroup) || (currentChat !== 'group' && isDirect)) {
-        if (chatOpen) {
-          if (m.sender_id !== chatEmpId) playNotifSound();
-          loadMessages();
-          return;
-        }
+      var isGroup   = !m.receiver_id;
+      var fromMe    = m.sender_id === chatEmpId;
+      var chatKey   = isGroup ? 'group' : (fromMe ? m.receiver_id : m.sender_id);
+      var chatOpen  = document.getElementById('tab-messages') && document.getElementById('tab-messages').classList.contains('active');
+      var viewingThisChat = chatOpen && currentChat === chatKey;
+
+      // Always reload messages if viewing this conversation
+      if (viewingThisChat) {
+        loadMessages();
       }
 
-      // For ALL incoming messages from others
-      if (m.sender_id !== chatEmpId) {
-        // 1. Play sound always
+      // For messages from OTHER people
+      if (!fromMe) {
+        // 1. ALWAYS play sound
         playNotifSound();
 
-        // 2. Move contact to top + show preview
-        var chatKey = isGroup ? 'group' : m.sender_id;
-        moveContactToTop(chatKey, m.sender_name, m.message);
+        // 2. ALWAYS move sender to top with preview
+        bumpContactToTop(chatKey, m.sender_name, m.message);
 
-        // 3. Show unread badge only if not currently viewing that chat
-        var viewingThis = chatOpen && ((currentChat === 'group' && isGroup) || (currentChat !== 'group' && isDirect));
-        if (!viewingThis) {
+        // 3. Show unread badge if NOT viewing this chat
+        if (!viewingThisChat) {
           if (!unreadCounts[chatKey]) unreadCounts[chatKey] = 0;
           unreadCounts[chatKey]++;
-          var unreadEl = isGroup
-            ? document.getElementById('unread-group')
-            : document.getElementById('unread-' + m.sender_id);
-          if (unreadEl) {
-            unreadEl.textContent = unreadCounts[chatKey];
-            unreadEl.style.display = 'inline';
-          }
-          // Update nav badge
-          var badge = document.getElementById('msg-badge');
+          var unreadEl = document.getElementById('unread-' + (isGroup ? 'group' : m.sender_id));
+          if (unreadEl) { unreadEl.textContent = unreadCounts[chatKey]; unreadEl.style.display = 'inline'; }
           var total = Object.values(unreadCounts).reduce(function(a,b){return a+b;}, 0);
-          if (badge) {
-            badge.textContent = total;
-            badge.style.display = total > 0 ? 'inline' : 'none';
-          }
-          // Pulse tab icon
+          var badge = document.getElementById('msg-badge');
+          if (badge) { badge.textContent = total; badge.style.display = total > 0 ? 'inline' : 'none'; }
           var tabDot = document.getElementById('tab-msg-notif');
           if (tabDot) tabDot.classList.add('show');
         }
@@ -4316,61 +4303,202 @@ function subscribeToMessages() {
     .subscribe();
 }
 
-// ══════════════════════════════════════════
-// NOTIFICATION SOUND
-// ══════════════════════════════════════════
-var audioCtx = null;
-var audioUnlocked = false;
+// Move contact to top of sidebar when new message arrives
+function bumpContactToTop(chatKey, senderName, message) {
+  var contactId = chatKey === 'group' ? 'contact-group' : 'contact-' + chatKey;
+  var el = document.getElementById(contactId);
+  if (!el) return;
 
-function unlockAudio() {
-  if (audioUnlocked) return;
+  // Update preview subtitle
+  var sub = el.querySelector('.chat-contact-sub');
+  if (sub && senderName) {
+    var firstName = senderName.split(',')[0].trim();
+    var preview   = firstName + ': ' + (message || '').substring(0, 28);
+    sub.textContent = preview + (message && message.length > 28 ? '...' : '');
+  }
+
+  // Move to top - insert right after the group chat if it's a DM contact
+  if (chatKey !== 'group') {
+    var groupEl = document.getElementById('contact-group');
+    var parent  = el.parentNode;
+    if (parent && groupEl) {
+      // Remove and reinsert after group chat
+      parent.removeChild(el);
+      groupEl.insertAdjacentElement('afterend', el);
+    }
+  }
+}
+
+// ══════════════════════════════════════════
+// NOTIFICATION SOUND + RINGTONE PICKER
+// ══════════════════════════════════════════
+var _ac = null;
+var selectedRingtone = localStorage.getItem('ringtone') || 'ding';
+
+function _ensureAudio() {
+  if (!_ac) {
+    try { _ac = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { return false; }
+  }
+  if (_ac.state === 'suspended') { try { _ac.resume(); } catch(e) {} }
+  return _ac.state !== 'closed';
+}
+
+document.addEventListener('click',      _ensureAudio, { passive: true });
+document.addEventListener('touchstart', _ensureAudio, { passive: true });
+document.addEventListener('keydown',    _ensureAudio, { passive: true });
+
+// ── Ringtone definitions ──
+var RINGTONES = {
+  chime: {
+    name: 'Chime',
+    play: function(t) {
+      [[1046.5,t,0.12,0.35],[1318.5,t+0.13,0.12,0.30],[1568.0,t+0.26,0.20,0.25]].forEach(function(a){_tone('sine',a[0],a[1],a[2],a[3]);});
+    }
+  },
+  bell: {
+    name: 'Bell',
+    play: function(t) {
+      [[1760,t,0.08,0.5],[880,t+0.01,0.6,0.3]].forEach(function(a){_tone('sine',a[0],a[1],a[2],a[3]);});
+    }
+  },
+  pop: {
+    name: 'Pop',
+    play: function(t) {
+      _tone('sine', 880, t, 0.08, 0.6);
+      _tone('sine', 1200, t+0.05, 0.06, 0.4);
+    }
+  },
+  ding: {
+    name: 'Ding',
+    play: function(t) {
+      _tone('sine', 2093, t, 0.03, 0.5);
+      _tone('sine', 1568, t+0.03, 0.25, 0.3);
+    }
+  },
+  pulse: {
+    name: 'Pulse',
+    play: function(t) {
+      [0, 0.15, 0.30].forEach(function(offset) {
+        _tone('square', 440, t+offset, 0.08, 0.15);
+      });
+    }
+  },
+  none: {
+    name: 'Silent',
+    play: function() {}
+  }
+};
+
+function _tone(type, freq, start, dur, vol) {
   try {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // Play silent buffer to unlock
-    var buf = audioCtx.createBuffer(1, 1, 22050);
-    var src = audioCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(audioCtx.destination);
-    src.start(0);
-    audioUnlocked = true;
+    var o = _ac.createOscillator(), g = _ac.createGain();
+    o.connect(g); g.connect(_ac.destination);
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(vol, start + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(dur, 0.05));
+    o.start(start); o.stop(start + dur + 0.1);
   } catch(e) {}
 }
 
-// Unlock on any user interaction
-['click','touchstart','keydown'].forEach(function(evt) {
-  document.addEventListener(evt, unlockAudio, { once: false, passive: true });
-});
-
 function playNotifSound() {
+  if (selectedRingtone === 'none') return;
+  if (!_ensureAudio()) return;
   try {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
+    var t = _ac.currentTime;
+    var rt = RINGTONES[selectedRingtone] || RINGTONES.chime;
+    rt.play(t);
+  } catch(e) { console.warn('playNotifSound:', e); }
+}
 
-    var now = audioCtx.currentTime;
+function previewRingtone(name) {
+  selectedRingtone = name;
+  playNotifSound();
+}
 
-    function tone(freq, start, dur, vol) {
-      var o = audioCtx.createOscillator();
-      var g = audioCtx.createGain();
-      o.connect(g); g.connect(audioCtx.destination);
-      o.type = 'sine';
-      o.frequency.value = freq;
-      g.gain.setValueAtTime(0, start);
-      g.gain.linearRampToValueAtTime(vol, start + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-      o.start(start); o.stop(start + dur + 0.05);
-    }
+function saveRingtone(name) {
+  selectedRingtone = name;
+  localStorage.setItem('ringtone', name);
+  // Update UI
+  document.querySelectorAll('.ringtone-opt').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.tone === name);
+  });
+  showToast('Ringtone set to ' + (RINGTONES[name] ? RINGTONES[name].name : name));
+  var modal = document.getElementById('ringtone-modal');
+  if (modal) modal.style.display = 'none';
+}
 
-    // Pleasant 3-tone chime
-    tone(1046, now,        0.15, 0.4);
-    tone(1318, now + 0.15, 0.15, 0.35);
-    tone(1568, now + 0.30, 0.25, 0.3);
-  } catch(e) {
-    console.log('Sound error:', e);
-  }
+function closeRingtoneModal() {
+  var m = document.getElementById('ringtone-modal');
+  if (m) m.style.display = 'none';
+}
+
+function openRingtoneModal() {
+  var existing = document.getElementById('ringtone-modal');
+  if (existing) { existing.style.display = 'flex'; buildRingtoneList(); return; }
+
+  var modal = document.createElement('div');
+  modal.id = 'ringtone-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:1rem;';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.75rem;width:100%;max-width:360px;';
+
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:16px;font-weight:600;color:var(--text-1);margin-bottom:4px;';
+  title.textContent = 'Notification Sound';
+
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:13px;color:var(--text-2);margin-bottom:1.25rem;';
+  sub.textContent = 'Preview then tap Set to save';
+
+  var list = document.createElement('div');
+  list.id = 'ringtone-list';
+  list.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:1.25rem;';
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Close';
+  cancelBtn.onclick = closeRingtoneModal;
+  cancelBtn.style.cssText = 'width:100%;padding:10px;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-2);font-size:13px;cursor:pointer;font-family:inherit;';
+
+  box.appendChild(title);
+  box.appendChild(sub);
+  box.appendChild(list);
+  box.appendChild(cancelBtn);
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+
+  buildRingtoneList();
+}
+
+function buildRingtoneList() {
+  var list = document.getElementById('ringtone-list');
+  if (!list) return;
+  list.innerHTML = '';
+  Object.keys(RINGTONES).forEach(function(key) {
+    var rt = RINGTONES[key];
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+    var previewBtn = document.createElement('button');
+    previewBtn.className = 'ringtone-opt';
+    previewBtn.dataset.tone = key;
+    previewBtn.textContent = (key === 'none' ? 'Mute  ' : 'Play  ') + rt.name;
+    previewBtn.onclick = function() { previewRingtone(key); };
+    previewBtn.style.cssText = 'flex:1;padding:10px 14px;background:' + (selectedRingtone===key?'rgba(255,107,26,0.15)':'var(--bg-card2)') + ';' +
+      'border:1px solid ' + (selectedRingtone===key?'var(--orange-1)':'var(--border)') + ';' +
+      'border-radius:var(--radius-sm);color:' + (selectedRingtone===key?'var(--orange-3)':'var(--text-1)') + ';' +
+      'font-size:13px;cursor:pointer;font-family:inherit;text-align:left;transition:all 0.15s;';
+
+    var setBtn = document.createElement('button');
+    setBtn.textContent = 'Set';
+    setBtn.onclick = function() { saveRingtone(key); };
+    setBtn.style.cssText = 'padding:8px 14px;background:linear-gradient(135deg,var(--orange-1),var(--orange-2));border:none;border-radius:var(--radius-sm);color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;';
+
+    row.appendChild(previewBtn);
+    row.appendChild(setBtn);
+    list.appendChild(row);
+  });
 }
 
 // ── REGISTER SERVICE WORKER (PWA) ──
