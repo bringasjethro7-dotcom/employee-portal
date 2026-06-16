@@ -1360,6 +1360,38 @@
     gap: 10px;
     margin-bottom: 1.25rem;
   }
+  .time-action-btn.idle-active {
+    background: rgba(96,165,250,0.2) !important;
+    border-color: #60a5fa !important;
+    color: #60a5fa !important;
+    animation: idlePulse 2s ease-in-out infinite;
+  }
+  @keyframes idlePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(96,165,250,0); }
+    50%       { box-shadow: 0 0 0 6px rgba(96,165,250,0.15); }
+  }
+  .idle-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #60a5fa;
+    background: rgba(96,165,250,0.1);
+    border: 1px solid rgba(96,165,250,0.25);
+    border-radius: 20px;
+    padding: 3px 10px;
+    margin-left: 10px;
+    animation: idlePulse 2s ease-in-out infinite;
+  }
+  .idle-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #60a5fa;
+    animation: dotBlink 1.2s ease-in-out infinite;
+  }
+  @keyframes dotBlink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
   .time-action-btn {
     padding: 14px 8px;
     border-radius: var(--radius);
@@ -2555,7 +2587,7 @@ function openPayslip(idx) {
           '<tr>' +
             '<td><strong>Basic Pay</strong></td>' +
             '<td style="color:#888;font-size:12px;">' + (hours !== null ? hours + ' hrs @ ' + formatMoney(hourly) + '/hr' : '—') + '</td>' +
-            '<td style="text-align:right;">' + formatMoney(basicPay) + '</td>' +
+            '<td style="text-align:right;" class="ps-salary-cell"><span style="filter:blur(5px);user-select:none;">' + formatMoney(basicPay) + '</span></td>' +
           '</tr>' +
           nightDiffRow +
           incentivesRow +
@@ -2567,7 +2599,10 @@ function openPayslip(idx) {
 
       '<div class="ps-total-row">' +
         '<span class="ps-total-label">TOTAL PAY</span>' +
-        '<span class="ps-total-amount">' + formatMoney(totalPay) + '</span>' +
+        '<span style="display:flex;align-items:center;gap:10px;">' +
+          '<span class="ps-total-amount" id="ps-total-val" style="filter:blur(6px);user-select:none;">' + formatMoney(totalPay) + '</span>' +
+          '<button onclick="togglePayslipSalary()" id="ps-show-btn" style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid rgba(255,107,26,0.4);background:rgba(255,107,26,0.1);color:var(--orange-3);cursor:pointer;font-family:inherit;">Show</button>' +
+        '</span>' +
       '</div>' +
 
       (isNightShift || incentives > 0 ? '<div style="margin-top:10px;font-size:11px;color:#888;line-height:1.8;">' +
@@ -2759,6 +2794,53 @@ function isLate(rec) {
 }
 
 // ── Check for incomplete previous session ──
+// ── IDLE STATUS ──
+var isIdle = false;
+var idleStart = null;
+
+function toggleIdle() {
+  var btn = document.getElementById('btn-idle');
+  var shiftBadge = document.getElementById('shift-badge');
+  isIdle = !isIdle;
+
+  if (isIdle) {
+    idleStart = new Date();
+    btn.textContent = 'Resume';
+    btn.classList.add('idle-active');
+
+    // Add idle badge next to shift badge
+    var existing = document.getElementById('idle-badge');
+    if (!existing && shiftBadge) {
+      var badge = document.createElement('span');
+      badge.id = 'idle-badge';
+      badge.className = 'idle-badge';
+      badge.innerHTML = '<span class="idle-dot"></span> Idle';
+      shiftBadge.parentNode.insertBefore(badge, shiftBadge.nextSibling);
+    }
+
+    // Disable other buttons while idle
+    document.getElementById('btn-lunch-out') && (document.getElementById('btn-lunch-out').disabled = true);
+    document.getElementById('btn-time-out')  && (document.getElementById('btn-time-out').disabled  = true);
+
+    showToast('You are now idle. Click Resume when ready.');
+  } else {
+    var idleEnd = new Date();
+    var idleMins = Math.round((idleEnd - idleStart) / 60000);
+    btn.textContent = 'Idle';
+    btn.classList.remove('idle-active');
+
+    // Remove idle badge
+    var badge = document.getElementById('idle-badge');
+    if (badge) badge.remove();
+
+    // Re-enable buttons
+    updateButtons();
+
+    showToast('Resumed after ' + idleMins + ' min' + (idleMins !== 1 ? 's' : '') + ' idle.');
+    idleStart = null;
+  }
+}
+
 function checkPreviousSession() {
   if (!attRecords.length) return;
   var incomplete = attRecords.find(function(r) {
@@ -4547,6 +4629,19 @@ if ('serviceWorker' in navigator) {
       .then(function(reg) { console.log('SW registered'); })
       .catch(function(err) { console.log('SW failed:', err); });
   });
+}
+
+// ── PAYSLIP SALARY TOGGLE ──
+var psRevealed = false;
+function togglePayslipSalary() {
+  psRevealed = !psRevealed;
+  var totalVal = document.getElementById('ps-total-val');
+  var showBtn  = document.getElementById('ps-show-btn');
+  var cells    = document.querySelectorAll('.ps-salary-cell span');
+
+  if (totalVal) totalVal.style.filter  = psRevealed ? 'none' : 'blur(6px)';
+  if (showBtn)  showBtn.textContent    = psRevealed ? 'Hide' : 'Show';
+  cells.forEach(function(c) { c.style.filter = psRevealed ? 'none' : 'blur(5px)'; });
 }
 
 function showToast(msg) {
