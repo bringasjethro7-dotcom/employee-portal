@@ -3006,7 +3006,7 @@ async function loadAttendanceLogs() {
 }
 
 // ── Log a time punch ──
-async // ── MULTI-SESSION HELPERS ──
+// ── MULTI-SESSION HELPERS ──
 function getActiveSession() {
   var s = todayLog.sessions;
   if (!s || !s.length) return null;
@@ -3113,76 +3113,51 @@ function updateButtons() {
 }
 
 
-function updateTodaySummary() {
-  const tl  = todayLog;
-  const box = document.getElementById('today-summary');
-  const grid = document.getElementById('today-grid');
-  if (!tl.time_in) { box.style.display = 'none'; return; }
-  box.style.display = 'block';
+// updateTodaySummary replaced with multi-session version above
 
-  const mins = minsWorked(tl);
-  const shift = tl.shift || 'morning';
-
-  grid.innerHTML = `
-    <div class="today-item"><div class="today-item-label">Time In</div><div class="today-item-value">${fmtTime(tl.time_in)}</div></div>
-    <div class="today-item"><div class="today-item-label">Lunch</div><div class="today-item-value">${tl.lunch_out ? fmtTime(tl.lunch_out) + ' – ' + (tl.lunch_in ? fmtTime(tl.lunch_in) : '…') : '—'}</div></div>
-    <div class="today-item"><div class="today-item-label">Time Out</div><div class="today-item-value">${tl.time_out ? fmtTime(tl.time_out) : '—'}</div></div>
-    <div class="today-item"><div class="today-item-label">Hours</div><div class="today-item-value">${mins !== null ? fmtHours(mins) : '—'}</div></div>
-  `;
-}
-
-function updateStatusBar() {
-  const bar = document.getElementById('status-bar');
-  const tl  = todayLog;
-  if (!tl.time_in) { bar.style.display = 'none'; return; }
-  bar.style.display = 'block';
-  bar.className = 'status-bar';
-
-  if (tl.time_out) {
-    const mins = minsWorked(tl);
-    const late = isLate(tl);
-    bar.classList.add(late ? 'late' : 'on-time');
-    bar.textContent = (late ? 'Late · ' : 'On Time · ') + fmtHours(mins) + ' worked today';
-  } else if (tl.lunch_out && !tl.lunch_in) {
-    bar.classList.add('info');
-    bar.textContent = 'On lunch break';
-  } else {
-    bar.classList.add('info');
-    const now  = new Date();
-    const tin  = new Date(tl.time_in);
-    const diff = Math.round((now - tin) / 60000);
-    bar.textContent = 'Currently working · ' + fmtHours(diff) + ' so far';
-  }
-}
+// updateStatusBar replaced with multi-session version above
 
 function renderAttTable() {
-  const body = document.getElementById('att-body');
+  var body = document.getElementById('att-body');
+  if (!body) return;
   if (!attRecords.length) {
     body.innerHTML = '<div class="no-payslips">No attendance records yet.</div>';
     return;
   }
-  const sorted = [...attRecords].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 30);
-  body.innerHTML = sorted.map(rec => {
-    const mins   = minsWorked(rec);
-    const late   = isLate(rec);
-    const shift  = rec.shift || getShiftForRecord(rec.time_in);
-    const status = !rec.time_out
+  var sorted = attRecords.slice().sort(function(a,b){ return b.date.localeCompare(a.date); }).slice(0, 30);
+  body.innerHTML = sorted.map(function(rec) {
+    var sessions = rec.sessions || [];
+    if (!sessions.length && rec.time_in) {
+      sessions = [{ time_in: rec.time_in, time_out: rec.time_out, lunch_out: rec.lunch_out, lunch_in: rec.lunch_in }];
+    }
+    var firstIn  = sessions.length ? sessions[0].time_in   : rec.time_in;
+    var lastOut  = sessions.length ? sessions[sessions.length-1].time_out : rec.time_out;
+    var firstLO  = sessions.length ? sessions[0].lunch_out  : rec.lunch_out;
+    var firstLI  = sessions.length ? sessions[0].lunch_in   : rec.lunch_in;
+    var mins     = minsWorked(rec);
+    var late     = isLate(rec);
+    var shift    = rec.shift || 'morning';
+    var hasTO    = sessions.some(function(s){ return !!s.time_out; });
+    var status   = !hasTO
       ? '<span class="att-badge-incomplete">Incomplete</span>'
       : late
         ? '<span class="att-badge-late">Late</span>'
         : '<span class="att-badge-ontime">On Time</span>';
-    const lunchStr = rec.lunch_out
-      ? fmtTime(rec.lunch_out) + (rec.lunch_in ? ' – ' + fmtTime(rec.lunch_in) : ' – …')
+    var lunchStr = firstLO
+      ? fmtTime(firstLO) + (firstLI ? ' – ' + fmtTime(firstLI) : ' – …')
       : '—';
-    return `<div class="att-row">
-      <span class="date-col">${fmtDateShort(rec.date)}</span>
-      <span>${shift === 'night' ? '🌙 Night' : '🌅 Morning'}</span>
-      <span>${fmtTime(rec.time_in)}</span>
-      <span>${lunchStr}</span>
-      <span>${fmtTime(rec.time_out)}</span>
-      <span>${fmtHours(mins)}</span>
-      <span>${status}</span>
-    </div>`;
+    var sessBadge = sessions.length > 1
+      ? ' <span style="font-size:9px;background:rgba(255,107,26,0.15);color:var(--orange-3);border:1px solid rgba(255,107,26,0.25);border-radius:10px;padding:1px 6px;">' + sessions.length + 'x</span>'
+      : '';
+    return '<div class="att-row">' +
+      '<span class="date-col">' + fmtDateShort(rec.date) + sessBadge + '</span>' +
+      '<span>' + (shift === 'night' ? '🌙 Night' : '🌅 Morning') + '</span>' +
+      '<span>' + fmtTime(firstIn) + '</span>' +
+      '<span>' + lunchStr + '</span>' +
+      '<span>' + fmtTime(lastOut) + '</span>' +
+      '<span>' + fmtHours(mins) + '</span>' +
+      '<span>' + status + '</span>' +
+    '</div>';
   }).join('');
 }
 
