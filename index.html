@@ -4185,6 +4185,35 @@ function renderMessages(msgs) {
   msgEl.scrollTop = msgEl.scrollHeight;
 }
 
+// Move contact to top of list when new message received
+function moveContactToTop(empId, senderName, message) {
+  var contacts = document.getElementById('chat-contacts');
+  if (!contacts) return;
+
+  var el = empId === 'group'
+    ? document.getElementById('contact-group')
+    : document.getElementById('contact-' + empId);
+
+  if (!el) return;
+
+  // Update preview text
+  var sub = el.querySelector('.chat-contact-sub');
+  if (sub) {
+    var preview = (senderName ? senderName.split(',')[0] + ': ' : '') + (message || '').substring(0, 25) + (message && message.length > 25 ? '...' : '');
+    sub.textContent = preview;
+  }
+
+  // Move to top (after search bar, before online label)
+  var onlineLabel = document.getElementById('online-label');
+  if (onlineLabel && el !== document.getElementById('contact-group')) {
+    contacts.insertBefore(el, onlineLabel);
+  }
+}
+
+function updateContactPreview(empId, senderName, message) {
+  moveContactToTop(empId, senderName, message);
+}
+
 function escapeHtml(text) {
   return (text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -4267,51 +4296,58 @@ function subscribeToMessages() {
 // NOTIFICATION SOUND
 // ══════════════════════════════════════════
 var audioCtx = null;
+var audioUnlocked = false;
 
-function initAudio() {
-  if (!audioCtx) {
+function unlockAudio() {
+  if (audioUnlocked) return;
+  try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
+    // Play silent buffer to unlock
+    var buf = audioCtx.createBuffer(1, 1, 22050);
+    var src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioCtx.destination);
+    src.start(0);
+    audioUnlocked = true;
+  } catch(e) {}
 }
+
+// Unlock on any user interaction
+['click','touchstart','keydown'].forEach(function(evt) {
+  document.addEventListener(evt, unlockAudio, { once: false, passive: true });
+});
 
 function playNotifSound() {
   try {
-    initAudio();
-    if (!audioCtx) return;
-
-    // Create a pleasant 2-tone notification chime
-    var now = audioCtx.currentTime;
-
-    function playTone(freq, startTime, duration, gainVal) {
-      var osc  = audioCtx.createOscillator();
-      var gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, startTime);
-
-      gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(gainVal, startTime + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-
-      osc.start(startTime);
-      osc.stop(startTime + duration);
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
     }
 
-    // Two-tone chime: high then slightly higher
-    playTone(880, now,        0.18, 0.3);
-    playTone(1100, now + 0.18, 0.22, 0.25);
+    var now = audioCtx.currentTime;
+
+    function tone(freq, start, dur, vol) {
+      var o = audioCtx.createOscillator();
+      var g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.type = 'sine';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(vol, start + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+      o.start(start); o.stop(start + dur + 0.05);
+    }
+
+    // Pleasant 3-tone chime
+    tone(1046, now,        0.15, 0.4);
+    tone(1318, now + 0.15, 0.15, 0.35);
+    tone(1568, now + 0.30, 0.25, 0.3);
   } catch(e) {
-    console.log('Audio not available:', e);
+    console.log('Sound error:', e);
   }
 }
-
-// Init audio context on first user interaction (browser policy)
-document.addEventListener('click', function initAudioOnClick() {
-  initAudio();
-  document.removeEventListener('click', initAudioOnClick);
-}, { once: true });
 
 // ── REGISTER SERVICE WORKER (PWA) ──
 if ('serviceWorker' in navigator) {
