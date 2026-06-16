@@ -1096,9 +1096,31 @@
     overflow: hidden;
   }
   .chat-sidebar-header {
-    padding: 14px 14px 10px;
+    padding: 10px 10px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+  }
+  .chat-search {
+    width: 100%;
+    background: var(--bg-card2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text-1);
+    font-size: 12px;
+    padding: 7px 12px;
+    outline: none;
+    font-family: inherit;
+    transition: border-color 0.2s;
+  }
+  .chat-search:focus { border-color: var(--orange-1); }
+  .chat-search::placeholder { color: var(--text-3); }
+  .chat-section-label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    padding: 8px 14px 4px;
+    font-weight: 600;
   }
   .chat-contacts { overflow-y: auto; flex: 1; }
   .chat-contact {
@@ -1795,10 +1817,11 @@
         <!-- Sidebar: employees list -->
         <div class="chat-sidebar">
           <div class="chat-sidebar-header">
-            <span class="section-eyebrow" style="margin-bottom:0;">Team</span>
+            <input class="chat-search" type="text" id="chat-search" placeholder="Search..." oninput="filterContacts()" />
           </div>
           <div class="chat-contacts" id="chat-contacts">
-            <div class="chat-contact active" onclick="selectChat('group', 'Group Chat')">
+            <!-- Group Chat -->
+            <div class="chat-contact active" id="contact-group" onclick="selectChat('group', 'Group Chat')">
               <div class="chat-avatar-wrap">
                 <div class="chat-avatar" style="background:linear-gradient(135deg,var(--orange-1),var(--orange-2));">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1809,6 +1832,14 @@
                 <div class="chat-contact-name">Group Chat</div>
                 <div class="chat-contact-sub">Everyone</div>
               </div>
+            </div>
+            <!-- Online section label -->
+            <div class="chat-section-label" id="online-label">
+              <span class="online-dot" style="background:#4ade80;display:inline-block;position:static;border:none;width:7px;height:7px;margin-right:5px;vertical-align:middle;"></span>Online
+            </div>
+            <!-- Offline section label -->
+            <div class="chat-section-label" id="offline-label" style="display:none;">
+              <span class="online-dot" style="background:#555;display:inline-block;position:static;border:none;width:7px;height:7px;margin-right:5px;vertical-align:middle;"></span>Offline
             </div>
           </div>
         </div>
@@ -1839,10 +1870,11 @@
         <!-- Sidebar: employees list -->
         <div class="chat-sidebar">
           <div class="chat-sidebar-header">
-            <span class="section-eyebrow" style="margin-bottom:0;">Team</span>
+            <input class="chat-search" type="text" id="chat-search" placeholder="Search..." oninput="filterContacts()" />
           </div>
           <div class="chat-contacts" id="chat-contacts">
-            <div class="chat-contact active" onclick="selectChat('group', 'Group Chat')">
+            <!-- Group Chat -->
+            <div class="chat-contact active" id="contact-group" onclick="selectChat('group', 'Group Chat')">
               <div class="chat-avatar-wrap">
                 <div class="chat-avatar" style="background:linear-gradient(135deg,var(--orange-1),var(--orange-2));">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1853,6 +1885,14 @@
                 <div class="chat-contact-name">Group Chat</div>
                 <div class="chat-contact-sub">Everyone</div>
               </div>
+            </div>
+            <!-- Online section label -->
+            <div class="chat-section-label" id="online-label">
+              <span class="online-dot" style="background:#4ade80;display:inline-block;position:static;border:none;width:7px;height:7px;margin-right:5px;vertical-align:middle;"></span>Online
+            </div>
+            <!-- Offline section label -->
+            <div class="chat-section-label" id="offline-label" style="display:none;">
+              <span class="online-dot" style="background:#555;display:inline-block;position:static;border:none;width:7px;height:7px;margin-right:5px;vertical-align:middle;"></span>Offline
             </div>
           </div>
         </div>
@@ -3978,47 +4018,81 @@ function updateContactOnlineDot(empId, isOnline) {
 // ── CONTACTS ──
 async function loadContacts() {
   if (!supaClient) return;
-  // Get all presence records to show online employees
   try {
     var result = await supaClient.from('presence').select('*').order('employee_name');
     if (result.data) {
-      var contacts = document.getElementById('chat-contacts');
-      var existingGroup = contacts.querySelector('.chat-contact');
-
-      result.data.forEach(function(emp) {
-        if (emp.employee_id === chatEmpId) {
-          onlineUsers[emp.employee_id] = emp.is_online;
-          return; // skip self
-        }
-        onlineUsers[emp.employee_id] = emp.is_online;
-
-        // Check if contact already exists
-        if (document.getElementById('contact-' + emp.employee_id)) return;
-
-        var initials = (emp.employee_name || '?').split(' ').map(function(w) { return w[0]; }).slice(0,2).join('').toUpperCase();
-        var isOnline = emp.is_online;
-        var div = document.createElement('div');
-        div.className = 'chat-contact';
-        div.id = 'contact-' + emp.employee_id;
-        div.onclick = function() { selectChat(emp.employee_id, emp.employee_name); };
-        var avatarHtml = isAdmin
-          ? '<img src="' + logo_src + '" style="width:36px;height:36px;border-radius:50%;object-fit:contain;background:#1a1a2e;padding:4px;" />'
-          : '<div class=\"chat-avatar\">' + initials + '</div>';
-        div.innerHTML =
-          '<div class="chat-avatar-wrap">' +
-            avatarHtml +
-            '<span class="online-dot" id="dot-' + emp.employee_id + '" style="background:' + (isOnline ? '#4ade80' : '#555') + ';"></span>' +
-          '</div>' +
-          '<div class="chat-contact-info">' +
-            '<div class="chat-contact-name">' + (emp.employee_name || emp.employee_id) + '</div>' +
-            '<div class="chat-contact-sub" id="sub-' + emp.employee_id + '">' + (isOnline ? 'Online' : 'Offline') + '</div>' +
-          '</div>' +
-          '<span class="chat-unread" id="unread-' + emp.employee_id + '" style="display:none;"></span>';
-        contacts.appendChild(div);
-      });
+      result.data.forEach(function(emp) { onlineUsers[emp.employee_id] = emp.is_online; });
+      renderContactList(result.data);
     }
   } catch(e) { console.error('loadContacts:', e); }
 }
+
+function renderContactList(data) {
+  var contacts  = document.getElementById('chat-contacts');
+  var onlineLbl  = document.getElementById('online-label');
+  var offlineLbl = document.getElementById('offline-label');
+
+  // Remove old dynamic contacts
+  contacts.querySelectorAll('.chat-contact:not(#contact-group)').forEach(function(el) { el.remove(); });
+
+  var others  = (data||[]).filter(function(e) { return e.employee_id !== chatEmpId; });
+  var online  = others.filter(function(e) { return e.is_online; });
+  var offline = others.filter(function(e) { return !e.is_online; });
+
+  offlineLbl.style.display = offline.length ? 'block' : 'none';
+  online.forEach(function(emp)  { insertContact(emp, onlineLbl); });
+  offlineLbl.insertAdjacentElement('afterend', offlineLbl); // keep label in place
+  offline.forEach(function(emp) { insertContact(emp, offlineLbl); });
+}
+
+function insertContact(emp, afterEl) {
+  var existing = document.getElementById('contact-' + emp.employee_id);
+  if (existing) {
+    var dot = document.getElementById('dot-' + emp.employee_id);
+    var sub = document.getElementById('sub-' + emp.employee_id);
+    if (dot) dot.style.background = emp.is_online ? '#4ade80' : '#555';
+    if (sub) sub.textContent = emp.is_online ? 'Online' : 'Offline';
+    return;
+  }
+  var isAdmin  = emp.employee_id === 'ADMIN';
+  var initials = isAdmin ? 'A' : (emp.employee_name||'?').split(' ').filter(function(w){return /^[a-zA-Z]/.test(w);}).map(function(w){return w[0];}).slice(0,2).join('').toUpperCase();
+  var div = document.createElement('div');
+  div.className = 'chat-contact';
+  div.id = 'contact-' + emp.employee_id;
+  div.setAttribute('data-name', (emp.employee_name||'').toLowerCase());
+  div.onclick = function() { selectChat(emp.employee_id, emp.employee_name); };
+  var avatarHtml = isAdmin
+    ? '<img src="' + ADMIN_LOGO + '" style="width:36px;height:36px;border-radius:50%;object-fit:contain;background:#1a1a2e;padding:4px;" />'
+    : '<div class="chat-avatar">' + initials + '</div>';
+  div.innerHTML =
+    '<div class="chat-avatar-wrap">' +
+      avatarHtml +
+      '<span class="online-dot" id="dot-' + emp.employee_id + '" style="background:' + (emp.is_online ? '#4ade80' : '#555') + ';"></span>' +
+    '</div>' +
+    '<div class="chat-contact-info">' +
+      '<div class="chat-contact-name">' + (emp.employee_name||emp.employee_id) + '</div>' +
+      '<div class="chat-contact-sub" id="sub-' + emp.employee_id + '">' + (emp.is_online ? 'Online' : 'Offline') + '</div>' +
+    '</div>' +
+    '<span class="chat-unread" id="unread-' + emp.employee_id + '" style="display:none;"></span>';
+  afterEl.insertAdjacentElement('afterend', div);
+}
+
+function filterContacts() {
+  var q = (document.getElementById('chat-search').value||'').toLowerCase();
+  document.querySelectorAll('#chat-contacts .chat-contact').forEach(function(el) {
+    if (el.id === 'contact-group') return;
+    var name = el.getAttribute('data-name') || '';
+    el.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
+  // Hide section labels if no results
+  var onlineVisible  = Array.from(document.querySelectorAll('#chat-contacts .chat-contact:not(#contact-group)')).filter(function(el) { return el.style.display !== 'none' && onlineUsers[el.id.replace('contact-', '')]; });
+  var offlineVisible = Array.from(document.querySelectorAll('#chat-contacts .chat-contact:not(#contact-group)')).filter(function(el) { return el.style.display !== 'none' && !onlineUsers[el.id.replace('contact-', '')]; });
+  var ol = document.getElementById('online-label');
+  var ofl = document.getElementById('offline-label');
+  if (ol)  ol.style.display  = onlineVisible.length  ? 'block' : 'none';
+  if (ofl) ofl.style.display = offlineVisible.length ? 'block' : 'none';
+}
+
 
 // ── SELECT CHAT ──
 function selectChat(empId, name) {
