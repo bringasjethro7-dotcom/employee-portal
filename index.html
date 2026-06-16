@@ -2474,105 +2474,115 @@ function renderPayslipList(data) {
   if (head) head.style.gridTemplateColumns = '1fr 0.7fr 1fr 100px 100px';
 
   payslipList.innerHTML = payslips.map((p, i) => {
-    const hours    = p.hours ? parseFloat(p.hours) : null;
-    const gross    = hours !== null ? hours * hourlyRate : (p.amount ? parseFloat(p.amount) : null);
-    const grossFmt = gross !== null ? formatMoney(gross) : '—';
-    const hrsFmt   = hours !== null ? hours + ' hrs' : '—';
+    var hours      = p.hours ? parseFloat(p.hours) : null;
+    var basicP     = hours !== null ? hours * hourlyRate : (p.amount ? parseFloat(p.amount) : 0);
+    var isNight    = (p.shift || '').toLowerCase() === 'night';
+    var nightD     = isNight ? basicP * 0.05 : 0;
+    var incentive  = p.incentives ? parseFloat(p.incentives) : 0;
+    var totalP     = basicP + nightD + incentive;
+    var grossFmt   = formatMoney(totalP);
+    var hrsFmt     = hours !== null ? hours + ' hrs' : '—';
 
-    return `<div class="payslip-row" style="grid-template-columns:1fr 0.7fr 1fr 100px 100px;">
-      <span class="payslip-period">${p.period || '—'}</span>
-      <span class="payslip-amount">${hrsFmt}</span>
-      <span class="payslip-amount">${grossFmt}</span>
-      <span class="payslip-status"><span class="badge">Available</span></span>
-      <span>
-        <button class="btn-dl" onclick='openPayslip(${i})'>👁 View</button>
-      </span>
-    </div>`;
+    return '<div class="payslip-row" style="grid-template-columns:1fr 0.7fr 1fr 100px 100px;">' +
+      '<span class="payslip-period">' + (p.period||'—') + (isNight ? ' <span style="font-size:10px;color:var(--orange-3);">🌙</span>' : '') + '</span>' +
+      '<span class="payslip-amount">' + hrsFmt + '</span>' +
+      '<span class="payslip-amount">' + grossFmt + '</span>' +
+      '<span class="payslip-status"><span class="badge">Available</span></span>' +
+      '<span><button class="btn-dl" onclick="openPayslip(' + i + ')">View</button></span>' +
+    '</div>';
   }).join('');
 }
 
 function openPayslip(idx) {
-  const data    = window._currentEmpData;
-  const p       = data.payslips[idx];
-  const hourly  = data.rate ? parseFloat(data.rate) / 240 : 0;
-  const hours   = p.hours ? parseFloat(p.hours) : null;
-  const gross   = hours !== null ? hours * hourly : (p.amount ? parseFloat(p.amount) : null);
-  const now     = new Date();
+  var data    = window._currentEmpData;
+  var p       = data.payslips[idx];
+  var hourly  = data.rate ? parseFloat(data.rate) / 240 : 0;
+  var hours   = p.hours ? parseFloat(p.hours) : null;
+  var basicPay = hours !== null ? hours * hourly : (p.amount ? parseFloat(p.amount) : 0);
 
-  const doc = document.getElementById('payslip-doc');
-  doc.innerHTML = `
-    <div class="ps-header">
-      <div>
-        <div class="ps-company">JMB VIRTUALS</div>
-        <div class="ps-period-label">Pay Period: ${p.period || '—'}</div>
-      </div>
-      <div style="text-align:right;font-size:12px;color:rgba(255,255,255,0.5);">
-        Generated ${now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
-      </div>
-    </div>
+  // Night shift differential: 5% of basic pay
+  var isNightShift   = (p.shift || '').toLowerCase() === 'night';
+  var nightDiff      = isNightShift ? basicPay * 0.05 : 0;
 
-    <div class="ps-title">Payslip</div>
+  // Incentives: fixed amount from payslip JSON
+  var incentives     = p.incentives ? parseFloat(p.incentives) : 0;
+  var incentiveLabel = p.incentive_label || 'Incentives';
 
-    <div class="ps-body">
-      <div class="ps-emp-info">
-        <div class="ps-info-row">
-          <span class="ps-info-label">Employee Name</span>
-          <span class="ps-info-value">${data.full_name || '—'}</span>
-        </div>
-        <div class="ps-info-row">
-          <span class="ps-info-label">Employee ID</span>
-          <span class="ps-info-value">${data.employee_id || '—'}</span>
-        </div>
-        <div class="ps-info-row">
-          <span class="ps-info-label">Position</span>
-          <span class="ps-info-value">${data.position || '—'}</span>
-        </div>
-        <div class="ps-info-row">
-          <span class="ps-info-label">Department</span>
-          <span class="ps-info-value">${data.department || '—'}</span>
-        </div>
-      </div>
+  // Total
+  var totalPay = basicPay + nightDiff + incentives;
+  var now = new Date();
 
-      <hr class="ps-divider" />
-
-      <table class="ps-earnings-table">
-        <thead>
+  var nightDiffRow = isNightShift ? `
           <tr>
-            <th>Description</th>
-            <th>Hours</th>
-            <th style="text-align:right;">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
+            <td>Night Shift Differential <span style="color:#888;font-size:11px;">(5%)</span></td>
+            <td style="color:#888;font-size:12px;">5% × basic</td>
+            <td style="text-align:right;">${formatMoney(nightDiff)}</td>
+          </tr>` : '';
+
+  var incentivesRow = incentives > 0 ? `
           <tr>
-            <td>Basic Pay</td>
-            <td>${hours !== null ? hours + ' hrs' : '—'}</td>
-            <td style="text-align:right;">${gross !== null ? formatMoney(gross) : '—'}</td>
-          </tr>
-          <tr>
-            <td style="color:#888;font-size:12px;">Hourly Rate</td>
-            <td style="color:#888;font-size:12px;">${formatMoney(hourly)}/hr</td>
-            <td></td>
-          </tr>
-        </tbody>
-      </table>
+            <td>${incentiveLabel}</td>
+            <td>—</td>
+            <td style="text-align:right;">${formatMoney(incentives)}</td>
+          </tr>` : '';
 
-      <div class="ps-total-row">
-        <span class="ps-total-label">GROSS PAY</span>
-        <span class="ps-total-amount">${gross !== null ? formatMoney(gross) : '—'}</span>
-      </div>
+  var doc = document.getElementById('payslip-doc');
+  doc.innerHTML =
+    '<div class="ps-header">' +
+      '<div>' +
+        '<div class="ps-company">JMB VIRTUALS</div>' +
+        '<div class="ps-period-label">Pay Period: ' + (p.period || '—') + '</div>' +
+        (isNightShift ? '<div style="font-size:10px;color:var(--orange-3);margin-top:4px;">🌙 Night Shift Employee</div>' : '') +
+      '</div>' +
+      '<div style="text-align:right;font-size:12px;color:rgba(255,255,255,0.5);">Generated ' + now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + '</div>' +
+    '</div>' +
 
-      <div class="ps-footer">
-        This is a system-generated payslip. No signature required.<br/>
-        JMB Virtuals · ${p.period || ''}
-      </div>
-    </div>
+    '<div class="ps-title">Payslip</div>' +
 
-    <div class="ps-actions">
-      <button class="ps-btn-print" onclick="window.print()">🖨 Print / Save as PDF</button>
-      <button class="ps-btn-close" onclick="closePayslip()">Close</button>
-    </div>
-  `;
+    '<div class="ps-body">' +
+      '<div class="ps-emp-info">' +
+        '<div class="ps-info-row"><span class="ps-info-label">Employee Name</span><span class="ps-info-value">' + (data.full_name||'—') + '</span></div>' +
+        '<div class="ps-info-row"><span class="ps-info-label">Employee ID</span><span class="ps-info-value">' + (data.employee_id||'—') + '</span></div>' +
+        '<div class="ps-info-row"><span class="ps-info-label">Position</span><span class="ps-info-value">' + (data.position||'—') + '</span></div>' +
+        '<div class="ps-info-row"><span class="ps-info-label">Department</span><span class="ps-info-value">' + (data.department||'—') + '</span></div>' +
+      '</div>' +
+      '<hr class="ps-divider" />' +
+      '<table class="ps-earnings-table">' +
+        '<thead><tr><th>Description</th><th>Details</th><th style="text-align:right;">Amount</th></tr></thead>' +
+        '<tbody>' +
+          '<tr>' +
+            '<td><strong>Basic Pay</strong></td>' +
+            '<td style="color:#888;font-size:12px;">' + (hours !== null ? hours + ' hrs @ ' + formatMoney(hourly) + '/hr' : '—') + '</td>' +
+            '<td style="text-align:right;">' + formatMoney(basicPay) + '</td>' +
+          '</tr>' +
+          nightDiffRow +
+          incentivesRow +
+          '<tr style="border-top:1px solid #eee;">' +
+            '<td colspan="3" style="padding:4px 0;"></td>' +
+          '</tr>' +
+        '</tbody>' +
+      '</table>' +
+
+      '<div class="ps-total-row">' +
+        '<span class="ps-total-label">TOTAL PAY</span>' +
+        '<span class="ps-total-amount">' + formatMoney(totalPay) + '</span>' +
+      '</div>' +
+
+      (isNightShift || incentives > 0 ? '<div style="margin-top:10px;font-size:11px;color:#888;line-height:1.8;">' +
+        (isNightShift ? '<div>Night Differential: ' + formatMoney(nightDiff) + ' (5% of basic pay)</div>' : '') +
+        (incentives > 0 ? '<div>' + incentiveLabel + ': ' + formatMoney(incentives) + '</div>' : '') +
+        '</div>' : '') +
+
+      '<div class="ps-footer">' +
+        'This is a system-generated payslip. No signature required.<br/>' +
+        'JMB Virtuals · ' + (p.period||'') +
+      '</div>' +
+    '</div>' +
+
+    '<div class="ps-actions">' +
+      '<button class="ps-btn-print" onclick="window.print()">Print / Save as PDF</button>' +
+      '<button class="ps-btn-close" onclick="closePayslip()">Close</button>' +
+    '</div>';
 
   document.getElementById('payslip-viewer').classList.add('open');
 }
