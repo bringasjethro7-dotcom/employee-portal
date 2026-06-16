@@ -4230,6 +4230,7 @@ function subscribeToMessages() {
 
       if ((currentChat === 'group' && isGroup) || (currentChat !== 'group' && isDirect)) {
         if (chatOpen) {
+          if (m.sender_id !== chatEmpId) playNotifSound();
           loadMessages();
           return;
         }
@@ -4261,6 +4262,56 @@ function subscribeToMessages() {
     })
     .subscribe();
 }
+
+// ══════════════════════════════════════════
+// NOTIFICATION SOUND
+// ══════════════════════════════════════════
+var audioCtx = null;
+
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+function playNotifSound() {
+  try {
+    initAudio();
+    if (!audioCtx) return;
+
+    // Create a pleasant 2-tone notification chime
+    var now = audioCtx.currentTime;
+
+    function playTone(freq, startTime, duration, gainVal) {
+      var osc  = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, startTime);
+
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(gainVal, startTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    }
+
+    // Two-tone chime: high then slightly higher
+    playTone(880, now,        0.18, 0.3);
+    playTone(1100, now + 0.18, 0.22, 0.25);
+  } catch(e) {
+    console.log('Audio not available:', e);
+  }
+}
+
+// Init audio context on first user interaction (browser policy)
+document.addEventListener('click', function initAudioOnClick() {
+  initAudio();
+  document.removeEventListener('click', initAudioOnClick);
+}, { once: true });
 
 // ── REGISTER SERVICE WORKER (PWA) ──
 if ('serviceWorker' in navigator) {
