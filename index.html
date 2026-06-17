@@ -4104,10 +4104,11 @@ function getMonthlyLeaveUsed(type) {
   return requests
     .filter(function(r) {
       var d = new Date(r.submitted);
-      return r.type === type && r.status !== 'rejected' &&
+      // Only count APPROVED leaves — pending does not deduct balance
+      return r.type === type && r.status === 'approved' &&
              d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     })
-    .reduce(function(sum, r) { return sum + (r.days || 1); }, 0);
+    .reduce(function(sum, r) { return sum + (parseInt(r.days) || 1); }, 0);
 }
 
 function updateLeaveBalance() {
@@ -4134,9 +4135,10 @@ function renderLeaveHistory() {
     var typeLabel = { vacation:'Vacation', sick:'Sick', emergency:'Emergency' }[r.type] || r.type;
     var startFmt  = new Date(r.start + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
     var endFmt    = new Date(r.end   + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
-    var badge     = r.status === 'approved' ? '<span class="leave-badge-approved">✓ Approved</span>'
-                  : r.status === 'rejected' ? '<span class="leave-badge-rejected">✗ Rejected</span>'
-                  : '<span class="leave-badge-pending">⏳ Pending</span>';
+    var statusLower = (r.status || 'pending').toLowerCase();
+    var badge = statusLower === 'approved' ? '<span class="leave-badge-approved">✓ Approved</span>'
+              : statusLower === 'rejected' ? '<span class="leave-badge-rejected">✗ Rejected</span>'
+              : '<span class="leave-badge-pending">⏳ Pending</span>';
     return '<div class="leave-history-row">' +
       '<span>' + typeLabel + '</span>' +
       '<span>' + startFmt + '</span>' +
@@ -4267,13 +4269,13 @@ function renderAttSummary() {
   var onTimeCount  = daysPresent - lateCount;
   var overtimeHrs  = Math.max(0, totalHours - (daysPresent * standardHrs));
 
-  // Leave this month
+  // Leave this month — only count approved (pending does not deduct)
   var leaveUsed = 0;
   try {
     var req = JSON.parse(localStorage.getItem('leave_' + attEmpId) || '[]');
     leaveUsed = req.filter(function(r) {
       var d = new Date(r.submitted);
-      return r.status !== 'rejected' && d.getMonth() === month && d.getFullYear() === year;
+      return r.status === 'approved' && d.getMonth() === month && d.getFullYear() === year;
     }).reduce(function(sum, r) { return sum + (parseInt(r.days) || 1); }, 0);
   } catch(e) {}
 
