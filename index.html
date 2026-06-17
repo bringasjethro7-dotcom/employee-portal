@@ -3408,8 +3408,43 @@ function migrateToSessions(rec) {
 }
 
 function loadAttendanceLogs() {
-  // Recalculate attToday each load — handles midnight crossover for night shifts
-  attToday = todayStr();
+  // Recalculate attToday — but check for active night shift session from yesterday
+  var rawToday = (function() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  })();
+
+  // Night shift check: between midnight and 6 AM, look for active session yesterday
+  var now = new Date();
+  if (now.getHours() < 6) {
+    var yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    var yKey = yest.getFullYear() + '-' + String(yest.getMonth()+1).padStart(2,'0') + '-' + String(yest.getDate()).padStart(2,'0');
+    var yStored = localStorage.getItem('att_today_' + attEmpId + '_' + yKey);
+    if (yStored) {
+      try {
+        var yRec = JSON.parse(yStored);
+        // Check for active session - supports both flat and sessions format
+        var hasActive = false;
+        if (yRec.sessions && yRec.sessions.length) {
+          hasActive = yRec.sessions.some(function(s) { return s.time_in && !s.time_out; });
+        } else if (yRec.time_in && !yRec.time_out) {
+          hasActive = true;
+        }
+        if (hasActive) {
+          attToday = yKey;
+          Logger && Logger.log && Logger.log('Night shift: using yesterday key ' + yKey);
+        } else {
+          attToday = rawToday;
+        }
+      } catch(e) { attToday = rawToday; }
+    } else {
+      attToday = rawToday;
+    }
+  } else {
+    attToday = rawToday;
+  }
+
   var url = APPS_SCRIPT_URL + '?action=get_attendance&id=' + encodeURIComponent(attEmpId);
 
   function finalize(serverRec) {
