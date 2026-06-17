@@ -1601,7 +1601,7 @@
 
     <!-- FORGOT PIN FORM -->
     <div id="forgot-pin-wrap" style="display:none;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
-      <p style="font-size:13px;color:var(--text-2);margin-bottom:1rem;">Enter your Employee ID and we'll notify your admin to reset your PIN.</p>
+      <p style="font-size:13px;color:var(--text-2);margin-bottom:1rem;">Enter your Employee ID and we'll send a 6-digit reset code to your registered email.</p>
       <div class="field-group">
         <label class="field-label">Employee ID</label>
         <input class="field-input" type="text" id="forgot-emp-id" placeholder="e.g. JMB001" />
@@ -2136,22 +2136,25 @@ function submitForgotPIN() {
         return;
       }
 
-      // Submit reset request
-      return fetch(APPS_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'request_pin_reset',
-          employee_id: empId,
-          full_name: data.full_name || empId,
-          timestamp: new Date().toISOString(),
-        }),
-        mode: 'no-cors'
-      });
+      // Submit reset request via GET so we can read the JSON response
+      var resetUrl = APPS_SCRIPT_URL +
+        '?action=request_pin_reset' +
+        '&employee_id=' + encodeURIComponent(empId) +
+        '&full_name='   + encodeURIComponent(data.full_name || empId);
+
+      return fetch(resetUrl).then(function(r) { return r.json(); });
     })
-    .then(function() {
-      showForgotMsg('✅ Reset request sent! Your admin will reset your PIN shortly.', 'success');
-      document.getElementById('forgot-emp-id').value = '';
+    .then(function(res) {
+      if (res && res.success) {
+        if (res.emailed) {
+          showForgotMsg('✅ A 6-digit PIN reset code has been sent to your email. Use it to log in, then change your PIN in My Profile.', 'success');
+        } else {
+          showForgotMsg('✅ Reset request submitted. Contact your admin if you do not receive an email.', 'success');
+        }
+        document.getElementById('forgot-emp-id').value = '';
+      } else {
+        showForgotMsg('Could not process request. Please contact your admin directly.', 'error');
+      }
     })
     .catch(function() {
       showForgotMsg('Could not send request. Please contact your admin directly.', 'error');
