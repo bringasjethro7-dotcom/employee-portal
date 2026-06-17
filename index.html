@@ -2995,6 +2995,7 @@ function loadAttendanceLogs() {
   fetch(url)
     .then(function(res) { return res.json(); })
     .then(function(data) {
+      console.log('[ATT] raw server response:', JSON.stringify(data).substring(0, 500));
       if (data.records && data.records.length) {
         attRecords = data.records;
         localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
@@ -3003,13 +3004,16 @@ function loadAttendanceLogs() {
         var saved = localStorage.getItem('att_' + attEmpId);
         if (saved) { try { attRecords = JSON.parse(saved); } catch(e) { attRecords = []; } }
       }
+      console.log('[ATT] attRecords count:', attRecords.length, 'attToday:', attToday);
+      if (attRecords.length) console.log('[ATT] first record:', JSON.stringify(attRecords[0]));
       // Find today — server may use different date formats, normalize
       var serverRec = null;
       for (var i = 0; i < attRecords.length; i++) {
         var r = attRecords[i];
-        var rDate = r.date ? r.date.substring(0, 10) : '';
+        var rDate = r.date ? String(r.date).substring(0, 10) : '';
         if (rDate === attToday) { serverRec = r; break; }
       }
+      console.log('[ATT] serverRec for today:', JSON.stringify(serverRec));
       finalize(serverRec);
     })
     .catch(function() {
