@@ -2956,52 +2956,81 @@ function updateClock() {
 }
 
 // ── Load logs from Apps Script ──
-async function loadAttendanceLogs() {
+async function migrateToSessions(rec) {
+  // Convert flat time_in/time_out fields to sessions array
+  if (!rec) return { sessions: [] };
+  if (rec.sessions && rec.sessions.length) return rec; // already migrated
+  if (rec.time_in) {
+    rec.sessions = [{
+      time_in:   rec.time_in,
+      time_out:  rec.time_out  || null,
+      lunch_out: rec.lunch_out || null,
+      lunch_in:  rec.lunch_in  || null,
+      shift:     rec.shift     || 'morning',
+    }];
+  } else {
+    rec.sessions = [];
+  }
+  return rec;
+}
+
+function loadAttendanceLogs() {
   try {
-    const url = `${APPS_SCRIPT_URL}?action=get_attendance&id=${encodeURIComponent(attEmpId)}`;
-    const res  = await fetch(url);
-    const data = await res.json();
-    if (data.records) {
-      attRecords = data.records;
-      // Find today's log from server
-      const todayRec = attRecords.find(r => r.date === attToday);
-      // Only use server data if we don't have more complete local data
-      const localToday = localStorage.getItem('att_today_' + attEmpId + '_' + attToday);
-      if (localToday) {
-        try {
-          const localParsed = JSON.parse(localToday);
-          // Merge: prefer local for punches that exist locally
-          todayLog = Object.assign({}, todayRec || {}, localParsed);
-        } catch(e) {
-          todayLog = todayRec || {};
-        }
-      } else {
-        todayLog = todayRec || {};
+    var url = APPS_SCRIPT_URL + '?action=get_attendance&id=' + encodeURIComponent(attEmpId);
+    fetch(url).then(function(res) { return res.json(); }).then(function(data) {
+      if (data.records) {
+        attRecords = data.records;
+        // Save to localStorage as backup
+        localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
       }
-    }
+
+      // Find today's record from server
+      var serverRec = attRecords.find(function(r) { return r.date === attToday; });
+
+      // Check localStorage for today
+      var localStr = localStorage.getItem('att_today_' + attEmpId + '_' + attToday);
+      var localRec = null;
+      if (localStr) {
+        try { localRec = JSON.parse(localStr); } catch(e) {}
+      }
+
+      if (localRec && localRec.sessions && localRec.sessions.length) {
+        // Local has sessions data — use it (most complete)
+        todayLog = localRec;
+      } else if (serverRec && serverRec.time_in) {
+        // Server has flat data — migrate to sessions and use it
+        // (This is the KEY FIX: new device/cleared cache scenario)
+        todayLog = migrateToSessions(Object.assign({}, serverRec));
+        // Save migrated data back to localStorage
+        localStorage.setItem('att_today_' + attEmpId + '_' + attToday, JSON.stringify(todayLog));
+      } else if (localRec) {
+        todayLog = migrateToSessions(localRec);
+      } else {
+        todayLog = { sessions: [] };
+      }
+
+      renderAttendance();
+      checkPreviousSession();
+      if (document.getElementById('tab-profile') &&
+          document.getElementById('tab-profile').classList.contains('active')) {
+        renderAttSummary();
+      }
+    }).catch(function(e) {
+      // Offline — fall back to localStorage
+      var saved = localStorage.getItem('att_' + attEmpId);
+      if (saved) { try { attRecords = JSON.parse(saved); } catch(e2) {} }
+      var localStr = localStorage.getItem('att_today_' + attEmpId + '_' + attToday);
+      if (localStr) {
+        try { todayLog = migrateToSessions(JSON.parse(localStr)); } catch(e) { todayLog = { sessions: [] }; }
+      } else {
+        todayLog = { sessions: [] };
+      }
+      renderAttendance();
+      checkPreviousSession();
+    });
   } catch(e) {
-    // offline or script not updated yet — use localStorage
-    const saved = localStorage.getItem('att_' + attEmpId);
-    if (saved) {
-      try {
-        attRecords = JSON.parse(saved);
-      } catch(e2) { attRecords = []; }
-    }
-  }
-  // Always restore today's log from localStorage regardless of fetch result
-  const savedToday = localStorage.getItem('att_today_' + attEmpId + '_' + attToday);
-  if (savedToday) {
-    try {
-      const parsed = JSON.parse(savedToday);
-      // Merge with any server data - local takes priority for today
-      todayLog = Object.assign({}, todayLog, parsed);
-    } catch(e) {}
-  }
-  renderAttendance();
-  checkPreviousSession();
-  // Update summary if profile tab is visible
-  if (document.getElementById('tab-profile') && document.getElementById('tab-profile').classList.contains('active')) {
-    renderAttSummary();
+    todayLog = { sessions: [] };
+    renderAttendance();
   }
 }
 
