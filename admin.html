@@ -676,10 +676,12 @@ function renderPINTable() {
   if (!pinResets.length) { tb.innerHTML = '<tr><td colspan="6" class="es">No PIN reset requests.</td></tr>'; return; }
   tb.innerHTML = pinResets.map(function(r) {
     var dt = r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
-    var badge = r.status === 'done'
+    var isDone = r.status && r.status.toLowerCase() === 'done';
+    var badge = isDone
       ? '<span style="color:#4ade80;font-size:11px;font-weight:600;">Done</span>'
       : '<span style="color:var(--o3);font-size:11px;font-weight:600;">Pending</span>';
-    var actions = r.status === 'pending'
+    var isPending = r.status && r.status.toLowerCase() === 'pending';
+    var actions = isPending
       ? '<div style="display:flex;gap:6px;align-items:center;">' +
         '<input type="text" placeholder="New PIN" id="newpin-' + r._row + '" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--t1);font-size:12px;padding:5px 8px;width:90px;font-family:inherit;outline:none;" />' +
         '<button class="bsm edit" onclick="resetPIN(\'' + r._row + '\',\'' + r.employee_id + '\')">Reset</button>' +
@@ -701,20 +703,32 @@ function resetPIN(row, empId) {
   if (!newPin || newPin.length < 4) { toast('Enter a valid PIN (min 4 digits).'); return; }
   if (!/^\d+$/.test(newPin)) { toast('PIN must be numbers only.'); return; }
 
-  // Use no-cors POST — Apps Script doesn't return CORS headers from POST
-  fetch(API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'change_pin', employee_id: empId, new_pin: newPin }),
-    mode: 'no-cors',
-  }).then(function() {
-    // no-cors returns opaque response — assume success
-    fetch(API + '?action=mark_pin_reset_done&row=' + row, { mode: 'no-cors' }).catch(function(){});
-    toast('PIN for ' + empId + ' reset to: ' + newPin);
-    loadPINResets();
-  }).catch(function() {
-    toast('Could not connect. Check your connection.');
-  });
+  var btn = document.querySelector('button[onclick*="resetPIN(\''+row+'\',"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  // Use GET request — Apps Script handles GET reliably without CORS issues
+  var url = API + '?action=change_pin'
+    + '&employee_id=' + encodeURIComponent(empId)
+    + '&new_pin='     + encodeURIComponent(newPin);
+
+  fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success || d.updated) {
+        // Mark the reset request as done
+        fetch(API + '?action=mark_pin_reset_done&row=' + encodeURIComponent(row))
+          .catch(function() {});
+        toast('✅ PIN for ' + empId + ' updated to: ' + newPin);
+        loadPINResets();
+      } else {
+        toast('❌ Could not update PIN: ' + (d.error || 'Unknown error'));
+        if (btn) { btn.disabled = false; btn.textContent = 'Reset'; }
+      }
+    })
+    .catch(function(e) {
+      toast('❌ Connection failed. Try again.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Reset'; }
+    });
 }
 
 // -- ADMIN CHAT --
