@@ -2118,47 +2118,52 @@ function showForgotPIN() {
   if (!isVisible) document.getElementById('forgot-emp-id').focus();
 }
 
-function submitForgotPIN() {
-  var empId = document.getElementById('forgot-emp-id').value.trim();
-  var msgEl = document.getElementById('forgot-pin-msg');
+async function submitForgotPIN() {
+  var empId = (document.getElementById('forgot-emp-id').value || '').trim();
+  var btn   = document.querySelector('#forgot-pin-wrap .btn-primary');
 
   if (!empId) {
     showForgotMsg('Please enter your Employee ID.', 'error');
     return;
   }
 
-  // Verify employee exists first
-  fetch(APPS_SCRIPT_URL + '?action=check_employee&id=' + encodeURIComponent(empId))
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.error === 'NOT_FOUND') {
-        showForgotMsg('Employee ID not found. Please check and try again.', 'error');
-        return;
-      }
+  if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
+  showForgotMsg('', '');
 
-      // Submit reset request via GET so we can read the JSON response
-      var resetUrl = APPS_SCRIPT_URL +
-        '?action=request_pin_reset' +
-        '&employee_id=' + encodeURIComponent(empId) +
-        '&full_name='   + encodeURIComponent(data.full_name || empId);
+  try {
+    // Step 1 — verify employee exists
+    var chkRes  = await fetch(APPS_SCRIPT_URL + '?action=check_employee&id=' + encodeURIComponent(empId));
+    var chkData = await chkRes.json();
 
-      return fetch(resetUrl).then(function(r) { return r.json(); });
-    })
-    .then(function(res) {
-      if (res && res.success) {
-        if (res.emailed) {
-          showForgotMsg('✅ A 6-digit PIN reset code has been sent to your email. Use it to log in, then change your PIN in My Profile.', 'success');
-        } else {
-          showForgotMsg('✅ Reset request submitted. Contact your admin if you do not receive an email.', 'success');
-        }
-        document.getElementById('forgot-emp-id').value = '';
+    if (chkData.error === 'NOT_FOUND') {
+      showForgotMsg('Employee ID not found. Please check and try again.', 'error');
+      return;
+    }
+
+    // Step 2 — request PIN reset (generates code + emails it)
+    var resetUrl = APPS_SCRIPT_URL
+      + '?action=request_pin_reset'
+      + '&employee_id=' + encodeURIComponent(empId)
+      + '&full_name='   + encodeURIComponent(chkData.full_name || empId);
+
+    var resetRes  = await fetch(resetUrl);
+    var resetData = await resetRes.json();
+
+    if (resetData.success) {
+      if (resetData.emailed) {
+        showForgotMsg('✅ A 6-digit PIN reset code has been sent to your registered email. Use it to log in, then change your PIN in My Profile.', 'success');
       } else {
-        showForgotMsg('Could not process request. Please contact your admin directly.', 'error');
+        showForgotMsg('✅ Request submitted. Please contact your admin — no email on file for this account.', 'success');
       }
-    })
-    .catch(function() {
-      showForgotMsg('Could not send request. Please contact your admin directly.', 'error');
-    });
+      document.getElementById('forgot-emp-id').value = '';
+    } else {
+      showForgotMsg('Could not process request. Please contact your admin.', 'error');
+    }
+  } catch (e) {
+    showForgotMsg('Could not connect. Please try again.', 'error');
+  } finally {
+    if (btn) { btn.textContent = 'Request PIN Reset'; btn.disabled = false; }
+  }
 }
 
 function showForgotMsg(msg, type) {
