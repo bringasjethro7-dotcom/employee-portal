@@ -2041,7 +2041,7 @@
       </div>
 
       <!-- 3 METRIC CARDS -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:1.25rem;">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:1.25rem;">
 
         <!-- Productivity -->
         <div class="card" style="padding:1rem;">
@@ -2053,7 +2053,7 @@
           <div style="height:4px;background:var(--card2);border-radius:2px;overflow:hidden;">
             <div id="sc-prod-bar" style="height:100%;width:0%;background:#378add;border-radius:2px;transition:width 0.6s;"></div>
           </div>
-          <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">Tasks · Hours logged</p>
+          <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">45% weight · Tasks · Hours</p>
         </div>
 
         <!-- Quality -->
@@ -2066,7 +2066,7 @@
           <div style="height:4px;background:var(--card2);border-radius:2px;overflow:hidden;">
             <div id="sc-qual-bar" style="height:100%;width:0%;background:#1d9e75;border-radius:2px;transition:width 0.6s;"></div>
           </div>
-          <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">Error rate · Output quality</p>
+          <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">35% weight · Error rate · Quality</p>
         </div>
 
         <!-- Attendance -->
@@ -2079,7 +2079,20 @@
           <div style="height:4px;background:var(--card2);border-radius:2px;overflow:hidden;">
             <div id="sc-att-bar" style="height:100%;width:0%;background:#ef9f27;border-radius:2px;transition:width 0.6s;"></div>
           </div>
-          <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">On-time · Days present</p>
+          <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">20% weight · On-time · Days present</p>
+        </div>
+
+        <!-- Violation Points -->
+        <div class="card" style="padding:1rem;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">Violation</p>
+            <span id="sc-vp-badge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(248,113,113,0.12);color:#991b1b;">0/10 max</span>
+          </div>
+          <p id="sc-vp-num" style="font-size:26px;font-weight:700;color:#f87171;margin:0 0 10px;">0.00</p>
+          <div style="height:4px;background:var(--card2);border-radius:2px;overflow:hidden;">
+            <div id="sc-vp-bar" style="height:100%;width:0%;background:#f87171;border-radius:2px;transition:width 0.6s;"></div>
+          </div>
+          <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">Deducted from final score</p>
         </div>
 
       </div>
@@ -2808,6 +2821,11 @@ async function loadScorecard() {
     if (el) el.style.display = 'none';
   });
 
+  // Reset vp card
+  document.getElementById('sc-vp-num').textContent = '0.00';
+  document.getElementById('sc-vp-bar').style.width = '0%';
+  document.getElementById('sc-vp-badge').textContent = '0/10 max';
+
   try {
     var url = APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(scEmpId) + '&month=' + encodeURIComponent(key);
     var res  = await fetch(url);
@@ -2834,6 +2852,12 @@ async function loadScorecard() {
     setScCard('qual', sc.quality);
     setScCard('att',  sc.attendance);
     setScOverall(sc.overall || Math.round((Number(sc.productivity||0) + Number(sc.quality||0) + Number(sc.attendance||0)) / 3));
+
+    // Violation points card
+    var vp = parseFloat(sc.violation_points) || 0;
+    document.getElementById('sc-vp-num').textContent = vp.toFixed(2);
+    document.getElementById('sc-vp-bar').style.width = (vp / 10 * 100) + '%';
+    document.getElementById('sc-vp-badge').textContent = vp.toFixed(2) + '/10 max';
 
     // Admin note
     if (sc.note) {
