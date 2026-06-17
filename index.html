@@ -2291,6 +2291,7 @@ async function doLogin() {
         ? 'Incorrect Employee ID or PIN. Please try again.'
         : 'Something went wrong. Please try again.');
     } else {
+      data._pin = pin; // store for background refresh
       sessionStorage.setItem('emp_data', JSON.stringify(data));
       renderDashboard(data);
     }
@@ -2311,6 +2312,72 @@ function showError(msg) {
 // ─────────────────────────────────────────────
 // DASHBOARD RENDER
 // ─────────────────────────────────────────────
+// ── Render overview stats (callable on tab switch for fresh data) ──
+function renderOverview(data) {
+  if (!data) return;
+  var overviewLoad    = document.getElementById('overview-loading');
+  var overviewContent = document.getElementById('overview-content');
+  var statGrid        = document.getElementById('stat-grid');
+  if (!statGrid) return;
+
+  var name   = data.full_name || 'Employee';
+  var rate   = data.rate ? '₱' + Number(data.rate).toLocaleString() : '—';
+  var tenure = '';
+  if (data.start_date) {
+    var sd = new Date(data.start_date);
+    var now2 = new Date();
+    var yrs  = now2.getFullYear() - sd.getFullYear();
+    var mos  = now2.getMonth()    - sd.getMonth();
+    if (mos < 0) { yrs--; mos += 12; }
+    tenure = yrs > 0 ? yrs + 'y ' + mos + 'm' : mos + ' months';
+  }
+
+  var coreStats = [
+    { label: 'Name',       value: name },
+    { label: 'ID',         value: data.employee_id || '—' },
+    { label: 'Position',   value: data.position || '—' },
+    { label: 'Department', value: data.department || '—' },
+    { label: 'Rate',       value: rate },
+    { label: 'Tenure',     value: tenure || '—' },
+  ];
+
+  statGrid.innerHTML = coreStats.map(function(s) {
+    return '<div class="stat-card">' +
+      '<div class="stat-label">' + s.label + '</div>' +
+      '<div class="stat-value">' + s.value + '</div>' +
+    '</div>';
+  }).join('');
+
+  if (overviewLoad)    overviewLoad.style.display    = 'none';
+  if (overviewContent) overviewContent.style.display = 'block';
+}
+
+
+// ── Render profile fields (callable on tab switch for fresh data) ──
+function renderProfile(data) {
+  if (!data) return;
+  var name   = data.full_name || 'Employee';
+  var custom = Object.entries(data).filter(function(e) {
+    return !['employee_id','full_name','pin','_pin','position','department','rate',
+             'start_date','birthday','photo','payslips','clockify_api_key','email'].includes(e[0])
+      && e[1] && String(e[1]).trim();
+  });
+  var profileGrid = document.getElementById('profile-grid');
+  if (!profileGrid) return;
+  var fields = [
+    { label: 'Full name',   value: data.full_name || '—' },
+    { label: 'Employee ID', value: data.employee_id || '—' },
+    { label: 'Position',    value: data.position || '—' },
+    { label: 'Department',  value: data.department || '—' },
+    { label: 'Start date',  value: formatDate(data.start_date) },
+    { label: 'Email',       value: data.email || '—' },
+  ].concat(custom.map(function(e) { return { label: labelify(e[0]), value: e[1] || '—' }; }));
+  profileGrid.innerHTML = fields.map(function(f) {
+    return '<div class="profile-field"><div class="profile-field-label">' + f.label +
+           '</div><div class="profile-field-value">' + f.value + '</div></div>';
+  }).join('');
+}
+
 function renderDashboard(data) {
   document.getElementById('login-screen').style.display    = 'none';
   document.getElementById('dashboard-screen').style.display = 'flex';
@@ -2377,61 +2444,14 @@ function renderDashboard(data) {
   hero.style.display = 'flex';
 
   // ── OVERVIEW stats ──
-  const overviewLoad = document.getElementById('overview-loading');
-  const overviewContent = document.getElementById('overview-content');
-  const statGrid = document.getElementById('stat-grid');
-
-  const coreStats = [
-    { icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`, label: 'Name',          value: name,                     sub: data.employee_id || '' },
-    { icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="12"/></svg>`, label: 'Position',      value: data.position || '—',      sub: data.department || '' },
-    { icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`, label: 'Monthly rate',
-      value: data.rate ? `<div class="rate-value-wrap">
-        <span class="rate-display rate-hidden" data-amount="${formatMoney(data.rate)}">••••••</span>
-        <button class="eye-btn" onclick="toggleRate(this)" title="Show rate">Show</button>
-      </div>` : '—',
-      sub: data.rate ? `<span class="hourly-display" style="display:none;">Hourly: ${formatMoney(parseFloat(data.rate) / 240)}</span><span class="hourly-hidden" style="color:var(--text-3);">Hourly: ••••</span>` : '' },
-    { icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`, label: 'Start date',    value: formatDate(data.start_date), sub: tenure(data.start_date) },
-  ];
-
-  // Append custom fields
-  const reservedKeys = ['full_name','employee_id','position','department','rate','start_date','payslips','pin','photo','clockify_api_key','birthday'];
-  const custom = Object.entries(data).filter(([k]) => !reservedKeys.includes(k));
-  custom.forEach(([k, v]) => {
-    coreStats.push({ icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`, label: labelify(k), value: v || '—', sub: '' });
-  });
-
-  statGrid.innerHTML = coreStats.map(s => `
-    <div class="stat-card">
-      <div class="stat-icon">${s.icon}</div>
-      <div class="stat-label">${s.label}</div>
-      <div class="stat-value">${s.value}</div>
-      ${s.sub ? `<div class="stat-sub">${s.sub}</div>` : ''}
-    </div>
-  `).join('');
-
-  overviewLoad.style.display    = 'none';
-  overviewContent.style.display = 'block';
+  renderOverview(data);
 
   // ── PAYSLIPS ──
   window._currentEmpData = data;
   renderPayslipList(data);
 
   // ── PROFILE ──
-  const profileGrid = document.getElementById('profile-grid');
-  const profileFields = [
-    { label: 'Full name',       value: name },
-    { label: 'Employee ID',     value: data.employee_id || '—' },
-    { label: 'Position',        value: data.position || '—' },
-    { label: 'Department',      value: data.department || '—' },
-    { label: 'Start date',      value: formatDate(data.start_date) },
-    ...custom.map(([k, v]) => ({ label: labelify(k), value: v || '—' })),
-  ];
-  profileGrid.innerHTML = profileFields.map(f => `
-    <div class="profile-field">
-      <div class="profile-field-label">${f.label}</div>
-      <div class="profile-field-value">${f.value}</div>
-    </div>
-  `).join('');
+  renderProfile(data);
 }
 
 // ─────────────────────────────────────────────
@@ -2453,24 +2473,54 @@ function doLogout() {
 // ─────────────────────────────────────────────
 // TABS
 // ─────────────────────────────────────────────
+// ── Refresh employee data from server (called on tab switch) ──
+function refreshEmployeeData(callback) {
+  var data = window._currentEmpData;
+  if (!data || !data.employee_id) { if (callback) callback(data); return; }
+  var empId = data.employee_id;
+  var pin   = data._pin || '';  // stored at login
+  if (!pin) { if (callback) callback(data); return; }
+  fetch(APPS_SCRIPT_URL + '?id=' + encodeURIComponent(empId) + '&pin=' + encodeURIComponent(pin))
+    .then(function(r) { return r.json(); })
+    .then(function(fresh) {
+      if (!fresh.error) {
+        fresh._pin = pin; // keep PIN for future refreshes
+        window._currentEmpData = fresh;
+        sessionStorage.setItem('emp_data', JSON.stringify(fresh));
+      }
+      if (callback) callback(window._currentEmpData);
+    })
+    .catch(function() {
+      if (callback) callback(window._currentEmpData); // use cached on fail
+    });
+}
+
 function switchTab(name, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b   => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
-  if (name === 'attendance') { if (attEmpId) renderAttendance(); }
-  if (name === 'myid'  && window._currentEmpData) renderIDCard(window._currentEmpData);
-  if (name === 'leave'    && leaveEmpId) { updateLeaveBalance(); renderLeaveHistory(); }
+
+  // Tabs that need fresh data from server on every open
+  if (name === 'overview' || name === 'payslips' || name === 'myid' || name === 'profile') {
+    refreshEmployeeData(function(data) {
+      if (name === 'overview')  renderOverview(data);
+      if (name === 'payslips')  renderPayslipList(data);
+      if (name === 'myid')      renderIDCard(data);
+      if (name === 'profile')   { renderProfile(data); renderAttSummary(); }
+    });
+  }
+
+  if (name === 'attendance') { if (attEmpId) { loadAttendanceLogs(); } }
+  if (name === 'leave')      { if (leaveEmpId) { syncLeaveFromServer(); updateLeaveBalance(); renderLeaveHistory(); } }
   if (name === 'messages' && chatEmpId) {
     loadMessages(); loadContacts();
-    // Clear unread dot when tab opened
     unreadCounts = {};
     var tabDot = document.getElementById('tab-msg-notif');
     if (tabDot) tabDot.classList.remove('show');
     var badge = document.getElementById('msg-badge');
     if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
   }
-  if (name === 'profile' && attEmpId)  { renderAttSummary(); }
   if (name === 'clockify' && !cfyInited && window._currentEmpData) {
     cfyInited = true;
     initClockify(window._currentEmpData);
