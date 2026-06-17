@@ -2861,10 +2861,19 @@ function toggleIdle() {
 
 function checkPreviousSession() {
   if (!attRecords.length) return;
+
+  var now = new Date();
+  var oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
   var incomplete = attRecords.find(function(r) {
-    return r.date !== attToday && r.time_in && !r.time_out;
+    if (r.date === attToday || !r.time_in || r.time_out) return false;
+    // Only show if the time_in was within the last hour
+    var timeIn = new Date(r.time_in);
+    return timeIn >= oneHourAgo;
   });
+
   if (!incomplete) return;
+
   var bar = document.getElementById('status-bar');
   if (bar) {
     bar.style.display = 'block';
@@ -2968,43 +2977,37 @@ function loadAttendanceLogs() {
       } catch(e) {}
     }
 
-    // SERVER IS SOURCE OF TRUTH for time_in
-    // If server has a record, always use it as the base.
-    // Only use local sessions for punches made AFTER server's last known time_in
-    // (i.e. lunch out/in, time out done on this device)
     if (serverRec && serverRec.time_in) {
+      // Server has today's record — it is the source of truth for time_in
       var serverMigrated = migrateToSessions(Object.assign({}, serverRec));
-      var serverTimeIn   = serverMigrated.sessions[0] && serverMigrated.sessions[0].time_in;
+      var serverFirstIn  = serverMigrated.sessions[0] && serverMigrated.sessions[0].time_in;
 
       if (localRec && localRec.sessions && localRec.sessions.length) {
-        // Check if local sessions have the SAME first time_in as server
         var localFirstIn = localRec.sessions[0] && localRec.sessions[0].time_in;
-        var serverFirstIn = serverTimeIn;
 
-        // If local first session matches server time_in (within 5 min) → merge
-        if (localFirstIn && serverFirstIn &&
-            Math.abs(new Date(localFirstIn) - new Date(serverFirstIn)) < 300000) {
-          // Same session — use local (has more detail like lunch/time_out)
-          todayLog = localRec;
-        } else if (localFirstIn && serverFirstIn &&
-                   new Date(localFirstIn) > new Date(serverFirstIn)) {
-          // Local is NEWER than server → local was created when server wasn't loaded yet
-          // Use SERVER as first session, keep local additional sessions
-          var merged = serverMigrated;
-          // Add any local sessions that are after server's time_in
-          localRec.sessions.forEach(function(ls) {
-            var alreadyIn = merged.sessions.some(function(ss) {
-              return Math.abs(new Date(ls.time_in) - new Date(ss.time_in)) < 300000;
-            });
-            if (!alreadyIn) merged.sessions.push(ls);
-          });
-          todayLog = merged;
+        if (localFirstIn && serverFirstIn) {
+          var diffMs = Math.abs(new Date(localFirstIn) - new Date(serverFirstIn));
+
+          if (diffMs < 300000) {
+            // Within 5 min — same session. Use local (may have lunch/out punches)
+            // BUT fix the time_in to match server exactly
+            localRec.sessions[0].time_in = serverFirstIn;
+            todayLog = localRec;
+          } else if (new Date(localFirstIn) > new Date(serverFirstIn)) {
+            // Local session is LATER than server — local was a duplicate created
+            // when localStorage was empty. Discard local, use server.
+            todayLog = serverMigrated;
+            // Clear the bad local cache
+            localStorage.removeItem('att_today_' + attEmpId + '_' + attToday);
+          } else {
+            // Local is older than server — already properly synced, use local
+            todayLog = localRec;
+          }
         } else {
-          // Local first in is same/older → use local (already synced before)
-          todayLog = localRec;
+          todayLog = serverMigrated;
         }
       } else {
-        // No local data — use server record
+        // No local cache — use server
         todayLog = serverMigrated;
       }
     } else if (localRec && localRec.sessions && localRec.sessions.length) {
@@ -3015,7 +3018,6 @@ function loadAttendanceLogs() {
       todayLog = { sessions: [] };
     }
 
-    // Always set date and save back to localStorage
     todayLog.date = attToday;
     localStorage.setItem('att_today_' + attEmpId + '_' + attToday, JSON.stringify(todayLog));
 
