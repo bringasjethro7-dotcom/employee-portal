@@ -684,7 +684,7 @@ function renderPINTable() {
     var actions = isPending
       ? '<div style="display:flex;gap:6px;align-items:center;">' +
         '<input type="text" placeholder="New PIN" id="newpin-' + r._row + '" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--t1);font-size:12px;padding:5px 8px;width:90px;font-family:inherit;outline:none;" />' +
-        '<button class="bsm edit" onclick="resetPIN(\'' + r._row + '\',\'' + r.employee_id + '\')">Reset</button>' +
+        '<button class="bsm edit" id="resetbtn-' + r._row + '" onclick="resetPIN(\'' + r._row + '\',\'' + r.employee_id + '\')">Reset</button>' +
         '</div>'
       : '<span style="color:var(--t3);font-size:12px;">—</span>';
     return '<tr>' +
@@ -703,30 +703,38 @@ function resetPIN(row, empId) {
   if (!newPin || newPin.length < 4) { toast('Enter a valid PIN (min 4 digits).'); return; }
   if (!/^\d+$/.test(newPin)) { toast('PIN must be numbers only.'); return; }
 
-  var btn = document.querySelector('button[onclick*="resetPIN(\''+row+'\',"]');
+  // Find and disable the Reset button for this row
+  var btn = document.getElementById('resetbtn-' + row);
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
-  // Use GET request — Apps Script handles GET reliably without CORS issues
   var url = API + '?action=change_pin'
     + '&employee_id=' + encodeURIComponent(empId)
     + '&new_pin='     + encodeURIComponent(newPin);
 
   fetch(url)
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.success || d.updated) {
-        // Mark the reset request as done
+    .then(function(r) {
+      // Apps Script redirects (302) — follow it and read response
+      return r.text();
+    })
+    .then(function(text) {
+      var d;
+      try { d = JSON.parse(text); } catch(e) { d = {}; }
+      console.log('[PIN RESET] response:', text);
+
+      if (d.success) {
+        // Mark reset request as done in the PIN Resets sheet
         fetch(API + '?action=mark_pin_reset_done&row=' + encodeURIComponent(row))
-          .catch(function() {});
-        toast('✅ PIN for ' + empId + ' updated to: ' + newPin);
+          .catch(function(){});
+        toast('PIN for ' + empId + ' updated to: ' + newPin);
         loadPINResets();
       } else {
-        toast('❌ Could not update PIN: ' + (d.error || 'Unknown error'));
+        toast('Error: ' + (d.error || 'Unknown — check console'));
         if (btn) { btn.disabled = false; btn.textContent = 'Reset'; }
       }
     })
-    .catch(function(e) {
-      toast('❌ Connection failed. Try again.');
+    .catch(function(err) {
+      console.error('[PIN RESET] fetch error:', err);
+      toast('Connection failed. Try again.');
       if (btn) { btn.disabled = false; btn.textContent = 'Reset'; }
     });
 }
