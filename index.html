@@ -2337,37 +2337,32 @@ function renderOverview(data) {
     tenure = parts.length ? parts.join(' ') + ' tenure' : 'New hire';
   }
 
-  const rateVal = monthly
-    ? '<span class="rate-hidden">\u20b1\u2022\u2022\u2022\u2022</span><span class="rate-display" style="display:none;">\u20b1' + monthly.toLocaleString() + '</span>'
-      + '<button class="rate-toggle-btn" onclick="toggleRate(this)" title="Show/hide">'
-      + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
-      + '</button>'
-    : '\u2014';
-
-  const hourlyVal = hourly
-    ? '<span class="rate-hidden" id="hourly-hidden">\u20b1\u2022\u2022\u2022</span><span class="hourly-display" style="display:none;">\u20b1' + Number(hourly).toLocaleString() + '</span>'
-    : '\u2014';
-
   const svgPerson   = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>';
   const svgBadge    = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2"/></svg>';
   const svgCalendar = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
-  const svgClock    = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
   const svgMoney    = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 1 1 0 7H6"/></svg>';
+  const eyeIcon     = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+  // Combined rate card value — monthly + hourly, single toggle button
+  const rateCardVal = monthly
+    ? '<span class="rate-hidden" data-amount="\u20b1' + monthly.toLocaleString() + '">\u20b1\u2022\u2022\u2022\u2022\u2022\u2022</span>' +
+      '<span class="rate-display" style="font-size:inherit;" data-amount="\u20b1' + monthly.toLocaleString() + '">\u20b1\u2022\u2022\u2022\u2022\u2022\u2022</span>' +
+      '<button class="rate-toggle-btn" onclick="toggleRate(this)" title="Show rate">' + eyeIcon + 'Show</button>'
+    : '\u2014';
 
   const coreStats = [
-    { icon: svgPerson,   label: 'Name',         value: name,                        sub: data.employee_id || '' },
-    { icon: svgBadge,    label: 'Position',      value: data.position || '\u2014',  sub: data.department || '' },
-    { icon: svgCalendar, label: 'Start date',    value: formatDate(data.start_date), sub: tenure },
-    { icon: svgClock,    label: 'Hourly rate',   value: hourlyVal,                   sub: '' },
-    { icon: svgMoney,    label: 'Monthly rate',  value: rateVal,                     sub: '' },
+    { icon: svgPerson,   label: 'Name',       value: name,                        sub: data.employee_id || '' },
+    { icon: svgBadge,    label: 'Position',   value: data.position || '\u2014',  sub: data.department || '' },
+    { icon: svgCalendar, label: 'Start date', value: formatDate(data.start_date), sub: tenure },
+    { icon: svgMoney,    label: 'Rate',       value: rateCardVal,                 sub: hourly ? '\u20b1' + Number(hourly).toLocaleString() + ' / hr' : '', isRate: true },
   ];
 
   statGrid.innerHTML = coreStats.map(function(s) {
-    return '<div class="stat-card">' +
+    return '<div class="stat-card' + (s.isRate ? ' rate-card' : '') + '">' +
       '<div class="stat-icon">' + s.icon + '</div>' +
       '<div class="stat-label">' + s.label + '</div>' +
       '<div class="stat-value rate-value-wrap">' + s.value + '</div>' +
-      (s.sub ? '<div class="stat-sub">' + s.sub + '</div>' : '') +
+      (s.sub ? '<div class="stat-sub">' + (s.isRate ? '<span class="hourly-hidden">\u20b1\u2022\u2022\u2022 / hr</span><span class="hourly-display" style="display:none;">' + s.sub + '</span>' : s.sub) + '</div>' : '') +
     '</div>';
   }).join('');
 
@@ -2554,30 +2549,31 @@ function switchTab(name, btn) {
 // HELPERS
 // ─────────────────────────────────────────────
 function toggleRate(btn) {
-  const wrap    = btn.closest('.rate-value-wrap');
-  const display = wrap.querySelector('.rate-display');
-  const card    = btn.closest('.stat-card');
-  const hourlyShow = card.querySelector('.hourly-display');
-  const hourlyHide = card.querySelector('.hourly-hidden');
-  const isHidden = display.classList.contains('rate-hidden');
+  const wrap     = btn.closest('.rate-value-wrap');
+  const hidden   = wrap.querySelector('.rate-hidden');   // bullet span
+  const display  = wrap.querySelector('.rate-display');  // amount span
+  const card     = btn.closest('.stat-card');
+  const hourlyHide = card ? card.querySelector('.hourly-hidden')  : null;
+  const hourlyShow = card ? card.querySelector('.hourly-display') : null;
 
-  if (isHidden) {
-    // Show amount
-    display.textContent = display.dataset.amount;
-    display.classList.remove('rate-hidden');
-    display.style.fontSize = '';
-    if (hourlyShow) hourlyShow.style.display = '';
-    if (hourlyHide) hourlyHide.style.display = 'none';
-    btn.innerHTML = 'Hide';
-    btn.title = 'Hide rate';
-  } else {
-    // Hide amount
-    display.textContent = '••••••';
-    display.classList.add('rate-hidden');
-    if (hourlyShow) hourlyShow.style.display = 'none';
+  const isShowing = hidden && hidden.style.display === 'none';
+
+  if (isShowing) {
+    // Hide — show bullets
+    if (hidden)  hidden.style.display  = '';
+    if (display) display.style.display = 'none';
     if (hourlyHide) hourlyHide.style.display = '';
-    btn.innerHTML = 'Show';
+    if (hourlyShow) hourlyShow.style.display = 'none';
     btn.title = 'Show rate';
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Show';
+  } else {
+    // Show — reveal amount
+    if (hidden)  hidden.style.display  = 'none';
+    if (display) display.style.display = '';
+    if (hourlyHide) hourlyHide.style.display = 'none';
+    if (hourlyShow) hourlyShow.style.display = '';
+    btn.title = 'Hide rate';
+    btn.innerHTML = 'Hide';
   }
 }
 
