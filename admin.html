@@ -645,11 +645,19 @@ function filterLeave(){
   }).join('');
 }
 
-function updLeave(row,status){
-  fetch(API+'?action=update_leave_status&row='+row+'&status='+status)
-    .then(function(r){return r.json();})
-    .then(function(){toast('Leave '+status+'!');loadLeave();})
-    .catch(function(){toast('Update failed.');});
+function updLeave(row, status) {
+  fetch(API + '?action=update_leave_status&row=' + row + '&status=' + status)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        var label = status === 'approved' ? 'Approved' : 'Rejected';
+        toast('Leave ' + label + ' — employee notified by email if address on file ✉️');
+        loadLeave();
+      } else {
+        toast('Update failed: ' + (d.error || 'Unknown error'));
+      }
+    })
+    .catch(function() { toast('Update failed. Check connection.'); });
 }
 
 // -- PIN RESETS --
@@ -708,8 +716,9 @@ function resetPIN(row, empId) {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
   var url = API + '?action=change_pin'
-    + '&employee_id=' + encodeURIComponent(empId)
-    + '&new_pin='     + encodeURIComponent(newPin);
+    + '&employee_id='   + encodeURIComponent(empId)
+    + '&new_pin='       + encodeURIComponent(newPin)
+    + '&notify_email=true';
 
   fetch(url)
     .then(function(r) {
@@ -725,7 +734,7 @@ function resetPIN(row, empId) {
         // Mark reset request as done in the PIN Resets sheet
         fetch(API + '?action=mark_pin_reset_done&row=' + encodeURIComponent(row))
           .catch(function(){});
-        toast('PIN for ' + empId + ' updated to: ' + newPin);
+        toast('PIN for ' + empId + ' reset to ' + newPin + ' — email sent if on file');
         loadPINResets();
       } else {
         toast('Error: ' + (d.error || 'Unknown — check console'));
