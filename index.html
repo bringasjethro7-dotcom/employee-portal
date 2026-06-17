@@ -2343,26 +2343,28 @@ function renderOverview(data) {
   const svgMoney    = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 1 1 0 7H6"/></svg>';
   const eyeIcon     = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
 
-  // Combined rate card value — monthly + hourly, single toggle button
-  const rateCardVal = monthly
-    ? '<span class="rate-hidden" data-amount="\u20b1' + monthly.toLocaleString() + '">\u20b1\u2022\u2022\u2022\u2022\u2022\u2022</span>' +
-      '<span class="rate-display" style="font-size:inherit;" data-amount="\u20b1' + monthly.toLocaleString() + '">\u20b1\u2022\u2022\u2022\u2022\u2022\u2022</span>' +
-      '<button class="rate-toggle-btn" onclick="toggleRate(this)" title="Show rate">' + eyeIcon + 'Show</button>'
-    : '\u2014';
-
   const coreStats = [
     { icon: svgPerson,   label: 'Name',       value: name,                        sub: data.employee_id || '' },
     { icon: svgBadge,    label: 'Position',   value: data.position || '\u2014',  sub: data.department || '' },
     { icon: svgCalendar, label: 'Start date', value: formatDate(data.start_date), sub: tenure },
-    { icon: svgMoney,    label: 'Rate',       value: rateCardVal,                 sub: hourly ? '\u20b1' + Number(hourly).toLocaleString() + ' / hr' : '', isRate: true },
+    { icon: svgMoney,    label: 'Rate',       value: '', isRate: true,
+      monthly: monthly, hourly: hourly },
   ];
 
   statGrid.innerHTML = coreStats.map(function(s) {
-    return '<div class="stat-card' + (s.isRate ? ' rate-card' : '') + '">' +
+    var valueHtml = s.value;
+    if (s.isRate && s.monthly) {
+      valueHtml =
+        '<span id="rate-bullets">\u20b1' + '\u2022'.repeat(6) + '</span>' +
+        '<span id="rate-amount" style="display:none;">\u20b1' + s.monthly.toLocaleString() + '</span>' +
+        '<button class="rate-toggle-btn" id="rate-btn" onclick="toggleRate()" title="Show rate">Show</button>';
+    }
+    return '<div class="stat-card">' +
       '<div class="stat-icon">' + s.icon + '</div>' +
       '<div class="stat-label">' + s.label + '</div>' +
-      '<div class="stat-value rate-value-wrap">' + s.value + '</div>' +
-      (s.sub ? '<div class="stat-sub">' + (s.isRate ? '<span class="hourly-hidden">\u20b1\u2022\u2022\u2022 / hr</span><span class="hourly-display" style="display:none;">' + s.sub + '</span>' : s.sub) + '</div>' : '') +
+      '<div class="stat-value">' + valueHtml + '</div>' +
+      (s.sub ? '<div class="stat-sub">' + s.sub + '</div>' : '') +
+      (s.isRate && s.hourly ? '<div class="stat-sub"><span id="hourly-bullets">\u20b1\u2022\u2022\u2022 / hr</span><span id="hourly-amount" style="display:none;">\u20b1' + Number(s.hourly).toLocaleString() + ' / hr</span></div>' : '') +
     '</div>';
   }).join('');
 
@@ -2548,32 +2550,29 @@ function switchTab(name, btn) {
 // ─────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────
-function toggleRate(btn) {
-  const wrap     = btn.closest('.rate-value-wrap');
-  const hidden   = wrap.querySelector('.rate-hidden');   // bullet span
-  const display  = wrap.querySelector('.rate-display');  // amount span
-  const card     = btn.closest('.stat-card');
-  const hourlyHide = card ? card.querySelector('.hourly-hidden')  : null;
-  const hourlyShow = card ? card.querySelector('.hourly-display') : null;
+function toggleRate() {
+  var bullets = document.getElementById('rate-bullets');
+  var amount  = document.getElementById('rate-amount');
+  var btn     = document.getElementById('rate-btn');
+  var hBullets = document.getElementById('hourly-bullets');
+  var hAmount  = document.getElementById('hourly-amount');
 
-  const isShowing = hidden && hidden.style.display === 'none';
+  var isHidden = amount && amount.style.display === 'none';
 
-  if (isShowing) {
-    // Hide — show bullets
-    if (hidden)  hidden.style.display  = '';
-    if (display) display.style.display = 'none';
-    if (hourlyHide) hourlyHide.style.display = '';
-    if (hourlyShow) hourlyShow.style.display = 'none';
-    btn.title = 'Show rate';
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Show';
+  if (isHidden) {
+    // Show amounts
+    if (bullets)  bullets.style.display  = 'none';
+    if (amount)   amount.style.display   = '';
+    if (hBullets) hBullets.style.display = 'none';
+    if (hAmount)  hAmount.style.display  = '';
+    if (btn) btn.textContent = 'Hide';
   } else {
-    // Show — reveal amount
-    if (hidden)  hidden.style.display  = 'none';
-    if (display) display.style.display = '';
-    if (hourlyHide) hourlyHide.style.display = 'none';
-    if (hourlyShow) hourlyShow.style.display = '';
-    btn.title = 'Hide rate';
-    btn.innerHTML = 'Hide';
+    // Hide amounts
+    if (bullets)  bullets.style.display  = '';
+    if (amount)   amount.style.display   = 'none';
+    if (hBullets) hBullets.style.display = '';
+    if (hAmount)  hAmount.style.display  = 'none';
+    if (btn) btn.textContent = 'Show';
   }
 }
 
