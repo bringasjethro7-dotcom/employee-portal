@@ -1217,6 +1217,24 @@
   .chat-msg.theirs .chat-msg-bubble { background: var(--bg-card2); color: var(--text-1); border-bottom-left-radius: 3px; }
   .chat-msg-time { font-size: 10px; color: var(--text-3); margin-top: 3px; }
   .chat-date-divider { text-align: center; font-size: 11px; color: var(--text-3); margin: 8px 0; }
+  .chat-msg-wrap { position: relative; display: inline-block; max-width: 100%; }
+  .chat-msg.mine  .chat-msg-wrap { align-self: flex-end; }
+  .chat-msg.theirs .chat-msg-wrap { align-self: flex-start; }
+  .chat-msg-wrap:hover .react-btn { opacity: 1; }
+  .react-btn { position: absolute; top: 4px; opacity: 0; transition: opacity 0.15s; background: var(--card2); border: 1px solid var(--border); border-radius: 20px; padding: 1px 5px; font-size: 13px; cursor: pointer; z-index: 10; line-height: 1.5; }
+  .chat-msg.mine   .chat-msg-wrap .react-btn { left: -36px; }
+  .chat-msg.theirs .chat-msg-wrap .react-btn { right: -36px; }
+  .react-picker { position: absolute; background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 4px 8px; display: none; gap: 4px; z-index: 100; box-shadow: 0 4px 16px rgba(0,0,0,0.3); top: -44px; white-space: nowrap; }
+  .react-picker.open { display: flex; }
+  .chat-msg.mine   .chat-msg-wrap .react-picker { right: 0; }
+  .chat-msg.theirs .chat-msg-wrap .react-picker { left: 0; }
+  .react-picker span { font-size: 18px; cursor: pointer; padding: 1px 3px; border-radius: 6px; transition: transform 0.12s; }
+  .react-picker span:hover { transform: scale(1.35); }
+  .msg-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .chat-msg.mine .msg-reactions { justify-content: flex-end; }
+  .reaction-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 20px; padding: 1px 8px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+  .reaction-pill.my-react { border-color: var(--orange-3); background: rgba(255,107,26,0.12); }
+  .reaction-count { font-size: 11px; color: var(--text-2); }
 
   .chat-input-wrap {
     display: flex;
@@ -4688,11 +4706,35 @@ function renderMessages(msgs) {
     var divider = msgDate !== lastDate ? '<div class="chat-date-divider">' + msgDate + '</div>' : '';
     lastDate = msgDate;
     var time = new Date(m.created_at).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
+
+    // Build reaction pills from m.reactions (stored as JSON object {emoji: [user_ids]})
+    var reactions = {};
+    try { reactions = m.reactions ? JSON.parse(m.reactions) : {}; } catch(e) {}
+    var pillsHtml = '';
+    Object.keys(reactions).forEach(function(emoji) {
+      var users = reactions[emoji] || [];
+      if (!users.length) return;
+      var iMine = users.indexOf(chatEmpId) >= 0;
+      pillsHtml += '<span class="reaction-pill' + (iMine ? ' my-react' : '') + '" data-mid="' + m.id + '" data-emoji="' + encodeURIComponent(emoji) + '" onclick="handlePillReaction(this)" title="' + users.join(', ') + '">' +
+        emoji + '<span class="reaction-count">' + users.length + '</span></span>';
+    });
+
+    var emojis = ['❤️','👍','😂','😮','😢','🔥'];
+    var pickerHtml = '<div class="react-picker" id="picker-' + m.id + '">' +
+      emojis.map(function(e) {
+        return '<span onclick="pickReaction(&quot;' + m.id + '&quot;,&quot;' + e + '&quot;)">' + e + '</span>';
+      }).join('') + '</div>';
+
     return divider +
       '<div class="chat-msg ' + (isMine ? 'mine' : 'theirs') + '">' +
         (!isMine && currentChat === 'group' ? '<div class="chat-msg-sender">' + (m.sender_name||'') + '</div>' : '') +
-        '<div class="chat-msg-bubble">' + escapeHtml(m.message) + '</div>' +
-        '<div class="chat-msg-time">' + time + '</div>' +
+        '<div class="chat-msg-wrap" data-mid="' + m.id + '">' +
+          pickerHtml +
+          '<button class="react-btn" data-mid="' + m.id + '" onclick="openPicker(this.dataset.mid)">😊</button>' +
+          '<div class="chat-msg-bubble">' + escapeHtml(m.message) + '</div>' +
+          '<div class="chat-msg-time">' + time + '</div>' +
+          (pillsHtml ? '<div class="msg-reactions">' + pillsHtml + '</div>' : '') +
+        '</div>' +
       '</div>';
   }).join('');
   msgEl.scrollTop = msgEl.scrollHeight;
@@ -4738,6 +4780,70 @@ function updateContactPreview(empId, senderName, message) {
   moveContactToTop(empId, senderName, message);
 }
 
+// ══════════════════════════════════════════
+// MESSAGE REACTIONS
+// ══════════════════════════════════════════
+function openPicker(msgId) {
+  // Close all open pickers first
+  document.querySelectorAll('.react-picker.open').forEach(function(p) {
+    if (p.id !== 'picker-' + msgId) p.classList.remove('open');
+  });
+  var picker = document.getElementById('picker-' + msgId);
+  if (picker) picker.classList.toggle('open');
+}
+
+// Close picker when clicking outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.react-btn') && !e.target.closest('.react-picker')) {
+    document.querySelectorAll('.react-picker.open').forEach(function(p) { p.classList.remove('open'); });
+  }
+});
+
+function handlePickReaction(el) {
+  var msgId = el.dataset.mid;
+  var emoji = decodeURIComponent(el.dataset.emoji);
+  document.querySelectorAll('.react-picker.open').forEach(function(p) { p.classList.remove('open'); });
+  toggleReaction(msgId, emoji);
+}
+
+function handlePillReaction(el) {
+  var msgId = el.dataset.mid;
+  var emoji = decodeURIComponent(el.dataset.emoji);
+  toggleReaction(msgId, emoji);
+}
+
+async function pickReaction(msgId, emoji) {
+  document.querySelectorAll('.react-picker.open').forEach(function(p) { p.classList.remove('open'); });
+  await toggleReaction(msgId, emoji);
+}
+
+async function toggleReaction(msgId, emoji) {
+  if (!supaClient || !chatEmpId) return;
+  try {
+    // Fetch current message
+    var res = await supaClient.from('messages').select('reactions').eq('id', msgId).single();
+    if (res.error) throw res.error;
+    var reactions = {};
+    try { reactions = res.data.reactions ? JSON.parse(res.data.reactions) : {}; } catch(e) {}
+
+    // Toggle current user in the emoji array
+    if (!reactions[emoji]) reactions[emoji] = [];
+    var idx = reactions[emoji].indexOf(chatEmpId);
+    if (idx >= 0) {
+      reactions[emoji].splice(idx, 1);
+      if (!reactions[emoji].length) delete reactions[emoji];
+    } else {
+      reactions[emoji].push(chatEmpId);
+    }
+
+    // Save back
+    await supaClient.from('messages').update({ reactions: JSON.stringify(reactions) }).eq('id', msgId);
+    loadMessages();
+  } catch(e) {
+    console.error('Reaction error:', e);
+  }
+}
+
 function escapeHtml(text) {
   return (text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -4779,17 +4885,21 @@ function subscribeToMessages() {
 
       var isGroup   = !m.receiver_id;
       var fromMe    = m.sender_id === chatEmpId;
+      var forMe     = isGroup || m.receiver_id === chatEmpId;
       var chatKey   = isGroup ? 'group' : (fromMe ? m.receiver_id : m.sender_id);
       var chatOpen  = document.getElementById('tab-messages') && document.getElementById('tab-messages').classList.contains('active');
       var viewingThisChat = chatOpen && currentChat === chatKey;
+
+      // Ignore direct messages not meant for this user
+      if (!forMe && !fromMe) return;
 
       // Always reload messages if viewing this conversation
       if (viewingThisChat) {
         loadMessages();
       }
 
-      // For messages from OTHER people
-      if (!fromMe) {
+      // For messages from OTHER people that are FOR this user
+      if (!fromMe && forMe) {
         // 1. ALWAYS play sound
         playNotifSound();
 
