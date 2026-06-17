@@ -983,62 +983,59 @@ function toast(msg){
 // ══════════════════════════════════════════
 // COE REQUESTS
 // ══════════════════════════════════════════
-async function loadCOE() {
-  const filter = (document.getElementById('coe-status-filter') || {}).value || '';
-  // Show panel first so elements are accessible
-  const panel = document.getElementById('p-coe');
-  if (panel) panel.style.display = 'block';
-  try {
-    const res  = await fetch(API + '?action=get_coe_requests');
-    const data = await res.json();
-    let rows = data.requests || [];
-    if (filter) rows = rows.filter(r => (r.status || 'pending').toLowerCase() === filter);
-    const tbody = document.getElementById('coe-body');
-    if (!tbody) return;
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--t3);padding:2rem;">No COE requests yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = rows.map(function(r) {
-      const statusLower = (r.status || 'pending').toLowerCase();
-      const badge = statusLower === 'approved'
-        ? '<span style="color:#4ade80;font-weight:600;font-size:11px;">✓ Approved</span>'
-        : statusLower === 'rejected'
-        ? '<span style="color:#f87171;font-weight:600;font-size:11px;">✗ Rejected</span>'
-        : '<span style="color:var(--o3);font-weight:600;font-size:11px;">⏳ Pending</span>';
-      const date = r.submitted ? new Date(r.submitted).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
-      const actions = statusLower === 'pending'
-        ? '<button onclick="approveCOE(' + r._row + ',\'approved\')" style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;margin-right:6px;">Approve</button>' +
-          '<button onclick="approveCOE(' + r._row + ',\'rejected\')" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;">Reject</button>'
-        : '—';
-      return '<tr>' +
-        '<td><strong>' + (r.full_name || r.employee_id) + '</strong><br><span style="color:var(--t3);font-size:11px;">' + (r.employee_id || '') + '</span></td>' +
-        '<td>' + (r.purpose || '—') + '</td>' +
-        '<td style="color:var(--t3);font-size:12px;">' + date + '</td>' +
-        '<td>' + badge + '</td>' +
-        '<td>' + actions + '</td>' +
-      '</tr>';
-    }).join('');
-  } catch(e) {
-    const tbody = document.getElementById('coe-body');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f87171;padding:2rem;">Error: ' + e.message + '</td></tr>';
-  }
+function loadCOE() {
+  var tb = document.getElementById('coe-body');
+  if (!tb) return;
+  tb.innerHTML = '<tr><td colspan="5" class="es">Loading…</td></tr>';
+  var filter = (document.getElementById('coe-status-filter') || {}).value || '';
+  fetch(API + '?action=get_coe_requests')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var rows = d.requests || [];
+      if (filter) rows = rows.filter(function(r) { return (r.status || 'pending').toLowerCase() === filter; });
+      if (!rows.length) {
+        tb.innerHTML = '<tr><td colspan="5" class="es">No COE requests yet.</td></tr>';
+        return;
+      }
+      tb.innerHTML = rows.map(function(r) {
+        var sl = (r.status || 'pending').toLowerCase();
+        var badge = sl === 'approved'
+          ? '<span style="color:#4ade80;font-weight:600;font-size:11px;">✓ Approved</span>'
+          : sl === 'rejected'
+          ? '<span style="color:#f87171;font-weight:600;font-size:11px;">✗ Rejected</span>'
+          : '<span style="color:var(--o3);font-weight:600;font-size:11px;">⏳ Pending</span>';
+        var date = r.submitted ? new Date(r.submitted).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+        var actions = sl === 'pending'
+          ? '<button onclick="approveCOE(' + r._row + ',&quot;approved&quot;)" style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;margin-right:6px;">Approve</button>' +
+            '<button onclick="approveCOE(' + r._row + ',&quot;rejected&quot;)" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;">Reject</button>'
+          : '—';
+        return '<tr>' +
+          '<td><strong>' + (r.full_name || r.employee_id) + '</strong><br><span style="color:var(--t3);font-size:11px;">' + (r.employee_id || '') + '</span></td>' +
+          '<td>' + (r.purpose || '—') + '</td>' +
+          '<td style="color:var(--t3);font-size:12px;">' + date + '</td>' +
+          '<td>' + badge + '</td>' +
+          '<td>' + actions + '</td>' +
+        '</tr>';
+      }).join('');
+    })
+    .catch(function(e) {
+      tb.innerHTML = '<tr><td colspan="5" class="es">Error loading COE requests.</td></tr>';
+    });
 }
 
-async function approveCOE(row, status) {
+function approveCOE(row, status) {
   if (!confirm(status === 'approved' ? 'Approve this COE request?' : 'Reject this COE request?')) return;
-  try {
-    const res  = await fetch(API + '?action=update_coe_status&row=' + row + '&status=' + status);
-    const data = await res.json();
-    if (data.success) {
-      toast(status === 'approved' ? '✅ COE approved — employee notified by email' : '✅ COE rejected — employee notified');
-      loadCOE();
-    } else {
-      toast('Error: ' + (data.error || 'Unknown'), false);
-    }
-  } catch(e) {
-    toast('Connection error: ' + e.message, false);
-  }
+  fetch(API + '?action=update_coe_status&row=' + row + '&status=' + status)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        toast(status === 'approved' ? '✅ COE approved — employee notified by email' : '✅ COE rejected — employee notified');
+        loadCOE();
+      } else {
+        toast('Error: ' + (d.error || 'Unknown'));
+      }
+    })
+    .catch(function() { toast('Connection error'); });
 }
 
 </script>
