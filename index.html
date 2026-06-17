@@ -3087,12 +3087,11 @@ function renderAttendance() {
 }
 
 function updateButtons() {
-  var active     = getActiveSession();
   var sessions   = todayLog.sessions || [];
+  var active     = getActiveSession();   // last session with no time_out
   var hasActive  = !!active;
-  var hasLO      = active && !!active.lunch_out;
-  var hasLI      = active && !!active.lunch_in;
-  var hasTO      = active && !!active.time_out;
+  var hasLO      = hasActive && !!active.lunch_out;
+  var hasLI      = hasActive && !!active.lunch_in;
   var cfyRunning = !!cfyRunningId;
 
   var btnTI   = document.getElementById('btn-time-in');
@@ -3101,18 +3100,33 @@ function updateButtons() {
   var btnTO   = document.getElementById('btn-time-out');
   var btnIdle = document.getElementById('btn-idle');
 
-  // Time In: available when no active session (can start new one)
+  // TIME IN — enabled only when no active session
   if (btnTI) {
     btnTI.disabled = hasActive;
-    var n = sessions.length;
-    btnTI.textContent = (n === 0) ? 'Time In' : (hasActive ? 'Time In' : 'Time In Again');
+    if (sessions.length === 0) {
+      btnTI.textContent = 'Time In';
+    } else if (hasActive) {
+      btnTI.textContent = 'Time In';
+    } else {
+      btnTI.textContent = 'Time In Again';
+    }
   }
-  if (btnLO)   btnLO.disabled   = !hasActive || hasLO || cfyRunning;
-  if (btnLI)   btnLI.disabled   = !hasLO || hasLI;
-  if (btnTO)   btnTO.disabled   = !hasActive || cfyRunning;
-  if (btnIdle) btnIdle.disabled = !hasActive;
-}
 
+  // LUNCH OUT — only when active, not yet on lunch, no clockify running
+  if (btnLO) btnLO.disabled = !hasActive || hasLO || cfyRunning;
+
+  // LUNCH IN — only when on lunch
+  if (btnLI) btnLI.disabled = !hasActive || !hasLO || hasLI;
+
+  // TIME OUT — only when active, no clockify running
+  if (btnTO) btnTO.disabled = !hasActive || cfyRunning;
+
+  // IDLE — only when active
+  if (btnIdle) btnIdle.disabled = !hasActive;
+
+  // Update Clockify Start button state
+  if (typeof updateClockifyStartBtn === 'function') updateClockifyStartBtn();
+}
 
 // updateTodaySummary replaced with multi-session version above
 
@@ -3359,61 +3373,74 @@ async function toggleTimer() {
 }
 
 async function startTimer() {
-  // Block if employee has not timed in yet
-  var active = getActiveSession();
-  if (!active) {
-    showToast('⚠️ Please Time In first before tracking time.');
+  // Must be timed in
+  if (!getActiveSession()) {
+    showToast('Please Time In before tracking time.');
     return;
   }
-
+  var btn = document.getElementById('cfy-start-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
   try {
-    var desc    = document.getElementById('cfy-desc').value.trim();
-    var projId  = document.getElementById('cfy-project').value;
-    var taskId  = document.getElementById('cfy-task').value;
-    var body    = { start: new Date().toISOString(), description: desc, billable: false };
-    if (projId) body.projectId = projId;
-    if (taskId) body.taskId    = taskId;
-    var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/time-entries', {
+    var desc   = (document.getElementById('cfy-desc').value || '').trim();
+    var projId = document.getElementById('cfy-project').value;
+    var taskId = document.getElementById('cfy-task').value;
+    var body   = { start: new Date().toISOString(), billable: false };
+    if (desc)   body.description = desc;
+    if (projId) body.projectId   = projId;
+    if (taskId) body.taskId      = taskId;
+    var res = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/time-entries', {
       method: 'POST', headers: cfyHeaders(), body: JSON.stringify(body)
     });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     var entry = await res.json();
     cfyRunningId  = entry.id;
     cfyTimerStart = new Date(entry.timeInterval.start);
     startTimerDisplay();
     setStopBtn();
+    updateButtons();
     showToast('Timer started!');
-    // Re-check attendance buttons now that timer started
-    if (typeof updateButtons === 'function') updateButtons();
-  } catch(e) { showToast('Could not start timer. Check API key.'); }
+  } catch(e) {
+    showToast('Could not start timer. Check API key.');
+    setStartBtn();
+  }
 }
 
 async function stopTimer() {
+  var btn = document.getElementById('cfy-start-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Stopping...'; }
   try {
-    await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId + '/time-entries', {
+    var res = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId + '/time-entries', {
       method: 'PATCH', headers: cfyHeaders(),
       body: JSON.stringify({ end: new Date().toISOString() })
     });
-    cfyRunningId = null;
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    cfyRunningId  = null;
     cfyTimerStart = null;
     clearInterval(cfyTimerTick);
-    cfyTimerTick = null;
-    document.getElementById('cfy-timer-display').textContent = '00:00:00';
-    document.getElementById('cfy-timer-display').classList.remove('running');
-    document.getElementById('cfy-desc').value = '';
-    document.getElementById('cfy-project').value = '';
+    cfyTimerTick  = null;
+    var disp = document.getElementById('cfy-timer-display');
+    if (disp) { disp.textContent = '00:00:00'; disp.classList.remove('running'); }
+    var descEl = document.getElementById('cfy-desc');
+    var projEl = document.getElementById('cfy-project');
+    if (descEl) descEl.value = '';
+    if (projEl) projEl.value = '';
     setStartBtn();
+    updateButtons();
     showToast('Timer stopped!');
     await loadTodayEntries();
-    // Re-check attendance buttons now that timer stopped
-    if (typeof updateButtons === 'function') updateButtons();
-  } catch(e) { showToast('Could not stop timer.'); }
+  } catch(e) {
+    showToast('Could not stop timer. Try again.');
+    // Re-enable the button whatever state we are in
+    if (cfyRunningId) setStopBtn(); else setStartBtn();
+  }
 }
 
 function startTimerDisplay() {
   if (cfyTimerTick) clearInterval(cfyTimerTick);
   updateTimerDisplay();
   cfyTimerTick = setInterval(updateTimerDisplay, 1000);
-  document.getElementById('cfy-timer-display').classList.add('running');
+  var disp = document.getElementById('cfy-timer-display');
+  if (disp) disp.classList.add('running');
 }
 
 function updateTimerDisplay() {
@@ -3422,25 +3449,26 @@ function updateTimerDisplay() {
   var h = Math.floor(diff / 3600);
   var m = Math.floor((diff % 3600) / 60);
   var s = diff % 60;
-  document.getElementById('cfy-timer-display').textContent =
-    pad(h) + ':' + pad(m) + ':' + pad(s);
+  var disp = document.getElementById('cfy-timer-display');
+  if (disp) disp.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
 }
 
-function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function pad(n) { return n < 10 ? '0' + n : String(n); }
 
 function setStopBtn() {
   var btn = document.getElementById('cfy-start-btn');
+  if (!btn) return;
   btn.textContent = 'Stop';
   btn.classList.add('stop-btn');
-  // Always make sure Stop button is clickable
-  btn.disabled = false;
-  btn.style.opacity = '';
+  btn.disabled    = false;
+  btn.style.opacity = '1';
   var hint = document.getElementById('cfy-timein-hint');
   if (hint) hint.style.display = 'none';
 }
 
 function setStartBtn() {
   var btn = document.getElementById('cfy-start-btn');
+  if (!btn) return;
   btn.textContent = 'Start';
   btn.classList.remove('stop-btn');
   updateClockifyStartBtn();
@@ -3449,37 +3477,34 @@ function setStartBtn() {
 function updateClockifyStartBtn() {
   var btn = document.getElementById('cfy-start-btn');
   if (!btn) return;
-
-  // If timer is currently running → button must ALWAYS be enabled (to stop it)
+  // Timer running → always enable (need to stop it)
   if (cfyRunningId) {
-    btn.disabled = false;
-    btn.style.opacity = '';
-    btn.title = '';
+    btn.disabled      = false;
+    btn.style.opacity = '1';
+    btn.title         = '';
     var hint = document.getElementById('cfy-timein-hint');
     if (hint) hint.style.display = 'none';
     return;
   }
-
-  // Timer is NOT running → only allow Start if employee is timed in
+  // Timer idle → enable only if timed in
   var active = getActiveSession();
+  var hint   = document.getElementById('cfy-timein-hint');
   if (!active) {
-    btn.disabled = true;
+    btn.disabled      = true;
     btn.style.opacity = '0.45';
-    btn.title = 'Time In first to start tracking';
-    var hint = document.getElementById('cfy-timein-hint');
+    btn.title         = 'Time In first to start tracking';
     if (!hint) {
       hint = document.createElement('div');
-      hint.id = 'cfy-timein-hint';
+      hint.id        = 'cfy-timein-hint';
       hint.style.cssText = 'font-size:12px;color:var(--orange-3);text-align:center;margin-top:8px;padding:6px 12px;background:rgba(255,107,26,0.08);border:1px solid rgba(255,107,26,0.2);border-radius:var(--radius-sm);';
-      hint.textContent = '⚠️ You must Time In before tracking time.';
+      hint.textContent   = 'You must Time In before tracking time.';
       btn.parentNode.insertBefore(hint, btn.nextSibling);
     }
     hint.style.display = 'block';
   } else {
-    btn.disabled = false;
-    btn.style.opacity = '';
-    btn.title = '';
-    var hint = document.getElementById('cfy-timein-hint');
+    btn.disabled      = false;
+    btn.style.opacity = '1';
+    btn.title         = '';
     if (hint) hint.style.display = 'none';
   }
 }
