@@ -444,22 +444,15 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <div id="sc-form-wrap" style="display:none;margin-top:1.5rem;">
         <div class="tw" style="padding:20px 24px;">
           <p style="font-size:13px;font-weight:600;color:var(--t1);margin:0 0 16px;">Add / Edit Scorecard</p>
+          <p style="font-size:11px;color:var(--t3);margin:0 0 12px;">Productivity and Quality scores are pulled automatically from the <b>Employees</b> sheet (<code>productivity_score</code>, <code>qa_score</code> columns). Attendance is auto-calculated. You can add an admin note here.</p>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
             <div>
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Employee</label>
               <select class="sinp" id="sc-form-emp" style="width:100%;"></select>
             </div>
             <div>
-              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Month (YYYY-MM)</label>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Month</label>
               <input type="month" id="sc-form-month" class="sinp" style="width:100%;" />
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Productivity (0–100)</label>
-              <input type="number" id="sc-form-prod" class="sinp" min="0" max="100" placeholder="0–100" style="width:100%;" />
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Quality (0–100)</label>
-              <input type="number" id="sc-form-qual" class="sinp" min="0" max="100" placeholder="0–100" style="width:100%;" />
             </div>
           </div>
           <div style="margin-bottom:12px;">
@@ -1267,34 +1260,24 @@ function editScorecard(sc) {
   document.getElementById('sc-form-wrap').style.display = 'block';
   document.getElementById('sc-form-emp').value   = sc.employee_id || '';
   document.getElementById('sc-form-month').value = sc.month || '';
-  document.getElementById('sc-form-prod').value  = sc.productivity || '';
-  document.getElementById('sc-form-qual').value  = sc.quality || '';
   document.getElementById('sc-form-note').value  = sc.note || '';
 }
 
 async function submitScorecard() {
   var empId = document.getElementById('sc-form-emp').value;
   var month = document.getElementById('sc-form-month').value;
-  var prod  = document.getElementById('sc-form-prod').value;
-  var qual  = document.getElementById('sc-form-qual').value;
   var note  = document.getElementById('sc-form-note').value;
 
   if (!empId || !month) { toast('Please select employee and month.'); return; }
 
-  // Find employee name
   var emp = scAdminEmps.find(function(e) { return e.employee_id === empId; });
   var fullName = emp ? emp.full_name : empId;
-
-  // Attendance is auto-calculated server-side
-  var overall = (prod && qual) ? Math.round((Number(prod) + Number(qual)) / 2) : null;
 
   try {
     var url = API + '?action=save_scorecard' +
       '&employee_id=' + encodeURIComponent(empId) +
       '&full_name='   + encodeURIComponent(fullName) +
       '&month='       + encodeURIComponent(month) +
-      '&productivity='+ encodeURIComponent(prod||'') +
-      '&quality='     + encodeURIComponent(qual||'') +
       '&note='        + encodeURIComponent(note||'');
     var res  = await fetch(url);
     var data = await res.json();
