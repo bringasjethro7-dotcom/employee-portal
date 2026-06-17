@@ -242,6 +242,9 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
         <span class="tab-notif" id="admin-msg-badge"></span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </button>
+      <button class="tab" id="t-scorecard" onclick="goTab('scorecard')" title="Scorecard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+      </button>
       <button class="tab" id="t-coe" onclick="goTab('coe')" title="COE Requests">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
       </button>
@@ -410,6 +413,67 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       </div>
     </div>
 
+    <!-- SCORECARD ADMIN -->
+    <div id="p-scorecard" style="display:none;">
+      <div class="toolbar">
+        <div class="tl">
+          <select class="sinp" id="sc-emp-filter" onchange="loadAdminScorecard()" style="width:200px;">
+            <option value="">All employees</option>
+          </select>
+          <select class="sinp" id="sc-month-filter" onchange="loadAdminScorecard()" style="width:160px;margin-left:8px;"></select>
+        </div>
+        <button class="bsm" onclick="openScorecardForm()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add / Edit</button>
+      </div>
+      <div class="tw">
+        <table id="sc-table">
+          <thead><tr>
+            <th>Employee</th>
+            <th>Month</th>
+            <th>Productivity</th>
+            <th>Quality</th>
+            <th>Attendance</th>
+            <th>Overall</th>
+            <th>Note</th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody id="sc-body"><tr><td colspan="8" class="es">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- Scorecard Form -->
+      <div id="sc-form-wrap" style="display:none;margin-top:1.5rem;">
+        <div class="tw" style="padding:20px 24px;">
+          <p style="font-size:13px;font-weight:600;color:var(--t1);margin:0 0 16px;">Add / Edit Scorecard</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Employee</label>
+              <select class="sinp" id="sc-form-emp" style="width:100%;"></select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Month (YYYY-MM)</label>
+              <input type="month" id="sc-form-month" class="sinp" style="width:100%;" />
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Productivity (0–100)</label>
+              <input type="number" id="sc-form-prod" class="sinp" min="0" max="100" placeholder="0–100" style="width:100%;" />
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Quality (0–100)</label>
+              <input type="number" id="sc-form-qual" class="sinp" min="0" max="100" placeholder="0–100" style="width:100%;" />
+            </div>
+          </div>
+          <div style="margin-bottom:12px;">
+            <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Admin Note (optional)</label>
+            <input type="text" id="sc-form-note" class="sinp" placeholder="e.g. Keep up the great work!" style="width:100%;" />
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="bsm" onclick="submitScorecard()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Save Scorecard</button>
+            <button class="bsm" onclick="document.getElementById('sc-form-wrap').style.display='none'">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
 <!-- MODAL -->
 <div class="mb" id="modal">
   <div class="modal">
@@ -471,7 +535,7 @@ function doLogout(){
 }
 
 function goTab(name){
-  ['emp','att','leave','pin','chat','coe'].forEach(function(n){
+  ['emp','att','leave','pin','chat','coe','scorecard'].forEach(function(n){
     document.getElementById('t-'+n).classList.toggle('active',n===name);
     document.getElementById('p-'+n).style.display=n===name?'block':'none';
   });
@@ -480,6 +544,7 @@ function goTab(name){
   if(name==='pin')  loadPINResets();
   if(name==='chat') { initAdminChat(); }
   if(name==='coe')  loadCOE();
+  if(name==='scorecard') loadAdminScorecard();
 }
 
 function loadFromSheet(){
@@ -1124,6 +1189,125 @@ function approveCOE(row, status) {
       }
     })
     .catch(function() { toast('Connection error'); });
+}
+
+
+
+// ══════════════════════════════════════════
+// ADMIN SCORECARD
+// ══════════════════════════════════════════
+var scAdminEmps = [];
+
+async function loadAdminScorecard() {
+  // Populate employee dropdown
+  if (!scAdminEmps.length) {
+    try {
+      var r = await fetch(API + '?action=get_all_employees');
+      var d = await r.json();
+      scAdminEmps = d.employees || [];
+      var empSel = document.getElementById('sc-emp-filter');
+      var formEmpSel = document.getElementById('sc-form-emp');
+      scAdminEmps.forEach(function(e) {
+        var opt = '<option value="' + e.employee_id + '">' + e.full_name + ' (' + e.employee_id + ')</option>';
+        empSel.innerHTML += opt;
+        formEmpSel.innerHTML += opt;
+      });
+    } catch(err) {}
+  }
+
+  // Populate month dropdown (last 12 months)
+  var monthSel = document.getElementById('sc-month-filter');
+  if (monthSel.options.length <= 1) {
+    var now = new Date();
+    for (var i = 0; i < 12; i++) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      var key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+      var label = d.toLocaleDateString('en-US', { month:'long', year:'numeric' });
+      monthSel.innerHTML += '<option value="' + key + '"' + (i===0?' selected':'') + '>' + label + '</option>';
+    }
+  }
+
+  var empId = document.getElementById('sc-emp-filter').value;
+  var month = document.getElementById('sc-month-filter').value;
+  var tbody = document.getElementById('sc-body');
+  tbody.innerHTML = '<tr><td colspan="8" class="es">Loading…</td></tr>';
+
+  try {
+    var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '');
+    var res  = await fetch(url);
+    var data = await res.json();
+    var rows = data.scorecards || [];
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="es">No scorecards found.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(function(sc) {
+      var overall = sc.overall ? parseFloat(sc.overall).toFixed(2) : (Math.round(((parseFloat(sc.productivity||0)+parseFloat(sc.quality||0)+parseFloat(sc.attendance||0))/3)*100)/100).toFixed(2);
+      return '<tr>' +
+        '<td><strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
+        '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
+        '<td><span style="color:#378add;font-weight:600;">' + (sc.productivity||'—') + '</span></td>' +
+        '<td><span style="color:#1d9e75;font-weight:600;">' + (sc.quality||'—') + '</span></td>' +
+        '<td><span style="color:#ef9f27;font-weight:600;">' + (sc.attendance||'—') + '</span></td>' +
+        '<td><strong style="color:var(--o3);">' + overall + '</strong></td>' +
+        '<td style="font-size:12px;color:var(--t3);">' + (sc.note||'—') + '</td>' +
+        '<td><button onclick="editScorecard(' + JSON.stringify(sc).replace(/"/g,"'") + ')" style="background:rgba(255,107,26,0.1);border:1px solid rgba(255,107,26,0.3);color:var(--o3);padding:3px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;">Edit</button></td>' +
+      '</tr>';
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="8" class="es">Error loading scorecards.</td></tr>';
+  }
+}
+
+function openScorecardForm() {
+  document.getElementById('sc-form-wrap').style.display = 'block';
+  // Default month to current
+  var now = new Date();
+  document.getElementById('sc-form-month').value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+}
+
+function editScorecard(sc) {
+  document.getElementById('sc-form-wrap').style.display = 'block';
+  document.getElementById('sc-form-emp').value   = sc.employee_id || '';
+  document.getElementById('sc-form-month').value = sc.month || '';
+  document.getElementById('sc-form-prod').value  = sc.productivity || '';
+  document.getElementById('sc-form-qual').value  = sc.quality || '';
+  document.getElementById('sc-form-note').value  = sc.note || '';
+}
+
+async function submitScorecard() {
+  var empId = document.getElementById('sc-form-emp').value;
+  var month = document.getElementById('sc-form-month').value;
+  var prod  = document.getElementById('sc-form-prod').value;
+  var qual  = document.getElementById('sc-form-qual').value;
+  var note  = document.getElementById('sc-form-note').value;
+
+  if (!empId || !month) { toast('Please select employee and month.'); return; }
+
+  // Find employee name
+  var emp = scAdminEmps.find(function(e) { return e.employee_id === empId; });
+  var fullName = emp ? emp.full_name : empId;
+
+  // Attendance is auto-calculated server-side
+  var overall = (prod && qual) ? Math.round((Number(prod) + Number(qual)) / 2) : null;
+
+  try {
+    var url = API + '?action=save_scorecard' +
+      '&employee_id=' + encodeURIComponent(empId) +
+      '&full_name='   + encodeURIComponent(fullName) +
+      '&month='       + encodeURIComponent(month) +
+      '&productivity='+ encodeURIComponent(prod||'') +
+      '&quality='     + encodeURIComponent(qual||'') +
+      '&note='        + encodeURIComponent(note||'');
+    var res  = await fetch(url);
+    var data = await res.json();
+    if (data.success) {
+      toast('✅ Scorecard saved!');
+      document.getElementById('sc-form-wrap').style.display = 'none';
+      loadAdminScorecard();
+    } else {
+      toast('Error: ' + (data.error||'Unknown'));
+    }
+  } catch(e) {
+    toast('Connection error.');
+  }
 }
 
 </script>
