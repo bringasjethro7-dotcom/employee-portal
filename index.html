@@ -4087,6 +4087,41 @@ function initLeave(empId) {
   document.getElementById('leave-end').min   = today;
   updateLeaveBalance();
   renderLeaveHistory();
+  // Always sync latest statuses from server
+  syncLeaveFromServer();
+}
+
+function syncLeaveFromServer() {
+  if (!leaveEmpId) return;
+  fetch(APPS_SCRIPT_URL + '?action=get_leave_requests&id=' + encodeURIComponent(leaveEmpId))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.requests || !d.requests.length) return;
+      // Get local requests
+      var local = JSON.parse(localStorage.getItem('leave_' + leaveEmpId) || '[]');
+      if (!local.length) return;
+      // Update local statuses from server
+      var updated = false;
+      d.requests.forEach(function(serverReq) {
+        var startVal = serverReq.start || serverReq.start_date || '';
+        local.forEach(function(localReq) {
+          // Match by start date and type
+          if (localReq.type === serverReq.type &&
+              localReq.start === startVal &&
+              localReq.status !== serverReq.status &&
+              serverReq.status) {
+            localReq.status = serverReq.status;
+            updated = true;
+          }
+        });
+      });
+      if (updated) {
+        localStorage.setItem('leave_' + leaveEmpId, JSON.stringify(local));
+        renderLeaveHistory();
+        updateLeaveBalance();
+      }
+    })
+    .catch(function() {}); // silent fail — offline
 }
 
 // ══════════════════════════════════════════
