@@ -3205,10 +3205,13 @@ function todayStr() {
 function resolveAttToday(empId) {
   var now = new Date();
   var rawToday = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+
   if (now.getHours() < 6 && empId) {
     var yest = new Date(now);
     yest.setDate(yest.getDate() - 1);
     var yKey = yest.getFullYear() + '-' + String(yest.getMonth()+1).padStart(2,'0') + '-' + String(yest.getDate()).padStart(2,'0');
+
+    // Check 1: localStorage sessions key
     var stored = localStorage.getItem('att_today_' + empId + '_' + yKey);
     if (stored) {
       try {
@@ -3222,6 +3225,30 @@ function resolveAttToday(empId) {
         if (hasActive) return yKey;
       } catch(e) {}
     }
+
+    // Check 2: attRecords array (from server) for yesterday flat record
+    try {
+      var allRecs = JSON.parse(localStorage.getItem('att_' + empId) || '[]');
+      var yRec = allRecs.find(function(r) {
+        return r.date && String(r.date).substring(0, 10) === yKey;
+      });
+      if (yRec && yRec.time_in && !yRec.time_out) {
+        // Restore to sessions format and save to correct key
+        var restored = {
+          date: yKey,
+          shift: yRec.shift || 'night',
+          sessions: [{
+            time_in:   yRec.time_in   || null,
+            time_out:  yRec.time_out  || null,
+            lunch_out: yRec.lunch_out || null,
+            lunch_in:  yRec.lunch_in  || null,
+            shift:     yRec.shift     || 'night'
+          }]
+        };
+        localStorage.setItem('att_today_' + empId + '_' + yKey, JSON.stringify(restored));
+        return yKey;
+      }
+    } catch(e) {}
   }
   return rawToday;
 }
