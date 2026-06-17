@@ -3196,11 +3196,34 @@ function getShiftForRecord(timeInStr) {
 // ── Date helpers ──
 function todayStr() {
   const d = new Date();
-  // Always return YYYY-MM-DD in local time
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return y + '-' + m + '-' + day;
+}
+
+function resolveAttToday(empId) {
+  var now = new Date();
+  var rawToday = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  if (now.getHours() < 6 && empId) {
+    var yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    var yKey = yest.getFullYear() + '-' + String(yest.getMonth()+1).padStart(2,'0') + '-' + String(yest.getDate()).padStart(2,'0');
+    var stored = localStorage.getItem('att_today_' + empId + '_' + yKey);
+    if (stored) {
+      try {
+        var rec = JSON.parse(stored);
+        var hasActive = false;
+        if (rec.sessions && rec.sessions.length) {
+          hasActive = rec.sessions.some(function(s) { return s.time_in && !s.time_out; });
+        } else if (rec.time_in && !rec.time_out) {
+          hasActive = true;
+        }
+        if (hasActive) return yKey;
+      } catch(e) {}
+    }
+  }
+  return rawToday;
 }
 
 function fmtTime(isoStr) {
@@ -3360,6 +3383,7 @@ async function forceTimeOut(date) {
 // ── Init attendance tab ──
 function initAttendance(empId) {
   attEmpId = empId;
+  attToday = resolveAttToday(empId);  // Set ONCE correctly before anything else
 
   // Start live clock
   if (clockTimer) clearInterval(clockTimer);
@@ -3370,8 +3394,6 @@ function initAttendance(empId) {
   todayLog = { sessions: [] };
   renderAttendance();
 
-  // loadAttendanceLogs will set attToday correctly (handles night shift)
-  // then fetch from server and merge with localStorage
   loadAttendanceLogs();
 }
 
@@ -3407,42 +3429,9 @@ function migrateToSessions(rec) {
 }
 
 function loadAttendanceLogs() {
-  // Recalculate attToday — but check for active night shift session from yesterday
-  var rawToday = (function() {
-    var d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-  })();
-
-  // Night shift check: between midnight and 6 AM, look for active session yesterday
-  var now = new Date();
-  if (now.getHours() < 6) {
-    var yest = new Date(now);
-    yest.setDate(yest.getDate() - 1);
-    var yKey = yest.getFullYear() + '-' + String(yest.getMonth()+1).padStart(2,'0') + '-' + String(yest.getDate()).padStart(2,'0');
-    var yStored = localStorage.getItem('att_today_' + attEmpId + '_' + yKey);
-    if (yStored) {
-      try {
-        var yRec = JSON.parse(yStored);
-        // Check for active session - supports both flat and sessions format
-        var hasActive = false;
-        if (yRec.sessions && yRec.sessions.length) {
-          hasActive = yRec.sessions.some(function(s) { return s.time_in && !s.time_out; });
-        } else if (yRec.time_in && !yRec.time_out) {
-          hasActive = true;
-        }
-        if (hasActive) {
-          attToday = yKey;
-          Logger && Logger.log && Logger.log('Night shift: using yesterday key ' + yKey);
-        } else {
-          attToday = rawToday;
-        }
-      } catch(e) { attToday = rawToday; }
-    } else {
-      attToday = rawToday;
-    }
-  } else {
-    attToday = rawToday;
-  }
+  // attToday is already set correctly by resolveAttToday() in initAttendance
+  // Re-resolve on tab switch to handle midnight crossover
+  if (attEmpId) attToday = resolveAttToday(attEmpId);
 
   var url = APPS_SCRIPT_URL + '?action=get_attendance&id=' + encodeURIComponent(attEmpId);
 
