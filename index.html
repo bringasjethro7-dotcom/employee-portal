@@ -4091,30 +4091,73 @@ function initLeave(empId) {
   syncLeaveFromServer();
 }
 
+function normLeaveDate(val) {
+  // Handles: "2026-06-17", "Wed Jun 17 2026 00:00:00 GMT+0800...", ISO strings
+  if (!val) return '';
+  var s = String(val).trim();
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
+  // Try parsing as Date
+  var d = new Date(s);
+  if (!isNaN(d)) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+  return s.substring(0, 10);
+}
+
 function syncLeaveFromServer() {
   if (!leaveEmpId) return;
   fetch(APPS_SCRIPT_URL + '?action=get_leave_requests&id=' + encodeURIComponent(leaveEmpId))
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (!d.requests || !d.requests.length) return;
+
+      // Server is source of truth for status
+      // Build a map keyed by type + normalized start date
+      var serverMap = {};
+      d.requests.forEach(function(sr) {
+        var startNorm = normLeaveDate(sr.start || sr.start_date || '');
+        var key = (sr.type || '').toLowerCase() + '|' + startNorm;
+        serverMap[key] = (sr.status || 'pending').toLowerCase();
+      });
+
       // Get local requests
       var local = JSON.parse(localStorage.getItem('leave_' + leaveEmpId) || '[]');
-      if (!local.length) return;
+
+      if (!local.length) {
+        // No local data — build from server directly
+        var built = d.requests.map(function(sr) {
+          return {
+            type:      sr.type || '',
+            start:     normLeaveDate(sr.start || sr.start_date || ''),
+            end:       normLeaveDate(sr.end   || sr.end_date   || ''),
+            days:      sr.days || 1,
+            reason:    sr.reason || '',
+            status:    (sr.status || 'pending').toLowerCase(),
+            submitted: sr.submitted || new Date().toISOString(),
+          };
+        });
+        localStorage.setItem('leave_' + leaveEmpId, JSON.stringify(built));
+        renderLeaveHistory();
+        updateLeaveBalance();
+        return;
+      }
+
       // Update local statuses from server
       var updated = false;
-      d.requests.forEach(function(serverReq) {
-        var startVal = serverReq.start || serverReq.start_date || '';
-        local.forEach(function(localReq) {
-          // Match by start date and type
-          if (localReq.type === serverReq.type &&
-              localReq.start === startVal &&
-              localReq.status !== serverReq.status &&
-              serverReq.status) {
-            localReq.status = serverReq.status;
-            updated = true;
-          }
-        });
+      local.forEach(function(localReq) {
+        var startNorm = normLeaveDate(localReq.start || '');
+        var key = (localReq.type || '').toLowerCase() + '|' + startNorm;
+        var serverStatus = serverMap[key];
+        if (serverStatus && localReq.status !== serverStatus) {
+          localReq.status = serverStatus;
+          updated = true;
+        }
       });
+
       if (updated) {
         localStorage.setItem('leave_' + leaveEmpId, JSON.stringify(local));
         renderLeaveHistory();
