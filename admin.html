@@ -283,6 +283,9 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <button class="tab" id="t-coe" onclick="goTab('coe')" title="COE Requests">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
       </button>
+      <button class="tab" id="t-worklog" onclick="goTab('worklog')" title="Work Log">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      </button>
     </div>
 
     <!-- EMPLOYEES -->
@@ -507,6 +510,37 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
         </div>
       </div>
     </div>
+
+    <!-- WORK LOG -->
+    <div id="p-worklog" style="display:none;">
+      <div class="toolbar">
+        <div class="tl">
+          <select class="sinp" id="wl-emp-filter" onchange="loadWorkLog()" style="width:200px;">
+            <option value="">All employees</option>
+          </select>
+          <select class="sinp" id="wl-month-filter" onchange="loadWorkLog()" style="width:160px;margin-left:8px;"></select>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span id="wl-total" style="font-size:12px;color:var(--t2);"></span>
+          <button class="bsm" onclick="exportWorkLogCSV()">⬇ Export CSV</button>
+          <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="tw">
+        <table id="wl-table">
+          <thead><tr>
+            <th>Employee</th>
+            <th>Date</th>
+            <th>Project</th>
+            <th>Task</th>
+            <th>Description</th>
+            <th>Hours</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody id="wl-body"><tr><td colspan="7" class="es">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -581,7 +615,7 @@ function doLogout(){
 }
 
 function goTab(name){
-  ['emp','att','leave','pin','chat','coe','scorecard'].forEach(function(n){
+  ['emp','att','leave','pin','chat','coe','scorecard','worklog'].forEach(function(n){
     document.getElementById('t-'+n).classList.toggle('active',n===name);
     document.getElementById('p-'+n).style.display=n===name?'block':'none';
   });
@@ -591,6 +625,102 @@ function goTab(name){
   if(name==='chat') { initAdminChat(); }
   if(name==='coe')  loadCOE();
   if(name==='scorecard') loadAdminScorecard();
+  if(name==='worklog') loadWorkLog();
+}
+
+// ── WORK LOG (consolidated Clockify time) ──
+var wlEmps = [];
+var wlRows = [];
+async function wlSetStatus(row, status){
+  try{
+    await fetch(API + '?action=set_worklog_status&row=' + encodeURIComponent(row) + '&status=' + encodeURIComponent(status));
+    loadWorkLog();
+  }catch(e){ if(typeof toast==='function') toast('Could not update status.'); }
+}
+function exportWorkLogCSV(){
+  if(!wlRows || !wlRows.length){ if(typeof toast==='function') toast('Nothing to export.'); return; }
+  function esc(v){ v = (v==null?'':String(v)); return '"'+v.replace(/"/g,'""')+'"'; }
+  var headers = ['Employee','Employee ID','Date','Project','Task','Description','Hours','Status'];
+  var lines = [headers.map(esc).join(',')];
+  wlRows.forEach(function(w){
+    lines.push([w.full_name||w.employee_id||'', w.employee_id||'', w.date||'', w.project||'', w.task||'', w.description||'', (parseFloat(w.hours)||0).toFixed(2), (w.status||'recorded')].map(esc).join(','));
+  });
+  var csv = '﻿' + lines.join('\r\n');
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var emp = (document.getElementById('wl-emp-filter')||{}).value || 'all';
+  var mo  = (document.getElementById('wl-month-filter')||{}).value || 'all';
+  var a = document.createElement('a');
+  a.href = url; a.download = 'worklog_'+(emp||'all')+'_'+(mo||'all')+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
+async function loadWorkLog(){
+  var empSel = document.getElementById('wl-emp-filter');
+  if(empSel && empSel.options.length <= 1){
+    try{
+      var r = await fetch(API + '?action=get_all_employees');
+      var d = await r.json();
+      wlEmps = d.employees || [];
+      wlEmps.forEach(function(e){
+        empSel.innerHTML += '<option value="'+e.employee_id+'">'+e.full_name+' ('+e.employee_id+')</option>';
+      });
+    }catch(err){}
+  }
+  var moSel = document.getElementById('wl-month-filter');
+  if(moSel && moSel.options.length === 0){
+    moSel.innerHTML = '<option value="">All months</option>';
+    var now = new Date();
+    for(var i=0;i<12;i++){
+      var dt = new Date(now.getFullYear(), now.getMonth()-i, 1);
+      var key = dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');
+      var label = dt.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+      moSel.innerHTML += '<option value="'+key+'"'+(i===0?' selected':'')+'>'+label+'</option>';
+    }
+  }
+  var empId = empSel ? empSel.value : '';
+  var month = moSel ? moSel.value : '';
+  var tbody = document.getElementById('wl-body');
+  tbody.innerHTML = '<tr><td colspan="6" class="es">Loading…</td></tr>';
+  try{
+    var url = API + '?action=get_worklog' + (empId?'&employee_id='+encodeURIComponent(empId):'') + (month?'&month='+encodeURIComponent(month):'');
+    var res = await fetch(url);
+    var data = await res.json();
+    wlRows = data.worklog || [];
+    var rows = wlRows;
+    var totalEl = document.getElementById('wl-total');
+    if(!rows.length){ tbody.innerHTML = '<tr><td colspan="7" class="es">No work log entries.</td></tr>'; if(totalEl) totalEl.textContent=''; return; }
+    var recorded = 0, pendingCount = 0;
+    tbody.innerHTML = rows.map(function(w){
+      var hrs = parseFloat(w.hours)||0;
+      var st = (w.status||'recorded');
+      var statusCell;
+      if(st==='pending'){
+        pendingCount++;
+        statusCell = '<div style="color:#f59e0b;font-weight:600;margin-bottom:4px;">⏳ Pending</div>'+
+          '<button onclick="wlSetStatus('+w._row+",'recorded')\" style=\"background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;\">Approve</button> "+
+          '<button onclick="wlSetStatus('+w._row+",'rejected')\" style=\"background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);color:#ef4444;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;\">Reject</button>";
+      } else if(st==='rejected'){
+        statusCell = '<span style="color:var(--red);">✕ Rejected</span> '+
+          '<button onclick="wlSetStatus('+w._row+",'recorded')\" style=\"background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;margin-left:4px;\">Approve</button>";
+      } else {
+        recorded += hrs;
+        statusCell = '<span style="color:var(--green);">✓ Recorded</span>';
+      }
+      return '<tr>'+
+        '<td><strong>'+(w.full_name||w.employee_id)+'</strong></td>'+
+        '<td style="color:var(--t3);font-size:12px;white-space:nowrap;">'+(w.date||'')+'</td>'+
+        '<td>'+(w.project||'—')+'</td>'+
+        '<td>'+(w.task||'—')+'</td>'+
+        '<td style="color:var(--t2);font-size:12px;">'+(w.description||'—')+'</td>'+
+        '<td><strong style="color:var(--o3);">'+hrs.toFixed(2)+'</strong></td>'+
+        '<td style="font-size:12px;white-space:nowrap;">'+statusCell+'</td>'+
+      '</tr>';
+    }).join('');
+    if(totalEl) totalEl.textContent = 'Recorded: ' + (Math.round(recorded*100)/100) + ' hrs' + (pendingCount? ' · ' + pendingCount + ' pending' : '');
+  }catch(e){
+    tbody.innerHTML = '<tr><td colspan="6" class="es">Error loading work log.</td></tr>';
+  }
 }
 
 function loadFromSheet(){

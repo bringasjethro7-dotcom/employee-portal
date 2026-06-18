@@ -673,6 +673,15 @@
   .bio-alert-title { font-size:15px; font-weight:700; }
   .bio-alert-sub { font-size:12.5px; color:rgba(255,255,255,0.88); margin-top:2px; }
   .bio-alert-close { background:rgba(255,255,255,0.2); border:none; color:#fff; width:26px;height:26px;border-radius:50%; cursor:pointer; flex-shrink:0; font-size:13px; }
+  /* Work Log warning modal */
+  .wl-warn-overlay { position:fixed; inset:0; z-index:4000; background:rgba(0,0,0,0.6); display:none; align-items:center; justify-content:center; padding:1rem; }
+  .wl-warn-overlay.show { display:flex; }
+  .wl-warn-box { background:var(--bg-card); border:1px solid var(--border); border-radius:16px; max-width:420px; width:100%; padding:1.75rem; text-align:center; box-shadow:0 24px 60px rgba(0,0,0,0.5); }
+  .wl-warn-icon { font-size:40px; margin-bottom:6px; }
+  .wl-warn-box h3 { font-size:18px; color:var(--text-1); margin-bottom:10px; }
+  .wl-warn-box p { font-size:13.5px; color:var(--text-2); line-height:1.7; margin-bottom:10px; }
+  .wl-warn-box .wl-warn-note { font-size:12.5px; color:var(--text-3); }
+  .wl-warn-box button { margin-top:14px; padding:10px 30px; background:linear-gradient(135deg,var(--orange-1),var(--orange-2)); color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
   @keyframes notifPulse {
     0%, 100% { transform: scale(1); opacity: 1; }
     50%       { transform: scale(1.3); opacity: 0.7; }
@@ -2294,6 +2303,17 @@
       <span class="tab-notif" id="tab-msg-notif"></span>
       <span id="msg-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;min-width:18px;height:18px;line-height:14px;text-align:center;padding:0 4px;border-radius:9px;border:2px solid var(--bg-deep);"></span>
     </button>
+
+    <!-- WORK LOG WARNING -->
+    <div id="worklog-warn" class="wl-warn-overlay">
+      <div class="wl-warn-box">
+        <div class="wl-warn-icon">⚠️</div>
+        <h3>Tracked time exceeds attendance</h3>
+        <p id="wl-warn-msg"></p>
+        <p class="wl-warn-note">Your tracked tasks are <b>on hold</b> and won't be officially recorded until an admin reviews and approves (or edits) your time.</p>
+        <button onclick="closeWorklogWarning()">Got it</button>
+      </div>
+    </div>
 
     <!-- OVERVIEW -->
     <div class="tab-panel active" id="tab-overview">
@@ -4218,6 +4238,8 @@ function logTime(type) {
     });
   } catch(e) {}
 
+  if (type === 'time_out' && typeof syncWorklogOnTimeOut === 'function') syncWorklogOnTimeOut();
+
   renderAttendance();
   if (typeof updateClockifyStartBtn === 'function') updateClockifyStartBtn();
   showToast(typeLabel(type) + ' recorded at ' + fmtTime(isoNow) +
@@ -4569,6 +4591,82 @@ function calcCfyDur(start, end) {
   var h = Math.floor(diff / 60);
   var m = diff % 60;
   return { mins: diff, label: (h > 0 ? h + 'h ' : '') + m + 'm' };
+}
+
+// ── CONSOLIDATE CLOCKIFY → WORKLOG ON TIME-OUT ──
+// On time-out, stop any running timer, pull the day's Clockify entries,
+// and send each task (project/task/hours) to the shared WorkLog sheet.
+async function syncWorklogOnTimeOut() {
+  if (!cfyApiKey || !cfyUserId || !cfyWorkspaceId) return; // Clockify not set up
+  try {
+    if (cfyRunningId && typeof stopTimer === 'function') {
+      try { await stopTimer(); } catch(e) {}
+    }
+    var now = new Date();
+    var hour = now.getHours();
+    var startBase = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (hour < 7 || (hour === 7 && now.getMinutes() < 30)) startBase.setDate(startBase.getDate() - 1);
+    startBase.setHours(7, 30, 0, 0);
+    var start = startBase.toISOString();
+    var url = CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId +
+              '/time-entries?start=' + encodeURIComponent(start) + '&page-size=50&hydrated=true';
+    var res = await fetch(url, { headers: cfyHeaders() });
+    var entries = await res.json();
+    if (!Array.isArray(entries)) return;
+    var completed = entries.filter(function(e) { return e.timeInterval && e.timeInterval.end; });
+    if (!completed.length) return;
+    var data = window._currentEmpData || {};
+    var rows = completed.map(function(e) {
+      var proj = cfyProjects.find(function(p) { return p.id === e.projectId; });
+      var dur = calcCfyDur(e.timeInterval.start, e.timeInterval.end);
+      return {
+        clockify_id: e.id,
+        project: proj ? proj.name : '',
+        task: e.task ? e.task.name : '',
+        description: e.description || '',
+        hours: Math.round((dur.mins / 60) * 100) / 100,
+        start: e.timeInterval.start,
+        end: e.timeInterval.end
+      };
+    });
+    // Rule: total tracked hours must not exceed total attendance hours for the day.
+    var clockifyTotal   = rows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
+    var attendanceTotal = (typeof getTotalHoursToday === 'function') ? getTotalHoursToday() : 0;
+    var TOL = 0.05; // ~3 min tolerance for rounding
+    var pending = clockifyTotal > (attendanceTotal + TOL);
+
+    fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'log_worklog',
+        employee_id: attEmpId,
+        full_name: data.full_name || attEmpId,
+        date: attToday,
+        pending: pending,
+        tracked_hours: Math.round(clockifyTotal * 100) / 100,
+        attendance_hours: Math.round(attendanceTotal * 100) / 100,
+        entries: rows
+      }),
+      mode: 'no-cors'
+    });
+
+    if (pending && typeof showWorklogWarning === 'function') {
+      showWorklogWarning(clockifyTotal, attendanceTotal);
+    }
+  } catch(e) { console.warn('worklog sync:', e); }
+}
+
+// Warning shown when tracked time exceeds attendance hours
+function showWorklogWarning(tracked, attendance) {
+  function fmt(h) { var m = Math.round((h || 0) * 60); return Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
+  var el = document.getElementById('wl-warn-msg');
+  if (el) el.innerHTML = 'Your time tracker total for today is <b style="color:var(--orange-1)">' + fmt(tracked) +
+    '</b>, which exceeds your attendance hours of <b>' + fmt(attendance) + '</b>.';
+  var o = document.getElementById('worklog-warn'); if (o) o.classList.add('show');
+}
+function closeWorklogWarning() {
+  var o = document.getElementById('worklog-warn'); if (o) o.classList.remove('show');
 }
 
 // ── TIMER ──
