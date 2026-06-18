@@ -682,6 +682,23 @@
   .wl-warn-box p { font-size:13.5px; color:var(--text-2); line-height:1.7; margin-bottom:10px; }
   .wl-warn-box .wl-warn-note { font-size:12.5px; color:var(--text-3); }
   .wl-warn-box button { margin-top:14px; padding:10px 30px; background:linear-gradient(135deg,var(--orange-1),var(--orange-2)); color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
+  /* Work Log volume prompt */
+  .wl-vol-overlay { position:fixed; inset:0; z-index:4000; background:rgba(0,0,0,0.65); display:none; align-items:center; justify-content:center; padding:1rem; }
+  .wl-vol-overlay.show { display:flex; }
+  .wl-vol-box { background:var(--bg-card); border:1px solid var(--border); border-radius:16px; max-width:440px; width:100%; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 24px 60px rgba(0,0,0,0.5); overflow:hidden; }
+  .wl-vol-head { padding:1.5rem 1.5rem 0.4rem; }
+  .wl-vol-head h3 { font-size:18px; color:var(--text-1); margin-bottom:6px; }
+  .wl-vol-head p { font-size:13px; color:var(--text-2); line-height:1.6; }
+  #wl-vol-list { padding:0.25rem 1.5rem; overflow-y:auto; flex:1; }
+  .wl-vol-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); }
+  .wl-vol-info { flex:1; min-width:0; }
+  .wl-vol-task { font-size:14px; font-weight:600; color:var(--text-1); }
+  .wl-vol-sub { font-size:11px; color:var(--text-3); font-family:'JetBrains Mono',monospace; margin-top:2px; }
+  .wl-vol-input { width:84px; flex-shrink:0; background:var(--bg-deep); border:1px solid var(--border); border-radius:8px; color:var(--text-1); font-size:14px; padding:9px 10px; outline:none; text-align:center; font-family:inherit; transition:border-color .2s; }
+  .wl-vol-input:focus { border-color:var(--orange-1); }
+  .wl-vol-actions { padding:1rem 1.5rem; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+  .wl-vol-actions button { width:100%; padding:12px; background:linear-gradient(135deg,var(--orange-1),var(--orange-2)); color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; }
+  .wl-vol-later { background:none !important; color:var(--text-3) !important; font-size:12px !important; font-weight:400 !important; padding:2px !important; }
   @keyframes notifPulse {
     0%, 100% { transform: scale(1); opacity: 1; }
     50%       { transform: scale(1.3); opacity: 0.7; }
@@ -2312,6 +2329,21 @@
         <p id="wl-warn-msg"></p>
         <p class="wl-warn-note">Your tracked tasks are <b>on hold</b> and won't be officially recorded until an admin reviews and approves (or edits) your time.</p>
         <button onclick="closeWorklogWarning()">Got it</button>
+      </div>
+    </div>
+
+    <!-- WORK LOG VOLUME PROMPT -->
+    <div id="worklog-volume" class="wl-vol-overlay">
+      <div class="wl-vol-box">
+        <div class="wl-vol-head">
+          <h3>📋 Log your output</h3>
+          <p>Enter the volume/quantity you completed for each task before it's recorded.</p>
+        </div>
+        <div id="wl-vol-list"></div>
+        <div class="wl-vol-actions">
+          <button onclick="submitWorklogVolumes()">Submit &amp; Record</button>
+          <button class="wl-vol-later" onclick="closeVolumePrompt(true)">Later (won't be recorded yet)</button>
+        </div>
       </div>
     </div>
 
@@ -4615,8 +4647,7 @@ async function syncWorklogOnTimeOut() {
     if (!Array.isArray(entries)) return;
     var completed = entries.filter(function(e) { return e.timeInterval && e.timeInterval.end; });
     if (!completed.length) return;
-    var data = window._currentEmpData || {};
-    var rows = completed.map(function(e) {
+    var allRows = completed.map(function(e) {
       var proj = cfyProjects.find(function(p) { return p.id === e.projectId; });
       var dur = calcCfyDur(e.timeInterval.start, e.timeInterval.end);
       return {
@@ -4629,12 +4660,57 @@ async function syncWorklogOnTimeOut() {
         end: e.timeInterval.end
       };
     });
-    // Rule: total tracked hours must not exceed total attendance hours for the day.
-    var clockifyTotal   = rows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
+    // Only prompt/record entries not already submitted today (server also dedups by id)
+    var doneKey = 'worklog_done_' + attEmpId;
+    var done = {};
+    try { (JSON.parse(localStorage.getItem(doneKey) || '[]')).forEach(function(id) { done[id] = true; }); } catch(e) {}
+    var newRows = allRows.filter(function(r) { return !done[r.clockify_id]; });
+    if (!newRows.length) return; // nothing new to log
+    var clockifyTotal   = allRows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
     var attendanceTotal = (typeof getTotalHoursToday === 'function') ? getTotalHoursToday() : 0;
-    var TOL = 0.05; // ~3 min tolerance for rounding
-    var pending = clockifyTotal > (attendanceTotal + TOL);
+    _pendingWorklog = { rows: newRows, clockifyTotal: clockifyTotal, attendanceTotal: attendanceTotal, doneKey: doneKey };
+    showVolumePrompt(newRows);
+  } catch(e) { console.warn('worklog sync:', e); }
+}
 
+// Volume/output prompt shown at time-out before recording
+var _pendingWorklog = null;
+function showVolumePrompt(rows) {
+  var list = document.getElementById('wl-vol-list');
+  if (!list) return;
+  list.innerHTML = rows.map(function(r, i) {
+    var m = Math.round((r.hours || 0) * 60);
+    var hrLabel = Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    var label = r.task || r.description || 'Task';
+    var sub = (r.project ? r.project + ' · ' : '') + hrLabel;
+    return '<div class="wl-vol-item">' +
+      '<div class="wl-vol-info"><div class="wl-vol-task">' + escapeHtml(label) + '</div>' +
+      '<div class="wl-vol-sub">' + escapeHtml(sub) + '</div></div>' +
+      '<input class="wl-vol-input" type="number" min="0" step="any" inputmode="numeric" data-i="' + i + '" placeholder="Qty" />' +
+    '</div>';
+  }).join('');
+  var o = document.getElementById('worklog-volume'); if (o) o.classList.add('show');
+}
+function closeVolumePrompt(later) {
+  var o = document.getElementById('worklog-volume'); if (o) o.classList.remove('show');
+  if (later) _pendingWorklog = null; // not recorded; will re-prompt on next time-out
+}
+function submitWorklogVolumes() {
+  if (!_pendingWorklog) { closeVolumePrompt(); return; }
+  var inputs = document.querySelectorAll('#wl-vol-list .wl-vol-input');
+  var ok = true;
+  inputs.forEach(function(inp) {
+    if (inp.value === '' || isNaN(parseFloat(inp.value))) { inp.style.borderColor = '#ef4444'; ok = false; }
+    else inp.style.borderColor = '';
+  });
+  if (!ok) { showToast('Please enter the volume for every task.'); return; }
+  var rows = _pendingWorklog.rows;
+  inputs.forEach(function(inp) { var i = parseInt(inp.dataset.i, 10); if (rows[i]) rows[i].volume = parseFloat(inp.value); });
+  var clockifyTotal = _pendingWorklog.clockifyTotal;
+  var attendanceTotal = _pendingWorklog.attendanceTotal;
+  var pending = clockifyTotal > (attendanceTotal + 0.05);
+  var data = window._currentEmpData || {};
+  try {
     fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4650,11 +4726,15 @@ async function syncWorklogOnTimeOut() {
       }),
       mode: 'no-cors'
     });
-
-    if (pending && typeof showWorklogWarning === 'function') {
-      showWorklogWarning(clockifyTotal, attendanceTotal);
-    }
-  } catch(e) { console.warn('worklog sync:', e); }
+    var done2 = [];
+    try { done2 = JSON.parse(localStorage.getItem(_pendingWorklog.doneKey) || '[]'); } catch(e) {}
+    rows.forEach(function(r) { if (r.clockify_id) done2.push(r.clockify_id); });
+    localStorage.setItem(_pendingWorklog.doneKey, JSON.stringify(done2));
+  } catch(e) {}
+  closeVolumePrompt();
+  showToast(pending ? 'Output logged — pending admin approval.' : 'Output recorded. ✅');
+  if (pending && typeof showWorklogWarning === 'function') showWorklogWarning(clockifyTotal, attendanceTotal);
+  _pendingWorklog = null;
 }
 
 // Warning shown when tracked time exceeds attendance hours

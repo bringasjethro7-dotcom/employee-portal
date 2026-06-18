@@ -535,9 +535,10 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
             <th>Task</th>
             <th>Description</th>
             <th>Hours</th>
+            <th>Volume</th>
             <th>Status</th>
           </tr></thead>
-          <tbody id="wl-body"><tr><td colspan="7" class="es">Loading…</td></tr></tbody>
+          <tbody id="wl-body"><tr><td colspan="8" class="es">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -640,10 +641,10 @@ async function wlSetStatus(row, status){
 function exportWorkLogCSV(){
   if(!wlRows || !wlRows.length){ if(typeof toast==='function') toast('Nothing to export.'); return; }
   function esc(v){ v = (v==null?'':String(v)); return '"'+v.replace(/"/g,'""')+'"'; }
-  var headers = ['Employee','Employee ID','Date','Project','Task','Description','Hours','Status'];
+  var headers = ['Employee','Employee ID','Date','Project','Task','Description','Hours','Volume','Status'];
   var lines = [headers.map(esc).join(',')];
   wlRows.forEach(function(w){
-    lines.push([w.full_name||w.employee_id||'', w.employee_id||'', w.date||'', w.project||'', w.task||'', w.description||'', (parseFloat(w.hours)||0).toFixed(2), (w.status||'recorded')].map(esc).join(','));
+    lines.push([w.full_name||w.employee_id||'', w.employee_id||'', w.date||'', w.project||'', w.task||'', w.description||'', (parseFloat(w.hours)||0).toFixed(2), (w.volume!==undefined?w.volume:''), (w.status||'recorded')].map(esc).join(','));
   });
   var csv = '﻿' + lines.join('\r\n');
   var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
@@ -689,7 +690,7 @@ async function loadWorkLog(){
     wlRows = data.worklog || [];
     var rows = wlRows;
     var totalEl = document.getElementById('wl-total');
-    if(!rows.length){ tbody.innerHTML = '<tr><td colspan="7" class="es">No work log entries.</td></tr>'; if(totalEl) totalEl.textContent=''; return; }
+    if(!rows.length){ tbody.innerHTML = '<tr><td colspan="8" class="es">No work log entries.</td></tr>'; if(totalEl) totalEl.textContent=''; return; }
     var recorded = 0, pendingCount = 0;
     tbody.innerHTML = rows.map(function(w){
       var hrs = parseFloat(w.hours)||0;
@@ -714,6 +715,7 @@ async function loadWorkLog(){
         '<td>'+(w.task||'—')+'</td>'+
         '<td style="color:var(--t2);font-size:12px;">'+(w.description||'—')+'</td>'+
         '<td><strong style="color:var(--o3);">'+hrs.toFixed(2)+'</strong></td>'+
+        '<td style="font-weight:600;">'+(w.volume!==undefined&&w.volume!==''?w.volume:'—')+'</td>'+
         '<td style="font-size:12px;white-space:nowrap;">'+statusCell+'</td>'+
       '</tr>';
     }).join('');
