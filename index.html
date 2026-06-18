@@ -4546,21 +4546,19 @@ async function loadTasks() {
   }
 }
 
-// Window start for the time tracker = the CURRENT shift's first Time In.
-// This scopes Clockify entries to this shift only, so night-shift employees
-// don't pick up hours from the previous shift (which crossed midnight).
-function getShiftWindowStart() {
-  try {
-    if (todayLog && todayLog.sessions && todayLog.sessions.length && todayLog.sessions[0].time_in) {
-      return new Date(todayLog.sessions[0].time_in).toISOString();
-    }
-  } catch(e) {}
-  // Fallback when not timed in yet: 7:30 AM boundary (before 7:30 → previous day)
-  var n = new Date();
-  var b = new Date(n.getFullYear(), n.getMonth(), n.getDate());
-  if (n.getHours() < 7 || (n.getHours() === 7 && n.getMinutes() < 30)) b.setDate(b.getDate() - 1);
-  b.setHours(7, 30, 0, 0);
-  return b.toISOString();
+// A "work day" runs 7:00 AM → 7:00 AM the next day, so a night shift
+// (7:30 PM up to 7:00 AM) stays grouped under the day it STARTED, and a new
+// day's shift never pulls in the previous shift's hours (incl. after midnight).
+function businessDayStart(ref) {
+  var n = ref ? new Date(ref) : new Date();
+  var b = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 7, 0, 0, 0);
+  if (n < b) b.setDate(b.getDate() - 1); // before 7:00 AM → still in the day that began 7:00 AM yesterday
+  return b;
+}
+function getShiftWindowStart() { return businessDayStart().toISOString(); }
+function businessDateOf(iso) {
+  var b = businessDayStart(iso);
+  return b.getFullYear() + '-' + String(b.getMonth() + 1).padStart(2, '0') + '-' + String(b.getDate()).padStart(2, '0');
 }
 
 async function loadTodayEntries() {
@@ -4709,6 +4707,10 @@ function submitWorklogVolumes() {
   var attendanceTotal = _pendingWorklog.attendanceTotal;
   var pending = clockifyTotal > (attendanceTotal + 0.05);
   var data = window._currentEmpData || {};
+  // Date the shift to the work-day it STARTED (earliest entry), so a night shift's
+  // after-midnight hours are recorded under the night it began, not the new calendar day.
+  var minStart = rows.reduce(function(m, r) { return (!m || new Date(r.start) < new Date(m)) ? r.start : m; }, null);
+  var shiftDate = minStart ? businessDateOf(minStart) : attToday;
   try {
     fetch(APPS_SCRIPT_URL, {
       method: 'POST',
@@ -4717,7 +4719,7 @@ function submitWorklogVolumes() {
         action: 'log_worklog',
         employee_id: attEmpId,
         full_name: data.full_name || attEmpId,
-        date: attToday,
+        date: shiftDate,
         pending: pending,
         tracked_hours: Math.round(clockifyTotal * 100) / 100,
         attendance_hours: Math.round(attendanceTotal * 100) / 100,
