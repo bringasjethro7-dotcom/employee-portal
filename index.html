@@ -4546,22 +4546,26 @@ async function loadTasks() {
   }
 }
 
+// Window start for the time tracker = the CURRENT shift's first Time In.
+// This scopes Clockify entries to this shift only, so night-shift employees
+// don't pick up hours from the previous shift (which crossed midnight).
+function getShiftWindowStart() {
+  try {
+    if (todayLog && todayLog.sessions && todayLog.sessions.length && todayLog.sessions[0].time_in) {
+      return new Date(todayLog.sessions[0].time_in).toISOString();
+    }
+  } catch(e) {}
+  // Fallback when not timed in yet: 7:30 AM boundary (before 7:30 → previous day)
+  var n = new Date();
+  var b = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  if (n.getHours() < 7 || (n.getHours() === 7 && n.getMinutes() < 30)) b.setDate(b.getDate() - 1);
+  b.setHours(7, 30, 0, 0);
+  return b.toISOString();
+}
+
 async function loadTodayEntries() {
   try {
-    var now   = new Date();
-    var hour  = now.getHours();
-
-    // If current time is before 7:30 AM, we're still in the previous night shift
-    // So "today" starts at 7:30 AM yesterday
-    // Otherwise "today" starts at 7:30 AM today
-    var startBase = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (hour < 7 || (hour === 7 && now.getMinutes() < 30)) {
-      // Before 7:30 AM — use yesterday's 7:30 AM as start
-      startBase.setDate(startBase.getDate() - 1);
-    }
-    startBase.setHours(7, 30, 0, 0);
-
-    var start = startBase.toISOString();
+    var start = getShiftWindowStart();
     var url   = CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId +
                 '/time-entries?start=' + encodeURIComponent(start) + '&page-size=50&hydrated=true';
     var res     = await fetch(url, { headers: cfyHeaders() });
@@ -4634,12 +4638,7 @@ async function syncWorklogOnTimeOut() {
     if (cfyRunningId && typeof stopTimer === 'function') {
       try { await stopTimer(); } catch(e) {}
     }
-    var now = new Date();
-    var hour = now.getHours();
-    var startBase = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (hour < 7 || (hour === 7 && now.getMinutes() < 30)) startBase.setDate(startBase.getDate() - 1);
-    startBase.setHours(7, 30, 0, 0);
-    var start = startBase.toISOString();
+    var start = getShiftWindowStart();
     var url = CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId +
               '/time-entries?start=' + encodeURIComponent(start) + '&page-size=50&hydrated=true';
     var res = await fetch(url, { headers: cfyHeaders() });
