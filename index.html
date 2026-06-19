@@ -2504,11 +2504,14 @@
               <div class="cfy-timer-left">
                 <input class="cfy-desc-input" type="text" id="cfy-desc" placeholder="What are you working on?" />
                 <div class="cfy-project-row" style="display:flex;flex-direction:column;gap:8px;">
-                  <select class="cfy-project-select" id="cfy-project" onchange="loadTasks()">
+                  <select class="cfy-project-select" id="cfy-project" onchange="loadCategories()">
                     <option value="">📁 Select project…</option>
                   </select>
+                  <select class="cfy-project-select" id="cfy-category" onchange="loadTasks()" disabled>
+                    <option value="">🗂 Select project first…</option>
+                  </select>
                   <select class="cfy-project-select" id="cfy-task" disabled>
-                    <option value="">🔖 Select project first…</option>
+                    <option value="">🔖 Select category first…</option>
                   </select>
                 </div>
               </div>
@@ -4475,21 +4478,48 @@ async function loadProjects() {
     if (p.project && !seen[p.project]) { seen[p.project] = true; opts += '<option value="' + escapeHtml(p.project) + '">' + escapeHtml(p.project) + '</option>'; }
   });
   if (sel) sel.innerHTML = opts;
+  var catSel = document.getElementById('cfy-category');
+  if (catSel) { catSel.innerHTML = '<option value="">🗂 Select project first…</option>'; catSel.disabled = true; }
   var taskSel = document.getElementById('cfy-task');
-  if (taskSel) { taskSel.innerHTML = '<option value="">🔖 Select project first…</option>'; taskSel.disabled = true; }
+  if (taskSel) { taskSel.innerHTML = '<option value="">🔖 Select category first…</option>'; taskSel.disabled = true; }
 }
 
+// Project → Category
+function loadCategories() {
+  var proj   = document.getElementById('cfy-project').value;
+  var catSel  = document.getElementById('cfy-category');
+  var taskSel = document.getElementById('cfy-task');
+  taskSel.innerHTML = '<option value="">🔖 Select category first…</option>'; taskSel.disabled = true;
+  if (!proj) {
+    catSel.innerHTML = '<option value="">🗂 Select project first…</option>'; catSel.disabled = true;
+    return;
+  }
+  var seen = {}; var cats = [];
+  nativeProjects.forEach(function(p){ if (p.project === proj && p.category && !seen[p.category]) { seen[p.category] = true; cats.push(p.category); } });
+  if (!cats.length) {
+    // No categories defined for this project → skip straight to tasks
+    catSel.innerHTML = '<option value="">No categories</option>'; catSel.disabled = true;
+    loadTasks();
+    return;
+  }
+  catSel.innerHTML = '<option value="">🗂 Select category…</option>' +
+    cats.map(function(c){ return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; }).join('');
+  catSel.disabled = false;
+}
+
+// Project + Category → Task
 function loadTasks() {
   var proj    = document.getElementById('cfy-project').value;
+  var cat     = document.getElementById('cfy-category').value;
   var taskSel = document.getElementById('cfy-task');
   if (!proj) {
     taskSel.innerHTML = '<option value="">🔖 Select project first…</option>';
     taskSel.disabled  = true;
     return;
   }
-  var tasks = nativeProjects.filter(function(p){ return p.project === proj && p.task; });
+  var tasks = nativeProjects.filter(function(p){ return p.project === proj && (p.category || '') === (cat || '') && p.task; });
   if (!tasks.length) {
-    taskSel.innerHTML = '<option value="">No tasks — track project only</option>';
+    taskSel.innerHTML = '<option value="">No tasks — track category only</option>';
     taskSel.disabled  = false;
     return;
   }
@@ -4528,7 +4558,12 @@ async function loadTodayEntries() {
       cfyTimerStart = new Date(running.start);
       var d = document.getElementById('cfy-desc'); if (d && running.description) d.value = running.description;
       var p = document.getElementById('cfy-project');
-      if (p && running.project) { p.value = running.project; loadTasks(); var t = document.getElementById('cfy-task'); if (t && running.task) t.value = running.task; }
+      if (p && running.project) {
+        p.value = running.project; loadCategories();
+        var c = document.getElementById('cfy-category'); if (c && running.category) c.value = running.category;
+        loadTasks();
+        var t = document.getElementById('cfy-task'); if (t && running.task) t.value = running.task;
+      }
       startTimerDisplay();
       setStopBtn();
     }
@@ -4566,7 +4601,7 @@ function renderTodayEntries(entries) {
       '<div class="cfy-entry-left">' +
         '<div class="cfy-entry-desc' + (!mainLabel ? ' no-desc' : '') + '">' + escapeHtml(mainLabel || 'No description') + badge + '</div>' +
         (subLabel ? '<div class="cfy-entry-project" style="color:var(--text-2);">🔖 ' + escapeHtml(subLabel) + '</div>' : '') +
-        (e.project ? '<div class="cfy-entry-project">📁 ' + escapeHtml(e.project) + '</div>' : '') +
+        (e.project ? '<div class="cfy-entry-project">📁 ' + escapeHtml(e.project) + (e.category ? ' · 🗂 ' + escapeHtml(e.category) : '') + '</div>' : '') +
         '<div class="cfy-entry-time">' + startT + ' – ' + endT + '</div>' +
       '</div>' +
       '<div class="cfy-entry-dur">' + dur.label + '</div>' +
@@ -4714,6 +4749,7 @@ async function startTimer() {
   try {
     var desc = (document.getElementById('cfy-desc').value || '').trim();
     var proj = document.getElementById('cfy-project').value;
+    var cat  = document.getElementById('cfy-category').value;
     var task = document.getElementById('cfy-task').value;
     var startIso = new Date().toISOString();
     var entryId  = trkUid();
@@ -4727,7 +4763,7 @@ async function startTimer() {
         employee_id: attEmpId,
         full_name: data.full_name || attEmpId,
         date: businessDateOf(startIso),
-        project: proj, task: task, description: desc,
+        project: proj, category: cat, task: task, description: desc,
         start: startIso, entry_id: entryId
       })
     });
@@ -4761,10 +4797,12 @@ async function stopTimer() {
   if (disp) { disp.textContent = '00:00:00'; disp.classList.remove('running'); }
   var descEl = document.getElementById('cfy-desc');
   var projEl = document.getElementById('cfy-project');
+  var catEl  = document.getElementById('cfy-category');
   var taskEl = document.getElementById('cfy-task');
   if (descEl) descEl.value = '';
   if (projEl) projEl.value = '';
-  if (taskEl) { taskEl.innerHTML = '<option value="">🔖 Select project first…</option>'; taskEl.disabled = true; }
+  if (catEl)  { catEl.innerHTML  = '<option value="">🗂 Select project first…</option>'; catEl.disabled = true; }
+  if (taskEl) { taskEl.innerHTML = '<option value="">🔖 Select category first…</option>'; taskEl.disabled = true; }
   setStartBtn();
   updateButtons();
   showToast('Timer stopped!');
