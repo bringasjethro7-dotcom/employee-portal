@@ -727,34 +727,36 @@ async function generateInvoice(){
   var from = (document.getElementById('wl-from')||{}).value;
   var to   = (document.getElementById('wl-to')||{}).value;
   // Fetch project list for the saved rates
-  var rateMap={}, projRate={};
+  // Saved rates — per category, falling back to a project-level rate
+  var rateByCat={}, projRate={};
   try{
     var rp=await fetch(API+'?action=get_tracker_projects'); var dp=await rp.json();
     (dp.projects||[]).forEach(function(p){
-      var pk=(p.project||'').toLowerCase();
-      if(p.rate!=='' && p.rate!=null){
-        rateMap[pk+'|'+(p.category||'').toLowerCase()+'|'+(p.task||'').toLowerCase()]=parseFloat(p.rate)||0;
-        if(projRate[pk]===undefined) projRate[pk]=parseFloat(p.rate)||0;
-      }
+      if(p.rate==='' || p.rate==null || isNaN(parseFloat(p.rate))) return;
+      var r=parseFloat(p.rate), pk=(p.project||'').toLowerCase();
+      var ck=pk+'|'+(p.category||'').toLowerCase();
+      if(rateByCat[ck]===undefined) rateByCat[ck]=r;
+      if(projRate[pk]===undefined) projRate[pk]=r;
     });
   }catch(e){}
-  // Aggregate RECORDED entries by Category + Task from the current filtered rows
+  // Aggregate RECORDED entries by CATEGORY — category totals are the billed hours
   var groups={};
   (wlRows||[]).forEach(function(w){
     if((w.status||'recorded')!=='recorded') return;
     if((w.project||'').toLowerCase()!==project.toLowerCase()) return;
-    var gk=(w.category||'')+'||'+(w.task||'');
-    if(!groups[gk]) groups[gk]={category:w.category||'', task:w.task||'', hours:0};
-    groups[gk].hours += parseFloat(w.hours)||0;
+    var cat=(w.category||'').trim();
+    var key=cat.toLowerCase();
+    if(!groups[key]) groups[key]={category:cat, hours:0};
+    groups[key].hours += parseFloat(w.hours)||0;
   });
   var lines=Object.keys(groups).map(function(k){return groups[k];});
   if(!lines.length){ alert('No recorded entries for "'+project+'" in the selected date range.\n(Only approved/recorded entries are billed — approve any pending ones first.)'); return; }
-  lines.sort(function(a,b){ return (a.category+a.task).localeCompare(b.category+b.task); });
+  lines.sort(function(a,b){ return a.category.localeCompare(b.category); });
   var pk=project.toLowerCase(); var subtotal=0;
   lines.forEach(function(l){
-    var r=rateMap[pk+'|'+(l.category||'').toLowerCase()+'|'+(l.task||'').toLowerCase()];
-    if(r===undefined) r=(projRate[pk]!==undefined?projRate[pk]:0);
-    l.rate=r; l.hours=Math.round(l.hours*100)/100; l.amount=Math.round(l.hours*r*100)/100; subtotal+=l.amount;
+    var ck=pk+'|'+(l.category||'').toLowerCase();
+    var r=(rateByCat[ck]!==undefined)?rateByCat[ck]:(projRate[pk]!==undefined?projRate[pk]:0);
+    l.hours=Math.round(l.hours*100)/100; l.rate=r; l.amount=Math.round(l.hours*r*100)/100; subtotal+=l.amount;
   });
   openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100);
 }
@@ -763,12 +765,9 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
   var invNo='INV'+seq; localStorage.setItem('jmb_inv_seq', String(seq+1));
   var today=new Date(); var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
   var logo='<svg width="58" height="58" viewBox="0 0 100 100" fill="none"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF8A3D"/><stop offset="1" stop-color="#FF6B1A"/></linearGradient></defs><path d="M50 6 L88 28 L50 50 L12 28 Z" fill="url(#lg)"/><path d="M50 30 L88 52 L50 74 L12 52 Z" fill="#FF6B1A" opacity=".72"/><path d="M50 54 L88 76 L50 98 L12 76 Z" fill="#FF7A29" opacity=".48"/><circle cx="50" cy="40" r="5" fill="#fff" opacity=".92"/></svg>';
-  var hasCat = lines.some(function(l){ return l.category && l.task; });
   var rowsHtml=lines.map(function(l){
-    var svc = hasCat ? (l.task||'—') : (l.task||l.category||'—');
     return '<tr>'+
-      '<td class="svc">'+escAdmin(svc)+'</td>'+
-      (hasCat ? '<td>'+escAdmin(l.category||'')+'</td>' : '')+
+      '<td class="svc">'+escAdmin(l.category||'Uncategorized')+'</td>'+
       '<td class="num">'+(Number(l.hours)||0).toFixed(2)+'</td>'+
       '<td class="num">'+invMoney(l.rate)+'</td>'+
       '<td class="num">'+invMoney(l.amount)+'</td>'+
@@ -802,8 +801,8 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
     '<div class="meta"><div class="billto"><div class="lbl">BILL TO</div><div class="val" contenteditable="true"></div>'+
       '<div class="period">Payout for period from <b contenteditable="true">'+invDate(from)+'</b> to <b contenteditable="true">'+invDate(to)+'</b></div></div>'+
       '<div class="metaright"><div class="mrow"><span>INVOICE</span><b contenteditable="true">'+invNo+'</b></div><div class="mrow"><span>DATE</span><b contenteditable="true">'+invDate(todayStr)+'</b></div><div class="mrow"><span>TERMS</span><b contenteditable="true">DUE IN 48 HRS</b></div></div></div>'+
-    '<table class="items"><thead><tr><th>SERVICE</th>'+(hasCat?'<th>CATEGORY</th>':'')+'<th class="num">TOTAL HOURS</th><th class="num">RATE/HR</th><th class="num">AMOUNT</th></tr></thead><tbody>'+
-      '<tr class="grp"><td colspan="'+(hasCat?5:4)+'">'+escAdmin(project)+'</td></tr>'+rowsHtml+'</tbody></table>'+
+    '<table class="items"><thead><tr><th>SERVICE</th><th class="num">TOTAL HOURS</th><th class="num">RATE/HR</th><th class="num">AMOUNT</th></tr></thead><tbody>'+
+      '<tr class="grp"><td colspan="4">'+escAdmin(project)+'</td></tr>'+rowsHtml+'</tbody></table>'+
     '<div class="totals"><div class="trow"><span>SUBTOTAL</span><b>'+invMoney(subtotal)+'</b></div></div>'+
     '<div class="foot"><div class="ftitle">Billing to:</div><div class="fb">Binance Address (USDT/USDC)</div><div class="fv" contenteditable="true">0x937119525166bfbc8f1b5af09ce467e9c40612f3</div><div class="fb">Wise Account</div><div class="fv" contenteditable="true">bringasjethro7@gmail.com</div></div>'+
     '</div></body></html>';
