@@ -497,14 +497,21 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
     <!-- WORK LOG -->
     <div id="p-worklog" style="display:none;">
       <div class="toolbar">
-        <div class="tl">
-          <select class="sinp" id="wl-emp-filter" onchange="loadWorkLog()" style="width:200px;">
+        <div class="tl" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <select class="sinp" id="wl-emp-filter" onchange="loadWorkLog()" style="width:170px;">
             <option value="">All employees</option>
           </select>
-          <select class="sinp" id="wl-month-filter" onchange="loadWorkLog()" style="width:160px;margin-left:8px;"></select>
+          <select class="sinp" id="wl-project-filter" onchange="loadWorkLog()" style="width:170px;">
+            <option value="">All projects</option>
+          </select>
+          <label style="font-size:12px;color:var(--t2);">From</label>
+          <input class="sinp" type="date" id="wl-from" onchange="loadWorkLog()" style="width:150px;" />
+          <label style="font-size:12px;color:var(--t2);">To</label>
+          <input class="sinp" type="date" id="wl-to" onchange="loadWorkLog()" style="width:150px;" />
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <span id="wl-total" style="font-size:12px;color:var(--t2);"></span>
+          <button class="bsm" onclick="generateInvoice()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">🧾 Generate Invoice</button>
           <button class="bsm" onclick="exportWorkLogCSV()">⬇ Export CSV</button>
           <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
@@ -531,9 +538,10 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
     <div id="p-projects" style="display:none;">
       <div class="toolbar">
         <div class="tl">
-          <input class="sinp" id="pj-project" placeholder="Project name" style="width:170px;" />
-          <input class="sinp" id="pj-category" placeholder="Category (optional)" style="width:170px;margin-left:8px;" />
-          <input class="sinp" id="pj-task" placeholder="Task (optional)" style="width:170px;margin-left:8px;" />
+          <input class="sinp" id="pj-project" placeholder="Project name" style="width:150px;" />
+          <input class="sinp" id="pj-category" placeholder="Category" style="width:140px;margin-left:8px;" />
+          <input class="sinp" id="pj-task" placeholder="Task" style="width:140px;margin-left:8px;" />
+          <input class="sinp" id="pj-rate" type="number" step="any" min="0" placeholder="Rate/hr" style="width:90px;margin-left:8px;" />
           <button class="bsm" onclick="addTrackerProject()" style="margin-left:8px;color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add</button>
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -547,9 +555,10 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
             <th>Project</th>
             <th>Category</th>
             <th>Task</th>
+            <th style="width:90px;">Rate/hr</th>
             <th style="width:90px;">Action</th>
           </tr></thead>
-          <tbody id="pj-body"><tr><td colspan="4" class="es">Loading…</td></tr></tbody>
+          <tbody id="pj-body"><tr><td colspan="5" class="es">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -640,31 +649,36 @@ function goTab(name){
 }
 
 // ── PROJECTS & TASKS (time-tracker list) ──
+var pjRows = [];
 async function loadProjectsAdmin(){
   var body=document.getElementById('pj-body');
-  body.innerHTML='<tr><td colspan="4" class="es">Loading…</td></tr>';
+  body.innerHTML='<tr><td colspan="5" class="es">Loading…</td></tr>';
   try{
     var res=await fetch(API+'?action=get_tracker_projects');
     var json=await res.json();
     var rows=json.projects||[];
-    if(!rows.length){ body.innerHTML='<tr><td colspan="4" class="es">No projects yet. Add one above.</td></tr>'; return; }
+    pjRows=rows;
+    if(!rows.length){ body.innerHTML='<tr><td colspan="5" class="es">No projects yet. Add one above.</td></tr>'; return; }
     var dash='<span style="color:var(--t2);">—</span>';
     body.innerHTML=rows.map(function(p){
       return '<tr><td>'+escAdmin(p.project)+'</td><td>'+(p.category?escAdmin(p.category):dash)+'</td><td>'+(p.task?escAdmin(p.task):dash)+'</td>'+
+        '<td>'+(p.rate!==''&&p.rate!=null?'$'+escAdmin(p.rate):dash)+'</td>'+
         '<td><button class="bsm" onclick="deleteTrackerProject('+p._row+')" style="color:#ef4444;border-color:rgba(239,68,68,.3);">Delete</button></td></tr>';
     }).join('');
-  }catch(e){ body.innerHTML='<tr><td colspan="4" class="es">Could not load projects.</td></tr>'; }
+  }catch(e){ body.innerHTML='<tr><td colspan="5" class="es">Could not load projects.</td></tr>'; }
 }
 function escAdmin(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 async function addTrackerProject(){
   var proj=document.getElementById('pj-project').value.trim();
   var cat=document.getElementById('pj-category').value.trim();
   var task=document.getElementById('pj-task').value.trim();
+  var rate=document.getElementById('pj-rate').value.trim();
   if(!proj){ if(typeof toast==='function') toast('Enter a project name.'); return; }
   try{
-    await fetch(API+'?action=save_tracker_project&project='+encodeURIComponent(proj)+'&category='+encodeURIComponent(cat)+'&task='+encodeURIComponent(task));
+    await fetch(API+'?action=save_tracker_project&project='+encodeURIComponent(proj)+'&category='+encodeURIComponent(cat)+'&task='+encodeURIComponent(task)+'&rate='+encodeURIComponent(rate));
     document.getElementById('pj-category').value='';
     document.getElementById('pj-task').value='';
+    document.getElementById('pj-rate').value='';
     setTimeout(loadProjectsAdmin,600);
   }catch(e){ if(typeof toast==='function') toast('Could not add.'); }
 }
@@ -696,13 +710,108 @@ function exportWorkLogCSV(){
   var csv = '﻿' + lines.join('\r\n');
   var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
   var url = URL.createObjectURL(blob);
-  var emp = (document.getElementById('wl-emp-filter')||{}).value || 'all';
-  var mo  = (document.getElementById('wl-month-filter')||{}).value || 'all';
+  var emp = (document.getElementById('wl-project-filter')||{}).value || 'all';
+  var fr  = (document.getElementById('wl-from')||{}).value || '';
+  var to  = (document.getElementById('wl-to')||{}).value || '';
   var a = document.createElement('a');
-  a.href = url; a.download = 'worklog_'+(emp||'all')+'_'+(mo||'all')+'.csv';
+  a.href = url; a.download = 'worklog_'+(emp||'all').replace(/\s+/g,'-')+'_'+(fr||'all')+'_'+(to||'')+'.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
 }
+// ── INVOICE GENERATION (per project, from current Work Log filters) ──
+function invMoney(n){ return '$' + (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function invDate(d){ if(!d) return ''; var p=String(d).split('-'); return (p.length===3) ? (p[1]+'/'+p[2]+'/'+p[0].slice(2)) : String(d); }
+async function generateInvoice(){
+  var project = (document.getElementById('wl-project-filter')||{}).value;
+  if(!project){ alert('Pick a specific Project in the filter first — invoices are generated per project.'); return; }
+  var from = (document.getElementById('wl-from')||{}).value;
+  var to   = (document.getElementById('wl-to')||{}).value;
+  // Fetch project list for the saved rates
+  var rateMap={}, projRate={};
+  try{
+    var rp=await fetch(API+'?action=get_tracker_projects'); var dp=await rp.json();
+    (dp.projects||[]).forEach(function(p){
+      var pk=(p.project||'').toLowerCase();
+      if(p.rate!=='' && p.rate!=null){
+        rateMap[pk+'|'+(p.category||'').toLowerCase()+'|'+(p.task||'').toLowerCase()]=parseFloat(p.rate)||0;
+        if(projRate[pk]===undefined) projRate[pk]=parseFloat(p.rate)||0;
+      }
+    });
+  }catch(e){}
+  // Aggregate RECORDED entries by Category + Task from the current filtered rows
+  var groups={};
+  (wlRows||[]).forEach(function(w){
+    if((w.status||'recorded')!=='recorded') return;
+    if((w.project||'').toLowerCase()!==project.toLowerCase()) return;
+    var gk=(w.category||'')+'||'+(w.task||'');
+    if(!groups[gk]) groups[gk]={category:w.category||'', task:w.task||'', hours:0};
+    groups[gk].hours += parseFloat(w.hours)||0;
+  });
+  var lines=Object.keys(groups).map(function(k){return groups[k];});
+  if(!lines.length){ alert('No recorded entries for "'+project+'" in the selected date range.\n(Only approved/recorded entries are billed — approve any pending ones first.)'); return; }
+  lines.sort(function(a,b){ return (a.category+a.task).localeCompare(b.category+b.task); });
+  var pk=project.toLowerCase(); var subtotal=0;
+  lines.forEach(function(l){
+    var r=rateMap[pk+'|'+(l.category||'').toLowerCase()+'|'+(l.task||'').toLowerCase()];
+    if(r===undefined) r=(projRate[pk]!==undefined?projRate[pk]:0);
+    l.rate=r; l.hours=Math.round(l.hours*100)/100; l.amount=Math.round(l.hours*r*100)/100; subtotal+=l.amount;
+  });
+  openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100);
+}
+function openInvoiceWindow(project, from, to, lines, subtotal){
+  var seq=parseInt(localStorage.getItem('jmb_inv_seq')||'758',10);
+  var invNo='INV'+seq; localStorage.setItem('jmb_inv_seq', String(seq+1));
+  var today=new Date(); var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+  var logo='<svg width="58" height="58" viewBox="0 0 100 100" fill="none"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF8A3D"/><stop offset="1" stop-color="#FF6B1A"/></linearGradient></defs><path d="M50 6 L88 28 L50 50 L12 28 Z" fill="url(#lg)"/><path d="M50 30 L88 52 L50 74 L12 52 Z" fill="#FF6B1A" opacity=".72"/><path d="M50 54 L88 76 L50 98 L12 76 Z" fill="#FF7A29" opacity=".48"/><circle cx="50" cy="40" r="5" fill="#fff" opacity=".92"/></svg>';
+  var hasCat = lines.some(function(l){ return l.category && l.task; });
+  var rowsHtml=lines.map(function(l){
+    var svc = hasCat ? (l.task||'—') : (l.task||l.category||'—');
+    return '<tr>'+
+      '<td class="svc">'+escAdmin(svc)+'</td>'+
+      (hasCat ? '<td>'+escAdmin(l.category||'')+'</td>' : '')+
+      '<td class="num">'+(Number(l.hours)||0).toFixed(2)+'</td>'+
+      '<td class="num">'+invMoney(l.rate)+'</td>'+
+      '<td class="num">'+invMoney(l.amount)+'</td>'+
+    '</tr>';
+  }).join('');
+  var css='*{box-sizing:border-box}body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1f2430;background:#f3f4f6;padding:24px;}'+
+    '.sheet{max-width:900px;margin:0 auto;background:#fff;padding:46px 54px;box-shadow:0 10px 40px rgba(0,0,0,.12);border-radius:6px;}'+
+    '.topbar{display:flex;gap:10px;align-items:center;margin:-12px 0 24px;flex-wrap:wrap;}'+
+    '.pbtn{background:#FF6B1A;color:#fff;border:none;padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;}'+
+    '.cbtn{background:#fff;border:1px solid #d1d5db;padding:9px 14px;border-radius:8px;cursor:pointer;font-size:13px;}'+
+    '.hint{font-size:12px;color:#9ca3af;}'+
+    '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #FF6B1A;padding-bottom:18px;}'+
+    '.brand{display:flex;gap:14px;align-items:center;}.cname{font-size:20px;font-weight:800;letter-spacing:-.2px;}.caddr{font-size:13px;color:#6b7280;margin-top:2px;}'+
+    '.invtitle{font-size:34px;font-weight:800;color:#FF6B1A;letter-spacing:1px;}'+
+    '.meta{display:flex;justify-content:space-between;margin:22px 0 18px;gap:24px;}'+
+    '.billto .lbl{font-size:11px;color:#9ca3af;letter-spacing:.5px;font-weight:700;}.billto .val{font-size:16px;font-weight:700;margin:3px 0 8px;min-width:170px;}'+
+    '.period{font-size:12.5px;color:#4b5563;}.metaright{min-width:240px;}'+
+    '.mrow{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;border-bottom:1px dotted #e5e7eb;}.mrow span{color:#9ca3af;font-weight:600;}'+
+    'table.items{width:100%;border-collapse:collapse;margin-top:6px;}'+
+    '.items thead th{background:#FF6B1A;color:#fff;font-size:11.5px;text-align:left;padding:9px 10px;letter-spacing:.3px;}.items thead th.num{text-align:right;}'+
+    '.items td{padding:8px 10px;font-size:13px;border-bottom:1px solid #eef0f2;}.items td.num{text-align:right;font-variant-numeric:tabular-nums;}'+
+    '.items tr.grp td{background:#FFF1E8;color:#C2410C;font-weight:700;font-size:12.5px;}.items td.svc{font-weight:600;}.items td.notes{color:#6b7280;min-width:90px;}'+
+    '.totals{display:flex;justify-content:flex-end;margin-top:14px;}.trow{display:flex;gap:40px;align-items:center;border-top:2px solid #1f2430;padding-top:10px;}'+
+    '.trow span{color:#6b7280;font-weight:600;font-size:13px;}.trow b{font-size:22px;}'+
+    '.foot{margin-top:42px;font-size:13px;}.ftitle{color:#6b7280;margin-bottom:6px;}.fb{font-weight:700;margin-top:8px;}.fv{color:#374151;}'+
+    '[contenteditable]:hover{outline:1px dashed #FF6B1A;border-radius:3px;}.val:empty:before{content:"Client name";color:#cbd5e1;}'+
+    '@media print{body{background:#fff;padding:0;}.sheet{box-shadow:none;max-width:none;padding:20px 28px;}.no-print{display:none!important;}[contenteditable]:hover{outline:none;}}';
+  var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+invNo+' - '+escAdmin(project)+'</title><style>'+css+'</style></head><body><div class="sheet">'+
+    '<div class="topbar no-print"><button class="pbtn" onclick="window.print()">\u{1F5A8} Print / Save as PDF</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Click Bill&nbsp;To, Invoice&nbsp;#, Notes, dates, or footer to edit before printing.</span></div>'+
+    '<div class="head"><div class="brand">'+logo+'<div><div class="cname">JMB Virtuals</div><div class="caddr">Philippines</div></div></div><div class="invtitle">INVOICE</div></div>'+
+    '<div class="meta"><div class="billto"><div class="lbl">BILL TO</div><div class="val" contenteditable="true"></div>'+
+      '<div class="period">Payout for period from <b contenteditable="true">'+invDate(from)+'</b> to <b contenteditable="true">'+invDate(to)+'</b></div></div>'+
+      '<div class="metaright"><div class="mrow"><span>INVOICE</span><b contenteditable="true">'+invNo+'</b></div><div class="mrow"><span>DATE</span><b contenteditable="true">'+invDate(todayStr)+'</b></div><div class="mrow"><span>TERMS</span><b contenteditable="true">DUE IN 48 HRS</b></div></div></div>'+
+    '<table class="items"><thead><tr><th>SERVICE</th>'+(hasCat?'<th>CATEGORY</th>':'')+'<th class="num">TOTAL HOURS</th><th class="num">RATE/HR</th><th class="num">AMOUNT</th></tr></thead><tbody>'+
+      '<tr class="grp"><td colspan="'+(hasCat?5:4)+'">'+escAdmin(project)+'</td></tr>'+rowsHtml+'</tbody></table>'+
+    '<div class="totals"><div class="trow"><span>SUBTOTAL</span><b>'+invMoney(subtotal)+'</b></div></div>'+
+    '<div class="foot"><div class="ftitle">Billing to:</div><div class="fb">Binance Address (USDT/USDC)</div><div class="fv" contenteditable="true">0x937119525166bfbc8f1b5af09ce467e9c40612f3</div><div class="fb">Wise Account</div><div class="fv" contenteditable="true">bringasjethro7@gmail.com</div></div>'+
+    '</div></body></html>';
+  var w=window.open('','_blank','width=940,height=1040');
+  if(!w){ alert('Please allow pop-ups to open the invoice.'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
 async function loadWorkLog(){
   var empSel = document.getElementById('wl-emp-filter');
   if(empSel && empSel.options.length <= 1){
@@ -715,23 +824,38 @@ async function loadWorkLog(){
       });
     }catch(err){}
   }
-  var moSel = document.getElementById('wl-month-filter');
-  if(moSel && moSel.options.length === 0){
-    moSel.innerHTML = '<option value="">All months</option>';
-    var now = new Date();
-    for(var i=0;i<12;i++){
-      var dt = new Date(now.getFullYear(), now.getMonth()-i, 1);
-      var key = dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');
-      var label = dt.toLocaleDateString('en-US',{month:'long',year:'numeric'});
-      moSel.innerHTML += '<option value="'+key+'"'+(i===0?' selected':'')+'>'+label+'</option>';
-    }
+  // Populate the project filter once
+  var pjSel = document.getElementById('wl-project-filter');
+  if(pjSel && pjSel.options.length <= 1){
+    try{
+      var rp = await fetch(API + '?action=get_tracker_projects');
+      var dp = await rp.json();
+      var seen={};
+      (dp.projects||[]).forEach(function(p){
+        if(p.project && !seen[p.project]){ seen[p.project]=true; pjSel.innerHTML += '<option value="'+escAdmin(p.project)+'">'+escAdmin(p.project)+'</option>'; }
+      });
+    }catch(err){}
   }
-  var empId = empSel ? empSel.value : '';
-  var month = moSel ? moSel.value : '';
+  // Default the date range to the current month on first load
+  var fromEl = document.getElementById('wl-from');
+  var toEl   = document.getElementById('wl-to');
+  if(fromEl && !fromEl.value && toEl && !toEl.value){
+    var n = new Date();
+    fromEl.value = n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-01';
+    toEl.value   = n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+  }
+  var empId   = empSel ? empSel.value : '';
+  var project = pjSel ? pjSel.value : '';
+  var from    = fromEl ? fromEl.value : '';
+  var to      = toEl ? toEl.value : '';
   var tbody = document.getElementById('wl-body');
   tbody.innerHTML = '<tr><td colspan="9" class="es">Loading…</td></tr>';
   try{
-    var url = API + '?action=get_worklog' + (empId?'&employee_id='+encodeURIComponent(empId):'') + (month?'&month='+encodeURIComponent(month):'');
+    var url = API + '?action=get_worklog'
+      + (empId?'&employee_id='+encodeURIComponent(empId):'')
+      + (project?'&project='+encodeURIComponent(project):'')
+      + (from?'&from='+encodeURIComponent(from):'')
+      + (to?'&to='+encodeURIComponent(to):'');
     var res = await fetch(url);
     var data = await res.json();
     wlRows = data.worklog || [];
