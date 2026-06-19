@@ -4491,6 +4491,8 @@ var trkLastActivity = Date.now();
 var trkAutoPausedId = null;  // entry auto-paused by inactivity (for auto-resume)
 var trkActivityTick = null;
 var INACTIVITY_MS   = 3 * 60 * 1000;
+var trkIdleDetector = null;   // system-wide idle detection (Chrome/Edge)
+var trkIdleReqDone  = false;
 
 function trkUid() { return Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
 function trkSetRunning(r) { trkRunning = r; cfyRunningId = r ? r.entry_id : null; }
@@ -4849,6 +4851,7 @@ async function toggleTimer() {
 
 async function startTimer() {
   if (!getActiveSession()) { showToast('Please Time In before tracking time.'); return; }
+  ensureIdleDetector();   // request system-wide activity permission on this user gesture
   var f = trkFormFields();
   if (trkRunning) _bankRunningToPaused();   // server's tracker_start also pauses the previous task
   var startIso = new Date().toISOString();
@@ -4979,8 +4982,30 @@ function trkMarkActivity() {
   trkLastActivity = Date.now();
   if (trkAutoPausedId) { var id = trkAutoPausedId; trkAutoPausedId = null; resumeTask(id); }
 }
+// System-wide idle detection — counts activity in ANY app/tab (Chrome/Edge, with permission).
+// Falls back to in-tab event detection where unsupported or denied.
+async function ensureIdleDetector() {
+  if (trkIdleReqDone) return;
+  trkIdleReqDone = true;
+  if (!('IdleDetector' in window)) return;
+  try {
+    var perm = await IdleDetector.requestPermission();
+    if (perm !== 'granted') { showToast('Tip: allow activity detection so working in other apps counts as active.'); return; }
+    var d = new IdleDetector();
+    d.addEventListener('change', function() {
+      if (d.userState === 'active' && d.screenState === 'unlocked') trkMarkActivity();
+    });
+    await d.start({ threshold: 60000 });
+    trkIdleDetector = d;
+  } catch(e) {}
+}
+
 function trkCheckInactivity() {
   if (!trkRunning) return;
+  // If system-wide detection is on and the user is active anywhere, keep the timer alive
+  if (trkIdleDetector && trkIdleDetector.userState === 'active' && trkIdleDetector.screenState === 'unlocked') {
+    trkLastActivity = Date.now();
+  }
   if (trkInBioBreak()) { trkLastActivity = Date.now(); return; }   // bio breaks are exempt
   if (Date.now() - trkLastActivity >= INACTIVITY_MS) {
     var id = trkRunning.entry_id;
