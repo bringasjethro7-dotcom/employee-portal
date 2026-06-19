@@ -5711,7 +5711,10 @@ async function loadMessages() {
   }
 
   try {
-    var query = supaClient.from('messages').select('*').order('created_at', { ascending: true }).limit(100);
+    // Fetch the NEWEST 100 (descending), then flip to chronological order for display.
+    // (Ascending + limit returned the OLDEST 100, so new messages in a busy chat like
+    //  the group never appeared once it passed 100 messages.)
+    var query = supaClient.from('messages').select('*').order('created_at', { ascending: false }).limit(100);
 
     if (currentChat === 'group') {
       query = query.is('receiver_id', null);
@@ -5724,7 +5727,7 @@ async function loadMessages() {
 
     var result = await query;
     if (result.error) throw result.error;
-    renderMessages(result.data || []);
+    renderMessages((result.data || []).slice().reverse());
   } catch(e) {
     msgEl.innerHTML = '<div class="chat-loading">Could not load messages.</div>';
     console.error('loadMessages:', e);
