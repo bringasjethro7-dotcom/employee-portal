@@ -1793,6 +1793,10 @@
   }
   .cfy-start-btn:hover { opacity: 0.88; }
   .cfy-start-btn:active { transform: scale(0.97); }
+  .cfy-resume-btn { background: linear-gradient(135deg, var(--orange-1, #FF8A3D), var(--orange-2, #FF6B1A)); color:#fff; border:none; padding:6px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
+  .cfy-resume-btn:hover { opacity:.9; }
+  .cfy-stopx-btn { background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,.4); padding:6px 11px; border-radius:8px; font-size:12px; cursor:pointer; }
+  .cfy-stopx-btn:hover { background:rgba(239,68,68,.1); }
   .cfy-start-btn.stop-btn { background: linear-gradient(135deg, #ef4444, #dc2626); }
   .cfy-entry {
     display: flex;
@@ -2333,6 +2337,17 @@
       </div>
     </div>
 
+    <!-- INACTIVITY DEMERIT NOTICE -->
+    <div id="inactive-demerit-modal" class="wl-warn-overlay">
+      <div class="wl-warn-box">
+        <div class="wl-warn-icon">⏸️</div>
+        <h3>Demerit — inactivity</h3>
+        <p>Your timer was paused after <b>3 minutes of inactivity</b> while it was running, and a <b style="color:var(--orange-3,#FF6B1A)">0.15 demerit</b> has been recorded.</p>
+        <p class="wl-warn-note">Move your mouse or press a key to resume your task. Demerits are reviewable by your admin.</p>
+        <button onclick="closeDemeritNotice()">Got it</button>
+      </div>
+    </div>
+
     <!-- WORK LOG VOLUME PROMPT -->
     <div id="worklog-volume" class="wl-vol-overlay">
       <div class="wl-vol-box">
@@ -2517,9 +2532,18 @@
               </div>
               <div class="cfy-timer-right">
                 <div class="cfy-timer-display" id="cfy-timer-display">00:00:00</div>
-                <button class="cfy-start-btn" id="cfy-start-btn" onclick="toggleTimer()">Start</button>
+                <div style="display:flex;gap:8px;">
+                  <button class="cfy-start-btn" id="cfy-start-btn" onclick="toggleTimer()">Start</button>
+                  <button class="cfy-start-btn" id="cfy-pause-btn" onclick="pauseTimer()" style="display:none;background:linear-gradient(135deg,#64748b,#475569);">Pause</button>
+                </div>
               </div>
             </div>
+          </div>
+
+          <!-- Paused tasks -->
+          <div id="cfy-paused-wrap" style="display:none;margin-top:1.25rem;">
+            <p class="section-eyebrow">Paused tasks</p>
+            <div id="cfy-paused-list"></div>
           </div>
 
           <!-- Today entries -->
@@ -3997,6 +4021,9 @@ function toggleIdle() {
     // Disable lunch while idle (Time Out stays available so they can clock out)
     document.getElementById('btn-lunch-out') && (document.getElementById('btn-lunch-out').disabled = true);
 
+    // Pause the running timer while idle (no demerit — it's an intentional break)
+    if (typeof trkRunning !== 'undefined' && trkRunning) pauseTimer({ silent: true });
+
     showToast('You are now idle. Click Resume when ready.');
   } else {
     var idleEnd = new Date();
@@ -4453,13 +4480,20 @@ function renderAttTable() {
 // start and no end, so it survives refresh / device switches.
 // ══════════════════════════════════════════
 var nativeProjects = [];     // [{project, task, active}] from the admin-managed list
-var cfyRunningId   = null;   // running entry_id (name kept for updateButtons compatibility)
-var cfyTimerStart  = null;
-var cfyTimerTick   = null;
-var cfyInited      = false;
-var trkEmpData     = null;
+var trkRunning   = null;     // { entry_id, project, category, task, description, baseSecs, segStart(ms) }
+var trkPaused    = [];       // [ { entry_id, project, category, task, description, secs } ]
+var cfyRunningId = null;     // alias of running entry_id (kept for updateButtons compatibility)
+var cfyTimerTick = null;
+var cfyInited    = false;
+var trkEmpData   = null;
+// activity / inactivity watch
+var trkLastActivity = Date.now();
+var trkAutoPausedId = null;  // entry auto-paused by inactivity (for auto-resume)
+var trkActivityTick = null;
+var INACTIVITY_MS   = 3 * 60 * 1000;
 
 function trkUid() { return Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
+function trkSetRunning(r) { trkRunning = r; cfyRunningId = r ? r.entry_id : null; }
 
 // Init when the Time Tracker tab is first opened
 function initClockify(empData) {
@@ -4471,6 +4505,7 @@ function initClockify(empData) {
   loadTodayEntries();
   loadTrackerHistory();
   updateClockifyStartBtn();
+  trkInitActivityWatch();
 }
 
 async function loadProjects() {
@@ -4558,22 +4593,22 @@ async function loadTodayEntries() {
     var res     = await fetch(url);
     var json    = await res.json();
     var entries = json.entries || [];
-    // Resume a running entry if one exists server-side
+    // Restore paused tasks
+    trkPaused = entries.filter(function(e){ return e.status === 'paused'; }).map(function(e){
+      return { entry_id:e.entry_id, project:e.project, category:e.category, task:e.task, description:e.description, secs: Number(e.active_secs)||0 };
+    });
+    // Restore the running task (server is the source of truth for elapsed time)
     var running = entries.filter(function(e){ return e.status === 'running'; })[0];
     if (running) {
-      cfyRunningId  = running.entry_id;
-      cfyTimerStart = new Date(running.start);
-      var d = document.getElementById('cfy-desc'); if (d && running.description) d.value = running.description;
-      var p = document.getElementById('cfy-project');
-      if (p && running.project) {
-        p.value = running.project; loadCategories();
-        var c = document.getElementById('cfy-category'); if (c && running.category) c.value = running.category;
-        loadTasks();
-        var t = document.getElementById('cfy-task'); if (t && running.task) t.value = running.task;
-      }
+      var segMs = running.segment_start ? new Date(running.segment_start).getTime() : Date.now();
+      trkSetRunning({ entry_id:running.entry_id, project:running.project, category:running.category, task:running.task, description:running.description, baseSecs: Number(running.active_secs)||0, segStart: segMs });
+      trkRestoreFields(running);
       startTimerDisplay();
-      setStopBtn();
+    } else {
+      trkSetRunning(null);
     }
+    renderTimerButtons();
+    renderPausedList();
     renderTodayEntries(entries);
   } catch(e) {
     document.getElementById('cfy-today-wrap').innerHTML = '<div class="cfy-no-entries">Could not load entries.</div>';
@@ -4584,8 +4619,8 @@ function renderTodayEntries(entries) {
   var wrap = document.getElementById('cfy-today-wrap');
   var totalBar = document.getElementById('cfy-total-bar');
 
-  // Completed = has an end time and is not the running row
-  var completed = (entries || []).filter(function(e) { return e.status !== 'running' && e.end; });
+  // Completed = finalized rows (exclude running/paused in-progress)
+  var completed = (entries || []).filter(function(e) { return e.status !== 'running' && e.status !== 'paused' && e.end; });
 
   if (completed.length === 0) {
     wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No completed entries today yet.</div></div>';
@@ -4773,85 +4808,109 @@ function closeWorklogWarning() {
 }
 
 // ── TIMER ──
+// ── form field helpers ──
+function trkFormFields() {
+  return {
+    desc: (document.getElementById('cfy-desc').value || '').trim(),
+    proj: document.getElementById('cfy-project').value,
+    cat:  document.getElementById('cfy-category').value,
+    task: document.getElementById('cfy-task').value
+  };
+}
+function trkRestoreFields(e) {
+  var d = document.getElementById('cfy-desc'); if (d) d.value = e.description || '';
+  var p = document.getElementById('cfy-project');
+  if (p) { p.value = e.project || ''; loadCategories();
+    var c = document.getElementById('cfy-category'); if (c) c.value = e.category || '';
+    loadTasks();
+    var t = document.getElementById('cfy-task'); if (t) t.value = e.task || ''; }
+}
+function trkClearFields() {
+  var d = document.getElementById('cfy-desc'); if (d) d.value = '';
+  var p = document.getElementById('cfy-project'); if (p) p.value = '';
+  var c = document.getElementById('cfy-category'); if (c) { c.innerHTML = '<option value="">🗂 Select project first…</option>'; c.disabled = true; }
+  var t = document.getElementById('cfy-task'); if (t) { t.innerHTML = '<option value="">🔖 Select category first…</option>'; t.disabled = true; }
+}
+function _trkPost(action, extra) {
+  try { fetch(APPS_SCRIPT_URL, { method:'POST', headers:{'Content-Type':'application/json'}, mode:'no-cors',
+    body: JSON.stringify(Object.assign({ action: action, employee_id: attEmpId }, extra || {})) }); } catch(e) {}
+}
+// Move the running task into the paused list locally (banks its active seconds)
+function _bankRunningToPaused() {
+  if (!trkRunning) return;
+  var secs = trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0);
+  trkPaused.unshift({ entry_id:trkRunning.entry_id, project:trkRunning.project, category:trkRunning.category, task:trkRunning.task, description:trkRunning.description, secs: secs });
+  trkSetRunning(null);
+}
+
 async function toggleTimer() {
-  if (cfyRunningId) {
-    await stopTimer();
-  } else {
-    await startTimer();
-  }
+  if (trkRunning) await stopTimer(); else await startTimer();
 }
 
 async function startTimer() {
-  // Must be timed in
-  if (!getActiveSession()) {
-    showToast('Please Time In before tracking time.');
-    return;
-  }
-  var btn = document.getElementById('cfy-start-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
-  try {
-    var desc = (document.getElementById('cfy-desc').value || '').trim();
-    var proj = document.getElementById('cfy-project').value;
-    var cat  = document.getElementById('cfy-category').value;
-    var task = document.getElementById('cfy-task').value;
-    var startIso = new Date().toISOString();
-    var entryId  = trkUid();
-    cfyRunningId  = entryId;
-    cfyTimerStart = new Date(startIso);
-    var data = trkEmpData || window._currentEmpData || {};
-    fetch(APPS_SCRIPT_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, mode: 'no-cors',
-      body: JSON.stringify({
-        action: 'tracker_start',
-        employee_id: attEmpId,
-        full_name: data.full_name || attEmpId,
-        date: businessDateOf(startIso),
-        project: proj, category: cat, task: task, description: desc,
-        start: startIso, entry_id: entryId
-      })
-    });
-    startTimerDisplay();
-    setStopBtn();
-    updateButtons();
-    showToast('Timer started!');
-  } catch(e) {
-    showToast('Could not start timer.');
-    cfyRunningId = null; cfyTimerStart = null;
-    setStartBtn();
-  }
+  if (!getActiveSession()) { showToast('Please Time In before tracking time.'); return; }
+  var f = trkFormFields();
+  if (trkRunning) _bankRunningToPaused();   // server's tracker_start also pauses the previous task
+  var startIso = new Date().toISOString();
+  var entryId  = trkUid();
+  trkSetRunning({ entry_id:entryId, project:f.proj, category:f.cat, task:f.task, description:f.desc, baseSecs:0, segStart: Date.now() });
+  var data = trkEmpData || window._currentEmpData || {};
+  _trkPost('tracker_start', { full_name: data.full_name || attEmpId, date: businessDateOf(startIso), project:f.proj, category:f.cat, task:f.task, description:f.desc, start: startIso, entry_id: entryId });
+  trkLastActivity = Date.now(); trkAutoPausedId = null;
+  startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons();
+  showToast('Timer started!');
 }
 
-async function stopTimer() {
-  var btn = document.getElementById('cfy-start-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Stopping...'; }
-  var endIso    = new Date().toISOString();
-  var stoppedId = cfyRunningId;
-  try {
-    fetch(APPS_SCRIPT_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, mode: 'no-cors',
-      body: JSON.stringify({ action: 'tracker_stop', employee_id: attEmpId, entry_id: stoppedId, end: endIso })
-    });
-  } catch(e) {}
-  cfyRunningId  = null;
-  cfyTimerStart = null;
-  clearInterval(cfyTimerTick);
-  cfyTimerTick  = null;
+// Manual pause (no demerit). opts.silent suppresses the toast.
+function pauseTimer(opts) {
+  if (!trkRunning) return;
+  var id = trkRunning.entry_id;
+  _bankRunningToPaused();
+  _trkPost('tracker_pause', { entry_id: id });
+  stopDisplayTick();
+  renderTimerButtons(); renderPausedList(); updateButtons();
+  if (!opts || !opts.silent) showToast('Timer paused.');
+}
+
+function resumeTask(entryId) {
+  if (!getActiveSession()) { showToast('Please Time In first.'); return; }
+  if (trkRunning) { var rid = trkRunning.entry_id; _bankRunningToPaused(); _trkPost('tracker_pause', { entry_id: rid }); }
+  var i = -1;
+  for (var k = 0; k < trkPaused.length; k++) { if (trkPaused[k].entry_id === entryId) { i = k; break; } }
+  if (i < 0) return;
+  var e = trkPaused.splice(i, 1)[0];
+  trkSetRunning({ entry_id:e.entry_id, project:e.project, category:e.category, task:e.task, description:e.description, baseSecs: e.secs, segStart: Date.now() });
+  trkRestoreFields(e);
+  _trkPost('tracker_resume', { entry_id: entryId });
+  trkLastActivity = Date.now(); trkAutoPausedId = null;
+  startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons();
+  showToast('Resumed.');
+}
+
+function stopTask(entryId) {
+  if (trkRunning && trkRunning.entry_id === entryId) {
+    _trkPost('tracker_stop', { entry_id: entryId });
+    trkSetRunning(null); stopDisplayTick(); trkClearFields();
+  } else {
+    for (var k = 0; k < trkPaused.length; k++) { if (trkPaused[k].entry_id === entryId) { trkPaused.splice(k, 1); break; } }
+    _trkPost('tracker_stop', { entry_id: entryId });
+  }
+  renderTimerButtons(); renderPausedList(); updateButtons();
+  showToast('Task stopped.');
+  setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1400);
+}
+
+async function stopTimer() {        // main Stop button — stops the running task
+  if (!trkRunning) return;
+  stopTask(trkRunning.entry_id);
+}
+
+function stopDisplayTick() {
+  if (cfyTimerTick) clearInterval(cfyTimerTick);
+  cfyTimerTick = null;
   var disp = document.getElementById('cfy-timer-display');
   if (disp) { disp.textContent = '00:00:00'; disp.classList.remove('running'); }
-  var descEl = document.getElementById('cfy-desc');
-  var projEl = document.getElementById('cfy-project');
-  var catEl  = document.getElementById('cfy-category');
-  var taskEl = document.getElementById('cfy-task');
-  if (descEl) descEl.value = '';
-  if (projEl) projEl.value = '';
-  if (catEl)  { catEl.innerHTML  = '<option value="">🗂 Select project first…</option>'; catEl.disabled = true; }
-  if (taskEl) { taskEl.innerHTML = '<option value="">🔖 Select category first…</option>'; taskEl.disabled = true; }
-  setStartBtn();
-  updateButtons();
-  showToast('Timer stopped!');
-  setTimeout(loadTodayEntries, 1200);
 }
-
 function startTimerDisplay() {
   if (cfyTimerTick) clearInterval(cfyTimerTick);
   updateTimerDisplay();
@@ -4859,36 +4918,94 @@ function startTimerDisplay() {
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.classList.add('running');
 }
-
 function updateTimerDisplay() {
-  if (!cfyTimerStart) return;
-  var diff = Math.floor((new Date() - cfyTimerStart) / 1000);
-  var h = Math.floor(diff / 3600);
-  var m = Math.floor((diff % 3600) / 60);
-  var s = diff % 60;
+  if (!trkRunning) return;
+  var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
+  var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
 }
-
 function pad(n) { return n < 10 ? '0' + n : String(n); }
 
-function setStopBtn() {
-  var btn = document.getElementById('cfy-start-btn');
-  if (!btn) return;
-  btn.textContent = 'Stop';
-  btn.classList.add('stop-btn');
-  btn.disabled    = false;
-  btn.style.opacity = '1';
-  var hint = document.getElementById('cfy-timein-hint');
-  if (hint) hint.style.display = 'none';
+function renderTimerButtons() {
+  var main = document.getElementById('cfy-start-btn');
+  var pause = document.getElementById('cfy-pause-btn');
+  if (trkRunning) {
+    if (main) { main.textContent = 'Stop'; main.classList.add('stop-btn'); main.disabled = false; main.style.opacity = '1'; }
+    if (pause) { pause.style.display = ''; pause.textContent = 'Pause'; }
+    var hint = document.getElementById('cfy-timein-hint'); if (hint) hint.style.display = 'none';
+  } else {
+    if (main) { main.textContent = 'Start'; main.classList.remove('stop-btn'); }
+    if (pause) pause.style.display = 'none';
+    updateClockifyStartBtn();
+  }
+}
+function setStopBtn()  { renderTimerButtons(); }
+function setStartBtn() { renderTimerButtons(); }
+
+function _fmtSecs(secs) {
+  secs = Math.floor(secs);
+  if (secs >= 3600) return Math.floor(secs/3600) + 'h ' + Math.floor((secs%3600)/60) + 'm';
+  return Math.floor(secs/60) + 'm';
+}
+function renderPausedList() {
+  var wrap = document.getElementById('cfy-paused-wrap');
+  var list = document.getElementById('cfy-paused-list');
+  if (!wrap || !list) return;
+  if (!trkPaused.length) { wrap.style.display = 'none'; list.innerHTML = ''; return; }
+  wrap.style.display = 'block';
+  list.innerHTML = '<div class="cfy-entries-wrap">' + trkPaused.map(function(e) {
+    var label = e.description || e.task || e.project || 'Task';
+    var sub = (e.project || '') + (e.category ? ' · 🗂 ' + e.category : '') + (e.task && e.description ? ' · 🔖 ' + e.task : '');
+    return '<div class="cfy-entry"><div class="cfy-entry-left">' +
+        '<div class="cfy-entry-desc">⏸ ' + escapeHtml(label) + '</div>' +
+        (sub ? '<div class="cfy-entry-project">📁 ' + escapeHtml(sub) + '</div>' : '') +
+        '<div class="cfy-entry-time">paused · ' + _fmtSecs(e.secs) + ' tracked</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;align-items:center;">' +
+        '<button class="cfy-resume-btn" onclick="resumeTask(&quot;' + e.entry_id + '&quot;)">Resume</button>' +
+        '<button class="cfy-stopx-btn" onclick="stopTask(&quot;' + e.entry_id + '&quot;)">Stop</button>' +
+      '</div></div>';
+  }).join('') + '</div>';
 }
 
-function setStartBtn() {
-  var btn = document.getElementById('cfy-start-btn');
-  if (!btn) return;
-  btn.textContent = 'Start';
-  btn.classList.remove('stop-btn');
-  updateClockifyStartBtn();
+// ── ACTIVITY / INACTIVITY DETECTION ──
+function trkInBioBreak() {
+  if (typeof _phtNow !== 'function' || typeof BIO_TIMES === 'undefined') return false;
+  var p = _phtNow(); var nowMin = p.h * 60 + p.m;
+  return BIO_TIMES.some(function(bt) { var d = nowMin - (bt[0]*60 + bt[1]); if (d < 0) d += 1440; return d >= 0 && d < 5; });
+}
+function trkMarkActivity() {
+  trkLastActivity = Date.now();
+  if (trkAutoPausedId) { var id = trkAutoPausedId; trkAutoPausedId = null; resumeTask(id); }
+}
+function trkCheckInactivity() {
+  if (!trkRunning) return;
+  if (trkInBioBreak()) { trkLastActivity = Date.now(); return; }   // bio breaks are exempt
+  if (Date.now() - trkLastActivity >= INACTIVITY_MS) {
+    var id = trkRunning.entry_id;
+    pauseTimer({ silent: true });
+    trkAutoPausedId = id;
+    var data = trkEmpData || window._currentEmpData || {};
+    _trkPost('add_demerit', { points: 0.15, full_name: data.full_name || attEmpId });
+    showDemeritNotice();
+  }
+}
+function showDemeritNotice() {
+  var m = document.getElementById('inactive-demerit-modal');
+  if (m) m.classList.add('show');
+  try { if (typeof playNotifSound === 'function') playNotifSound(); } catch(e) {}
+}
+function closeDemeritNotice() {
+  var m = document.getElementById('inactive-demerit-modal');
+  if (m) m.classList.remove('show');
+}
+function trkInitActivityWatch() {
+  if (trkActivityTick) return;
+  ['mousemove','mousedown','keydown','scroll','touchstart','wheel'].forEach(function(ev) {
+    document.addEventListener(ev, trkMarkActivity, { passive: true });
+  });
+  trkActivityTick = setInterval(trkCheckInactivity, 15000);
 }
 
 function updateClockifyStartBtn() {
