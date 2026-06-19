@@ -2534,7 +2534,7 @@
 
         <!-- Loading -->
         <div id="cfy-loading" class="loading-state">
-          <div class="spinner"></div> Connecting to Clockify…
+          <div class="spinner"></div> Loading time tracker…
         </div>
       </div>
     </div>
@@ -4439,111 +4439,63 @@ function renderAttTable() {
 }
 
 // ══════════════════════════════════════════
-// CLOCKIFY INTEGRATION
+// NATIVE TIME TRACKER (replaces Clockify)
+// Timer state lives server-side: a running entry is a backend row with a
+// start and no end, so it survives refresh / device switches.
 // ══════════════════════════════════════════
-const CLOCKIFY_API = 'https://api.clockify.me/api/v1';
-var cfyApiKey      = null;
-var cfyWorkspaceId = null;
-var cfyUserId      = null;
-var cfyProjects    = [];
-var cfyRunningId   = null;
+var nativeProjects = [];     // [{project, task, active}] from the admin-managed list
+var cfyRunningId   = null;   // running entry_id (name kept for updateButtons compatibility)
 var cfyTimerStart  = null;
 var cfyTimerTick   = null;
 var cfyInited      = false;
+var trkEmpData     = null;
 
-// Init when tab is clicked
+function trkUid() { return Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
+
+// Init when the Time Tracker tab is first opened
 function initClockify(empData) {
-  if (!empData.clockify_api_key) {
-    document.getElementById('cfy-loading').style.display = 'none';
-    document.getElementById('cfy-no-key').style.display  = 'block';
-    return;
-  }
-  cfyApiKey = empData.clockify_api_key;
-  loadClockifyUser();
-}
-
-function cfyHeaders() {
-  return { 'X-Api-Key': cfyApiKey, 'Content-Type': 'application/json' };
-}
-
-async function loadClockifyUser() {
-  try {
-    var res  = await fetch(CLOCKIFY_API + '/user', { headers: cfyHeaders() });
-    var user = await res.json();
-    cfyUserId      = user.id;
-    cfyWorkspaceId = user.defaultWorkspace;
-    await Promise.all([ loadProjects(), loadTodayEntries(), checkRunningTimer() ]);
-    document.getElementById('cfy-loading').style.display = 'none';
-    document.getElementById('cfy-main').style.display    = 'block';
-    updateClockifyStartBtn();
-  } catch(e) {
-    document.getElementById('cfy-loading').style.display = 'none';
-    document.getElementById('cfy-no-key').style.display  = 'block';
-  }
+  trkEmpData = empData || window._currentEmpData || {};
+  var nk = document.getElementById('cfy-no-key'); if (nk) nk.style.display = 'none';
+  var ld = document.getElementById('cfy-loading'); if (ld) ld.style.display = 'none';
+  var mn = document.getElementById('cfy-main'); if (mn) mn.style.display = 'block';
+  loadProjects();
+  loadTodayEntries();
+  updateClockifyStartBtn();
 }
 
 async function loadProjects() {
   try {
-    var res  = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/projects?archived=false&page-size=50', { headers: cfyHeaders() });
-    cfyProjects = await res.json();
-    var sel = document.getElementById('cfy-project');
-    sel.innerHTML = '<option value="">No project</option>' +
-      cfyProjects.map(function(p) {
-        return '<option value="' + p.id + '">' + p.name + '</option>';
-      }).join('');
-    // Init task dropdown state
-    document.getElementById('cfy-task').disabled = true;
-  } catch(e) {}
-}
-
-async function checkRunningTimer() {
-  try {
-    var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId + '/time-entries?in-progress=true', { headers: cfyHeaders() });
-    var entries = await res.json();
-    if (entries && entries.length > 0) {
-      var entry = entries[0];
-      cfyRunningId  = entry.id;
-      cfyTimerStart = new Date(entry.timeInterval.start);
-      document.getElementById('cfy-desc').value = entry.description || '';
-      if (entry.projectId) document.getElementById('cfy-project').value = entry.projectId;
-      startTimerDisplay();
-      setStopBtn();
-    }
-  } catch(e) {}
-}
-
-async function loadTasks() {
-  var projId  = document.getElementById('cfy-project').value;
+    var res  = await fetch(APPS_SCRIPT_URL + '?action=get_tracker_projects');
+    var json = await res.json();
+    nativeProjects = (json.projects || []).filter(function(p){ return String(p.active || 'yes').toLowerCase() !== 'no'; });
+  } catch(e) { nativeProjects = []; }
+  var sel = document.getElementById('cfy-project');
+  var seen = {}; var opts = '<option value="">📁 Select project…</option>';
+  nativeProjects.forEach(function(p){
+    if (p.project && !seen[p.project]) { seen[p.project] = true; opts += '<option value="' + escapeHtml(p.project) + '">' + escapeHtml(p.project) + '</option>'; }
+  });
+  if (sel) sel.innerHTML = opts;
   var taskSel = document.getElementById('cfy-task');
+  if (taskSel) { taskSel.innerHTML = '<option value="">🔖 Select project first…</option>'; taskSel.disabled = true; }
+}
 
-  if (!projId) {
-    taskSel.innerHTML = '<option value="">Select project first…</option>';
+function loadTasks() {
+  var proj    = document.getElementById('cfy-project').value;
+  var taskSel = document.getElementById('cfy-task');
+  if (!proj) {
+    taskSel.innerHTML = '<option value="">🔖 Select project first…</option>';
     taskSel.disabled  = true;
     return;
   }
-
-  taskSel.innerHTML = '<option value="">Loading tasks…</option>';
-  taskSel.disabled  = true;
-
-  try {
-    var res   = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/projects/' + projId + '/tasks?page-size=100&is-active=true', { headers: cfyHeaders() });
-    var tasks = await res.json();
-
-    if (!tasks || !tasks.length) {
-      taskSel.innerHTML = '<option value="">No tasks in this project</option>';
-      taskSel.disabled  = false;
-      return;
-    }
-
-    taskSel.innerHTML = '<option value="">No specific task</option>' +
-      tasks.map(function(t) {
-        return '<option value="' + t.id + '">' + t.name + '</option>';
-      }).join('');
-    taskSel.disabled = false;
-  } catch(e) {
-    taskSel.innerHTML = '<option value="">Could not load tasks</option>';
+  var tasks = nativeProjects.filter(function(p){ return p.project === proj && p.task; });
+  if (!tasks.length) {
+    taskSel.innerHTML = '<option value="">No tasks — track project only</option>';
     taskSel.disabled  = false;
+    return;
   }
+  taskSel.innerHTML = '<option value="">No specific task</option>' +
+    tasks.map(function(t){ return '<option value="' + escapeHtml(t.task) + '">' + escapeHtml(t.task) + '</option>'; }).join('');
+  taskSel.disabled = false;
 }
 
 // A "work day" runs 7:00 AM → 7:00 AM the next day, so a night shift
@@ -4563,11 +4515,23 @@ function businessDateOf(iso) {
 
 async function loadTodayEntries() {
   try {
-    var start = getShiftWindowStart();
-    var url   = CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId +
-                '/time-entries?start=' + encodeURIComponent(start) + '&page-size=50&hydrated=true';
-    var res     = await fetch(url, { headers: cfyHeaders() });
-    var entries = await res.json();
+    var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
+    var date  = businessDateOf(new Date().toISOString());
+    var url   = APPS_SCRIPT_URL + '?action=get_tracker_today&employee_id=' + encodeURIComponent(empId) + '&date=' + encodeURIComponent(date);
+    var res     = await fetch(url);
+    var json    = await res.json();
+    var entries = json.entries || [];
+    // Resume a running entry if one exists server-side
+    var running = entries.filter(function(e){ return e.status === 'running'; })[0];
+    if (running) {
+      cfyRunningId  = running.entry_id;
+      cfyTimerStart = new Date(running.start);
+      var d = document.getElementById('cfy-desc'); if (d && running.description) d.value = running.description;
+      var p = document.getElementById('cfy-project');
+      if (p && running.project) { p.value = running.project; loadTasks(); var t = document.getElementById('cfy-task'); if (t && running.task) t.value = running.task; }
+      startTimerDisplay();
+      setStopBtn();
+    }
     renderTodayEntries(entries);
   } catch(e) {
     document.getElementById('cfy-today-wrap').innerHTML = '<div class="cfy-no-entries">Could not load entries.</div>';
@@ -4578,8 +4542,8 @@ function renderTodayEntries(entries) {
   var wrap = document.getElementById('cfy-today-wrap');
   var totalBar = document.getElementById('cfy-total-bar');
 
-  // Filter out running entry (no end time)
-  var completed = entries.filter(function(e) { return e.timeInterval && e.timeInterval.end; });
+  // Completed = has an end time and is not the running row
+  var completed = (entries || []).filter(function(e) { return e.status !== 'running' && e.end; });
 
   if (completed.length === 0) {
     wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No completed entries today yet.</div></div>';
@@ -4589,22 +4553,20 @@ function renderTodayEntries(entries) {
 
   var totalMins = 0;
   var rows = completed.map(function(e) {
-    var dur  = calcCfyDur(e.timeInterval.start, e.timeInterval.end);
+    var dur  = calcCfyDur(e.start, e.end);
     totalMins += dur.mins;
-    var proj     = cfyProjects.find(function(p) { return p.id === e.projectId; });
-    var taskName = e.task ? e.task.name : null;
-    var startT   = new Date(e.timeInterval.start).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
-    var endT     = new Date(e.timeInterval.end).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
-
-    // Build label: description > task name > 'No description'
-    var mainLabel = e.description || taskName || null;
-    var subLabel  = e.description && taskName ? taskName : null;
+    var startT   = new Date(e.start).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
+    var endT     = new Date(e.end).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
+    var mainLabel = e.description || e.task || null;
+    var subLabel  = e.description && e.task ? e.task : null;
+    var badge = (e.status === 'pending') ? ' <span style="color:var(--orange-3);font-size:11px;">⏳ pending</span>'
+              : (e.status === 'recorded') ? ' <span style="color:#16a34a;font-size:11px;">✓</span>' : '';
 
     return '<div class="cfy-entry">' +
       '<div class="cfy-entry-left">' +
-        '<div class="cfy-entry-desc' + (!mainLabel ? ' no-desc' : '') + '">' + (mainLabel || 'No description') + '</div>' +
-        (subLabel ? '<div class="cfy-entry-project" style="color:var(--text-2);">🔖 ' + subLabel + '</div>' : '') +
-        (proj ? '<div class="cfy-entry-project">📁 ' + proj.name + '</div>' : '') +
+        '<div class="cfy-entry-desc' + (!mainLabel ? ' no-desc' : '') + '">' + escapeHtml(mainLabel || 'No description') + badge + '</div>' +
+        (subLabel ? '<div class="cfy-entry-project" style="color:var(--text-2);">🔖 ' + escapeHtml(subLabel) + '</div>' : '') +
+        (e.project ? '<div class="cfy-entry-project">📁 ' + escapeHtml(e.project) + '</div>' : '') +
         '<div class="cfy-entry-time">' + startT + ' – ' + endT + '</div>' +
       '</div>' +
       '<div class="cfy-entry-dur">' + dur.label + '</div>' +
@@ -4613,7 +4575,6 @@ function renderTodayEntries(entries) {
 
   wrap.innerHTML = '<div class="cfy-entries-wrap">' + rows + '</div>';
 
-  // Total
   var th = Math.floor(totalMins / 60);
   var tm = totalMins % 60;
   document.getElementById('cfy-total-val').textContent = th + 'h ' + tm + 'm';
@@ -4622,51 +4583,44 @@ function renderTodayEntries(entries) {
 
 function calcCfyDur(start, end) {
   var diff = Math.round((new Date(end) - new Date(start)) / 60000);
+  if (diff < 0) diff = 0;
   var h = Math.floor(diff / 60);
   var m = diff % 60;
   return { mins: diff, label: (h > 0 ? h + 'h ' : '') + m + 'm' };
 }
 
-// ── CONSOLIDATE CLOCKIFY → WORKLOG ON TIME-OUT ──
-// On time-out, stop any running timer, pull the day's Clockify entries,
-// and send each task (project/task/hours) to the shared WorkLog sheet.
+// ── FINALIZE TRACKER → WORKLOG ON TIME-OUT ──
+// On time-out, stop any running timer, then prompt for the volume/output of
+// each tracked task this shift before recording them.
 async function syncWorklogOnTimeOut() {
-  if (!cfyApiKey || !cfyUserId || !cfyWorkspaceId) return; // Clockify not set up
   try {
     if (cfyRunningId && typeof stopTimer === 'function') {
       try { await stopTimer(); } catch(e) {}
     }
-    var start = getShiftWindowStart();
-    var url = CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId +
-              '/time-entries?start=' + encodeURIComponent(start) + '&page-size=50&hydrated=true';
-    var res = await fetch(url, { headers: cfyHeaders() });
-    var entries = await res.json();
-    if (!Array.isArray(entries)) return;
-    var completed = entries.filter(function(e) { return e.timeInterval && e.timeInterval.end; });
-    if (!completed.length) return;
-    var allRows = completed.map(function(e) {
-      var proj = cfyProjects.find(function(p) { return p.id === e.projectId; });
-      var dur = calcCfyDur(e.timeInterval.start, e.timeInterval.end);
+    // give the stop a moment to persist server-side before we read entries back
+    await new Promise(function(r){ setTimeout(r, 2600); });
+    var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
+    var date  = businessDateOf(new Date().toISOString());
+    var url   = APPS_SCRIPT_URL + '?action=get_tracker_today&employee_id=' + encodeURIComponent(empId) + '&date=' + encodeURIComponent(date);
+    var res   = await fetch(url);
+    var json  = await res.json();
+    // Only entries that are stopped but not yet given a volume/recorded
+    var rows = (json.entries || []).filter(function(e){ return e.status === 'stopped'; }).map(function(e) {
       return {
-        clockify_id: e.id,
-        project: proj ? proj.name : '',
-        task: e.task ? e.task.name : '',
+        entry_id: e.entry_id,
+        project: e.project || '',
+        task: e.task || '',
         description: e.description || '',
-        hours: Math.round((dur.mins / 60) * 100) / 100,
-        start: e.timeInterval.start,
-        end: e.timeInterval.end
+        hours: e.hours || 0,
+        start: e.start,
+        end: e.end
       };
     });
-    // Only prompt/record entries not already submitted today (server also dedups by id)
-    var doneKey = 'worklog_done_' + attEmpId;
-    var done = {};
-    try { (JSON.parse(localStorage.getItem(doneKey) || '[]')).forEach(function(id) { done[id] = true; }); } catch(e) {}
-    var newRows = allRows.filter(function(r) { return !done[r.clockify_id]; });
-    if (!newRows.length) return; // nothing new to log
-    var clockifyTotal   = allRows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
+    if (!rows.length) return; // nothing new to record
+    var trackedTotal    = rows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
     var attendanceTotal = (typeof getTotalHoursToday === 'function') ? getTotalHoursToday() : 0;
-    _pendingWorklog = { rows: newRows, clockifyTotal: clockifyTotal, attendanceTotal: attendanceTotal, doneKey: doneKey };
-    showVolumePrompt(newRows);
+    _pendingWorklog = { rows: rows, clockifyTotal: trackedTotal, attendanceTotal: attendanceTotal };
+    showVolumePrompt(rows);
   } catch(e) { console.warn('worklog sync:', e); }
 }
 
@@ -4703,39 +4657,29 @@ function submitWorklogVolumes() {
   if (!ok) { showToast('Please enter the volume for every task.'); return; }
   var rows = _pendingWorklog.rows;
   inputs.forEach(function(inp) { var i = parseInt(inp.dataset.i, 10); if (rows[i]) rows[i].volume = parseFloat(inp.value); });
-  var clockifyTotal = _pendingWorklog.clockifyTotal;
+  var trackedTotal = _pendingWorklog.clockifyTotal;
   var attendanceTotal = _pendingWorklog.attendanceTotal;
-  var pending = clockifyTotal > (attendanceTotal + 0.05);
-  var data = window._currentEmpData || {};
-  // Date the shift to the work-day it STARTED (earliest entry), so a night shift's
-  // after-midnight hours are recorded under the night it began, not the new calendar day.
-  var minStart = rows.reduce(function(m, r) { return (!m || new Date(r.start) < new Date(m)) ? r.start : m; }, null);
-  var shiftDate = minStart ? businessDateOf(minStart) : attToday;
+  var pending = trackedTotal > (attendanceTotal + 0.05);
   try {
     fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        action: 'log_worklog',
+        action: 'tracker_set_volumes',
         employee_id: attEmpId,
-        full_name: data.full_name || attEmpId,
-        date: shiftDate,
         pending: pending,
-        tracked_hours: Math.round(clockifyTotal * 100) / 100,
+        tracked_hours: Math.round(trackedTotal * 100) / 100,
         attendance_hours: Math.round(attendanceTotal * 100) / 100,
-        entries: rows
+        items: rows.map(function(r){ return { entry_id: r.entry_id, volume: r.volume }; })
       }),
       mode: 'no-cors'
     });
-    var done2 = [];
-    try { done2 = JSON.parse(localStorage.getItem(_pendingWorklog.doneKey) || '[]'); } catch(e) {}
-    rows.forEach(function(r) { if (r.clockify_id) done2.push(r.clockify_id); });
-    localStorage.setItem(_pendingWorklog.doneKey, JSON.stringify(done2));
   } catch(e) {}
   closeVolumePrompt();
   showToast(pending ? 'Output logged — pending admin approval.' : 'Output recorded. ✅');
-  if (pending && typeof showWorklogWarning === 'function') showWorklogWarning(clockifyTotal, attendanceTotal);
+  if (pending && typeof showWorklogWarning === 'function') showWorklogWarning(trackedTotal, attendanceTotal);
   _pendingWorklog = null;
+  setTimeout(loadTodayEntries, 1200);
 }
 
 // Warning shown when tracked time exceeds attendance hours
@@ -4768,26 +4712,32 @@ async function startTimer() {
   var btn = document.getElementById('cfy-start-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
   try {
-    var desc   = (document.getElementById('cfy-desc').value || '').trim();
-    var projId = document.getElementById('cfy-project').value;
-    var taskId = document.getElementById('cfy-task').value;
-    var body   = { start: new Date().toISOString(), billable: false };
-    if (desc)   body.description = desc;
-    if (projId) body.projectId   = projId;
-    if (taskId) body.taskId      = taskId;
-    var res = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/time-entries', {
-      method: 'POST', headers: cfyHeaders(), body: JSON.stringify(body)
+    var desc = (document.getElementById('cfy-desc').value || '').trim();
+    var proj = document.getElementById('cfy-project').value;
+    var task = document.getElementById('cfy-task').value;
+    var startIso = new Date().toISOString();
+    var entryId  = trkUid();
+    cfyRunningId  = entryId;
+    cfyTimerStart = new Date(startIso);
+    var data = trkEmpData || window._currentEmpData || {};
+    fetch(APPS_SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, mode: 'no-cors',
+      body: JSON.stringify({
+        action: 'tracker_start',
+        employee_id: attEmpId,
+        full_name: data.full_name || attEmpId,
+        date: businessDateOf(startIso),
+        project: proj, task: task, description: desc,
+        start: startIso, entry_id: entryId
+      })
     });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    var entry = await res.json();
-    cfyRunningId  = entry.id;
-    cfyTimerStart = new Date(entry.timeInterval.start);
     startTimerDisplay();
     setStopBtn();
     updateButtons();
     showToast('Timer started!');
   } catch(e) {
-    showToast('Could not start timer. Check API key.');
+    showToast('Could not start timer.');
+    cfyRunningId = null; cfyTimerStart = null;
     setStartBtn();
   }
 }
@@ -4795,31 +4745,30 @@ async function startTimer() {
 async function stopTimer() {
   var btn = document.getElementById('cfy-start-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Stopping...'; }
+  var endIso    = new Date().toISOString();
+  var stoppedId = cfyRunningId;
   try {
-    var res = await fetch(CLOCKIFY_API + '/workspaces/' + cfyWorkspaceId + '/user/' + cfyUserId + '/time-entries', {
-      method: 'PATCH', headers: cfyHeaders(),
-      body: JSON.stringify({ end: new Date().toISOString() })
+    fetch(APPS_SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, mode: 'no-cors',
+      body: JSON.stringify({ action: 'tracker_stop', employee_id: attEmpId, entry_id: stoppedId, end: endIso })
     });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    cfyRunningId  = null;
-    cfyTimerStart = null;
-    clearInterval(cfyTimerTick);
-    cfyTimerTick  = null;
-    var disp = document.getElementById('cfy-timer-display');
-    if (disp) { disp.textContent = '00:00:00'; disp.classList.remove('running'); }
-    var descEl = document.getElementById('cfy-desc');
-    var projEl = document.getElementById('cfy-project');
-    if (descEl) descEl.value = '';
-    if (projEl) projEl.value = '';
-    setStartBtn();
-    updateButtons();
-    showToast('Timer stopped!');
-    await loadTodayEntries();
-  } catch(e) {
-    showToast('Could not stop timer. Try again.');
-    // Re-enable the button whatever state we are in
-    if (cfyRunningId) setStopBtn(); else setStartBtn();
-  }
+  } catch(e) {}
+  cfyRunningId  = null;
+  cfyTimerStart = null;
+  clearInterval(cfyTimerTick);
+  cfyTimerTick  = null;
+  var disp = document.getElementById('cfy-timer-display');
+  if (disp) { disp.textContent = '00:00:00'; disp.classList.remove('running'); }
+  var descEl = document.getElementById('cfy-desc');
+  var projEl = document.getElementById('cfy-project');
+  var taskEl = document.getElementById('cfy-task');
+  if (descEl) descEl.value = '';
+  if (projEl) projEl.value = '';
+  if (taskEl) { taskEl.innerHTML = '<option value="">🔖 Select project first…</option>'; taskEl.disabled = true; }
+  setStartBtn();
+  updateButtons();
+  showToast('Timer stopped!');
+  setTimeout(loadTodayEntries, 1200);
 }
 
 function startTimerDisplay() {

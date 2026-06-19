@@ -286,6 +286,9 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <button class="tab" id="t-worklog" onclick="goTab('worklog')" title="Work Log">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       </button>
+      <button class="tab" id="t-projects" onclick="goTab('projects')" title="Projects &amp; Tasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      </button>
     </div>
 
     <!-- EMPLOYEES -->
@@ -542,6 +545,31 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
         </table>
       </div>
     </div>
+
+    <!-- PROJECTS & TASKS -->
+    <div id="p-projects" style="display:none;">
+      <div class="toolbar">
+        <div class="tl">
+          <input class="sinp" id="pj-project" placeholder="Project name" style="width:200px;" />
+          <input class="sinp" id="pj-task" placeholder="Task (optional)" style="width:200px;margin-left:8px;" />
+          <button class="bsm" onclick="addTrackerProject()" style="margin-left:8px;color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--t2);">Employees pick from this list in the Time Tracker.</span>
+          <button class="bsm" onclick="loadProjectsAdmin()">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="tw">
+        <table id="pj-table">
+          <thead><tr>
+            <th>Project</th>
+            <th>Task</th>
+            <th style="width:90px;">Action</th>
+          </tr></thead>
+          <tbody id="pj-body"><tr><td colspan="3" class="es">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -559,7 +587,6 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <div class="fg"><label class="lbl">Start date</label><input class="inp" type="date" id="m-start" /></div>
       <div class="fg"><label class="lbl">Birthday</label><input class="inp" type="date" id="m-bday" /></div>
       <div class="fg"><label class="lbl">Photo (Drive link)</label><input class="inp" type="text" id="m-photo" placeholder="https://drive.google.com/..." /></div>
-      <div class="fg"><label class="lbl">Clockify API key</label><input class="inp" type="text" id="m-cfy" placeholder="Paste API key" /></div>
       <div class="fg"><label class="lbl">Custom field label</label><input class="inp" type="text" id="m-cf1l" placeholder="e.g. Team" /></div>
       <div class="fg"><label class="lbl">Custom field value</label><input class="inp" type="text" id="m-cf1v" placeholder="e.g. Alpha" /></div>
     </div>
@@ -616,7 +643,7 @@ function doLogout(){
 }
 
 function goTab(name){
-  ['emp','att','leave','pin','chat','coe','scorecard','worklog'].forEach(function(n){
+  ['emp','att','leave','pin','chat','coe','scorecard','worklog','projects'].forEach(function(n){
     document.getElementById('t-'+n).classList.toggle('active',n===name);
     document.getElementById('p-'+n).style.display=n===name?'block':'none';
   });
@@ -627,6 +654,41 @@ function goTab(name){
   if(name==='coe')  loadCOE();
   if(name==='scorecard') loadAdminScorecard();
   if(name==='worklog') loadWorkLog();
+  if(name==='projects') loadProjectsAdmin();
+}
+
+// ── PROJECTS & TASKS (time-tracker list) ──
+async function loadProjectsAdmin(){
+  var body=document.getElementById('pj-body');
+  body.innerHTML='<tr><td colspan="3" class="es">Loading…</td></tr>';
+  try{
+    var res=await fetch(API+'?action=get_tracker_projects');
+    var json=await res.json();
+    var rows=json.projects||[];
+    if(!rows.length){ body.innerHTML='<tr><td colspan="3" class="es">No projects yet. Add one above.</td></tr>'; return; }
+    body.innerHTML=rows.map(function(p){
+      return '<tr><td>'+escAdmin(p.project)+'</td><td>'+(p.task?escAdmin(p.task):'<span style="color:var(--t2);">—</span>')+'</td>'+
+        '<td><button class="bsm" onclick="deleteTrackerProject('+p._row+')" style="color:#ef4444;border-color:rgba(239,68,68,.3);">Delete</button></td></tr>';
+    }).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="3" class="es">Could not load projects.</td></tr>'; }
+}
+function escAdmin(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+async function addTrackerProject(){
+  var proj=document.getElementById('pj-project').value.trim();
+  var task=document.getElementById('pj-task').value.trim();
+  if(!proj){ if(typeof toast==='function') toast('Enter a project name.'); return; }
+  try{
+    await fetch(API+'?action=save_tracker_project&project='+encodeURIComponent(proj)+'&task='+encodeURIComponent(task));
+    document.getElementById('pj-task').value='';
+    setTimeout(loadProjectsAdmin,600);
+  }catch(e){ if(typeof toast==='function') toast('Could not add.'); }
+}
+async function deleteTrackerProject(row){
+  if(!confirm('Delete this project/task from the list?')) return;
+  try{
+    await fetch(API+'?action=delete_tracker_project&row='+encodeURIComponent(row));
+    setTimeout(loadProjectsAdmin,600);
+  }catch(e){ if(typeof toast==='function') toast('Could not delete.'); }
 }
 
 // ── WORK LOG (consolidated Clockify time) ──
@@ -764,7 +826,6 @@ function openModal(idx){
   document.getElementById('m-start').value=e.start_date||'';
   document.getElementById('m-bday').value=e.birthday||'';
   document.getElementById('m-photo').value=e.photo||'';
-  document.getElementById('m-cfy').value=e.clockify_api_key||'';
   var res=['full_name','employee_id','pin','position','department','rate','start_date','birthday','payslips','photo','clockify_api_key'];
   var cv=Object.entries(e).filter(function(kv){return!res.includes(kv[0]);});
   document.getElementById('m-cf1l').value=cv[0]?cv[0][0]:'';
@@ -794,7 +855,7 @@ function saveEmp(){
     if(p)ps.push({period:p,hours:r.querySelector('.ps-h').value.trim(),link:r.querySelector('.ps-l').value.trim()});
   });
   var cf1l=document.getElementById('m-cf1l').value.trim().replace(/\s+/g,'_').toLowerCase();
-  var emp={full_name:name,employee_id:id,pin:pin,position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),clockify_api_key:document.getElementById('m-cfy').value.trim(),payslips:ps};
+  var emp={full_name:name,employee_id:id,pin:pin,position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
   if(cf1l)emp[cf1l]=document.getElementById('m-cf1v').value.trim();
   if(editIdx>=0){emps[editIdx]=emp;toast('Employee updated.');}
   else{emps.push(emp);toast('Employee added.');}
