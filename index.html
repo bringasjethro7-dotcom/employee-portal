@@ -2533,6 +2533,12 @@
             <span style="color:var(--text-2);font-size:13px;">Total today</span>
             <span class="cfy-total-val" id="cfy-total-val">0h 0m</span>
           </div>
+
+          <!-- Recorded history -->
+          <p class="section-eyebrow" style="margin-top:1.75rem;">Recent history</p>
+          <div id="cfy-history-wrap">
+            <div class="loading-state"><div class="spinner"></div> Loading…</div>
+          </div>
         </div>
 
         <!-- Loading -->
@@ -4463,6 +4469,7 @@ function initClockify(empData) {
   var mn = document.getElementById('cfy-main'); if (mn) mn.style.display = 'block';
   loadProjects();
   loadTodayEntries();
+  loadTrackerHistory();
   updateClockifyStartBtn();
 }
 
@@ -4624,6 +4631,42 @@ function calcCfyDur(start, end) {
   return { mins: diff, label: (h > 0 ? h + 'h ' : '') + m + 'm' };
 }
 
+// Past recorded time, grouped by day (so employees can track their history)
+async function loadTrackerHistory() {
+  var wrap = document.getElementById('cfy-history-wrap');
+  if (!wrap) return;
+  try {
+    var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
+    var res  = await fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(empId));
+    var json = await res.json();
+    var todayB = businessDateOf(new Date().toISOString());
+    var byDate = {};
+    (json.worklog || []).forEach(function(w) {
+      if (!w.date || w.status === 'running') return;
+      if (w.date === todayB) return; // today already shown above
+      (byDate[w.date] = byDate[w.date] || []).push(w);
+    });
+    var dates = Object.keys(byDate).sort(function(a, b){ return b.localeCompare(a); }).slice(0, 14);
+    if (!dates.length) { wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No earlier entries yet.</div></div>'; return; }
+    function hm(h) { h = parseFloat(h) || 0; return Math.floor(h) + 'h ' + Math.round((h - Math.floor(h)) * 60) + 'm'; }
+    wrap.innerHTML = dates.map(function(d) {
+      var items = byDate[d];
+      var tot = items.reduce(function(s, w){ return s + (parseFloat(w.hours) || 0); }, 0);
+      var dlabel = new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+      var rowsH = items.map(function(w) {
+        var label = w.task || w.category || w.description || 'Task';
+        var sub = (w.category && w.task) ? w.category : (w.project || '');
+        var badge = (w.status === 'pending') ? ' <span style="color:var(--orange-3);font-size:11px;">⏳ pending</span>'
+                  : (w.status === 'rejected') ? ' <span style="color:#ef4444;font-size:11px;">✕ rejected</span>' : '';
+        return '<div class="cfy-entry"><div class="cfy-entry-left"><div class="cfy-entry-desc">' + escapeHtml(label) + badge + '</div>' +
+          (sub ? '<div class="cfy-entry-project">📁 ' + escapeHtml(sub) + '</div>' : '') +
+          '</div><div class="cfy-entry-dur">' + hm(w.hours) + '</div></div>';
+      }).join('');
+      return '<div style="margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;color:var(--text-2);margin:0 2px 6px;"><span>' + dlabel + '</span><span>' + hm(tot) + '</span></div><div class="cfy-entries-wrap">' + rowsH + '</div></div>';
+    }).join('');
+  } catch(e) { wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">Could not load history.</div></div>'; }
+}
+
 // ── FINALIZE TRACKER → WORKLOG ON TIME-OUT ──
 // On time-out, stop any running timer, then prompt for the volume/output of
 // each tracked task this shift before recording them.
@@ -4714,7 +4757,7 @@ function submitWorklogVolumes() {
   showToast(pending ? 'Output logged — pending admin approval.' : 'Output recorded. ✅');
   if (pending && typeof showWorklogWarning === 'function') showWorklogWarning(trackedTotal, attendanceTotal);
   _pendingWorklog = null;
-  setTimeout(loadTodayEntries, 1200);
+  setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1200);
 }
 
 // Warning shown when tracked time exceeds attendance hours
