@@ -5954,13 +5954,20 @@ function subscribeToMessages() {
       var forMe     = isGroup || m.receiver_id === chatEmpId;
       var chatKey   = isGroup ? 'group' : (fromMe ? m.receiver_id : m.sender_id);
       var chatOpen  = document.getElementById('tab-messages') && document.getElementById('tab-messages').classList.contains('active');
-      var viewingThisChat = chatOpen && currentChat === chatKey;
+
+      // Does this new message belong to the conversation currently open?
+      // (Checked off the message itself, not the focused tab, so the group
+      // chat refreshes in real time just like direct messages.)
+      var belongsToCurrent = (currentChat === 'group')
+        ? isGroup
+        : (!isGroup && (m.sender_id === currentChat || m.receiver_id === currentChat));
+      var viewingThisChat = chatOpen && belongsToCurrent;
 
       // Ignore direct messages not meant for this user
       if (!forMe && !fromMe) return;
 
-      // Always reload messages if viewing this conversation
-      if (viewingThisChat) {
+      // Reload the open conversation whenever a message that belongs to it arrives
+      if (belongsToCurrent) {
         loadMessages();
       }
 
@@ -6351,13 +6358,12 @@ function buildRingtoneList() {
   });
 }
 
-// ── REGISTER SERVICE WORKER (PWA) ──
+// ── CLEAN UP OLD SERVICE WORKERS (no sw.js is shipped) ──
+// Removes any previously-registered worker so it can't serve a stale cached portal.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-    navigator.serviceWorker.register('/employee-portal/sw.js')
-      .then(function(reg) { console.log('SW registered'); })
-      .catch(function(err) { console.log('SW failed:', err); });
-  });
+  navigator.serviceWorker.getRegistrations()
+    .then(function(regs) { regs.forEach(function(reg) { reg.unregister(); }); })
+    .catch(function() {});
 }
 
 // ── PAYSLIP SALARY TOGGLE ──
