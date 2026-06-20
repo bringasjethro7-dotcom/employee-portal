@@ -3218,6 +3218,10 @@ function typewriterAnim(text, elementId) {
 // BOOT
 // ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // Scanned ID QR → show the front face of the card (public, no login)
+  var _cardId = new URLSearchParams(location.search).get('card');
+  if (_cardId) { showPublicIdCard(_cardId); return; }
+
   lockMobileTabs();   // grey-out Attendance & Time Tracker on phones
   // Typewriter animation
   typewriterAnim(COMPANY_NAME, 'company-name-display');
@@ -5407,6 +5411,45 @@ function updateClockifyStartBtn() {
 // ══════════════════════════════════════════
 var idCardFlipped = false;
 
+// Public, login-free view shown when the ID QR code is scanned — the FRONT face of the card
+function showPublicIdCard(id) {
+  var ls = document.getElementById('login-screen'); if (ls) ls.style.display = 'none';
+  var ds = document.getElementById('dashboard-screen'); if (ds) ds.style.display = 'none';
+  var ov = document.createElement('div');
+  ov.id = 'public-id-view';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;background:radial-gradient(1000px 520px at 50% -10%,rgba(255,107,26,0.12),transparent 60%),#0d1117;';
+  ov.innerHTML =
+    '<div style="color:#8b93a7;font-size:12px;letter-spacing:.12em;text-transform:uppercase;">Verified employee ID</div>' +
+    '<div class="id-card-scene" style="padding:0;"><div class="id-card-wrap" style="cursor:default;">' +
+      '<div class="id-card id-front">' +
+        '<div class="id-card-header"><img src="' + ADMIN_LOGO + '" style="width:36px;height:36px;object-fit:contain;filter:drop-shadow(0 0 6px rgba(255,107,26,0.5));" />' +
+          '<div><div class="id-company-name">JMB VIRTUALS</div><div class="id-company-sub">Employee ID Card</div></div></div>' +
+        '<div class="id-card-body"><div class="id-photo-wrap"><img id="pub-photo" class="id-photo" src="" alt="" style="display:none;" /><div class="id-photo-placeholder" id="pub-photo-ph" style="display:flex;"></div></div>' +
+          '<div class="id-info"><div class="id-name" id="pub-name">Loading…</div><div class="id-position" id="pub-pos">—</div><div class="id-dept" id="pub-dept">—</div></div></div>' +
+        '<div class="id-card-footer"><div class="id-number" id="pub-id">' + (id || '') + '</div></div><div class="id-stripe"></div>' +
+      '</div></div></div>' +
+    '<div style="color:#5a6072;font-size:11px;">jmbvirtuals.com</div>';
+  document.body.appendChild(ov);
+
+  fetch(APPS_SCRIPT_URL + '?action=get_all_employees')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var list = (d && d.employees) || [];
+      var emp = list.filter(function(e){ return String(e.employee_id||'').toLowerCase() === String(id).toLowerCase(); })[0];
+      var nameEl = document.getElementById('pub-name');
+      if (!emp) { if (nameEl) nameEl.textContent = 'ID not found'; return; }
+      if (nameEl) nameEl.textContent = emp.full_name || emp.employee_id;
+      var posEl = document.getElementById('pub-pos'); if (posEl) posEl.textContent = emp.position || '';
+      var deptEl = document.getElementById('pub-dept'); if (deptEl) deptEl.textContent = emp.department || '';
+      var idEl = document.getElementById('pub-id'); if (idEl) idEl.textContent = emp.employee_id || id;
+      var photo = emp.photo ? convertDriveLink(emp.photo) : null;
+      var ph = document.getElementById('pub-photo'), pl = document.getElementById('pub-photo-ph');
+      if (photo && ph) { ph.src = photo; ph.style.display = 'block'; if (pl) pl.style.display = 'none'; }
+      else if (pl) { pl.style.display = 'flex'; pl.textContent = (emp.full_name||'?').split(' ').filter(function(w){return /^[a-zA-Z]/.test(w);}).map(function(w){return w[0];}).slice(0,2).join('').toUpperCase(); }
+    })
+    .catch(function(){ var n=document.getElementById('pub-name'); if (n) n.textContent = 'Unable to load'; });
+}
+
 function flipCard() {
   idCardFlipped = !idCardFlipped;
   var wrap = document.getElementById('id-card-wrap');
@@ -5435,10 +5478,8 @@ function renderIDCard(data) {
   // Generate real QR code
   var qrCanvas = document.getElementById('id-qr-canvas');
   if (qrCanvas) {
-    var qrData = 'JMB Virtuals\nName: ' + (data.full_name || '') +
-                 '\nID: ' + (data.employee_id || '') +
-                 '\nPosition: ' + (data.position || '') +
-                 '\nDept: ' + (data.department || '');
+    // Scanning the QR opens a standalone view of the ID card's FRONT face
+    var qrData = 'https://portal.jmbvirtuals.com/?card=' + encodeURIComponent(data.employee_id || '');
     if (typeof QRCode !== 'undefined') {
       QRCode.toCanvas(qrCanvas, qrData, {
         width: 78, margin: 1,
