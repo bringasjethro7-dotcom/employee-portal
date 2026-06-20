@@ -133,6 +133,11 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
 .sinp:focus{border-color:var(--border-hi)}
 .badd{display:flex;align-items:center;gap:6px;padding:8px 16px;border:none;border-radius:var(--rs);background:linear-gradient(135deg,var(--o1),var(--o2));color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .bsm{font-size:12px;padding:5px 12px;border-radius:var(--rs);cursor:pointer;font-family:inherit;border:1px solid var(--border);background:none;color:var(--t2)}
+.edcell{display:inline-block;width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border);background:transparent;cursor:pointer;transition:all .12s;vertical-align:middle;}
+.edcell:hover{border-color:var(--o3);}
+.edcell.on{background:#22c55e;border-color:#22c55e;box-shadow:inset 0 0 0 2px rgba(255,255,255,.25);}
+.edqf{font-size:10px;padding:2px 6px;margin:0 1px;border-radius:5px;cursor:pointer;font-family:inherit;border:1px solid var(--border);background:none;color:var(--t2);}
+.edqf:hover{border-color:var(--o3);color:var(--o3);}
 .bsm:hover{color:var(--t1)}
 .bsm.danger:hover{color:var(--red);border-color:rgba(239,68,68,.4)}
 .bsm.edit:hover{color:var(--o3);border-color:var(--border-hi)}
@@ -311,6 +316,9 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       </button>
       <button class="tab" id="t-mobile" onclick="goTab('mobile')" title="Mobile Access">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+      </button>
+      <button class="tab" id="t-expected" onclick="goTab('expected')" title="Expected Days">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
       </button>
     </div>
 
@@ -685,6 +693,29 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
         </table>
       </div>
     </div>
+
+    <!-- EXPECTED DAYS (admin-ticked calendar) -->
+    <div id="p-expected" style="display:none;">
+      <div class="toolbar">
+        <div class="tl">
+          <span style="font-size:13px;color:var(--t2);">Tick the days each VA is expected to work. Attendance scores against these ticks.</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input class="inp" type="month" id="ed-month" style="width:170px;" onchange="loadExpectedGrid()" />
+          <button class="bsm" onclick="loadExpectedGrid()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Reload</button>
+          <button class="bsm" id="ed-save" onclick="saveExpectedGrid()" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;">Save changes</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--t3);margin:0 0 10px;">
+        Per-row quick fills: <b>WD</b> = weekdays only · <b>All</b> = every day · <b>—</b> = clear. Weekends are shaded.
+      </div>
+      <div class="tw" style="overflow:auto;max-height:70vh;">
+        <table id="ed-table" style="border-collapse:separate;border-spacing:0;font-size:12px;">
+          <thead id="ed-head"></thead>
+          <tbody id="ed-body"><tr><td class="es">Pick a month to load the calendar.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -816,7 +847,7 @@ async function dashApproveMobile(empId, name){
 }
 
 function goTab(name){
-  ['dash','emp','att','leave','chat','coe','scorecard','worklog','projects','payslips','mobile'].forEach(function(n){
+  ['dash','emp','att','leave','chat','coe','scorecard','worklog','projects','payslips','mobile','expected'].forEach(function(n){
     document.getElementById('t-'+n).classList.toggle('active',n===name);
     document.getElementById('p-'+n).style.display=n===name?'block':'none';
   });
@@ -830,6 +861,104 @@ function goTab(name){
   if(name==='payslips') loadPayslipsAdmin();
   if(name==='mobile') loadMobileRequests();
   if(name==='dash') loadDashboard();
+  if(name==='expected') initExpected();
+}
+
+// ── EXPECTED DAYS CALENDAR ──
+var edState = {};   // employee_id -> Set of ticked day numbers
+var edDirty = {};   // employee_id -> true if changed since last save
+function initExpected(){
+  var mEl=document.getElementById('ed-month');
+  if(!mEl.value){
+    var now=new Date();
+    mEl.value=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  }
+  loadExpectedGrid();
+}
+function edDOW(y,m,d){ return new Date(y,m-1,d).getDay(); } // 0=Sun..6=Sat
+async function loadExpectedGrid(){
+  var month=document.getElementById('ed-month').value;
+  if(!month){ return; }
+  var head=document.getElementById('ed-head'), body=document.getElementById('ed-body');
+  body.innerHTML='<tr><td class="es">Loading…</td></tr>';
+  edState={}; edDirty={};
+  var parts=month.split('-'), y=parseInt(parts[0],10), mo=parseInt(parts[1],10);
+  var daysIn=new Date(y,mo,0).getDate();
+  // fetch saved ticks
+  var saved={};
+  try{ var r=await fetch(API+'?action=get_expected_days&month='+encodeURIComponent(month)); var d=await r.json(); saved=(d&&d.data)||{}; }catch(e){}
+  // header row: name + day numbers + quick-fill
+  var dn=['S','M','T','W','T','F','S'];
+  var th='<tr><th style="position:sticky;left:0;background:var(--card);z-index:2;text-align:left;min-width:150px;padding:8px;border-bottom:1px solid var(--bd);">VA</th>';
+  for(var dd=1;dd<=daysIn;dd++){
+    var w=edDOW(y,mo,dd), wknd=(w===0||w===6);
+    th+='<th style="padding:5px 0;width:26px;text-align:center;border-bottom:1px solid var(--bd);'+(wknd?'background:rgba(255,255,255,.04);':'')+'color:var(--t3);"><div style="font-size:9px;">'+dn[w]+'</div><div style="font-weight:700;color:var(--t2);">'+dd+'</div></th>';
+  }
+  th+='<th style="padding:8px;border-bottom:1px solid var(--bd);min-width:120px;text-align:center;">Fill</th></tr>';
+  head.innerHTML=th;
+  // body rows
+  var list=(emps||[]).slice().sort(function(a,b){return (a.employee_id||'').localeCompare(b.employee_id||'');});
+  if(!list.length){ body.innerHTML='<tr><td class="es">No employees loaded. Open the Employees tab first.</td></tr>'; return; }
+  var html='';
+  list.forEach(function(e){
+    var id=e.employee_id; if(!id) return;
+    var set={}; (saved[id]||[]).forEach(function(n){ set[n]=true; });
+    edState[id]=set;
+    html+='<tr data-emp="'+id+'">';
+    html+='<td style="position:sticky;left:0;background:var(--card);z-index:1;padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap;"><strong>'+(e.full_name||id)+'</strong><div style="font-size:10px;color:var(--t3);">'+id+'</div></td>';
+    for(var dd=1;dd<=daysIn;dd++){
+      var w=edDOW(y,mo,dd), wknd=(w===0||w===6);
+      var on=!!set[dd];
+      html+='<td style="text-align:center;padding:2px 0;border-bottom:1px solid var(--bd);'+(wknd?'background:rgba(255,255,255,.04);':'')+'"><span class="edcell'+(on?' on':'')+'" data-emp="'+id+'" data-day="'+dd+'" onclick="edToggle(this)"></span></td>';
+    }
+    html+='<td style="text-align:center;padding:4px 6px;border-bottom:1px solid var(--bd);white-space:nowrap;">'+
+      '<button class="edqf" onclick="edFill(\''+id+'\',\'wd\')">WD</button>'+
+      '<button class="edqf" onclick="edFill(\''+id+'\',\'all\')">All</button>'+
+      '<button class="edqf" onclick="edFill(\''+id+'\',\'none\')">—</button></td>';
+    html+='</tr>';
+  });
+  body.innerHTML=html;
+}
+function edToggle(span){
+  var id=span.getAttribute('data-emp'), day=parseInt(span.getAttribute('data-day'),10);
+  if(!edState[id]) edState[id]={};
+  if(edState[id][day]){ delete edState[id][day]; span.classList.remove('on'); }
+  else { edState[id][day]=true; span.classList.add('on'); }
+  edDirty[id]=true;
+}
+function edFill(id,mode){
+  var month=document.getElementById('ed-month').value, parts=month.split('-');
+  var y=parseInt(parts[0],10), mo=parseInt(parts[1],10), daysIn=new Date(y,mo,0).getDate();
+  var set={};
+  for(var dd=1;dd<=daysIn;dd++){
+    var w=edDOW(y,mo,dd);
+    if(mode==='all') set[dd]=true;
+    else if(mode==='wd'){ if(w>=1&&w<=5) set[dd]=true; }
+  }
+  edState[id]=set; edDirty[id]=true;
+  // repaint that row's cells
+  document.querySelectorAll('#ed-body span.edcell[data-emp="'+id+'"]').forEach(function(sp){
+    var day=parseInt(sp.getAttribute('data-day'),10);
+    sp.classList.toggle('on',!!set[day]);
+  });
+}
+async function saveExpectedGrid(){
+  var month=document.getElementById('ed-month').value;
+  if(!month){ toast('Pick a month first.'); return; }
+  var ids=Object.keys(edDirty).filter(function(id){return edDirty[id];});
+  if(!ids.length){ toast('No changes to save.'); return; }
+  var btn=document.getElementById('ed-save'); btn.disabled=true; var orig=btn.textContent; btn.textContent='Saving…';
+  var ok=0;
+  for(var i=0;i<ids.length;i++){
+    var id=ids[i];
+    var days=Object.keys(edState[id]||{}).map(Number).sort(function(a,b){return a-b;}).join(',');
+    try{
+      await fetch(API+'?action=save_expected_days&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(month)+'&days='+encodeURIComponent(days));
+      ok++; edDirty[id]=false;
+    }catch(e){}
+  }
+  btn.disabled=false; btn.textContent=orig;
+  toast('Saved expected days for '+ok+' VA'+(ok===1?'':'s')+'.');
 }
 
 // ── PROJECTS & TASKS (time-tracker list) ──
