@@ -824,29 +824,41 @@ function togglePinView(id,btn){
   btn.title=reveal?'Hide password':'Show password';
   btn.setAttribute('aria-label',reveal?'Hide password':'Show password');
 }
+var _adminEntered=false;
+function enterAdmin(){
+  if(_adminEntered) return;
+  _adminEntered=true;
+  document.getElementById('login').style.display='none';
+  document.getElementById('shell').style.display='block';
+  buildAdminNav();
+  renderTable();
+  loadFromSheet();
+  loadDashboard();
+  // Poll for new requests in the background and chime on arrival (works on any tab)
+  setInterval(function(){ loadDashboard({ silent:true }); }, 45000);
+  initAdminBubbles();   // floating bubbles of active accounts
+}
 function doLogin(){
   var p=document.getElementById('apass').value;
   if(p===PASS){
-    document.getElementById('login').style.display='none';
-    document.getElementById('shell').style.display='block';
-    buildAdminNav();
-    renderTable();
-    loadFromSheet();
-    loadDashboard();
-    // Poll for new requests in the background and chime on arrival (works on any tab)
-    setInterval(function(){ loadDashboard({ silent:true }); }, 45000);
-    initAdminBubbles();   // floating bubbles of active accounts
+    try { localStorage.setItem('admin_authed','1'); } catch(e) {}
+    enterAdmin();
   } else {
     document.getElementById('aerr').style.display='block';
   }
 }
 
 function doLogout(){
+  try { localStorage.removeItem('admin_authed'); } catch(e) {}
   document.getElementById('shell').style.display='none';
   document.getElementById('login').style.display='flex';
   document.getElementById('apass').value='';
   document.getElementById('aerr').style.display='none';
+  _adminEntered=false;
 }
+
+// Keep the admin signed in across page refreshes
+try { if (localStorage.getItem('admin_authed')==='1') enterAdmin(); } catch(e) {}
 
 // ── DASHBOARD — all pending requests in one view ──
 function setDashCount(id, n){ var el=document.getElementById(id); if(el){ el.textContent=n; el.classList.toggle('zero', n===0); } }
