@@ -2519,13 +2519,13 @@
               <div class="cfy-timer-left">
                 <input class="cfy-desc-input" type="text" id="cfy-desc" placeholder="What are you working on?" />
                 <div class="cfy-project-row" style="display:flex;flex-direction:column;gap:8px;">
-                  <select class="cfy-project-select" id="cfy-project" onchange="loadCategories()">
+                  <select class="cfy-project-select" id="cfy-project" onchange="loadCategories(); updateClockifyStartBtn();">
                     <option value="">📁 Select project…</option>
                   </select>
-                  <select class="cfy-project-select" id="cfy-category" onchange="loadTasks()" disabled>
+                  <select class="cfy-project-select" id="cfy-category" onchange="loadTasks(); updateClockifyStartBtn();" disabled>
                     <option value="">🗂 Select project first…</option>
                   </select>
-                  <select class="cfy-project-select" id="cfy-task" disabled>
+                  <select class="cfy-project-select" id="cfy-task" onchange="updateClockifyStartBtn()" disabled>
                     <option value="">🔖 Select category first…</option>
                   </select>
                 </div>
@@ -4850,6 +4850,16 @@ function trkFormFields() {
     task: document.getElementById('cfy-task').value
   };
 }
+// True when the project (and any available category/task) are selected
+function trkRequirementsMet() {
+  var f = trkFormFields();
+  if (!f.proj) return false;
+  var projHasCats = nativeProjects.some(function(p){ return p.project === f.proj && p.category; });
+  if (projHasCats && !f.cat) return false;
+  var catHasTasks = nativeProjects.some(function(p){ return p.project === f.proj && (p.category||'') === (f.cat||'') && p.task; });
+  if (catHasTasks && !f.task) return false;
+  return true;
+}
 function trkRestoreFields(e) {
   var d = document.getElementById('cfy-desc'); if (d) d.value = e.description || '';
   var p = document.getElementById('cfy-project');
@@ -4884,6 +4894,12 @@ async function startTimer() {
   ensureIdleDetector();   // request system-wide activity permission on this user gesture (before any early return)
   if (!getActiveSession()) { showToast('Please Time In before tracking time.'); return; }
   var f = trkFormFields();
+  // Require project, plus category/task wherever the project/category provides them
+  if (!f.proj) { showToast('Select a Project before starting the timer.'); return; }
+  var projHasCats = nativeProjects.some(function(p){ return p.project === f.proj && p.category; });
+  if (projHasCats && !f.cat) { showToast('Select a Category before starting the timer.'); return; }
+  var catHasTasks = nativeProjects.some(function(p){ return p.project === f.proj && (p.category||'') === (f.cat||'') && p.task; });
+  if (catHasTasks && !f.task) { showToast('Select a Task before starting the timer.'); return; }
   if (trkRunning) _bankRunningToPaused();   // server's tracker_start also pauses the previous task
   var startIso = new Date().toISOString();
   var entryId  = trkUid();
@@ -5105,6 +5121,12 @@ function updateClockifyStartBtn() {
       btn.parentNode.insertBefore(hint, btn.nextSibling);
     }
     hint.style.display = 'block';
+  } else if (!trkRequirementsMet()) {
+    // Timed in but Project / Category / Task not yet selected → keep Start greyed
+    btn.disabled      = true;
+    btn.style.opacity = '0.45';
+    btn.title         = 'Select Project, Category and Task to start';
+    if (hint) hint.style.display = 'none';
   } else {
     btn.disabled      = false;
     btn.style.opacity = '1';
