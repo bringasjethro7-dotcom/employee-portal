@@ -2348,6 +2348,20 @@
       </div>
     </div>
 
+    <!-- MOBILE ACCESS UNLOCK -->
+    <div id="mobile-unlock-modal" class="wl-warn-overlay">
+      <div class="wl-warn-box">
+        <div class="wl-warn-icon">📱</div>
+        <h3>Mobile access</h3>
+        <p>Attendance &amp; Time Tracker are desktop-only. Request a 6-hour mobile key — your admin approves it and emails you the key.</p>
+        <button onclick="requestMobileAccess()" style="width:100%;">Request access by email</button>
+        <div style="margin:14px 0 8px;color:var(--text-3,#888);font-size:12px;text-align:center;">— or enter the key from your email —</div>
+        <input id="mobile-key-input" type="text" inputmode="text" autocapitalize="characters" placeholder="Enter key" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:var(--text-1,#fff);text-align:center;letter-spacing:3px;font-size:16px;text-transform:uppercase;margin-bottom:10px;" />
+        <button onclick="submitMobileKey()" style="width:100%;background:linear-gradient(135deg,#FF8A3D,#FF6B1A);">Activate</button>
+        <button onclick="closeMobileUnlock()" style="width:100%;background:none;border:none;color:var(--text-3,#888);margin-top:6px;cursor:pointer;">Close</button>
+      </div>
+    </div>
+
     <!-- WORK LOG VOLUME PROMPT -->
     <div id="worklog-volume" class="wl-vol-overlay">
       <div class="wl-vol-box">
@@ -2813,6 +2827,16 @@
           <div class="att-sum-icon" style="color:var(--text-2);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
           <div class="att-sum-val" id="sum-days">—</div>
           <div class="att-sum-label">Days present</div>
+        </div>
+        <div class="att-sum-item">
+          <div class="att-sum-icon" style="color:var(--text-2);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg></div>
+          <div class="att-sum-val" id="sum-expected">—</div>
+          <div class="att-sum-label">Expected days</div>
+        </div>
+        <div class="att-sum-item">
+          <div class="att-sum-icon" style="color:#f87171;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
+          <div class="att-sum-val" id="sum-absent" style="color:#f87171;">—</div>
+          <div class="att-sum-label">Absent</div>
         </div>
         <div class="att-sum-item">
           <div class="att-sum-icon" style="color:#f87171;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
@@ -3403,9 +3427,26 @@ function scheduleMobileRelock() {
     showToast('Mobile access expired. Ask your admin for a new key.');
   }, Math.min(ms, 2147483000));
 }
-function promptMobileUnlock() {
-  var key = prompt('Attendance & Time Tracker are desktop-only.\n\nIf your admin gave you a 6-hour mobile access key, enter it here:');
-  if (key && key.trim()) activateMobileKey(key.trim());
+function showMobileUnlock() {
+  var m = document.getElementById('mobile-unlock-modal'); if (m) m.classList.add('show');
+}
+function closeMobileUnlock() {
+  var m = document.getElementById('mobile-unlock-modal'); if (m) m.classList.remove('show');
+}
+function submitMobileKey() {
+  var inp = document.getElementById('mobile-key-input');
+  var key = inp ? (inp.value || '').trim() : '';
+  if (!key) { showToast('Enter the key from your email.'); return; }
+  activateMobileKey(key);
+}
+async function requestMobileAccess() {
+  var data = window._currentEmpData || {};
+  var empId = (typeof attEmpId !== 'undefined' && attEmpId) || data.employee_id || '';
+  if (!empId) { showToast('Please sign in first.'); return; }
+  try {
+    await fetch(APPS_SCRIPT_URL + '?action=request_mobile_key&employee_id=' + encodeURIComponent(empId) + '&full_name=' + encodeURIComponent(data.full_name || empId));
+    showToast('Request sent. Your admin will approve it and email you a key.');
+  } catch(e) { showToast('Could not send request. Try again.'); }
 }
 async function activateMobileKey(key) {
   var empId = (typeof attEmpId !== 'undefined' && attEmpId) || (window._currentEmpData && window._currentEmpData.employee_id) || '';
@@ -3415,17 +3456,17 @@ async function activateMobileKey(key) {
     var d = await res.json();
     if (d && d.valid && d.access_until) {
       localStorage.setItem('mobile_access_until', String(new Date(d.access_until).getTime()));
-      unlockMobileTabs(); scheduleMobileRelock();
+      unlockMobileTabs(); scheduleMobileRelock(); closeMobileUnlock();
       showToast('Mobile access activated for 6 hours. Attendance & Time Tracker are now available.');
     } else {
-      showToast(d && d.expired ? 'That key has expired — ask your admin for a new one.' : 'Invalid key. Please check with your admin.');
+      showToast(d && d.expired ? 'That key has expired — request access again.' : 'Invalid key. Please check the key in your email.');
     }
   } catch(e) { showToast('Could not verify the key. Try again.'); }
 }
 
 function switchTab(name, btn) {
   if ((name === 'attendance' || name === 'clockify') && isMobileDevice() && !mobileAccessActive()) {
-    promptMobileUnlock();
+    showMobileUnlock();
     return;
   }
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -3603,6 +3644,11 @@ async function loadScorecard() {
     var url = APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(scEmpId) + '&month=' + encodeURIComponent(key);
     var res  = await fetch(url);
     var data = await res.json();
+
+    // Expected / Absent come from the schedule + client-pause aware breakdown
+    var ab = data.attendance_breakdown || {};
+    var seEl = document.getElementById('sum-expected'); if (seEl) seEl.textContent = (ab.expected !== undefined && ab.expected !== null) ? ab.expected : '—';
+    var saEl = document.getElementById('sum-absent');   if (saEl) saEl.textContent   = (ab.absent   !== undefined && ab.absent   !== null) ? ab.absent   : '—';
 
     if (!data || !data.scorecard) {
       // No scorecard — still show attendance from sheet

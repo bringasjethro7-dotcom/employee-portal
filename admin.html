@@ -610,6 +610,27 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
           <tbody id="pj-body"><tr><td colspan="5" class="es">Loading…</td></tr></tbody>
         </table>
       </div>
+
+      <!-- CLIENT OPERATION PAUSES -->
+      <div style="margin-top:1.75rem;">
+        <div class="petitle" style="margin-bottom:10px;">Client operation pauses — the client's VAs aren't expected to work (no attendance penalty) during these dates</div>
+        <div class="toolbar">
+          <div class="tl" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <input class="sinp" id="cp-client" placeholder="Client (matches VA's Client)" style="width:190px;" />
+            <label style="font-size:12px;color:var(--t2);">From</label><input class="sinp" type="date" id="cp-start" style="width:150px;" />
+            <label style="font-size:12px;color:var(--t2);">To</label><input class="sinp" type="date" id="cp-end" style="width:150px;" />
+            <input class="sinp" id="cp-note" placeholder="Note (optional)" style="width:150px;" />
+            <button class="bsm" onclick="addPause()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add pause</button>
+          </div>
+          <div><button class="bsm" onclick="loadPauses()">↻ Refresh</button></div>
+        </div>
+        <div class="tw">
+          <table id="cp-table">
+            <thead><tr><th>Client</th><th>From</th><th>To</th><th>Note</th><th style="width:90px;">Action</th></tr></thead>
+            <tbody id="cp-body"><tr><td colspan="5" class="es">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- PAYSLIPS -->
@@ -677,6 +698,8 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <div class="fg"><label class="lbl">PIN *</label><input class="inp" type="text" id="m-pin" placeholder="4–6 digit PIN" /></div>
       <div class="fg"><label class="lbl">Position</label><input class="inp" type="text" id="m-pos" placeholder="e.g. Developer" /></div>
       <div class="fg"><label class="lbl">Department</label><input class="inp" type="text" id="m-dept" placeholder="e.g. Engineering" /></div>
+      <div class="fg"><label class="lbl">Work schedule</label><select class="inp" id="m-schedule"><option value="weekdays">Weekdays (Mon–Fri)</option><option value="everyday">Every day (Mon–Sun)</option></select></div>
+      <div class="fg"><label class="lbl">Client</label><input class="inp" type="text" id="m-client" placeholder="e.g. ALTR Media" /></div>
       <div class="fg"><label class="lbl">Monthly rate</label><input class="inp" type="number" id="m-rate" placeholder="45000" /></div>
       <div class="fg"><label class="lbl">Start date</label><input class="inp" type="date" id="m-start" /></div>
       <div class="fg"><label class="lbl">Birthday</label><input class="inp" type="date" id="m-bday" /></div>
@@ -803,7 +826,7 @@ function goTab(name){
   if(name==='coe')  loadCOE();
   if(name==='scorecard') loadAdminScorecard();
   if(name==='worklog') loadWorkLog();
-  if(name==='projects') loadProjectsAdmin();
+  if(name==='projects') { loadProjectsAdmin(); loadPauses(); }
   if(name==='payslips') loadPayslipsAdmin();
   if(name==='mobile') loadMobileRequests();
   if(name==='dash') loadDashboard();
@@ -849,6 +872,38 @@ async function deleteTrackerProject(row){
     await fetch(API+'?action=delete_tracker_project&row='+encodeURIComponent(row));
     setTimeout(loadProjectsAdmin,600);
   }catch(e){ if(typeof toast==='function') toast('Could not delete.'); }
+}
+
+// ── CLIENT OPERATION PAUSES ──
+async function loadPauses(){
+  var body=document.getElementById('cp-body'); if(!body) return;
+  body.innerHTML='<tr><td colspan="5" class="es">Loading…</td></tr>';
+  try{
+    var res=await fetch(API+'?action=get_client_pauses');
+    var d=await res.json();
+    var rows=d.pauses||[];
+    if(!rows.length){ body.innerHTML='<tr><td colspan="5" class="es">No client pauses set.</td></tr>'; return; }
+    body.innerHTML=rows.map(function(p){
+      return '<tr><td><strong>'+payEsc(p.client)+'</strong></td><td style="white-space:nowrap;">'+payEsc(p.start)+'</td><td style="white-space:nowrap;">'+payEsc(p.end)+'</td><td style="color:var(--t3);">'+(p.note?payEsc(p.note):'—')+'</td><td><button class="bsm" onclick="delPause('+p._row+')" style="color:#ef4444;border-color:rgba(239,68,68,.3);">Delete</button></td></tr>';
+    }).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="5" class="es">Could not load pauses.</td></tr>'; }
+}
+async function addPause(){
+  var client=document.getElementById('cp-client').value.trim();
+  var start=document.getElementById('cp-start').value;
+  var end=document.getElementById('cp-end').value;
+  var note=document.getElementById('cp-note').value.trim();
+  if(!client||!start||!end){ toast('Client, From and To are required.'); return; }
+  if(end<start){ toast('“To” must be on or after “From”.'); return; }
+  try{
+    await fetch(API+'?action=add_client_pause&client='+encodeURIComponent(client)+'&start='+encodeURIComponent(start)+'&end='+encodeURIComponent(end)+'&note='+encodeURIComponent(note));
+    document.getElementById('cp-client').value=''; document.getElementById('cp-note').value='';
+    toast('Pause added.'); setTimeout(loadPauses,600);
+  }catch(e){ toast('Could not add pause.'); }
+}
+async function delPause(row){
+  if(!confirm('Delete this client pause?')) return;
+  try{ await fetch(API+'?action=delete_client_pause&row='+encodeURIComponent(row)); setTimeout(loadPauses,500); }catch(e){ toast('Could not delete.'); }
 }
 
 // ── PAYSLIPS TAB ──
@@ -1162,6 +1217,8 @@ function openModal(idx){
   document.getElementById('m-pin').value=e.pin||'';
   document.getElementById('m-pos').value=e.position||'';
   document.getElementById('m-dept').value=e.department||'';
+  document.getElementById('m-schedule').value=(e.work_schedule||'weekdays');
+  document.getElementById('m-client').value=e.client||'';
   document.getElementById('m-rate').value=e.rate||'';
   document.getElementById('m-start').value=e.start_date||'';
   document.getElementById('m-bday').value=e.birthday||'';
@@ -1268,10 +1325,15 @@ function saveEmp(){
     if(p)ps.push({period:p,hours:r.querySelector('.ps-h').value.trim(),link:r.querySelector('.ps-l').value.trim(),paid:r.dataset.paid==='true',paid_date:r.dataset.paidDate||''});
   });
   var cf1l=document.getElementById('m-cf1l').value.trim().replace(/\s+/g,'_').toLowerCase();
-  var emp={full_name:name,employee_id:id,pin:pin,position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
+  var emp={full_name:name,employee_id:id,pin:pin,position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),work_schedule:document.getElementById('m-schedule').value,client:document.getElementById('m-client').value.trim(),rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
   if(cf1l)emp[cf1l]=document.getElementById('m-cf1v').value.trim();
   if(editIdx>=0){emps[editIdx]=emp;toast('Employee updated.');}
   else{emps.push(emp);toast('Employee added.');}
+  // Write work_schedule + client straight to the Employees sheet (used by attendance scoring)
+  fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(id)+'&work_schedule='+encodeURIComponent(emp.work_schedule||'')+'&client='+encodeURIComponent(emp.client||''))
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d&&d.not_found) toast(id+' isn’t in the sheet yet — schedule/client will apply once it is.'); })
+    .catch(function(){});
   persist();renderTable();closeModal();
 }
 
