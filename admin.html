@@ -630,6 +630,10 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <div id="prows"></div>
       <button class="barow" onclick="addPRow()">+ Add payslip</button>
     </div>
+    <div style="margin-bottom:1.25rem;">
+      <div class="petitle">Mobile access — 6-hour key</div>
+      <button class="barow" type="button" onclick="genMobileKey()">🔑 Generate 6-hour mobile access key</button>
+    </div>
     <div class="mfoot">
       <button class="bcancel" onclick="closeModal()">Cancel</button>
       <button class="bsave" onclick="saveEmp()">Save employee</button>
@@ -1070,6 +1074,17 @@ function addPRow(period,hours,link,paid,paidDate){
     : '<button type="button" class="ps-paid-btn" onclick="markPaidRow(this)" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;padding:7px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">Mark Paid</button>';
   d.innerHTML='<input class="inp ps-p" type="text" placeholder="e.g. June 1-15, 2025" value="'+(period||'')+'" style="font-size:13px;padding:8px 10px;" /><input class="inp ps-h" type="number" placeholder="Hours e.g. 80" value="'+(hours||'')+'" style="font-size:13px;padding:8px 10px;" /><input class="inp ps-l" type="text" placeholder="Google Drive link" value="'+(link||'')+'" style="font-size:13px;padding:8px 10px;" />'+paidCell+'<button class="brm" onclick="this.parentElement.remove()">×</button>';
   document.getElementById('prows').appendChild(d);
+}
+async function genMobileKey(){
+  var empId=document.getElementById('m-id').value.trim();
+  if(!empId){ toast('Enter the Employee ID first.'); return; }
+  try{
+    var res=await fetch(API+'?action=generate_mobile_key&employee_id='+encodeURIComponent(empId));
+    var d=await res.json();
+    if(d&&d.key){
+      prompt('Mobile access key for '+empId+'.\nValid for 6 hours once the employee activates it on their phone.\nCopy this and send it to them:', d.key);
+    } else { toast('Could not generate key: '+((d&&d.error)||'error')); }
+  }catch(e){ toast('Could not generate key.'); }
 }
 async function markPaidRow(btn){
   var row=btn.parentElement;

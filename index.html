@@ -3366,23 +3366,66 @@ function isMobileDevice() {
   var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   return !!(coarse && Math.min(window.screen.width, window.screen.height) < 768);
 }
+// A valid 6-hour mobile access key (entered by the employee) bypasses the lock
+function mobileAccessActive() {
+  var until = parseInt(localStorage.getItem('mobile_access_until') || '0', 10);
+  return !!(until && Date.now() < until);
+}
 function lockMobileTabs() {
   if (!isMobileDevice()) return;
+  if (mobileAccessActive()) { unlockMobileTabs(); scheduleMobileRelock(); return; }
   ['attendance','clockify'].forEach(function(n){
     var b = document.getElementById('tabbtn-' + n);
-    if (b && !b.dataset.locked) {
+    if (b && b.dataset.locked !== '1') {
       b.dataset.locked = '1';
       b.style.opacity = '0.4';
       b.style.cursor = 'not-allowed';
-      b.title = 'Available on desktop only';
-      b.insertAdjacentHTML('beforeend', ' <span style="font-size:11px;">🔒</span>');
+      b.title = 'Available on desktop only (or activate a mobile key)';
+      if (!b.querySelector('.mob-lock')) b.insertAdjacentHTML('beforeend', ' <span class="mob-lock" style="font-size:11px;">🔒</span>');
     }
   });
 }
+function unlockMobileTabs() {
+  ['attendance','clockify'].forEach(function(n){
+    var b = document.getElementById('tabbtn-' + n);
+    if (b) { b.dataset.locked = ''; b.style.opacity = ''; b.style.cursor = ''; b.title = '';
+      var lk = b.querySelector('.mob-lock'); if (lk) lk.remove(); }
+  });
+}
+var _mobRelockT = null;
+function scheduleMobileRelock() {
+  if (_mobRelockT) clearTimeout(_mobRelockT);
+  var until = parseInt(localStorage.getItem('mobile_access_until') || '0', 10);
+  var ms = until - Date.now();
+  if (ms > 0) _mobRelockT = setTimeout(function(){
+    localStorage.removeItem('mobile_access_until');
+    lockMobileTabs();
+    showToast('Mobile access expired. Ask your admin for a new key.');
+  }, Math.min(ms, 2147483000));
+}
+function promptMobileUnlock() {
+  var key = prompt('Attendance & Time Tracker are desktop-only.\n\nIf your admin gave you a 6-hour mobile access key, enter it here:');
+  if (key && key.trim()) activateMobileKey(key.trim());
+}
+async function activateMobileKey(key) {
+  var empId = (typeof attEmpId !== 'undefined' && attEmpId) || (window._currentEmpData && window._currentEmpData.employee_id) || '';
+  if (!empId) { showToast('Please sign in first.'); return; }
+  try {
+    var res = await fetch(APPS_SCRIPT_URL + '?action=verify_mobile_key&employee_id=' + encodeURIComponent(empId) + '&key=' + encodeURIComponent(key));
+    var d = await res.json();
+    if (d && d.valid && d.access_until) {
+      localStorage.setItem('mobile_access_until', String(new Date(d.access_until).getTime()));
+      unlockMobileTabs(); scheduleMobileRelock();
+      showToast('Mobile access activated for 6 hours. Attendance & Time Tracker are now available.');
+    } else {
+      showToast(d && d.expired ? 'That key has expired — ask your admin for a new one.' : 'Invalid key. Please check with your admin.');
+    }
+  } catch(e) { showToast('Could not verify the key. Try again.'); }
+}
 
 function switchTab(name, btn) {
-  if ((name === 'attendance' || name === 'clockify') && isMobileDevice()) {
-    showToast('Attendance & Time Tracker are available on desktop only.');
+  if ((name === 'attendance' || name === 'clockify') && isMobileDevice() && !mobileAccessActive()) {
+    promptMobileUnlock();
     return;
   }
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
