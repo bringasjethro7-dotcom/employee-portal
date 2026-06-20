@@ -285,6 +285,9 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <button class="tab" id="t-projects" onclick="goTab('projects')" title="Projects &amp; Tasks">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
       </button>
+      <button class="tab" id="t-payslips" onclick="goTab('payslips')" title="Payslips">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
+      </button>
     </div>
 
     <!-- EMPLOYEES -->
@@ -569,6 +572,39 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
         </table>
       </div>
     </div>
+
+    <!-- PAYSLIPS -->
+    <div id="p-payslips" style="display:none;">
+      <div class="toolbar">
+        <div class="tl" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <select class="sinp" id="pay-emp-filter" onchange="loadPayslipsAdmin()" style="width:200px;">
+            <option value="">All employees</option>
+          </select>
+          <select class="sinp" id="pay-status-filter" onchange="loadPayslipsAdmin()" style="width:150px;">
+            <option value="">All statuses</option>
+            <option value="pending">Pending only</option>
+            <option value="paid">Paid only</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span id="pay-summary" style="font-size:12px;color:var(--t2);"></span>
+          <button class="bsm" onclick="loadPayslipsAdmin()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="tw">
+        <table id="pay-table">
+          <thead><tr>
+            <th>Employee</th>
+            <th>Period</th>
+            <th>Hours</th>
+            <th>Paid date</th>
+            <th>Status</th>
+            <th style="width:120px;">Action</th>
+          </tr></thead>
+          <tbody id="pay-body"><tr><td colspan="6" class="es">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -642,7 +678,7 @@ function doLogout(){
 }
 
 function goTab(name){
-  ['emp','att','leave','chat','coe','scorecard','worklog','projects'].forEach(function(n){
+  ['emp','att','leave','chat','coe','scorecard','worklog','projects','payslips'].forEach(function(n){
     document.getElementById('t-'+n).classList.toggle('active',n===name);
     document.getElementById('p-'+n).style.display=n===name?'block':'none';
   });
@@ -653,6 +689,7 @@ function goTab(name){
   if(name==='scorecard') loadAdminScorecard();
   if(name==='worklog') loadWorkLog();
   if(name==='projects') loadProjectsAdmin();
+  if(name==='payslips') loadPayslipsAdmin();
 }
 
 // ── PROJECTS & TASKS (time-tracker list) ──
@@ -695,6 +732,59 @@ async function deleteTrackerProject(row){
     await fetch(API+'?action=delete_tracker_project&row='+encodeURIComponent(row));
     setTimeout(loadProjectsAdmin,600);
   }catch(e){ if(typeof toast==='function') toast('Could not delete.'); }
+}
+
+// ── PAYSLIPS TAB ──
+function payEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+var payEmps=[];
+async function loadPayslipsAdmin(){
+  var body=document.getElementById('pay-body');
+  var empSel=document.getElementById('pay-emp-filter');
+  body.innerHTML='<tr><td colspan="6" class="es">Loading…</td></tr>';
+  try{
+    var res=await fetch(API+'?action=get_all_employees');
+    var d=await res.json();
+    payEmps=d.employees||[];
+    if(empSel && empSel.options.length<=1){
+      payEmps.forEach(function(e){ empSel.innerHTML+='<option value="'+payEsc(e.employee_id)+'">'+payEsc(e.full_name||e.employee_id)+'</option>'; });
+    }
+    var fEmp=empSel?empSel.value:'';
+    var fStatus=(document.getElementById('pay-status-filter')||{}).value||'';
+    var rows=[];
+    payEmps.forEach(function(e){
+      if(fEmp && e.employee_id!==fEmp) return;
+      (e.payslips||[]).forEach(function(p){
+        var paid=!!p.paid;
+        if(fStatus==='paid'&&!paid) return;
+        if(fStatus==='pending'&&paid) return;
+        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||''});
+      });
+    });
+    var sumEl=document.getElementById('pay-summary');
+    if(!rows.length){ body.innerHTML='<tr><td colspan="6" class="es">No payslips found. Add payslips in the Employees tab.</td></tr>'; if(sumEl) sumEl.textContent=''; return; }
+    var paidN=rows.filter(function(r){return r.paid;}).length;
+    if(sumEl) sumEl.textContent=rows.length+' payslip'+(rows.length>1?'s':'')+' · '+paidN+' paid · '+(rows.length-paidN)+' pending';
+    body.innerHTML=rows.map(function(r){
+      var status=r.paid?'<span style="color:#16a34a;font-weight:600;">✓ Paid</span>':'<span style="color:#f59e0b;font-weight:600;">● Pending</span>';
+      var action=r.paid
+        ? '<span style="color:var(--t3);font-size:12px;">—</span>'
+        : '<button class="bsm" onclick="markPaidPay(this,&quot;'+payEsc(r.empId)+'&quot;,&quot;'+payEsc(r.period)+'&quot;,&quot;'+payEsc(r.name)+'&quot;,&quot;'+payEsc(String(r.hours))+'&quot;)" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;">✓ Mark Paid</button>';
+      return '<tr><td><strong>'+payEsc(r.name)+'</strong></td><td>'+payEsc(r.period||'—')+'</td><td>'+(r.hours?payEsc(String(r.hours))+' hrs':'—')+'</td><td style="color:var(--t3);font-size:12px;white-space:nowrap;">'+(r.paid_date?payEsc(r.paid_date):'—')+'</td><td style="white-space:nowrap;">'+status+'</td><td>'+action+'</td></tr>';
+    }).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="6" class="es">Could not load payslips.</td></tr>'; }
+}
+async function markPaidPay(btn, empId, period, name, hours){
+  var msg='Mark this payslip as PAID?\n\n  Employee:  '+name+'\n  Period:    '+period+'\n  Hours:     '+(hours||'—')+'\n\nThe employee will be emailed that their payroll for this cutoff has been paid. This cannot be undone here.\n\nAre you sure?';
+  if(!confirm(msg)) return;
+  btn.disabled=true; btn.textContent='Sending…';
+  try{
+    var res=await fetch(API+'?action=mark_payslip_paid&employee_id='+encodeURIComponent(empId)+'&period='+encodeURIComponent(period));
+    var d=await res.json();
+    if(d&&d.success){
+      if(typeof toast==='function') toast(d.emailed?'Marked paid — email sent to '+name+'.':'Marked paid ('+name+' has no email on file).');
+      setTimeout(loadPayslipsAdmin,700);
+    } else { if(typeof toast==='function') toast('Could not mark paid: '+((d&&d.error)||'error')); btn.disabled=false; btn.textContent='✓ Mark Paid'; }
+  }catch(e){ if(typeof toast==='function') toast('Could not mark paid.'); btn.disabled=false; btn.textContent='✓ Mark Paid'; }
 }
 
 // ── WORK LOG (consolidated Clockify time) ──
