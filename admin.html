@@ -1409,10 +1409,17 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
     '.qrow{display:flex;gap:28px;flex-wrap:wrap;}.qcard{text-align:center;}.qcard img{width:118px;height:118px;border:1px solid #ececec;border-radius:10px;padding:6px;background:#fff;}'+
     '.qlbl{font-weight:700;font-size:13px;margin-top:8px;}.qsub{font-size:11.5px;color:#6b7280;}'+
     '.fdetails{margin-top:20px;font-size:12px;color:#374151;line-height:1.9;}.fb{font-weight:700;}'+
+    '.sendbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 22px;padding:12px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;}'+
+    '.sendbar .slbl{font-size:13px;font-weight:700;color:#15803d;}'+
+    '.sinp{padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;min-width:240px;font-family:inherit;}'+
+    '.wabtn{background:#25D366;color:#fff;border:none;padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;}'+
+    '.tgbtn{background:#229ED9;color:#fff;border:none;padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;}'+
+    '.shint{font-size:11.5px;color:#6b7280;flex-basis:100%;}'+
     '[contenteditable]:hover{outline:1px dashed #FF6B1A;border-radius:3px;}.val:empty:before{content:"Client name";color:#cbd5e1;}'+
     '@media print{body{background:#fff;padding:0;}.sheet{box-shadow:none;max-width:none;padding:20px 28px;}.no-print{display:none!important;}[contenteditable]:hover{outline:none;}}';
   var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+invNo+' - '+escAdmin(project)+'</title><style>'+css+'</style></head><body><div class="sheet">'+
-    '<div class="topbar no-print"><button class="pbtn" onclick="window.print()">\u{1F5A8} Print / Save as PDF</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Click Bill&nbsp;To, Invoice&nbsp;#, Notes, dates, or footer to edit before printing.</span></div>'+
+    '<div class="topbar no-print"><button class="pbtn" onclick="window.print()">Print / Save as PDF</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Click Bill&nbsp;To, Invoice&nbsp;#, Notes, dates, or footer to edit before printing.</span></div>'+
+    '<div class="sendbar no-print"><span class="slbl">Send to client:</span><input id="inv-contact" class="sinp" placeholder="Phone incl. country code, e.g. 447911123456" /><button class="wabtn" onclick="sendWA()">WhatsApp</button><button class="tgbtn" onclick="sendTG()">Telegram</button><span class="shint">Tip: Save the PDF first (Print &rarr; Save as PDF), then attach it in the chat. The greeting message is filled in for you.</span></div>'+
     '<div class="head"><div class="brand">'+logo+'<div><div class="cname">JMB Virtuals</div><div class="caddr">Philippines</div><div class="cweb">jmbvirtuals.com</div></div></div><div class="invtitle">INVOICE</div></div>'+
     '<div class="meta"><div class="billto"><div class="lbl">BILL TO</div><div class="val" contenteditable="true"></div>'+
       '<div class="period">Payout for period from <b contenteditable="true">'+invDate(from)+'</b> to <b contenteditable="true">'+invDate(to)+'</b></div></div>'+
@@ -1426,7 +1433,30 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
       '<div class="qcard"><img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data='+encodeURIComponent('https://wise.com/pay/me/jethrob18')+'" alt="Wise QR"/><div class="qlbl">Wise</div><div class="qsub">@jethrob18</div></div>'+
     '</div>'+
     '<div class="fdetails"><span class="fb">Binance (USDT/USDC):</span> <span contenteditable="true">0x937119525166bfbc8f1b5af09ce467e9c40612f3</span> &nbsp;·&nbsp; <span class="fb">Wise:</span> <span contenteditable="true">bringasjethro7@gmail.com</span></div></div>'+
-    '</div></body></html>';
+    '</div>'+
+    '<script>(function(){'+
+      'var PROJ='+JSON.stringify(project)+';'+
+      'var key="inv_contact_"+PROJ;var inp=document.getElementById("inv-contact");'+
+      'try{var s=localStorage.getItem(key);if(s)inp.value=s;}catch(e){}'+
+      'function txt(sel){var el=document.querySelector(sel);return el?el.textContent.trim():"";}'+
+      'function buildMsg(){'+
+        'var billTo=txt(".billto .val")||"there";'+
+        'var inv=txt(".metaright .mrow:nth-child(1) b");'+
+        'var dp=document.querySelectorAll(".period b");'+
+        'var from=dp[0]?dp[0].textContent.trim():"";var to=dp[1]?dp[1].textContent.trim():"";'+
+        'var terms=txt(".metaright .mrow:nth-child(3) b");'+
+        'var total=txt(".trow b");'+
+        'var m="Hi "+billTo+", this is JMB Virtuals. ";'+
+        'm+="Please find attached your invoice "+inv+" for "+PROJ+" covering "+from+" to "+to+". ";'+
+        'm+="Total due: "+total+(terms?" ("+terms+")":"")+". ";'+
+        'm+="Payment options: Binance USDT, PayPal, or Wise — full details are on the invoice. ";'+
+        'm+="Thank you for working with us! jmbvirtuals.com";'+
+        'return m;'+
+      '}'+
+      'window.sendWA=function(){var num=(inp.value||"").replace(/[^0-9]/g,"");try{localStorage.setItem(key,inp.value||"");}catch(e){}if(!num){alert("Enter the client phone number with country code.");inp.focus();return;}window.open("https://wa.me/"+num+"?text="+encodeURIComponent(buildMsg()),"_blank");};'+
+      'window.sendTG=function(){try{localStorage.setItem(key,inp.value||"");}catch(e){}window.open("https://t.me/share/url?url="+encodeURIComponent("https://jmbvirtuals.com")+"&text="+encodeURIComponent(buildMsg()),"_blank");};'+
+    '})();<\/script>'+
+    '</body></html>';
   var w=window.open('','_blank','width=940,height=1040');
   if(!w){ alert('Please allow pop-ups to open the invoice.'); return; }
   w.document.open(); w.document.write(html); w.document.close();
