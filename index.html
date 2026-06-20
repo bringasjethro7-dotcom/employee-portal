@@ -7459,42 +7459,16 @@ function playCallRing(){
 function stopCallRing(){ if (_callRingTimer){ clearInterval(_callRingTimer); _callRingTimer=null; } }
 
 function startTeamCall(fromRing) {
-  var modal = document.getElementById('team-call-modal');
-  if (modal) modal.classList.add('show');
   stopCallRing();
   // Announce the call so the rest of the team gets a ring (not when joining from a ring)
   if (!fromRing) { try { if (callChannel) callChannel.send({ type:'broadcast', event:'call-start', payload:{ name: (typeof chatEmpName!=='undefined'&&chatEmpName)?chatEmpName:'A teammate' } }); } catch(e) {} }
-  if (_jitsiApi) return;   // already connected
-  var c = document.getElementById('jitsi-container');
-  function launch() {
-    try {
-      var name = (typeof chatEmpName !== 'undefined' && chatEmpName) ? chatEmpName
-               : ((window._currentEmpData && window._currentEmpData.full_name) || 'Team member');
-      if (c) c.innerHTML = '';
-      _jitsiApi = new JitsiMeetExternalAPI(JITSI_DOMAIN, {
-        roomName: JITSI_ROOM,
-        parentNode: c,
-        width: '100%', height: '100%',
-        userInfo: { displayName: name },
-        configOverwrite: { startAudioOnly: true, startWithVideoMuted: true, prejoinPageEnabled: false, prejoinConfig: { enabled: false }, disableDeepLinking: true, enableWelcomePage: false, requireDisplayName: false },
-        interfaceConfigOverwrite: {
-          MOBILE_APP_PROMO: false, SHOW_JITSI_WATERMARK: false, SHOW_CHROME_EXTENSION_BANNER: false,
-          TOOLBAR_BUTTONS: ['microphone','tileview','raisehand','participants-pane','settings','hangup']
-        }
-      });
-      _jitsiApi.addEventListener('readyToClose', endTeamCall);
-    } catch(e) {
-      if (c) c.innerHTML = '<div class="tc-loading">Could not start the call. Please try again.</div>';
-      _jitsiApi = null;
-    }
-  }
-  if (window.JitsiMeetExternalAPI) { launch(); return; }
-  if (c) c.innerHTML = '<div class="tc-loading">Connecting to the call…</div>';
-  var s = document.createElement('script');
-  s.src = 'https://' + JITSI_DOMAIN + '/external_api.js';
-  s.onload  = launch;
-  s.onerror = function(){ if (c) c.innerHTML = '<div class="tc-loading">Could not load the call service. Check your connection.</div>'; };
-  document.head.appendChild(s);
+  var name = (typeof chatEmpName !== 'undefined' && chatEmpName) ? chatEmpName
+           : ((window._currentEmpData && window._currentEmpData.full_name) || 'Team member');
+  // Open in a NEW TAB (first-party) — avoids iframe "refused to connect" and works anonymously
+  var url = 'https://' + JITSI_DOMAIN + '/' + JITSI_ROOM +
+            '#config.startAudioOnly=true&config.prejoinConfig.enabled=false&config.prejoinPageEnabled=false&config.disableDeepLinking=true&userInfo.displayName=' +
+            encodeURIComponent('"' + name + '"');
+  window.open(url, '_blank');
 }
 function endTeamCall() {
   try { if (_jitsiApi) { _jitsiApi.dispose(); _jitsiApi = null; } } catch(e) {}
