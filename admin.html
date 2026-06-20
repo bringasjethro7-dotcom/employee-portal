@@ -155,7 +155,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 .bcancel{padding:9px 20px;border:1px solid var(--border);border-radius:var(--rs);background:none;color:var(--t2);font-size:13px;cursor:pointer;font-family:inherit}
 .bsave{padding:9px 24px;border:none;border-radius:var(--rs);background:linear-gradient(135deg,var(--o1),var(--o2));color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .petitle{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--t3);margin-bottom:10px}
-.pe{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px}
+.pe{display:grid;grid-template-columns:1fr 1fr 1fr auto auto;gap:6px;align-items:center;margin-bottom:6px}
 .brm{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--red);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
 .barow{font-size:12px;color:var(--o3);background:none;border:1px dashed rgba(255,107,26,.3);border-radius:var(--rs);padding:6px 14px;cursor:pointer;font-family:inherit;width:100%;margin-top:4px}
 
@@ -511,6 +511,13 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <span id="wl-total" style="font-size:12px;color:var(--t2);"></span>
+          <select class="sinp" id="wl-markup" title="Hidden hours markup applied to the invoice" style="width:120px;">
+            <option value="0">No markup</option>
+            <option value="5">Markup +5%</option>
+            <option value="10">Markup +10%</option>
+            <option value="15">Markup +15%</option>
+            <option value="20">Markup +20%</option>
+          </select>
           <button class="bsm" onclick="generateInvoice()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">🧾 Generate Invoice</button>
           <button class="bsm" onclick="exportWorkLogCSV()">⬇ Export CSV</button>
           <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
@@ -753,10 +760,13 @@ async function generateInvoice(){
   if(!lines.length){ alert('No recorded entries for "'+project+'" in the selected date range.\n(Only approved/recorded entries are billed — approve any pending ones first.)'); return; }
   lines.sort(function(a,b){ return a.category.localeCompare(b.category); });
   var pk=project.toLowerCase(); var subtotal=0;
+  // Hidden markup: silently multiply each category's hours (e.g. 120 -> 126 at +5%). Not shown on the invoice.
+  var mkEl=document.getElementById('wl-markup');
+  var mult=1+((mkEl?parseFloat(mkEl.value):0)||0)/100;
   lines.forEach(function(l){
     var ck=pk+'|'+(l.category||'').toLowerCase();
     var r=(rateByCat[ck]!==undefined)?rateByCat[ck]:(projRate[pk]!==undefined?projRate[pk]:0);
-    l.hours=Math.round(l.hours*100)/100; l.rate=r; l.amount=Math.round(l.hours*r*100)/100; subtotal+=l.amount;
+    l.hours=Math.round(l.hours*mult*100)/100; l.rate=r; l.amount=Math.round(l.hours*r*100)/100; subtotal+=l.amount;
   });
   openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100);
 }
@@ -954,17 +964,40 @@ function openModal(idx){
   document.getElementById('m-cf1l').value=cv[0]?cv[0][0]:'';
   document.getElementById('m-cf1v').value=cv[0]?cv[0][1]:'';
   var pr=document.getElementById('prows');pr.innerHTML='';
-  (e.payslips||[]).forEach(function(p){addPRow(p.period,p.hours,p.link);});
+  (e.payslips||[]).forEach(function(p){addPRow(p.period,p.hours,p.link,p.paid,p.paid_date);});
   document.getElementById('modal').classList.add('open');
   document.getElementById('m-name').focus();
 }
 
 function closeModal(){document.getElementById('modal').classList.remove('open');}
 
-function addPRow(period,hours,link){
+function addPRow(period,hours,link,paid,paidDate){
   var d=document.createElement('div');d.className='pe';
-  d.innerHTML='<input class="inp ps-p" type="text" placeholder="e.g. June 1-15, 2025" value="'+(period||'')+'" style="font-size:13px;padding:8px 10px;" /><input class="inp ps-h" type="number" placeholder="Hours e.g. 80" value="'+(hours||'')+'" style="font-size:13px;padding:8px 10px;" /><input class="inp ps-l" type="text" placeholder="Google Drive link" value="'+(link||'')+'" style="font-size:13px;padding:8px 10px;" /><button class="brm" onclick="this.parentElement.remove()">×</button>';
+  d.dataset.paid = paid ? 'true' : 'false';
+  if(paidDate) d.dataset.paidDate = paidDate;
+  var paidCell = paid
+    ? '<span class="ps-paid-badge" style="display:inline-flex;align-items:center;justify-content:center;padding:7px 12px;border-radius:8px;background:rgba(34,197,94,.15);color:#16a34a;font-size:12px;font-weight:600;white-space:nowrap;">✓ Paid</span>'
+    : '<button type="button" class="ps-paid-btn" onclick="markPaidRow(this)" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;padding:7px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">Mark Paid</button>';
+  d.innerHTML='<input class="inp ps-p" type="text" placeholder="e.g. June 1-15, 2025" value="'+(period||'')+'" style="font-size:13px;padding:8px 10px;" /><input class="inp ps-h" type="number" placeholder="Hours e.g. 80" value="'+(hours||'')+'" style="font-size:13px;padding:8px 10px;" /><input class="inp ps-l" type="text" placeholder="Google Drive link" value="'+(link||'')+'" style="font-size:13px;padding:8px 10px;" />'+paidCell+'<button class="brm" onclick="this.parentElement.remove()">×</button>';
   document.getElementById('prows').appendChild(d);
+}
+async function markPaidRow(btn){
+  var row=btn.parentElement;
+  var period=row.querySelector('.ps-p').value.trim();
+  var empId=document.getElementById('m-id').value.trim();
+  if(!empId){ toast('Save the employee first, then mark paid.'); return; }
+  if(!period){ toast('Enter the payslip period first.'); return; }
+  if(!confirm('Mark "'+period+'" as PAID and email the employee?')) return;
+  btn.disabled=true; btn.textContent='Sending…';
+  try{
+    var res=await fetch(API+'?action=mark_payslip_paid&employee_id='+encodeURIComponent(empId)+'&period='+encodeURIComponent(period));
+    var d=await res.json();
+    if(d&&d.success){
+      row.dataset.paid='true';
+      btn.outerHTML='<span class="ps-paid-badge" style="display:inline-flex;align-items:center;justify-content:center;padding:7px 12px;border-radius:8px;background:rgba(34,197,94,.15);color:#16a34a;font-size:12px;font-weight:600;white-space:nowrap;">✓ Paid</span>';
+      toast(d.emailed?'Marked paid — email sent to employee.':'Marked paid (no email on file).');
+    } else { toast('Could not mark paid: '+((d&&d.error)||'error')); btn.disabled=false; btn.textContent='Mark Paid'; }
+  }catch(e){ toast('Could not mark paid.'); btn.disabled=false; btn.textContent='Mark Paid'; }
 }
 
 function saveEmp(){
@@ -975,7 +1008,7 @@ function saveEmp(){
   var ps=[];
   document.querySelectorAll('.pe').forEach(function(r){
     var p=r.querySelector('.ps-p').value.trim();
-    if(p)ps.push({period:p,hours:r.querySelector('.ps-h').value.trim(),link:r.querySelector('.ps-l').value.trim()});
+    if(p)ps.push({period:p,hours:r.querySelector('.ps-h').value.trim(),link:r.querySelector('.ps-l').value.trim(),paid:r.dataset.paid==='true',paid_date:r.dataset.paidDate||''});
   });
   var cf1l=document.getElementById('m-cf1l').value.trim().replace(/\s+/g,'_').toLowerCase();
   var emp={full_name:name,employee_id:id,pin:pin,position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
