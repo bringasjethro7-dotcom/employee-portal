@@ -133,7 +133,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
 .sinp:focus{border-color:var(--border-hi)}
 .badd{display:flex;align-items:center;gap:6px;padding:8px 16px;border:none;border-radius:var(--rs);background:linear-gradient(135deg,var(--o1),var(--o2));color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .bsm{font-size:12px;padding:5px 12px;border-radius:var(--rs);cursor:pointer;font-family:inherit;border:1px solid var(--border);background:none;color:var(--t2)}
-.edcell{display:inline-block;width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border);background:transparent;cursor:pointer;transition:all .12s;vertical-align:middle;}
+#ed-body{user-select:none;-webkit-user-select:none;}
+.edcell{display:inline-block;width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border);background:transparent;cursor:pointer;transition:background .12s,border-color .12s;vertical-align:middle;touch-action:none;}
 .edcell:hover{border-color:var(--o3);}
 .edcell.on{background:#22c55e;border-color:#22c55e;box-shadow:inset 0 0 0 2px rgba(255,255,255,.25);}
 .edqf{font-size:10px;padding:2px 6px;margin:0 1px;border-radius:5px;cursor:pointer;font-family:inherit;border:1px solid var(--border);background:none;color:var(--t2);}
@@ -909,7 +910,7 @@ async function loadExpectedGrid(){
     for(var dd=1;dd<=daysIn;dd++){
       var w=edDOW(y,mo,dd), wknd=(w===0||w===6);
       var on=!!set[dd];
-      html+='<td style="text-align:center;padding:2px 0;border-bottom:1px solid var(--bd);'+(wknd?'background:rgba(255,255,255,.04);':'')+'"><span class="edcell'+(on?' on':'')+'" data-emp="'+id+'" data-day="'+dd+'" onclick="edToggle(this)"></span></td>';
+      html+='<td style="text-align:center;padding:2px 0;border-bottom:1px solid var(--bd);'+(wknd?'background:rgba(255,255,255,.04);':'')+'"><span class="edcell'+(on?' on':'')+'" data-emp="'+id+'" data-day="'+dd+'"></span></td>';
     }
     html+='<td style="text-align:center;padding:4px 6px;border-bottom:1px solid var(--bd);white-space:nowrap;">'+
       '<button class="edqf" onclick="edFill(\''+id+'\',\'wd\')">WD</button>'+
@@ -918,13 +919,40 @@ async function loadExpectedGrid(){
     html+='</tr>';
   });
   body.innerHTML=html;
+  setupExpectedDrag();
 }
-function edToggle(span){
-  var id=span.getAttribute('data-emp'), day=parseInt(span.getAttribute('data-day'),10);
+// Apply a fixed on/off to a cell (used for click + drag-paint)
+function edApply(cell, on){
+  var id=cell.getAttribute('data-emp'), day=parseInt(cell.getAttribute('data-day'),10);
   if(!edState[id]) edState[id]={};
-  if(edState[id][day]){ delete edState[id][day]; span.classList.remove('on'); }
-  else { edState[id][day]=true; span.classList.add('on'); }
+  if(on){ edState[id][day]=true; cell.classList.add('on'); }
+  else { delete edState[id][day]; cell.classList.remove('on'); }
   edDirty[id]=true;
+}
+// Click a cell, or hold and drag across cells to paint them all the same
+var edPainting=false, edPaintOn=true;
+function setupExpectedDrag(){
+  var body=document.getElementById('ed-body');
+  if(!body || body._dragSetup) return; body._dragSetup=true;
+  body.addEventListener('pointerdown',function(ev){
+    var c=ev.target.closest && ev.target.closest('.edcell'); if(!c) return;
+    ev.preventDefault();
+    edPainting=true; edPaintOn=!c.classList.contains('on');   // paint the opposite of the first cell
+    edApply(c, edPaintOn);
+  });
+  body.addEventListener('pointerover',function(ev){
+    if(!edPainting) return;
+    var c=ev.target.closest && ev.target.closest('.edcell'); if(!c) return;
+    edApply(c, edPaintOn);
+  });
+  body.addEventListener('pointermove',function(ev){
+    if(!edPainting || ev.pointerType==='mouse') return;       // touch: find cell under finger
+    var el=document.elementFromPoint(ev.clientX,ev.clientY);
+    var c=el && el.closest ? el.closest('.edcell') : null; if(!c) return;
+    edApply(c, edPaintOn);
+  });
+  document.addEventListener('pointerup',function(){ edPainting=false; });
+  document.addEventListener('pointercancel',function(){ edPainting=false; });
 }
 function edFill(id,mode){
   var month=document.getElementById('ed-month').value, parts=month.split('-');
