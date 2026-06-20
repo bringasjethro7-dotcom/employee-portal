@@ -2045,6 +2045,108 @@
     .spinner { animation: none; }
     * { transition: none !important; }
   }
+  /* ══════════ ONLINE PRESENCE BUBBLES ══════════ */
+  #presence-bubbles {
+    position: fixed; left: 0; top: 70px; bottom: 0;
+    width: clamp(220px, 22vw, 430px);
+    pointer-events: none; z-index: 35; overflow: hidden;
+  }
+  .pbubble {
+    position: absolute; pointer-events: auto; cursor: grab;
+    will-change: left, top, transform; transition: filter .2s;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .pbubble.grabbing { cursor: grabbing; filter: brightness(1.15); }
+  .pbubble img { -webkit-user-drag: none; user-drag: none; }
+  .pbubble .skin {
+    width: 100%; height: 100%; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; position: relative;
+    background:
+      radial-gradient(circle at 32% 26%, rgba(255,255,255,.85) 0%, rgba(255,255,255,.25) 14%, rgba(255,255,255,0) 38%),
+      radial-gradient(circle at 68% 78%, color-mix(in srgb, var(--c) 80%, #000 20%) 0%, var(--c) 55%, color-mix(in srgb, var(--c) 70%, #000 30%) 100%);
+    box-shadow:
+      inset 0 -6px 14px rgba(0,0,0,.28),
+      inset 0 4px 10px rgba(255,255,255,.45),
+      0 8px 22px rgba(0,0,0,.35);
+    color: #fff; font-weight: 800; letter-spacing: .5px;
+    text-shadow: 0 1px 3px rgba(0,0,0,.45);
+  }
+  .pbubble .skin span { font-size: calc(.36 * var(--sz, 64px)); }
+  .pbubble .skin img  { width: 100%; height: 100%; object-fit: cover; }
+  .pbubble .skin::after { /* glossy top highlight */
+    content: ""; position: absolute; top: 8%; left: 16%; width: 46%; height: 32%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,.75), rgba(255,255,255,0) 70%);
+    pointer-events: none;
+  }
+  .pbubble .plabel {
+    position: absolute; left: 50%; bottom: -17px; transform: translateX(-50%);
+    font-size: 10.5px; font-weight: 700; color: var(--text-2, #aeb6c2);
+    white-space: nowrap; opacity: 0; transition: opacity .2s; pointer-events: none;
+    background: rgba(0,0,0,.35); padding: 1px 7px; border-radius: 8px; backdrop-filter: blur(2px);
+  }
+  .pbubble:hover { filter: brightness(1.12); z-index: 60; }
+  .pbubble:hover .plabel { opacity: 1; }
+  .pbubble:active { transform: scale(.92); }
+
+  /* status ring (working / paused / idle / online) — thick, light color ring */
+  .pbubble::before {
+    content: ""; position: absolute; inset: -8px; border-radius: 50%;
+    border: 8px solid var(--ring, rgba(255,255,255,.5));
+    pointer-events: none; transition: border-color .3s;
+  }
+  .pbubble.st-working::before { animation: pbRingPulse 1.8s ease-in-out infinite; }
+  @keyframes pbRingPulse {
+    0%, 100% { opacity: 1;  }
+    50%      { opacity: .5; }
+  }
+  /* unread message badge */
+  .pbubble-badge {
+    position: absolute; top: -3px; right: -3px;
+    min-width: 16px; height: 16px; padding: 0 4px;
+    background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; line-height: 16px;
+    border-radius: 9px; text-align: center; z-index: 6; pointer-events: none;
+    border: 1.5px solid var(--bg-deep); box-shadow: 0 1px 4px rgba(0,0,0,.45);
+  }
+
+  /* gentle perpetual drift once settled */
+  .pbubble.floating { animation: pbFloat var(--dur,9s) ease-in-out var(--delay,0s) infinite; }
+  @keyframes pbFloat {
+    0%   { transform: translate(0, 0) rotate(0deg); }
+    50%  { transform: translate(var(--dx, 8px), var(--dy, -16px)) rotate(2deg); }
+    100% { transform: translate(0, 0) rotate(0deg); }
+  }
+  /* slowly float up from the bottom like a balloon rising to the sky */
+  .pbubble.entering { animation: pbRise 3.8s cubic-bezier(.33,.0,.5,1) both; }
+  @keyframes pbRise {
+    0%   { transform: translateY(108vh) translateX(0)    scale(.85); opacity: 0; }
+    12%  { opacity: 1; }
+    35%  { transform: translateY(64vh)  translateX(10px) scale(.9); }
+    65%  { transform: translateY(28vh)  translateX(-8px) scale(.96); }
+    100% { transform: translateY(0)     translateX(0)    scale(1); opacity: 1; }
+  }
+  /* balloon pop on going offline */
+  .pbubble.leaving { animation: pbBurst .5s ease-out forwards; pointer-events: none; }
+  @keyframes pbBurst {
+    0%   { transform: scale(1); opacity: 1; }
+    35%  { transform: scale(1.28); opacity: .95; }
+    100% { transform: scale(1.7); opacity: 0; }
+  }
+  /* tiny shards flung out when a bubble pops */
+  .pshard {
+    position: fixed; width: 7px; height: 7px; border-radius: 50%;
+    pointer-events: none; z-index: 70; opacity: .95;
+    animation: pShard .5s ease-out forwards;
+  }
+  @keyframes pShard {
+    0%   { transform: translate(0,0) scale(1); opacity: .95; }
+    100% { transform: translate(var(--sx,0), var(--sy,0)) scale(.2); opacity: 0; }
+  }
+  @media (max-width: 1180px) { #presence-bubbles { display: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .pbubble.floating, .pbubble.entering { animation: none; }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
@@ -2267,6 +2369,9 @@
       <button class="btn-logout" onclick="doLogout()">Sign out</button>
     </div>
   </header>
+
+  <!-- Floating online-presence bubbles -->
+  <div id="presence-bubbles" aria-hidden="true"></div>
 
   <div class="main-content">
     <div class="dashboard-hero" id="dashboard-hero" style="display:none;">
@@ -5815,21 +5920,48 @@ function setupPresence() {
 
 async function updatePresence(isOnline) {
   if (!supaClient || !chatEmpId) return;
+  var base = {
+    employee_id:   chatEmpId,
+    employee_name: chatEmpName,
+    last_seen:     new Date().toISOString(),
+    is_online:     isOnline,
+  };
+  var myPhoto = (window._currentEmpData && window._currentEmpData.photo) ? window._currentEmpData.photo : null;
   try {
-    await supaClient.from('presence').upsert({
-      employee_id:   chatEmpId,
-      employee_name: chatEmpName,
-      last_seen:     new Date().toISOString(),
-      is_online:     isOnline,
-    }, { onConflict: 'employee_id' });
-  } catch(e) {}
+    var row = Object.assign({}, base);
+    if (myPhoto && !_presenceNoPhotoCol) row.photo = myPhoto;
+    if (!_presenceNoStatusCol) row.status = isOnline ? myWorkStatus() : 'offline';
+    var r = await supaClient.from('presence').upsert(row, { onConflict: 'employee_id' });
+    // If the presence table is missing an optional column, remember it and retry on base only
+    if (r && r.error) {
+      var msg = r.error.message || '';
+      if (/photo/i.test(msg))  _presenceNoPhotoCol  = true;
+      if (/status/i.test(msg)) _presenceNoStatusCol = true;
+      await supaClient.from('presence').upsert(base, { onConflict: 'employee_id' });
+    }
+  } catch(e) {
+    try { await supaClient.from('presence').upsert(base, { onConflict: 'employee_id' }); } catch(e2) {}
+  }
 }
+var _presenceNoPhotoCol  = false;
+var _presenceNoStatusCol = false;
 
 function handlePresenceChange(payload) {
   if (payload.new) {
     var emp = payload.new;
+    var was = onlineUsers[emp.employee_id];
     onlineUsers[emp.employee_id] = emp.is_online;
+    presenceNames[emp.employee_id] = emp.employee_name;
+    presenceLastSeen[emp.employee_id] = emp.last_seen ? new Date(emp.last_seen).getTime() : Date.now();
+    if (emp.status) presenceStatus[emp.employee_id] = emp.status;
+    if (emp.photo) presencePhotos[emp.employee_id] = convertDriveLink(emp.photo);
     updateContactOnlineDot(emp.employee_id, emp.is_online);
+    // Animate bubble pop in/out only when status actually flips (not on heartbeats)
+    if (was !== emp.is_online) syncPresenceBubbles();
+    // Live-update an existing bubble's status ring (work/idle/paused) on heartbeats
+    else if (emp.employee_id !== chatEmpId && _bubbleEls[emp.employee_id]) {
+      applyBubbleStatus(_bubbleEls[emp.employee_id], presenceStatus[emp.employee_id] || 'online');
+    }
   }
 }
 
@@ -5838,15 +5970,412 @@ function updateContactOnlineDot(empId, isOnline) {
   if (dot) dot.style.background = isOnline ? '#4ade80' : '#555';
 }
 
+// ══════════ ONLINE PRESENCE BUBBLES ══════════
+var presenceNames    = {};
+var presencePhotos   = {};
+var presenceStatus   = {};   // employee_id -> 'working' | 'paused' | 'idle' | 'online'
+var presenceLastSeen = {};   // employee_id -> last heartbeat (ms)
+var PRESENCE_TTL_MS  = 120000; // treat as offline if no heartbeat within 2 min
+var _bubbleEls = {};
+var _bubbleColors = ['#FF6B1A','#E83D00','#10b981','#3b82f6','#8b5cf6','#ec4899','#f59e0b','#06b6d4','#ef4444','#14b8a6','#a855f7','#22c55e'];
+function bubbleColorFor(id){
+  var h = 0; id = String(id||'');
+  for (var i=0;i<id.length;i++) h = (h*31 + id.charCodeAt(i)) >>> 0;
+  return _bubbleColors[h % _bubbleColors.length];
+}
+// Names are stored "Last, First" — pull just the first name for labels
+function bubbleFirstName(name){
+  name = String(name || '').trim();
+  if (name.indexOf(',') >= 0){
+    var after = name.split(',')[1] || '';
+    return after.trim().split(/\s+/)[0] || name;
+  }
+  return name.split(/\s+/)[0] || name;
+}
+function bubbleInitials(id, name){
+  if (id === 'ADMIN') return 'A';
+  name = String(name || '').trim();
+  var first = '', last = '';
+  if (name.indexOf(',') >= 0){
+    var parts = name.split(',');
+    last  = (parts[0] || '').trim();
+    first = (parts[1] || '').trim();
+  } else {
+    var w = name.split(/\s+/); first = w[0] || ''; last = w[1] || '';
+  }
+  var a = (first[0] || ''), b = (last[0] || '');
+  return ((a + b) || first[0] || '?').toUpperCase();
+}
+
+// One-time directory of employee photos (by employee_id), pulled from the sheet
+var employeePhotos = {};
+var _photoDirLoaded = false;
+function loadEmployeePhotoDirectory(){
+  if (_photoDirLoaded) return;
+  _photoDirLoaded = true;
+  fetch(APPS_SCRIPT_URL + '?action=get_all_employees')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var list = (d && d.employees) || [];
+      list.forEach(function(emp){
+        if (emp && emp.employee_id && emp.photo){
+          employeePhotos[emp.employee_id] = convertDriveLink(emp.photo);
+        }
+      });
+      // refresh any bubbles already on screen now that photos are known
+      Object.keys(_bubbleEls).forEach(function(id){
+        var url = employeePhotos[id];
+        if (!url) return;
+        var skin = _bubbleEls[id].querySelector('.skin');
+        if (skin && !skin.querySelector('img')){
+          skin.innerHTML = '<img src="' + url + '" alt="">';
+        }
+      });
+    })
+    .catch(function(){ _photoDirLoaded = false; });
+}
+
+// My own live work status, derived from local timer/idle state
+function myWorkStatus(){
+  if (typeof isIdle !== 'undefined' && isIdle) return 'idle';
+  if (typeof trkRunning !== 'undefined' && trkRunning) return 'working';
+  if (typeof trkPaused !== 'undefined' && trkPaused && trkPaused.length) return 'paused';
+  return 'online';
+}
+function bubbleStatusRing(status){
+  switch (status){
+    case 'working': return { ring:'#22c55e', glow:'transparent' };
+    case 'paused':  return { ring:'#f59e0b', glow:'transparent' };
+    case 'idle':    return { ring:'#94a3b8', glow:'transparent' };
+    default:        return { ring:'rgba(255,255,255,.45)', glow:'transparent' }; // online, no timer = faint white
+  }
+}
+function applyBubbleStatus(el, status){
+  if (!el) return;
+  var c = bubbleStatusRing(status);
+  el.style.setProperty('--ring', c.ring);
+  el.style.setProperty('--ringGlow', c.glow);
+  el.classList.toggle('st-working', status === 'working');
+  el.setAttribute('data-status', status);
+}
+function statusFor(id){
+  if (id === chatEmpId) return myWorkStatus();
+  return presenceStatus[id] || 'online';
+}
+// Create/update an unread-count badge on a bubble
+function setBubbleUnread(id, count){
+  var el = _bubbleEls[id];
+  if (!el) return;
+  var badge = el.querySelector('.pbubble-badge');
+  if (!count || count < 1){
+    if (badge) badge.remove();
+    return;
+  }
+  if (!badge){
+    badge = document.createElement('div');
+    badge.className = 'pbubble-badge';
+    el.appendChild(badge);
+  }
+  badge.textContent = count > 99 ? '99+' : count;
+}
+// Refresh my own bubble's ring + push status to others
+function refreshMyBubbleStatus(){
+  if (chatEmpId && _bubbleEls[chatEmpId]) applyBubbleStatus(_bubbleEls[chatEmpId], myWorkStatus());
+}
+function pushMyStatus(){
+  refreshMyBubbleStatus();
+  try { updatePresence(true); } catch(e) {}
+}
+
+// Balloon-pop sound (WebAudio): noise burst + quick falling tone
+function playBubblePop(){
+  try {
+    if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (_ac.state === 'suspended') _ac.resume();
+    var t = _ac.currentTime, dur = 0.12, sr = _ac.sampleRate;
+    var buf = _ac.createBuffer(1, Math.floor(sr*dur), sr), d = buf.getChannelData(0);
+    for (var i=0;i<d.length;i++){ d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 2); }
+    var n = _ac.createBufferSource(); n.buffer = buf;
+    var bp = _ac.createBiquadFilter(); bp.type='bandpass';
+    bp.frequency.setValueAtTime(1500, t); bp.frequency.exponentialRampToValueAtTime(520, t+dur); bp.Q.value = 1.1;
+    var g = _ac.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t+0.005); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    n.connect(bp); bp.connect(g); g.connect(_ac.destination); n.start(t); n.stop(t+dur);
+    var o = _ac.createOscillator(); o.type='triangle';
+    o.frequency.setValueAtTime(780, t); o.frequency.exponentialRampToValueAtTime(190, t+0.1);
+    var og = _ac.createGain();
+    og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.22, t+0.008); og.gain.exponentialRampToValueAtTime(0.0001, t+0.12);
+    o.connect(og); og.connect(_ac.destination); o.start(t); o.stop(t+0.13);
+  } catch(e) {}
+}
+
+function bubbleScatter(W, H, size){
+  var best = {x:20, y:40}, bestD = -1;
+  // keep bubbles in the upper band of the area, not the lower part of the screen
+  var band = Math.min(Math.max(120, H - size - 40), 340);
+  for (var t=0;t<16;t++){
+    var x = 12 + Math.random() * Math.max(12, (W - size - 24));
+    var y = 16 + Math.random() * band;
+    var minD = 1e9;
+    Object.keys(_bubbleEls).forEach(function(id){
+      var b = _bubbleEls[id];
+      var dx = (parseFloat(b.style.left)||0) - x, dy = (parseFloat(b.style.top)||0) - y;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < minD) minD = dist;
+    });
+    if (minD > bestD){ bestD = minD; best = {x:x, y:y}; }
+  }
+  return best;
+}
+
+function addBubble(id, silent){
+  var container = document.getElementById('presence-bubbles');
+  if (!container || _bubbleEls[id]) return;
+  var isSelf = (id === chatEmpId);
+  var name = isSelf ? (chatEmpName || 'You') : (presenceNames[id] || id);
+  var rect = container.getBoundingClientRect();
+  var W = rect.width || 360, H = rect.height || (window.innerHeight - 90);
+  var size = Math.round(40 + Math.random()*26);
+  var pos = bubbleScatter(W, H, size);
+  var col = isSelf ? '#FF6B1A' : bubbleColorFor(id);
+  var photo = employeePhotos[id] || presencePhotos[id] ||
+    (isSelf && window._currentEmpData && window._currentEmpData.photo ? convertDriveLink(window._currentEmpData.photo) : null);
+
+  var el = document.createElement('div');
+  el.className = 'pbubble entering';
+  el.style.left = Math.round(pos.x) + 'px';
+  el.style.top  = Math.round(pos.y) + 'px';
+  el.style.width = size + 'px';
+  el.style.height = size + 'px';
+  el.style.setProperty('--sz', size + 'px');
+  el.style.setProperty('--c', col);
+  el.style.setProperty('--dur', (7 + Math.random()*5).toFixed(1) + 's');
+  el.style.setProperty('--delay', (Math.random()*2.5).toFixed(1) + 's');
+  el.style.setProperty('--dx', Math.round(Math.random()*22 - 11) + 'px');
+  el.style.setProperty('--dy', Math.round(-12 - Math.random()*16) + 'px');
+  var first = bubbleFirstName(name);
+  var skin = photo ? '<img src="'+photo+'" alt="">' : '<span>'+bubbleInitials(id,name)+'</span>';
+  el.innerHTML = '<div class="skin">'+skin+'</div><div class="plabel">'+first+(isSelf?' (you)':'')+'</div>';
+  el.title = first + (isSelf ? ' (you)' : '');
+  el.onclick = function(){ bubbleClicked(id, name, isSelf); };
+  container.appendChild(el);
+  _bubbleEls[id] = el;
+  applyBubbleStatus(el, statusFor(id));
+  if (!isSelf){
+    var uc = unreadCounts[id] || 0;
+    if (uc) setBubbleUnread(id, uc);
+  }
+  if (!silent) playBubblePop();
+  // once it has floated up, hand control to the physics engine (drag/throw/bob)
+  setTimeout(function(){
+    if (!el || !el.parentNode) return;
+    el.classList.remove('entering');
+    el.style.transform = 'none';
+    initBubblePhysics(id, el);
+  }, 3820);
+}
+
+function spawnShards(el){
+  try {
+    var r = el.getBoundingClientRect();
+    var cx = r.left + r.width/2, cy = r.top + r.height/2;
+    var col = el.style.getPropertyValue('--c') || '#FF6B1A';
+    for (var i=0;i<8;i++){
+      var s = document.createElement('div'); s.className = 'pshard';
+      s.style.background = col; s.style.left = cx+'px'; s.style.top = cy+'px';
+      var ang = (Math.PI*2) * (i/8) + Math.random()*0.4, dist = 30 + Math.random()*34;
+      s.style.setProperty('--sx', Math.cos(ang)*dist + 'px');
+      s.style.setProperty('--sy', Math.sin(ang)*dist + 'px');
+      document.body.appendChild(s);
+      setTimeout((function(node){ return function(){ if(node&&node.parentNode) node.parentNode.removeChild(node); }; })(s), 520);
+    }
+  } catch(e) {}
+}
+
+function removeBubble(id){
+  var el = _bubbleEls[id];
+  if (!el) return;
+  delete _bubbleEls[id];
+  delete _phys[id];                  // stop physics so the burst animation can play
+  el.classList.remove('floating', 'entering');
+  el.style.transform = '';           // let the burst keyframes take over
+  el.classList.add('leaving');
+  spawnShards(el);
+  playBubblePop();
+  setTimeout(function(){ if (el && el.parentNode) el.parentNode.removeChild(el); }, 540);
+}
+
+function bubbleClicked(id, name, isSelf){
+  if (isSelf){
+    switchTab('profile', null);
+    var pb = Array.from(document.querySelectorAll('.tab-btn')).find(function(b){
+      return ((b.getAttribute('onclick')||'').indexOf("'profile'") >= 0);
+    });
+    if (pb){ document.querySelectorAll('.tab-btn').forEach(function(x){x.classList.remove('active');}); pb.classList.add('active'); }
+    return;
+  }
+  var panel = document.getElementById('tab-messages');
+  var isOpen = panel && panel.classList.contains('active');
+  // Clicking the same person's bubble again minimizes the chat
+  if (isOpen && currentChat === id) { toggleMessages(); return; }
+  if (!isOpen) toggleMessages();
+  setTimeout(function(){ selectChat(id, name); }, 80);
+}
+
+// ── BUBBLE PHYSICS (drag, throw, float, bounce) ──
+var _phys = {};       // employee_id -> { x, y, vx, vy, size, dragging, grabX, grabY }
+var _physRAF = null;
+
+function bubbleClickedById(id){
+  var isSelf = (id === chatEmpId);
+  var name = isSelf ? (chatEmpName || 'You') : (presenceNames[id] || id);
+  bubbleClicked(id, name, isSelf);
+}
+
+function initBubblePhysics(id, el){
+  var x = parseFloat(el.style.left) || 0;
+  var y = parseFloat(el.style.top)  || 0;
+  var size = el.offsetWidth || 60;
+  _phys[id] = { x:x, y:y, vx:(Math.random()-0.5)*0.5, vy:-0.3, size:size, dragging:false };
+  el.onclick = null;            // clicks now handled via pointer (drag-aware)
+  attachBubbleDrag(id, el);
+  startPhysicsLoop();
+}
+
+function attachBubbleDrag(id, el){
+  var container = document.getElementById('presence-bubbles');
+  var moved = 0, lastX = 0, lastY = 0, lastT = 0;
+  el.addEventListener('pointerdown', function(ev){
+    var p = _phys[id]; if (!p) return;
+    try { el.setPointerCapture(ev.pointerId); } catch(e) {}
+    var c = container.getBoundingClientRect();
+    p.dragging = true; moved = 0;
+    p.grabX = ev.clientX - c.left - p.x;
+    p.grabY = ev.clientY - c.top  - p.y;
+    lastX = ev.clientX; lastY = ev.clientY; lastT = performance.now();
+    el.classList.add('grabbing'); el.style.zIndex = 90;
+    ev.preventDefault();
+  });
+  el.addEventListener('pointermove', function(ev){
+    var p = _phys[id]; if (!p || !p.dragging) return;
+    var c = container.getBoundingClientRect();
+    p.x = ev.clientX - c.left - p.grabX;
+    p.y = ev.clientY - c.top  - p.grabY;
+    el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    moved += Math.abs(ev.clientX - lastX) + Math.abs(ev.clientY - lastY);
+    var now = performance.now(), dt = Math.max(8, now - lastT);
+    // velocity in px/frame (~16ms), so a flick throws the bubble
+    p.vx = (ev.clientX - lastX) / dt * 16;
+    p.vy = (ev.clientY - lastY) / dt * 16;
+    lastX = ev.clientX; lastY = ev.clientY; lastT = now;
+  });
+  function release(ev){
+    var p = _phys[id]; if (!p || !p.dragging) return;
+    p.dragging = false;
+    el.classList.remove('grabbing'); el.style.zIndex = '';
+    var max = 32; // cap throw speed
+    p.vx = Math.max(-max, Math.min(max, p.vx));
+    p.vy = Math.max(-max, Math.min(max, p.vy));
+    if (moved < 6) { p.vx *= 0.05; p.vy *= 0.05; bubbleClickedById(id); } // a tap = open chat
+  }
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+}
+
+function startPhysicsLoop(){ if (!_physRAF) _physRAF = requestAnimationFrame(physicsStep); }
+
+function physicsStep(){
+  var container = document.getElementById('presence-bubbles');
+  if (!container){ _physRAF = null; return; }
+  var W = container.clientWidth, H = container.clientHeight;
+  var ids = Object.keys(_phys);
+
+  for (var i=0;i<ids.length;i++){
+    var p = _phys[ids[i]], el = _bubbleEls[ids[i]];
+    if (!el){ delete _phys[ids[i]]; continue; }
+    if (p.dragging) continue;
+    var size = p.size;
+    // gentle buoyancy + idle wander so they bob like balloons
+    p.vy -= 0.006;
+    p.vx += (Math.random()-0.5) * 0.05;
+    p.vx *= 0.972; p.vy *= 0.978;          // air resistance
+    if (p.vy < -0.9) p.vy = -0.9;          // cap slow upward drift
+    p.x += p.vx; p.y += p.vy;
+    // bounce off the walls of the area
+    var maxX = Math.max(0, W - size - 2), maxY = Math.max(0, H - size - 2);
+    if (p.x < 2){ p.x = 2; p.vx = Math.abs(p.vx) * 0.6; }
+    else if (p.x > maxX){ p.x = maxX; p.vx = -Math.abs(p.vx) * 0.6; }
+    if (p.y < 2){ p.y = 2; p.vy = Math.abs(p.vy) * 0.55; }
+    else if (p.y > maxY){ p.y = maxY; p.vy = -Math.abs(p.vy) * 0.62; }
+    el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+  }
+  // soft bubble-to-bubble collisions
+  for (var a=0;a<ids.length;a++){
+    for (var b=a+1;b<ids.length;b++){
+      var pa = _phys[ids[a]], pb = _phys[ids[b]];
+      if (!pa || !pb) continue;
+      var ra = pa.size/2, rb = pb.size/2;
+      var dx = (pb.x+rb)-(pa.x+ra), dy = (pb.y+rb)-(pa.y+ra);
+      var dist = Math.sqrt(dx*dx+dy*dy) || 0.01, minD = ra+rb;
+      if (dist < minD){
+        var ov = (minD-dist)/2, ux = dx/dist, uy = dy/dist;
+        if (!pa.dragging){ pa.x -= ux*ov; pa.y -= uy*ov; pa.vx -= ux*0.45; pa.vy -= uy*0.45; }
+        if (!pb.dragging){ pb.x += ux*ov; pb.y += uy*ov; pb.vx += ux*0.45; pb.vy += uy*0.45; }
+      }
+    }
+  }
+  _physRAF = requestAnimationFrame(physicsStep);
+}
+
+// Diff the online set against on-screen bubbles; pop in newcomers, pop out leavers
+function syncPresenceBubbles(opts){
+  opts = opts || {};
+  var container = document.getElementById('presence-bubbles');
+  if (!container) return;
+  if (isMobileDevice()){ container.style.display = 'none'; return; }
+  var now = Date.now();
+  var online = {};
+  Object.keys(onlineUsers).forEach(function(id){
+    if (!onlineUsers[id]) return;
+    var seen = presenceLastSeen[id];
+    // active = flagged online AND seen recently (drops ghosts from crashed tabs)
+    if (seen === undefined || (now - seen) < PRESENCE_TTL_MS) online[id] = true;
+  });
+  if (chatEmpId) online[chatEmpId] = true; // you are always active in your own session
+  Object.keys(online).forEach(function(id){ if (!_bubbleEls[id]) addBubble(id, opts.silent); });
+  Object.keys(_bubbleEls).forEach(function(id){ if (!online[id]) removeBubble(id); });
+}
+// Periodic sweep so ghost (stale) bubbles pop even without a presence event
+setInterval(function(){ if (Object.keys(_bubbleEls).length) syncPresenceBubbles({ silent: true }); }, 30000);
+// Watch my own work status (timer/idle) and propagate ring changes to everyone
+var _lastMyStatus = null;
+setInterval(function(){
+  if (!chatEmpId || !supaClient) return;
+  var s = myWorkStatus();
+  if (s !== _lastMyStatus){
+    _lastMyStatus = s;
+    refreshMyBubbleStatus();
+    try { updatePresence(true); } catch(e) {}
+  }
+}, 3000);
+
 // ── CONTACTS ──
 async function loadContacts() {
   if (!supaClient) return;
   try {
     var result = await supaClient.from('presence').select('*').order('employee_name');
     if (result.data) {
-      result.data.forEach(function(emp) { onlineUsers[emp.employee_id] = emp.is_online; });
+      result.data.forEach(function(emp) {
+        onlineUsers[emp.employee_id] = emp.is_online;
+        presenceNames[emp.employee_id] = emp.employee_name;
+        if (emp.last_seen) presenceLastSeen[emp.employee_id] = new Date(emp.last_seen).getTime();
+        if (emp.status) presenceStatus[emp.employee_id] = emp.status;
+        if (emp.photo) presencePhotos[emp.employee_id] = convertDriveLink(emp.photo);
+      });
       renderContactList(result.data);
       loadDMHistoryOrder();
+      loadEmployeePhotoDirectory();               // pull everyone's photo for the bubbles
+      syncPresenceBubbles({ silent: true }); // already-online users settle in quietly
     }
   } catch(e) { console.error('loadContacts:', e); }
 }
@@ -5993,6 +6522,7 @@ function selectChat(empId, name) {
   unreadCounts[clearKey] = 0;
   var unreadEl = document.getElementById('unread-' + (empId === 'group' ? 'group' : empId));
   if (unreadEl) { unreadEl.style.display = 'none'; unreadEl.textContent = ''; }
+  if (empId !== 'group') setBubbleUnread(empId, 0); // clear the bubble badge too
 
   // Load messages
   loadMessages();
@@ -6286,6 +6816,7 @@ function subscribeToMessages() {
           unreadCounts[chatKey]++;
           var unreadEl = document.getElementById('unread-' + (isGroup ? 'group' : m.sender_id));
           if (unreadEl) { unreadEl.textContent = unreadCounts[chatKey]; unreadEl.style.display = 'inline'; }
+          if (!isGroup) setBubbleUnread(m.sender_id, unreadCounts[chatKey]); // mirror onto the floating bubble
           var total = Object.values(unreadCounts).reduce(function(a,b){return a+b;}, 0);
           var badge = document.getElementById('msg-badge');
           if (badge) { badge.textContent = total; badge.style.display = total > 0 ? 'inline' : 'none'; }
