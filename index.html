@@ -3586,7 +3586,7 @@ function switchTab(name, btn) {
     refreshEmployeeData(function(data) {
       if (name === 'overview')  renderOverview(data);
       if (name === 'payslips')  { renderPayslipList(data); renderIDCard(data); }
-      if (name === 'profile')   { renderProfile(data); renderAttSummary(); initCOE(data); }
+      if (name === 'profile')   { renderProfile(data); renderAttSummary(); loadScorecard(); initCOE(data); }
       if (name === 'scorecard') { initScorecard(data); }
     });
   }
@@ -3754,6 +3754,8 @@ async function loadScorecard() {
     var ab = data.attendance_breakdown || {};
     var seEl = document.getElementById('sum-expected'); if (seEl) seEl.textContent = (ab.expected !== undefined && ab.expected !== null) ? ab.expected : '—';
     var saEl = document.getElementById('sum-absent');   if (saEl) saEl.textContent   = (ab.absent   !== undefined && ab.absent   !== null) ? ab.absent   : '—';
+    // Total Hours = time tracked in the Time Tracker (from the backend)
+    var shEl = document.getElementById('sum-hours');    if (shEl && ab.hours !== undefined && ab.hours !== null) shEl.textContent = (parseFloat(ab.hours)||0).toFixed(1) + 'h';
 
     if (!data || !data.scorecard) {
       // No scorecard — still show attendance from sheet
@@ -5960,7 +5962,7 @@ function handlePresenceChange(payload) {
     if (was !== emp.is_online) syncPresenceBubbles();
     // Live-update an existing bubble's status ring (work/idle/paused) on heartbeats
     else if (emp.employee_id !== chatEmpId && _bubbleEls[emp.employee_id]) {
-      applyBubbleStatus(_bubbleEls[emp.employee_id], presenceStatus[emp.employee_id] || 'online');
+      applyBubbleStatus(_bubbleEls[emp.employee_id], statusFor(emp.employee_id));
     }
   }
 }
@@ -6058,9 +6060,25 @@ function applyBubbleStatus(el, status){
   el.classList.toggle('st-working', status === 'working');
   el.setAttribute('data-status', status);
 }
+var serverStatus = {};   // employee_id -> 'working'|'paused', from the backend (authoritative)
 function statusFor(id){
-  if (id === chatEmpId) return myWorkStatus();
-  return presenceStatus[id] || 'online';
+  if (id === chatEmpId) return myWorkStatus();                       // my own live state
+  if (serverStatus[id] === 'working' || serverStatus[id] === 'paused') return serverStatus[id];
+  return presenceStatus[id] || 'online';                            // idle/online from their browser
+}
+function refreshAllBubbleStatus(){
+  Object.keys(_bubbleEls).forEach(function(id){
+    if (id === chatEmpId) return; // self handled by its own watcher
+    applyBubbleStatus(_bubbleEls[id], statusFor(id));
+  });
+}
+// Poll the backend for who is actually running/paused a timer right now (team-wide,
+// browser-independent) and recolour the rings.
+function pollActiveTracker(){
+  fetch(APPS_SCRIPT_URL + '?action=get_active_tracker')
+    .then(function(r){ return r.json(); })
+    .then(function(d){ serverStatus = (d && d.statuses) || {}; refreshAllBubbleStatus(); })
+    .catch(function(){});
 }
 // Create/update an unread-count badge on a bubble
 function setBubbleUnread(id, count){
@@ -6347,6 +6365,8 @@ function syncPresenceBubbles(opts){
 }
 // Periodic sweep so ghost (stale) bubbles pop even without a presence event
 setInterval(function(){ if (Object.keys(_bubbleEls).length) syncPresenceBubbles({ silent: true }); }, 30000);
+// Refresh team-wide working/paused rings from the backend every 20s
+setInterval(function(){ if (Object.keys(_bubbleEls).length) pollActiveTracker(); }, 20000);
 // Watch my own work status (timer/idle) and propagate ring changes to everyone
 var _lastMyStatus = null;
 setInterval(function(){
@@ -6376,6 +6396,7 @@ async function loadContacts() {
       loadDMHistoryOrder();
       loadEmployeePhotoDirectory();               // pull everyone's photo for the bubbles
       syncPresenceBubbles({ silent: true }); // already-online users settle in quietly
+      pollActiveTracker();                        // live working/paused rings, team-wide
     }
   } catch(e) { console.error('loadContacts:', e); }
 }
