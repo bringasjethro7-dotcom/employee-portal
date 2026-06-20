@@ -266,6 +266,28 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
   .chat-sidebar{border-right:none;border-bottom:1px solid var(--border);max-height:130px}
   .chat-main{height:60vh;min-height:360px}
 }
+/* ===== ONLINE PRESENCE BUBBLES (active accounts) ===== */
+#presence-bubbles{position:fixed;left:0;top:92px;bottom:0;width:clamp(170px,15vw,290px);pointer-events:none;z-index:40;overflow:hidden}
+.pbubble{position:absolute;pointer-events:auto;cursor:grab;will-change:left,top,transform;touch-action:none;user-select:none;-webkit-user-select:none}
+.pbubble.grabbing{cursor:grabbing;filter:brightness(1.12)}
+.pbubble img{-webkit-user-drag:none;user-drag:none}
+.pbubble .skin{width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.85) 0%,rgba(255,255,255,.22) 14%,rgba(255,255,255,0) 38%),radial-gradient(circle at 68% 78%,color-mix(in srgb,var(--c) 80%,#000 20%) 0%,var(--c) 55%,color-mix(in srgb,var(--c) 70%,#000 30%) 100%);box-shadow:inset 0 -6px 14px rgba(0,0,0,.3),inset 0 4px 10px rgba(255,255,255,.4),0 8px 22px rgba(0,0,0,.45);color:#fff;font-weight:800;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.pbubble .skin span{font-size:calc(.36 * var(--sz,60px))}
+.pbubble .skin img{width:100%;height:100%;object-fit:cover}
+.pbubble .skin::after{content:"";position:absolute;top:8%;left:16%;width:46%;height:32%;border-radius:50%;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.7),rgba(255,255,255,0) 70%);pointer-events:none}
+.pbubble .plabel{position:absolute;left:50%;bottom:-17px;transform:translateX(-50%);font-size:10.5px;font-weight:700;color:var(--t2);white-space:nowrap;opacity:0;transition:opacity .2s;pointer-events:none;background:rgba(0,0,0,.5);padding:1px 7px;border-radius:8px}
+.pbubble:hover{filter:brightness(1.12);z-index:60}
+.pbubble:hover .plabel{opacity:1}
+.pbubble::before{content:"";position:absolute;inset:-8px;border-radius:50%;border:8px solid var(--ring,rgba(255,255,255,.45));pointer-events:none;transition:border-color .3s}
+.pbubble.st-working::before{animation:pbRingPulse 1.8s ease-in-out infinite}
+@keyframes pbRingPulse{0%,100%{opacity:1}50%{opacity:.5}}
+.pbubble.entering{animation:pbRise 3.8s cubic-bezier(.33,0,.5,1) both}
+@keyframes pbRise{0%{transform:translateY(108vh) scale(.85);opacity:0}12%{opacity:1}100%{transform:translateY(0) scale(1);opacity:1}}
+.pbubble.leaving{animation:pbBurst .5s ease-out forwards;pointer-events:none}
+@keyframes pbBurst{0%{transform:scale(1);opacity:1}35%{transform:scale(1.28);opacity:.95}100%{transform:scale(1.7);opacity:0}}
+.pshard{position:fixed;width:7px;height:7px;border-radius:50%;pointer-events:none;z-index:70;opacity:.95;animation:pShard .5s ease-out forwards}
+@keyframes pShard{0%{transform:translate(0,0) scale(1);opacity:.95}100%{transform:translate(var(--sx,0),var(--sy,0)) scale(.2);opacity:0}}
+@media(max-width:1340px){#presence-bubbles{display:none}}
 </style>
 </head>
 <body>
@@ -293,6 +315,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 
 <!-- SHELL -->
 <div id="shell" style="display:none;">
+  <div id="presence-bubbles" aria-hidden="true"></div>
   <header>
     <div class="htitle"><img id="admin-logo-img" alt="" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%2276%2082%20360%20360%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22m%22%20x1%3D%220%22%20y1%3D%22.05%22%20x2%3D%220%22%20y2%3D%22.95%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FFE0BE%22%2F%3E%3Cstop%20offset%3D%22.16%22%20stop-color%3D%22%23FFB16A%22%2F%3E%3Cstop%20offset%3D%22.46%22%20stop-color%3D%22%23FF7A29%22%2F%3E%3Cstop%20offset%3D%22.78%22%20stop-color%3D%22%23F1560F%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23C3380A%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22b%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FF8E45%22%2F%3E%3Cstop%20offset%3D%22.55%22%20stop-color%3D%22%23E64C10%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23A52E08%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20x%3D%22241%22%20y%3D%22110%22%20width%3D%2230%22%20height%3D%22304%22%20rx%3D%2215%22%20fill%3D%22url%28%23m%29%22%2F%3E%3Cpath%20d%3D%22M256%20226Q341%20264%20398%20320Q341%20376%20256%20414Q171%20376%20114%20320Q171%20264%20256%20226Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23b%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3Cpath%20d%3D%22M256%20110Q341%20148%20398%20204Q341%20260%20256%20298Q171%20260%20114%20204Q171%20148%20256%20110Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23m%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E" /> Portal admin <span class="pill" style="margin-bottom:0;">Admin</span></div>
     <button class="blogout" onclick="doLogout()">Sign out</button>
@@ -808,6 +831,7 @@ function doLogin(){
     loadDashboard();
     // Poll for new requests in the background and chime on arrival (works on any tab)
     setInterval(function(){ loadDashboard({ silent:true }); }, 45000);
+    initAdminBubbles();   // floating bubbles of active accounts
   } else {
     document.getElementById('aerr').style.display='block';
   }
@@ -971,6 +995,38 @@ function mirrorAdminBadges(){
   if(nm) nm.classList.toggle('show', !!(m && (m.classList.contains('show') || (m.textContent||'').trim()!=='')));
 }
 setInterval(mirrorAdminBadges, 4000);
+
+// ════════════ ONLINE PRESENCE BUBBLES (active accounts) ════════════
+var presenceNames={}, presenceStatus={}, presenceLastSeen={}, employeePhotos={}, serverStatus={};
+var PRESENCE_TTL_MS=120000;
+var _bubbleEls={}, _phys={}, _physRAF=null;
+var bubbleSupa=null;
+var _bubbleColors=['#FF6B1A','#E83D00','#10b981','#3b82f6','#8b5cf6','#ec4899','#f59e0b','#06b6d4','#ef4444','#14b8a6','#a855f7','#22c55e'];
+function bubbleColorFor(id){var h=0;id=String(id||'');for(var i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))>>>0;return _bubbleColors[h%_bubbleColors.length];}
+function bubbleFirstName(name){name=String(name||'').trim();if(name.indexOf(',')>=0){var a=name.split(',')[1]||'';return a.trim().split(/\s+/)[0]||name;}return name.split(/\s+/)[0]||name;}
+function bubbleInitials(id,name){if(id==='ADMIN')return'A';name=String(name||'').trim();var f='',l='';if(name.indexOf(',')>=0){var p=name.split(',');l=(p[0]||'').trim();f=(p[1]||'').trim();}else{var w=name.split(/\s+/);f=w[0]||'';l=w[1]||'';}return(((f[0]||'')+(l[0]||''))||f[0]||'?').toUpperCase();}
+function convertDrive(url){if(!url)return'';var m=String(url).match(/[-\w]{25,}/);return m?'https://drive.google.com/thumbnail?id='+m[0]+'&sz=w200':url;}
+function bubbleStatusRing(s){switch(s){case'working':return'#22c55e';case'paused':return'#f59e0b';case'idle':return'#94a3b8';default:return'rgba(255,255,255,.45)';}}
+function applyBubbleStatus(el,s){if(!el)return;el.style.setProperty('--ring',bubbleStatusRing(s));el.classList.toggle('st-working',s==='working');}
+function statusFor(id){if(serverStatus[id]==='working'||serverStatus[id]==='paused')return serverStatus[id];return presenceStatus[id]||'online';}
+function bubblePop(){try{if(typeof _adAudio==='function'&&_adAudio()){var t=_adAC.currentTime;var o=_adAC.createOscillator(),g=_adAC.createGain();o.type='triangle';o.frequency.setValueAtTime(720,t);o.frequency.exponentialRampToValueAtTime(200,t+0.1);g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.12,t+0.008);g.gain.exponentialRampToValueAtTime(0.0001,t+0.12);o.connect(g);g.connect(_adAC.destination);o.start(t);o.stop(t+0.13);}}catch(e){}}
+function buildAdminPhotoMap(){try{(emps||[]).forEach(function(e){if(e&&e.employee_id&&e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);});}catch(e){}}
+
+function bubbleScatter(W,H,size){var best={x:14,y:30},bestD=-1;var band=Math.min(Math.max(120,H-size-40),360);for(var t=0;t<16;t++){var x=12+Math.random()*Math.max(12,(W-size-24));var y=16+Math.random()*band;var minD=1e9;Object.keys(_bubbleEls).forEach(function(id){var b=_bubbleEls[id];var dx=(parseFloat(b.style.left)||0)-x,dy=(parseFloat(b.style.top)||0)-y;var d=Math.sqrt(dx*dx+dy*dy);if(d<minD)minD=d;});if(minD>bestD){bestD=minD;best={x:x,y:y};}}return best;}
+function addBubble(id,silent){var c=document.getElementById('presence-bubbles');if(!c||_bubbleEls[id])return;var name=presenceNames[id]||id;var rect=c.getBoundingClientRect();var W=rect.width||220,H=rect.height||(window.innerHeight-120);var size=Math.round(52+Math.random()*32);var pos=bubbleScatter(W,H,size);var photo=employeePhotos[id]||'';var el=document.createElement('div');el.className='pbubble entering';el.style.left=Math.round(pos.x)+'px';el.style.top=Math.round(pos.y)+'px';el.style.width=size+'px';el.style.height=size+'px';el.style.setProperty('--sz',size+'px');el.style.setProperty('--c',bubbleColorFor(id));var first=bubbleFirstName(name);var skin=photo?'<img src="'+photo+'" alt="">':'<span>'+bubbleInitials(id,name)+'</span>';el.innerHTML='<div class="skin">'+skin+'</div><div class="plabel">'+first+'</div>';el.title=first;el.onclick=function(){bubbleClicked(id,name);};c.appendChild(el);_bubbleEls[id]=el;applyBubbleStatus(el,statusFor(id));if(!silent)bubblePop();setTimeout(function(){if(el&&el.parentNode){el.classList.remove('entering');el.style.transform='none';initBubblePhysics(id,el);}},3820);}
+function spawnShards(el){try{var r=el.getBoundingClientRect();var cx=r.left+r.width/2,cy=r.top+r.height/2;var col=el.style.getPropertyValue('--c')||'#FF6B1A';for(var i=0;i<8;i++){var s=document.createElement('div');s.className='pshard';s.style.background=col;s.style.left=cx+'px';s.style.top=cy+'px';var a=(Math.PI*2)*(i/8)+Math.random()*0.4,d=30+Math.random()*34;s.style.setProperty('--sx',Math.cos(a)*d+'px');s.style.setProperty('--sy',Math.sin(a)*d+'px');document.body.appendChild(s);setTimeout((function(n){return function(){if(n&&n.parentNode)n.parentNode.removeChild(n);};})(s),520);}}catch(e){}}
+function removeBubble(id){var el=_bubbleEls[id];if(!el)return;delete _bubbleEls[id];delete _phys[id];el.classList.remove('entering');el.style.transform='';el.classList.add('leaving');spawnShards(el);bubblePop();setTimeout(function(){if(el&&el.parentNode)el.parentNode.removeChild(el);},540);}
+function bubbleClicked(id,name){goTab('chat');setTimeout(function(){if(typeof adminSelectChat==='function')adminSelectChat(id,name);},140);}
+function refreshAllBubbleStatus(){Object.keys(_bubbleEls).forEach(function(id){applyBubbleStatus(_bubbleEls[id],statusFor(id));});}
+function pollActiveTracker(){fetch(API+'?action=get_active_tracker').then(function(r){return r.json();}).then(function(d){serverStatus=(d&&d.statuses)||{};refreshAllBubbleStatus();}).catch(function(){});}
+
+function initBubblePhysics(id,el){var x=parseFloat(el.style.left)||0,y=parseFloat(el.style.top)||0,size=el.offsetWidth||60;_phys[id]={x:x,y:y,vx:(Math.random()-0.5)*0.5,vy:-0.3,size:size,dragging:false};el.onclick=null;attachBubbleDrag(id,el);if(!_physRAF)_physRAF=requestAnimationFrame(physicsStep);}
+function attachBubbleDrag(id,el){var c=document.getElementById('presence-bubbles');var moved=0,lx=0,ly=0,lt=0;el.addEventListener('pointerdown',function(ev){var p=_phys[id];if(!p)return;try{el.setPointerCapture(ev.pointerId);}catch(e){}var r=c.getBoundingClientRect();p.dragging=true;moved=0;p.gx=ev.clientX-r.left-p.x;p.gy=ev.clientY-r.top-p.y;lx=ev.clientX;ly=ev.clientY;lt=performance.now();el.classList.add('grabbing');el.style.zIndex=90;ev.preventDefault();});el.addEventListener('pointermove',function(ev){var p=_phys[id];if(!p||!p.dragging)return;var r=c.getBoundingClientRect();p.x=ev.clientX-r.left-p.gx;p.y=ev.clientY-r.top-p.gy;el.style.left=p.x+'px';el.style.top=p.y+'px';moved+=Math.abs(ev.clientX-lx)+Math.abs(ev.clientY-ly);var now=performance.now(),dt=Math.max(8,now-lt);p.vx=(ev.clientX-lx)/dt*16;p.vy=(ev.clientY-ly)/dt*16;lx=ev.clientX;ly=ev.clientY;lt=now;});function rel(){var p=_phys[id];if(!p||!p.dragging)return;p.dragging=false;el.classList.remove('grabbing');el.style.zIndex='';var mx=32;p.vx=Math.max(-mx,Math.min(mx,p.vx));p.vy=Math.max(-mx,Math.min(mx,p.vy));if(moved<6){p.vx*=0.05;p.vy*=0.05;bubbleClicked(id,presenceNames[id]||id);}}el.addEventListener('pointerup',rel);el.addEventListener('pointercancel',rel);}
+function physicsStep(){var c=document.getElementById('presence-bubbles');if(!c){_physRAF=null;return;}var W=c.clientWidth,H=c.clientHeight,ids=Object.keys(_phys);for(var i=0;i<ids.length;i++){var p=_phys[ids[i]],el=_bubbleEls[ids[i]];if(!el){delete _phys[ids[i]];continue;}if(p.dragging)continue;var size=p.size;p.vx+=(Math.random()-0.5)*0.05;p.vy+=(Math.random()-0.5)*0.05;p.vx*=0.97;p.vy*=0.97;p.x+=p.vx;p.y+=p.vy;var M=12,maxX=Math.max(M,W-size-M),maxY=Math.max(M,H-size-M);if(p.x<M){p.x=M;p.vx=Math.abs(p.vx)*0.6;}else if(p.x>maxX){p.x=maxX;p.vx=-Math.abs(p.vx)*0.6;}if(p.y<M){p.y=M;p.vy=Math.abs(p.vy)*0.6;}else if(p.y>maxY){p.y=maxY;p.vy=-Math.abs(p.vy)*0.6;}el.style.left=p.x+'px';el.style.top=p.y+'px';}for(var a=0;a<ids.length;a++){for(var b=a+1;b<ids.length;b++){var pa=_phys[ids[a]],pb=_phys[ids[b]];if(!pa||!pb)continue;var ra=pa.size/2,rb=pb.size/2,dx=(pb.x+rb)-(pa.x+ra),dy=(pb.y+rb)-(pa.y+ra),dist=Math.sqrt(dx*dx+dy*dy)||0.01,minD=ra+rb;if(dist<minD){var ov=(minD-dist)/2,ux=dx/dist,uy=dy/dist;if(!pa.dragging){pa.x-=ux*ov;pa.y-=uy*ov;pa.vx-=ux*0.45;pa.vy-=uy*0.45;}if(!pb.dragging){pb.x+=ux*ov;pb.y+=uy*ov;pb.vx+=ux*0.45;pb.vy+=uy*0.45;}}}}_physRAF=requestAnimationFrame(physicsStep);}
+
+function syncBubbles(opts){opts=opts||{};var c=document.getElementById('presence-bubbles');if(!c)return;var now=Date.now(),online={};Object.keys(adminOnlineUsers).forEach(function(id){if(id===ADMIN_ID)return;if(!adminOnlineUsers[id])return;var seen=presenceLastSeen[id];if(seen===undefined||(now-seen)<PRESENCE_TTL_MS)online[id]=true;});Object.keys(online).forEach(function(id){if(!_bubbleEls[id])addBubble(id,opts.silent);});Object.keys(_bubbleEls).forEach(function(id){if(!online[id])removeBubble(id);});}
+
+function initAdminBubbles(){var SupaLib=window.supabase||window.Supabase;if(!SupaLib){setTimeout(initAdminBubbles,800);return;}buildAdminPhotoMap();bubbleSupa=SupaLib.createClient(SUPA_URL,SUPA_KEY);bubbleSupa.from('presence').select('*').then(function(r){(r.data||[]).forEach(function(e){adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);});syncBubbles({silent:true});});bubbleSupa.channel('admin-bubbles').on('postgres_changes',{event:'*',schema:'public',table:'presence'},function(p){if(!p.new)return;var e=p.new,was=adminOnlineUsers[e.employee_id];adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);if(was!==e.is_online)syncBubbles();else if(_bubbleEls[e.employee_id])applyBubbleStatus(_bubbleEls[e.employee_id],statusFor(e.employee_id));}).subscribe();pollActiveTracker();setInterval(function(){if(Object.keys(_bubbleEls).length)syncBubbles({silent:true});},30000);setInterval(function(){if(Object.keys(_bubbleEls).length)pollActiveTracker();},20000);}
 
 // ── EXPECTED DAYS CALENDAR ──
 var edState = {};   // employee_id -> Set of ticked day numbers
