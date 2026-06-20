@@ -5015,7 +5015,21 @@ function trkCheckInactivity() {
     var data = trkEmpData || window._currentEmpData || {};
     _trkPost('add_demerit', { points: 0.15, full_name: data.full_name || attEmpId });
     showDemeritNotice();
+    bumpDemeritDisplay(0.15);   // reflect on HR tab immediately
+    if (typeof scEmpId !== 'undefined' && scEmpId) setTimeout(function(){ loadScorecard(); }, 2600); // sync from server
   }
+}
+// Live-update the demerit card on the HR & Scorecard tab (current month only)
+function bumpDemeritDisplay(points) {
+  try {
+    var now = new Date();
+    if (typeof scMonth === 'undefined' || scMonth !== now.getMonth() || scYear !== now.getFullYear()) return;
+    var el = document.getElementById('sc-vp-num'); if (!el) return;
+    var nv = Math.min(10, Math.round(((parseFloat(el.textContent) || 0) + points) * 100) / 100);
+    el.textContent = nv.toFixed(2);
+    var bar = document.getElementById('sc-vp-bar'); if (bar) bar.style.width = (nv / 10 * 100) + '%';
+    var badge = document.getElementById('sc-vp-badge'); if (badge) badge.textContent = nv.toFixed(2) + '/10 max';
+  } catch(e) {}
 }
 function showDemeritNotice() {
   var m = document.getElementById('inactive-demerit-modal');
