@@ -1661,6 +1661,31 @@
     transition: color 0.2s, border-color 0.2s, background 0.2s;
   }
   .chat-min-btn:hover { color: var(--orange-1); border-color: var(--border-hi); }
+  /* TEAM CALL */
+  .chat-call-btn { display:inline-flex; align-items:center; gap:6px; font-family:inherit; font-size:11px; font-weight:600; color:#fff; background:linear-gradient(135deg,#10b981,#059669); border:none; border-radius:8px; padding:7px 12px; cursor:pointer; transition:transform .15s, box-shadow .15s; }
+  .chat-call-btn:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(16,185,129,.4); }
+  .chat-call-btn svg { flex-shrink:0; }
+  #team-call-modal { position:fixed; inset:0; z-index:10000; background:rgba(5,8,14,.97); display:none; flex-direction:column; }
+  #team-call-modal.show { display:flex; }
+  .tc-bar { display:flex; align-items:center; justify-content:space-between; padding:12px 18px; background:#0d1117; border-bottom:1px solid var(--border); }
+  .tc-title { display:flex; align-items:center; gap:9px; font-size:14px; font-weight:600; color:var(--text-1); }
+  .tc-title .dot { width:9px; height:9px; border-radius:50%; background:#10b981; box-shadow:0 0 0 4px rgba(16,185,129,.25); animation:tcPulse 1.6s infinite; }
+  @keyframes tcPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .tc-leave { font-family:inherit; font-size:12px; font-weight:600; color:#fff; background:#ef4444; border:none; border-radius:8px; padding:9px 18px; cursor:pointer; }
+  .tc-leave:hover { background:#dc2626; }
+  #jitsi-container { flex:1; width:100%; }
+  #jitsi-container iframe { width:100%; height:100%; border:0; }
+  .tc-loading { flex:1; display:flex; align-items:center; justify-content:center; color:var(--text-3); font-size:14px; }
+  /* incoming-call ring banner */
+  #call-ring-banner { position:fixed; top:18px; left:50%; transform:translate(-50%,-140%); z-index:10001; transition:transform .35s cubic-bezier(.18,.9,.32,1.2); }
+  #call-ring-banner.show { transform:translate(-50%,0); }
+  .crb-inner { display:flex; align-items:center; gap:14px; background:#0d1117; border:1px solid rgba(16,185,129,.5); border-radius:14px; padding:12px 16px; box-shadow:0 18px 50px rgba(0,0,0,.5); }
+  .crb-ic { width:40px; height:40px; flex-shrink:0; border-radius:50%; background:rgba(16,185,129,.15); color:#10b981; display:flex; align-items:center; justify-content:center; animation:crbShake 1s ease-in-out infinite; }
+  @keyframes crbShake { 0%,100%{transform:rotate(0)} 20%{transform:rotate(-12deg)} 40%{transform:rotate(12deg)} 60%{transform:rotate(-8deg)} 80%{transform:rotate(8deg)} }
+  .crb-title { font-size:13px; font-weight:700; color:var(--text-1); }
+  .crb-sub { font-size:12px; color:var(--text-3); margin-top:1px; }
+  .crb-join { font-family:inherit; font-size:12px; font-weight:600; color:#fff; background:linear-gradient(135deg,#10b981,#059669); border:none; border-radius:9px; padding:9px 16px; cursor:pointer; }
+  .crb-dismiss { font-family:inherit; font-size:12px; color:var(--text-3); background:none; border:1px solid var(--border); border-radius:9px; padding:9px 14px; cursor:pointer; }
 
   .chat-messages {
     flex: 1;
@@ -2831,9 +2856,15 @@
               <div class="chat-header-name" id="chat-header-name">Group Chat</div>
               <div class="chat-header-status" id="chat-header-status">Everyone</div>
             </div>
-            <button class="chat-min-btn" onclick="toggleMessages()" title="Minimize chat" aria-label="Minimize chat">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="14" x2="19" y2="14"/></svg>
-            </button>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="chat-call-btn" onclick="startTeamCall()" title="Start / join team audio call" aria-label="Team call">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                <span>Team Call</span>
+              </button>
+              <button class="chat-min-btn" onclick="toggleMessages()" title="Minimize chat" aria-label="Minimize chat">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="14" x2="19" y2="14"/></svg>
+              </button>
+            </div>
           </div>
           <div class="chat-messages" id="chat-messages">
             <div class="chat-loading">Connecting to chat...</div>
@@ -6031,6 +6062,14 @@ function setupPresence() {
       handlePresenceChange(payload);
     })
     .subscribe();
+
+  // Team-call signalling channel — rings everyone when a call starts
+  try {
+    callChannel = supaClient
+      .channel('team-call', { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'call-start' }, handleIncomingCall)
+      .subscribe();
+  } catch(e) {}
 }
 
 async function updatePresence(isOnline) {
@@ -7378,6 +7417,108 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2500);
 }
+
+// ══════════ TEAM AUDIO CALL (Jitsi) ══════════
+var _jitsiApi = null;
+var callChannel = null;
+var _callRingTimer = null;
+var JITSI_ROOM = 'JMBVirtualsTeam-9f3k2x7q-internal';   // obscure room name = privacy
+
+function handleIncomingCall(msg) {
+  if (_jitsiApi) return;   // already in the call
+  var who = (msg && msg.payload && msg.payload.name) || 'A teammate';
+  var sub = document.getElementById('crb-sub'); if (sub) sub.textContent = who + ' started a team call';
+  var b = document.getElementById('call-ring-banner'); if (b) b.classList.add('show');
+  playCallRing();
+}
+function joinFromRing(){ dismissRing(); startTeamCall(true); }
+function dismissRing(){ stopCallRing(); var b=document.getElementById('call-ring-banner'); if(b) b.classList.remove('show'); }
+function playCallRing(){
+  stopCallRing();
+  function ring(){
+    try {
+      if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (_ac.state === 'suspended') _ac.resume();
+      var t = _ac.currentTime;
+      [0, 0.4].forEach(function(off){
+        var g = _ac.createGain();
+        g.gain.setValueAtTime(0.0001, t+off);
+        g.gain.exponentialRampToValueAtTime(0.12, t+off+0.02);
+        g.gain.setValueAtTime(0.12, t+off+0.18);
+        g.gain.exponentialRampToValueAtTime(0.0001, t+off+0.24);
+        g.connect(_ac.destination);
+        [480, 620].forEach(function(f){ var o=_ac.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(f, t+off); o.connect(g); o.start(t+off); o.stop(t+off+0.26); });
+      });
+    } catch(e) {}
+  }
+  ring();
+  _callRingTimer = setInterval(ring, 3000);
+  setTimeout(stopCallRing, 30000);   // stop ringing after 30s if ignored
+}
+function stopCallRing(){ if (_callRingTimer){ clearInterval(_callRingTimer); _callRingTimer=null; } }
+
+function startTeamCall(fromRing) {
+  var modal = document.getElementById('team-call-modal');
+  if (modal) modal.classList.add('show');
+  stopCallRing();
+  // Announce the call so the rest of the team gets a ring (not when joining from a ring)
+  if (!fromRing) { try { if (callChannel) callChannel.send({ type:'broadcast', event:'call-start', payload:{ name: (typeof chatEmpName!=='undefined'&&chatEmpName)?chatEmpName:'A teammate' } }); } catch(e) {} }
+  if (_jitsiApi) return;   // already connected
+  var c = document.getElementById('jitsi-container');
+  function launch() {
+    try {
+      var name = (typeof chatEmpName !== 'undefined' && chatEmpName) ? chatEmpName
+               : ((window._currentEmpData && window._currentEmpData.full_name) || 'Team member');
+      if (c) c.innerHTML = '';
+      _jitsiApi = new JitsiMeetExternalAPI('meet.jit.si', {
+        roomName: JITSI_ROOM,
+        parentNode: c,
+        width: '100%', height: '100%',
+        userInfo: { displayName: name },
+        configOverwrite: { startAudioOnly: true, startWithVideoMuted: true, prejoinPageEnabled: false, disableDeepLinking: true, enableWelcomePage: false },
+        interfaceConfigOverwrite: {
+          MOBILE_APP_PROMO: false, SHOW_JITSI_WATERMARK: false, SHOW_CHROME_EXTENSION_BANNER: false,
+          TOOLBAR_BUTTONS: ['microphone','tileview','raisehand','participants-pane','settings','hangup']
+        }
+      });
+      _jitsiApi.addEventListener('readyToClose', endTeamCall);
+    } catch(e) {
+      if (c) c.innerHTML = '<div class="tc-loading">Could not start the call. Please try again.</div>';
+      _jitsiApi = null;
+    }
+  }
+  if (window.JitsiMeetExternalAPI) { launch(); return; }
+  if (c) c.innerHTML = '<div class="tc-loading">Connecting to the call…</div>';
+  var s = document.createElement('script');
+  s.src = 'https://meet.jit.si/external_api.js';
+  s.onload  = launch;
+  s.onerror = function(){ if (c) c.innerHTML = '<div class="tc-loading">Could not load the call service. Check your connection.</div>'; };
+  document.head.appendChild(s);
+}
+function endTeamCall() {
+  try { if (_jitsiApi) { _jitsiApi.dispose(); _jitsiApi = null; } } catch(e) {}
+  var c = document.getElementById('jitsi-container'); if (c) c.innerHTML = '';
+  var modal = document.getElementById('team-call-modal'); if (modal) modal.classList.remove('show');
+}
 </script>
+
+<!-- TEAM AUDIO CALL MODAL -->
+<div id="team-call-modal">
+  <div class="tc-bar">
+    <div class="tc-title"><span class="dot"></span>JMB Virtuals — Team Call</div>
+    <button class="tc-leave" onclick="endTeamCall()">Leave call</button>
+  </div>
+  <div id="jitsi-container"></div>
+</div>
+
+<!-- INCOMING TEAM-CALL RING -->
+<div id="call-ring-banner">
+  <div class="crb-inner">
+    <span class="crb-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+    <div><div class="crb-title">Team call</div><div class="crb-sub" id="crb-sub">Someone is calling the team</div></div>
+    <button class="crb-join" onclick="joinFromRing()">Join</button>
+    <button class="crb-dismiss" onclick="dismissRing()">Dismiss</button>
+  </div>
+</div>
 </body>
 </html>
