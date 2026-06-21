@@ -1063,9 +1063,10 @@ function mirrorAdminBadges(){
 setInterval(mirrorAdminBadges, 4000);
 
 // ════════════ TEAM AUDIO CALL (Jitsi) ════════════
-var _jitsiApi=null, callChannel=null, _callRingTimer=null;
-var JITSI_ROOM='JMBVirtualsTeam-9f3k2x7q-internal';
-var JITSI_DOMAIN='meet.ffmuc.net';   // public instance allowing anonymous meetings
+var callChannel=null, _callRingTimer=null;
+// ── Daily.co team call ──  PASTE YOUR DAILY ROOM URL BELOW (same as the portal)
+var DAILY_ROOM_URL='https://jmbvirtuals.daily.co/jmb-team';
+var _dailyFrame=null;
 function handleIncomingCall(msg){
   if(_jitsiApi) return;
   var who=(msg&&msg.payload&&msg.payload.name)||'A teammate';
@@ -1083,12 +1084,17 @@ function playCallRing(){
 function stopCallRing(){ if(_callRingTimer){clearInterval(_callRingTimer);_callRingTimer=null;} }
 function startTeamCall(fromRing){
   stopCallRing();
+  if(!DAILY_ROOM_URL){ if(typeof toast==='function') toast('Team call isn\'t configured yet.'); return; }
   if(!fromRing){ try{ if(callChannel) callChannel.send({type:'broadcast',event:'call-start',payload:{name:ADMIN_NAME||'Admin'}}); }catch(e){} }
-  var name=ADMIN_NAME||'Admin';
-  var url='https://'+JITSI_DOMAIN+'/'+JITSI_ROOM+'#config.startAudioOnly=true&config.prejoinConfig.enabled=false&config.prejoinPageEnabled=false&config.disableDeepLinking=true&userInfo.displayName='+encodeURIComponent('"'+name+'"');
-  window.open(url,'_blank');
+  var modal=document.getElementById('team-call-modal'); if(modal) modal.classList.add('show');
+  if(_dailyFrame) return;
+  var c=document.getElementById('jitsi-container');
+  function launch(){ try{ if(c)c.innerHTML=''; _dailyFrame=window.DailyIframe.createFrame(c,{iframeStyle:{width:'100%',height:'100%',border:'0'},showLeaveButton:true,showFullscreenButton:true}); _dailyFrame.on('left-meeting',endTeamCall); _dailyFrame.join({url:DAILY_ROOM_URL,userName:(ADMIN_NAME||'Admin'),startVideoOff:true}); }catch(e){ if(c)c.innerHTML='<div class="tc-loading">Could not start the call.</div>'; _dailyFrame=null; } }
+  if(window.DailyIframe){ launch(); return; }
+  if(c) c.innerHTML='<div class="tc-loading">Connecting to the call…</div>';
+  var s=document.createElement('script'); s.src='https://unpkg.com/@daily-co/daily-js'; s.onload=launch; s.onerror=function(){ if(c)c.innerHTML='<div class="tc-loading">Could not load the call service.</div>'; }; document.head.appendChild(s);
 }
-function endTeamCall(){ var modal=document.getElementById('team-call-modal'); if(modal) modal.classList.remove('show'); }
+function endTeamCall(){ try{ if(_dailyFrame){_dailyFrame.destroy();_dailyFrame=null;} }catch(e){} var c=document.getElementById('jitsi-container'); if(c)c.innerHTML=''; var modal=document.getElementById('team-call-modal'); if(modal) modal.classList.remove('show'); }
 
 // ════════════ ONLINE PRESENCE BUBBLES (active accounts) ════════════
 var presenceNames={}, presenceStatus={}, presenceLastSeen={}, employeePhotos={}, serverStatus={};
