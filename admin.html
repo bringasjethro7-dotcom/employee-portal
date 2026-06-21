@@ -291,7 +291,12 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 @keyframes pbBurst{0%{transform:scale(1);opacity:1}35%{transform:scale(1.28);opacity:.95}100%{transform:scale(1.7);opacity:0}}
 .pshard{position:fixed;width:7px;height:7px;border-radius:50%;pointer-events:none;z-index:70;opacity:.95;animation:pShard .5s ease-out forwards}
 @keyframes pShard{0%{transform:translate(0,0) scale(1);opacity:.95}100%{transform:translate(var(--sx,0),var(--sy,0)) scale(.2);opacity:0}}
-@media(max-width:1340px){#presence-bubbles{display:none}}
+@media(max-width:1340px){#presence-bubbles,#cam-toggle{display:none}}
+#cam-toggle{position:fixed;left:16px;top:84px;z-index:41;display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:11px;font-weight:600;color:var(--t2);background:var(--card);border:1px solid var(--border);border-radius:20px;padding:7px 14px;cursor:pointer;transition:all .15s}
+#cam-toggle:hover{color:var(--t1);border-color:var(--border-hi)}
+#cam-toggle.on{color:#fff;background:linear-gradient(135deg,#10b981,#059669);border-color:transparent}
+.pbubble.has-cam .skin span,.pbubble.has-cam .skin img{display:none}
+.pbubble.has-cam .skin::after{opacity:.35}
 /* TEAM CALL */
 .chat-call-btn{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:11px;font-weight:600;color:#fff;background:linear-gradient(135deg,#10b981,#059669);border:none;border-radius:8px;padding:7px 12px;cursor:pointer;transition:transform .15s,box-shadow .15s}
 .chat-call-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(16,185,129,.4)}
@@ -354,6 +359,10 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 <!-- SHELL -->
 <div id="shell" style="display:none;">
   <div id="presence-bubbles" aria-hidden="true"></div>
+  <button id="cam-toggle" onclick="toggleCam()" title="Turn your camera on/off — your bubble goes live">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+    <span>Camera</span>
+  </button>
   <header>
     <div class="htitle"><img id="admin-logo-img" alt="" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%2276%2082%20360%20360%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22m%22%20x1%3D%220%22%20y1%3D%22.05%22%20x2%3D%220%22%20y2%3D%22.95%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FFE0BE%22%2F%3E%3Cstop%20offset%3D%22.16%22%20stop-color%3D%22%23FFB16A%22%2F%3E%3Cstop%20offset%3D%22.46%22%20stop-color%3D%22%23FF7A29%22%2F%3E%3Cstop%20offset%3D%22.78%22%20stop-color%3D%22%23F1560F%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23C3380A%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22b%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FF8E45%22%2F%3E%3Cstop%20offset%3D%22.55%22%20stop-color%3D%22%23E64C10%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23A52E08%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20x%3D%22241%22%20y%3D%22110%22%20width%3D%2230%22%20height%3D%22304%22%20rx%3D%2215%22%20fill%3D%22url%28%23m%29%22%2F%3E%3Cpath%20d%3D%22M256%20226Q341%20264%20398%20320Q341%20376%20256%20414Q171%20376%20114%20320Q171%20264%20256%20226Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23b%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3Cpath%20d%3D%22M256%20110Q341%20148%20398%20204Q341%20260%20256%20298Q171%20260%20114%20204Q171%20148%20256%20110Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23m%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E" /> Portal admin <span class="pill" style="margin-bottom:0;">Admin</span></div>
     <button class="blogout" onclick="doLogout()">Sign out</button>
@@ -1163,6 +1172,85 @@ function renderVoiceBar(ids){
 }
 window.addEventListener('beforeunload',function(){ if(inVoice){ try{ leaveVoice(); }catch(e){} } });
 
+// ════════════ LIVE BUBBLE CAMERA (WebRTC video → bubbles) ════════════
+var camChannel=null, camStream=null, camOn=false, myCamId=null;
+var pubPeers={}, subPeers={}, remoteCamStreams={}, camFlags={};
+function initBubbleCam(){
+  var sc=voiceSupa(); if(!sc||camChannel) return;
+  myCamId=ADMIN_ID;
+  camChannel=sc.channel('bubble-cam',{config:{presence:{key:myCamId},broadcast:{self:false}}});
+  camChannel.on('presence',{event:'sync'},onCamPresence);
+  camChannel.on('presence',{event:'leave'},function(p){ (p.leftPresences||[]).forEach(function(pr){ camPeerGone(pr.key); }); });
+  camChannel.on('broadcast',{event:'csignal'},onCamSignal);
+  camChannel.subscribe(function(s){ if(s==='SUBSCRIBED') camChannel.track({cam:false,name:ADMIN_NAME||''}); });
+}
+function onCamPresence(){
+  if(!camChannel) return;
+  var state=camChannel.presenceState(), ids=Object.keys(state), nf={};
+  ids.forEach(function(id){ var pr=(state[id]||[])[0]; nf[id]=!!(pr&&pr.cam); });
+  Object.keys(camFlags).forEach(function(id){ if(camFlags[id]&&!nf[id]) camPeerGone(id); });
+  camFlags=nf;
+  if(camOn) ids.forEach(function(id){ if(id!==myCamId&&!pubPeers[id]) createPubPeer(id); });
+}
+async function toggleCam(){
+  if(camOn){ stopCam(); return; }
+  if(!camChannel){ if(typeof toast==='function') toast('Camera not ready yet.'); return; }
+  try{ camStream=await navigator.mediaDevices.getUserMedia({video:{width:360,height:360,facingMode:'user'},audio:false}); }
+  catch(e){ if(typeof toast==='function') toast('Allow camera access to go live.'); return; }
+  camOn=true; updateCamBtn(); setBubbleVideo(myCamId,camStream);
+  try{ camChannel.track({cam:true,name:ADMIN_NAME||''}); }catch(e){}
+  var state=camChannel.presenceState(); Object.keys(state).forEach(function(id){ if(id!==myCamId&&!pubPeers[id]) createPubPeer(id); });
+}
+function stopCam(){
+  camOn=false;
+  Object.keys(pubPeers).forEach(function(id){ try{pubPeers[id].close();}catch(e){} delete pubPeers[id]; });
+  if(camStream){ camStream.getTracks().forEach(function(t){t.stop();}); camStream=null; }
+  try{ if(camChannel) camChannel.track({cam:false,name:ADMIN_NAME||''}); }catch(e){}
+  clearBubbleVideo(myCamId); updateCamBtn();
+}
+function createPubPeer(viewerId){
+  var pc=new RTCPeerConnection(ICE); pubPeers[viewerId]=pc;
+  camStream.getTracks().forEach(function(t){ pc.addTrack(t,camStream); });
+  pc.onicecandidate=function(ev){ if(ev.candidate) camSig(viewerId,{kind:'candidate',candidate:ev.candidate}); };
+  pc.onnegotiationneeded=async function(){ try{ var o=await pc.createOffer(); await pc.setLocalDescription(o); camSig(viewerId,{kind:'offer',sdp:pc.localDescription}); }catch(e){} };
+  pc.onconnectionstatechange=function(){ if(pc.connectionState==='failed'||pc.connectionState==='closed'){ try{pc.close();}catch(e){} delete pubPeers[viewerId]; } };
+}
+async function onCamSignal(msg){
+  var d=msg.payload; if(!d||d.to!==myCamId) return; var from=d.from;
+  try{
+    if(d.kind==='offer'){
+      var pc=subPeers[from];
+      if(!pc){ pc=new RTCPeerConnection(ICE); subPeers[from]=pc;
+        pc.onicecandidate=function(ev){ if(ev.candidate) camSig(from,{kind:'candidate',candidate:ev.candidate}); };
+        pc.ontrack=function(ev){ remoteCamStreams[from]=ev.streams[0]; setBubbleVideo(from,ev.streams[0]); };
+        pc.onconnectionstatechange=function(){ if(pc.connectionState==='failed'||pc.connectionState==='closed') camPeerGone(from); };
+      }
+      await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));
+      var a=await pc.createAnswer(); await pc.setLocalDescription(a); camSig(from,{kind:'answer',sdp:pc.localDescription});
+    } else if(d.kind==='answer'){ var pc2=pubPeers[from]; if(pc2) await pc2.setRemoteDescription(new RTCSessionDescription(d.sdp)); }
+    else if(d.kind==='candidate'){ var pc3=pubPeers[from]||subPeers[from]; if(pc3){ try{ await pc3.addIceCandidate(new RTCIceCandidate(d.candidate)); }catch(e){} } }
+  }catch(e){}
+}
+function camSig(to,data){ if(!camChannel) return; camChannel.send({type:'broadcast',event:'csignal',payload:Object.assign({to:to,from:myCamId},data)}); }
+function camPeerGone(id){ if(subPeers[id]){try{subPeers[id].close();}catch(e){} delete subPeers[id];} if(pubPeers[id]){try{pubPeers[id].close();}catch(e){} delete pubPeers[id];} delete remoteCamStreams[id]; clearBubbleVideo(id); }
+function setBubbleVideo(id,stream){
+  var el=_bubbleEls[id]; if(!el) return; var skin=el.querySelector('.skin'); if(!skin) return;
+  var v=skin.querySelector('video');
+  if(!v){ v=document.createElement('video'); v.autoplay=true; v.muted=true; v.playsInline=true; v.setAttribute('playsinline',''); v.setAttribute('muted',''); v.style.cssText='width:100%;height:100%;object-fit:cover;'; skin.innerHTML=''; skin.appendChild(v); }
+  try{ v.srcObject=stream; var pr=v.play(); if(pr&&pr.catch) pr.catch(function(){}); }catch(e){}
+  el.classList.add('has-cam');
+}
+function clearBubbleVideo(id){ var el=_bubbleEls[id]; if(!el) return; el.classList.remove('has-cam'); restoreBubbleSkin(id); }
+function restoreBubbleSkin(id){
+  var el=_bubbleEls[id]; if(!el) return; var skin=el.querySelector('.skin'); if(!skin) return;
+  if(id===ADMIN_ID){ var L=(document.getElementById('admin-logo-img')||{}).src||''; skin.innerHTML='<img src="'+L+'" alt="Admin">'; return; }
+  var nm=presenceNames[id]||id;
+  var photo=employeePhotos[id]||'';
+  skin.innerHTML= photo? '<img src="'+photo+'" alt="">' : '<span>'+bubbleInitials(id,nm)+'</span>';
+}
+function updateCamBtn(){ var b=document.getElementById('cam-toggle'); if(!b) return; b.classList.toggle('on',camOn); var t=b.querySelector('span'); if(t) t.textContent=camOn?'Camera on':'Camera'; }
+window.addEventListener('beforeunload',function(){ if(camOn){ try{ stopCam(); }catch(e){} } });
+
 // ════════════ ONLINE PRESENCE BUBBLES (active accounts) ════════════
 var presenceNames={}, presenceStatus={}, presenceLastSeen={}, employeePhotos={}, serverStatus={};
 var PRESENCE_TTL_MS=120000;
@@ -1180,7 +1268,7 @@ function bubblePop(){try{if(typeof _adAudio==='function'&&_adAudio()){var t=_adA
 function buildAdminPhotoMap(){try{(emps||[]).forEach(function(e){if(e&&e.employee_id&&e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);});}catch(e){}}
 
 function bubbleScatter(W,H,size){var best={x:14,y:30},bestD=-1;var band=Math.min(Math.max(120,H-size-40),360);for(var t=0;t<16;t++){var x=12+Math.random()*Math.max(12,(W-size-24));var y=16+Math.random()*band;var minD=1e9;Object.keys(_bubbleEls).forEach(function(id){var b=_bubbleEls[id];var dx=(parseFloat(b.style.left)||0)-x,dy=(parseFloat(b.style.top)||0)-y;var d=Math.sqrt(dx*dx+dy*dy);if(d<minD)minD=d;});if(minD>bestD){bestD=minD;best={x:x,y:y};}}return best;}
-function addBubble(id,silent){var c=document.getElementById('presence-bubbles');if(!c||_bubbleEls[id])return;var name=presenceNames[id]||id;var rect=c.getBoundingClientRect();var W=rect.width||220,H=rect.height||(window.innerHeight-120);var size=Math.round(52+Math.random()*32);var pos=bubbleScatter(W,H,size);var photo=employeePhotos[id]||'';var isAdmin=(id===ADMIN_ID);var el=document.createElement('div');el.className='pbubble entering'+(isAdmin?' admin-bubble':'');el.style.left=Math.round(pos.x)+'px';el.style.top=Math.round(pos.y)+'px';el.style.width=size+'px';el.style.height=size+'px';el.style.setProperty('--sz',size+'px');el.style.setProperty('--c',bubbleColorFor(id));var first=bubbleFirstName(name);var skin=photo?'<img src="'+photo+'" alt="">':'<span>'+bubbleInitials(id,name)+'</span>';if(isAdmin){var _L=(document.getElementById('admin-logo-img')||{}).src||'';skin='<img src="'+_L+'" alt="Admin">';}el.innerHTML='<div class="skin">'+skin+'</div><div class="plabel">'+first+'</div>';el.title=first;el.onclick=function(){bubbleClicked(id,name);};c.appendChild(el);_bubbleEls[id]=el;if(!isAdmin)applyBubbleStatus(el,statusFor(id));if(!silent)bubblePop();setTimeout(function(){if(el&&el.parentNode){el.classList.remove('entering');el.style.transform='none';initBubblePhysics(id,el);}},3820);}
+function addBubble(id,silent){var c=document.getElementById('presence-bubbles');if(!c||_bubbleEls[id])return;var name=presenceNames[id]||id;var rect=c.getBoundingClientRect();var W=rect.width||220,H=rect.height||(window.innerHeight-120);var size=Math.round(52+Math.random()*32);var pos=bubbleScatter(W,H,size);var photo=employeePhotos[id]||'';var isAdmin=(id===ADMIN_ID);var el=document.createElement('div');el.className='pbubble entering'+(isAdmin?' admin-bubble':'');el.style.left=Math.round(pos.x)+'px';el.style.top=Math.round(pos.y)+'px';el.style.width=size+'px';el.style.height=size+'px';el.style.setProperty('--sz',size+'px');el.style.setProperty('--c',bubbleColorFor(id));var first=bubbleFirstName(name);var skin=photo?'<img src="'+photo+'" alt="">':'<span>'+bubbleInitials(id,name)+'</span>';if(isAdmin){var _L=(document.getElementById('admin-logo-img')||{}).src||'';skin='<img src="'+_L+'" alt="Admin">';}el.innerHTML='<div class="skin">'+skin+'</div><div class="plabel">'+first+'</div>';el.title=first;el.onclick=function(){bubbleClicked(id,name);};c.appendChild(el);_bubbleEls[id]=el;if(!isAdmin)applyBubbleStatus(el,statusFor(id));if(id===myCamId&&camOn&&camStream)setBubbleVideo(id,camStream);else if(remoteCamStreams[id])setBubbleVideo(id,remoteCamStreams[id]);if(!silent)bubblePop();setTimeout(function(){if(el&&el.parentNode){el.classList.remove('entering');el.style.transform='none';initBubblePhysics(id,el);}},3820);}
 function spawnShards(el){try{var r=el.getBoundingClientRect();var cx=r.left+r.width/2,cy=r.top+r.height/2;var col=el.style.getPropertyValue('--c')||'#FF6B1A';for(var i=0;i<8;i++){var s=document.createElement('div');s.className='pshard';s.style.background=col;s.style.left=cx+'px';s.style.top=cy+'px';var a=(Math.PI*2)*(i/8)+Math.random()*0.4,d=30+Math.random()*34;s.style.setProperty('--sx',Math.cos(a)*d+'px');s.style.setProperty('--sy',Math.sin(a)*d+'px');document.body.appendChild(s);setTimeout((function(n){return function(){if(n&&n.parentNode)n.parentNode.removeChild(n);};})(s),520);}}catch(e){}}
 function removeBubble(id){var el=_bubbleEls[id];if(!el)return;delete _bubbleEls[id];delete _phys[id];el.classList.remove('entering');el.style.transform='';el.classList.add('leaving');spawnShards(el);bubblePop();setTimeout(function(){if(el&&el.parentNode)el.parentNode.removeChild(el);},540);}
 function bubbleClicked(id,name){goTab('chat');setTimeout(function(){if(typeof adminSelectChat==='function'){ if(id===ADMIN_ID) adminSelectChat('group','Group Chat'); else adminSelectChat(id,name); }},140);}
@@ -1197,7 +1285,8 @@ function initAdminBubbles(){var SupaLib=window.supabase||window.Supabase;if(!Sup
 adminOnlineUsers[ADMIN_ID]=true;presenceNames[ADMIN_ID]=ADMIN_NAME;
 function adminBeat(on){try{bubbleSupa.from('presence').upsert({employee_id:ADMIN_ID,employee_name:ADMIN_NAME,last_seen:new Date().toISOString(),is_online:on},{onConflict:'employee_id'});}catch(e){}}
 adminBeat(true);setInterval(function(){adminBeat(true);},30000);window.addEventListener('beforeunload',function(){adminBeat(false);});
-try{ callChannel=bubbleSupa.channel('team-call',{config:{broadcast:{self:false}}}).on('broadcast',{event:'call-start'},handleIncomingCall).subscribe(); }catch(e){}bubbleSupa.from('presence').select('*').then(function(r){(r.data||[]).forEach(function(e){adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);});syncBubbles({silent:true});});bubbleSupa.channel('admin-bubbles').on('postgres_changes',{event:'*',schema:'public',table:'presence'},function(p){if(!p.new)return;var e=p.new,was=adminOnlineUsers[e.employee_id];adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);if(was!==e.is_online)syncBubbles();else if(e.employee_id!==ADMIN_ID&&_bubbleEls[e.employee_id])applyBubbleStatus(_bubbleEls[e.employee_id],statusFor(e.employee_id));}).subscribe();pollActiveTracker();setInterval(function(){if(Object.keys(_bubbleEls).length)syncBubbles({silent:true});},30000);setInterval(function(){if(Object.keys(_bubbleEls).length)pollActiveTracker();},20000);}
+try{ callChannel=bubbleSupa.channel('team-call',{config:{broadcast:{self:false}}}).on('broadcast',{event:'call-start'},handleIncomingCall).subscribe(); }catch(e){}
+try{ initBubbleCam(); }catch(e){}bubbleSupa.from('presence').select('*').then(function(r){(r.data||[]).forEach(function(e){adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);});syncBubbles({silent:true});});bubbleSupa.channel('admin-bubbles').on('postgres_changes',{event:'*',schema:'public',table:'presence'},function(p){if(!p.new)return;var e=p.new,was=adminOnlineUsers[e.employee_id];adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);if(was!==e.is_online)syncBubbles();else if(e.employee_id!==ADMIN_ID&&_bubbleEls[e.employee_id])applyBubbleStatus(_bubbleEls[e.employee_id],statusFor(e.employee_id));}).subscribe();pollActiveTracker();setInterval(function(){if(Object.keys(_bubbleEls).length)syncBubbles({silent:true});},30000);setInterval(function(){if(Object.keys(_bubbleEls).length)pollActiveTracker();},20000);}
 
 // ── EXPECTED DAYS CALENDAR ──
 var edState = {};   // employee_id -> Set of ticked day numbers

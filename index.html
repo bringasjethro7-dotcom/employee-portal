@@ -2221,7 +2221,14 @@
     0%   { transform: translate(0,0) scale(1); opacity: .95; }
     100% { transform: translate(var(--sx,0), var(--sy,0)) scale(.2); opacity: 0; }
   }
-  @media (max-width: 1180px) { #presence-bubbles { display: none; } }
+  @media (max-width: 1180px) { #presence-bubbles, #cam-toggle { display: none; } }
+  /* camera toggle for the bubbles */
+  #cam-toggle { position: fixed; left: 16px; top: 84px; z-index: 41; display: inline-flex; align-items: center; gap: 7px; font-family: inherit; font-size: 11px; font-weight: 600; color: var(--text-2); background: var(--bg-card, #161b22); border: 1px solid var(--border); border-radius: 20px; padding: 7px 14px; cursor: pointer; transition: all .15s; }
+  #cam-toggle:hover { color: var(--text-1); border-color: var(--border-hi); }
+  #cam-toggle.on { color: #fff; background: linear-gradient(135deg,#10b981,#059669); border-color: transparent; }
+  /* live video filling a bubble */
+  .pbubble.has-cam .skin span, .pbubble.has-cam .skin img { display: none; }
+  .pbubble.has-cam .skin::after { opacity: .35; }
   @media (prefers-reduced-motion: reduce) {
     .pbubble.floating, .pbubble.entering { animation: none; }
   }
@@ -2450,6 +2457,10 @@
 
   <!-- Floating online-presence bubbles -->
   <div id="presence-bubbles" aria-hidden="true"></div>
+  <button id="cam-toggle" onclick="toggleCam()" title="Turn your camera on/off — your bubble goes live">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+    <span>Camera</span>
+  </button>
 
   <div class="main-content">
     <div class="dashboard-hero" id="dashboard-hero" style="display:none;">
@@ -6084,6 +6095,8 @@ function setupPresence() {
       .on('broadcast', { event: 'call-start' }, handleIncomingCall)
       .subscribe();
   } catch(e) {}
+
+  try { initBubbleCam(); } catch(e) {}   // live-camera-in-bubbles signalling
 }
 
 async function updatePresence(isOnline) {
@@ -6347,6 +6360,9 @@ function addBubble(id, silent){
   container.appendChild(el);
   _bubbleEls[id] = el;
   if (!isAdmin) applyBubbleStatus(el, statusFor(id));   // admin keeps its fixed glowing ring
+  // restore live video if this person already has their camera on
+  if (id === chatEmpId && camOn && camStream) setBubbleVideo(id, camStream);
+  else if (remoteCamStreams[id]) setBubbleVideo(id, remoteCamStreams[id]);
   if (!isSelf){
     var uc = unreadCounts[id] || 0;
     if (uc) setBubbleUnread(id, uc);
@@ -7581,6 +7597,101 @@ function renderVoiceBar(ids){
   updateMuteBtn();
 }
 window.addEventListener('beforeunload', function(){ if (inVoice) { try { leaveVoice(); } catch(e){} } });
+
+// ══════════ LIVE BUBBLE CAMERA (WebRTC video → bubbles) ══════════
+var camChannel = null, camStream = null, camOn = false, myCamId = null;
+var pubPeers = {}, subPeers = {}, remoteCamStreams = {}, camFlags = {};
+function initBubbleCam(){
+  if (!supaClient || camChannel) return;
+  myCamId = chatEmpId || ('u-' + Math.random().toString(36).slice(2,8));
+  camChannel = supaClient.channel('bubble-cam', { config: { presence: { key: myCamId }, broadcast: { self: false } } });
+  camChannel.on('presence', { event: 'sync' }, onCamPresence);
+  camChannel.on('presence', { event: 'leave' }, function(p){ (p.leftPresences||[]).forEach(function(pr){ camPeerGone(pr.key); }); });
+  camChannel.on('broadcast', { event: 'csignal' }, onCamSignal);
+  camChannel.subscribe(function(s){ if (s === 'SUBSCRIBED') camChannel.track({ cam:false, name: chatEmpName||'' }); });
+}
+function onCamPresence(){
+  if (!camChannel) return;
+  var state = camChannel.presenceState(), ids = Object.keys(state), newFlags = {};
+  ids.forEach(function(id){ var pr=(state[id]||[])[0]; newFlags[id] = !!(pr && pr.cam); });
+  Object.keys(camFlags).forEach(function(id){ if (camFlags[id] && !newFlags[id]) camPeerGone(id); });   // someone turned cam off
+  camFlags = newFlags;
+  if (camOn) ids.forEach(function(id){ if (id !== myCamId && !pubPeers[id]) createPubPeer(id); });        // stream to new viewers
+}
+async function toggleCam(){
+  if (camOn) { stopCam(); return; }
+  if (!camChannel) { showToast('Camera not ready yet.'); return; }
+  try { camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 360, height: 360, facingMode: 'user' }, audio: false }); }
+  catch(e) { showToast('Allow camera access to go live.'); return; }
+  camOn = true; updateCamBtn();
+  setBubbleVideo(myCamId, camStream);
+  try { camChannel.track({ cam:true, name: chatEmpName||'' }); } catch(e){}
+  var state = camChannel.presenceState();
+  Object.keys(state).forEach(function(id){ if (id !== myCamId && !pubPeers[id]) createPubPeer(id); });
+}
+function stopCam(){
+  camOn = false;
+  Object.keys(pubPeers).forEach(function(id){ try{ pubPeers[id].close(); }catch(e){} delete pubPeers[id]; });
+  if (camStream) { camStream.getTracks().forEach(function(t){ t.stop(); }); camStream = null; }
+  try { if (camChannel) camChannel.track({ cam:false, name: chatEmpName||'' }); } catch(e){}
+  clearBubbleVideo(myCamId);
+  updateCamBtn();
+}
+function createPubPeer(viewerId){
+  var pc = new RTCPeerConnection(ICE); pubPeers[viewerId] = pc;
+  camStream.getTracks().forEach(function(t){ pc.addTrack(t, camStream); });
+  pc.onicecandidate = function(ev){ if (ev.candidate) camSig(viewerId, { kind:'candidate', candidate: ev.candidate }); };
+  pc.onnegotiationneeded = async function(){ try { var o = await pc.createOffer(); await pc.setLocalDescription(o); camSig(viewerId, { kind:'offer', sdp: pc.localDescription }); } catch(e){} };
+  pc.onconnectionstatechange = function(){ if (pc.connectionState==='failed'||pc.connectionState==='closed'){ try{pc.close();}catch(e){} delete pubPeers[viewerId]; } };
+}
+async function onCamSignal(msg){
+  var d = msg.payload; if (!d || d.to !== myCamId) return; var from = d.from;
+  try {
+    if (d.kind === 'offer') {
+      var pc = subPeers[from];
+      if (!pc) {
+        pc = new RTCPeerConnection(ICE); subPeers[from] = pc;
+        pc.onicecandidate = function(ev){ if (ev.candidate) camSig(from, { kind:'candidate', candidate: ev.candidate }); };
+        pc.ontrack = function(ev){ remoteCamStreams[from] = ev.streams[0]; setBubbleVideo(from, ev.streams[0]); };
+        pc.onconnectionstatechange = function(){ if (pc.connectionState==='failed'||pc.connectionState==='closed') camPeerGone(from); };
+      }
+      await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));
+      var a = await pc.createAnswer(); await pc.setLocalDescription(a); camSig(from, { kind:'answer', sdp: pc.localDescription });
+    } else if (d.kind === 'answer') {
+      var pc2 = pubPeers[from]; if (pc2) await pc2.setRemoteDescription(new RTCSessionDescription(d.sdp));
+    } else if (d.kind === 'candidate') {
+      var pc3 = pubPeers[from] || subPeers[from]; if (pc3) { try { await pc3.addIceCandidate(new RTCIceCandidate(d.candidate)); } catch(e){} }
+    }
+  } catch(e){}
+}
+function camSig(to, data){ if (!camChannel) return; camChannel.send({ type:'broadcast', event:'csignal', payload: Object.assign({ to:to, from:myCamId }, data) }); }
+function camPeerGone(id){
+  if (subPeers[id]) { try{ subPeers[id].close(); }catch(e){} delete subPeers[id]; }
+  if (pubPeers[id]) { try{ pubPeers[id].close(); }catch(e){} delete pubPeers[id]; }
+  delete remoteCamStreams[id]; clearBubbleVideo(id);
+}
+function setBubbleVideo(id, stream){
+  var el = _bubbleEls[id]; if (!el) return; var skin = el.querySelector('.skin'); if (!skin) return;
+  var v = skin.querySelector('video');
+  if (!v) { v = document.createElement('video'); v.autoplay = true; v.muted = true; v.playsInline = true; v.setAttribute('playsinline',''); v.setAttribute('muted',''); v.style.cssText = 'width:100%;height:100%;object-fit:cover;'; skin.innerHTML = ''; skin.appendChild(v); }
+  try { v.srcObject = stream; var pr = v.play(); if (pr && pr.catch) pr.catch(function(){}); } catch(e){}
+  el.classList.add('has-cam');
+}
+function clearBubbleVideo(id){ var el = _bubbleEls[id]; if (!el) return; el.classList.remove('has-cam'); restoreBubbleSkin(id); }
+function restoreBubbleSkin(id){
+  var el = _bubbleEls[id]; if (!el) return; var skin = el.querySelector('.skin'); if (!skin) return;
+  if (id === 'ADMIN') { skin.innerHTML = '<img src="' + ADMIN_LOGO + '" alt="Admin">'; return; }
+  var isSelf = (id === chatEmpId);
+  var name = isSelf ? (chatEmpName || 'You') : (presenceNames[id] || id);
+  var photo = employeePhotos[id] || presencePhotos[id] || (isSelf && window._currentEmpData && window._currentEmpData.photo ? convertDriveLink(window._currentEmpData.photo) : null);
+  skin.innerHTML = photo ? '<img src="'+photo+'" alt="">' : '<span>'+bubbleInitials(id, name)+'</span>';
+}
+function updateCamBtn(){
+  var b = document.getElementById('cam-toggle'); if (!b) return;
+  b.classList.toggle('on', camOn);
+  var t = b.querySelector('span'); if (t) t.textContent = camOn ? 'Camera on' : 'Camera';
+}
+window.addEventListener('beforeunload', function(){ if (camOn) { try { stopCam(); } catch(e){} } });
 </script>
 
 <!-- TEAM VOICE BAR -->
