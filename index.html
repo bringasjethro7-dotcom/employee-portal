@@ -6353,7 +6353,7 @@ function addBubble(id, silent){
   var name = isSelf ? (chatEmpName || 'You') : (presenceNames[id] || id);
   var rect = container.getBoundingClientRect();
   var W = rect.width || 360, H = rect.height || (window.innerHeight - 90);
-  var size = Math.round(40 + Math.random()*26);
+  var size = Math.round(62 + Math.random()*30);
   var pos = bubbleScatter(W, H, size);
   var col = isSelf ? '#FF6B1A' : bubbleColorFor(id);
   var photo = employeePhotos[id] || presencePhotos[id] ||
@@ -7531,12 +7531,20 @@ function initVoice(){
   voiceChannel.on('presence', { event: 'leave' }, function(p){ (p.leftPresences||[]).forEach(function(pr){ removePeer(pr.key); setBubbleMic(pr.key, false); setBubbleSpeaking(pr.key, false); delete voiceNames[pr.key]; delete voiceMutedMap[pr.key]; }); });
   voiceChannel.on('broadcast', { event: 'vsignal' }, onSignal);
   voiceChannel.on('broadcast', { event: 'vmute' }, onMuteSignal);
+  voiceChannel.on('broadcast', { event: 'vleave' }, onLeaveSignal);
   voiceChannel.subscribe();   // subscribe but DON'T track — pure watcher until we join
 }
+var _muteHb = null;
 function onMuteSignal(msg){
   var d = msg && msg.payload; if (!d || !d.id) return;
   voiceMutedMap[d.id] = !!d.muted;
   setBubbleMic(d.id, true, !!d.muted);
+  renderVoiceBar();
+}
+function onLeaveSignal(msg){
+  var d = msg && msg.payload; if (!d || !d.id) return;
+  removePeer(d.id); setBubbleMic(d.id, false); setBubbleSpeaking(d.id, false);
+  delete voiceMutedMap[d.id]; delete voiceNames[d.id];
   renderVoiceBar();
 }
 function startTeamCall(){ toggleVoice(); }
@@ -7550,7 +7558,11 @@ async function joinVoice(fromRing) {
   inVoice = true; voiceMuted = false; _voiceJoinDismissed = false; stopCallRing();
   var bar = document.getElementById('voice-bar'); if (bar) bar.classList.add('show');
   hideVoiceJoin(); updateVoiceBtn();
-  try { voiceChannel.track({ name: chatEmpName || myVoiceId, muted: false }); } catch(e){}
+  voiceMutedMap[myVoiceId] = false;
+  try { voiceChannel.track({ name: chatEmpName || myVoiceId, muted: false }); voiceChannel.send({ type:'broadcast', event:'vmute', payload:{ id: myVoiceId, muted: false } }); } catch(e){}
+  // re-broadcast my mute state periodically so any missed update self-corrects
+  if (_muteHb) clearInterval(_muteHb);
+  _muteHb = setInterval(function(){ try { if (voiceChannel && inVoice) voiceChannel.send({ type:'broadcast', event:'vmute', payload:{ id: myVoiceId, muted: voiceMuted } }); } catch(e){} }, 4000);
   attachAnalyser(myVoiceId, localStream); startMeter();
   if (!fromRing) { try { if (callChannel) callChannel.send({ type:'broadcast', event:'call-start', payload:{ name: chatEmpName || 'A teammate' } }); } catch(e) {} }
   onVoicePresence();   // connect to anyone already in the room
@@ -7558,6 +7570,8 @@ async function joinVoice(fromRing) {
 }
 function leaveVoice(){
   inVoice = false;
+  if (_muteHb) { clearInterval(_muteHb); _muteHb = null; }
+  try { if (voiceChannel) voiceChannel.send({ type:'broadcast', event:'vleave', payload:{ id: myVoiceId } }); } catch(e){}
   Object.keys(peers).forEach(removePeer);
   Object.keys(voiceAnalysers).forEach(detachAnalyser);
   stopMeter();
