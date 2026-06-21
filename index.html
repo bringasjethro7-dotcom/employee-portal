@@ -7640,27 +7640,29 @@ function stopCam(){
 function createPubPeer(viewerId){
   var pc = new RTCPeerConnection(ICE); pubPeers[viewerId] = pc;
   camStream.getTracks().forEach(function(t){ pc.addTrack(t, camStream); });
-  pc.onicecandidate = function(ev){ if (ev.candidate) camSig(viewerId, { kind:'candidate', candidate: ev.candidate }); };
+  pc.onicecandidate = function(ev){ if (ev.candidate) camSig(viewerId, { kind:'candidate', role:'pub', candidate: ev.candidate }); };
   pc.onnegotiationneeded = async function(){ try { var o = await pc.createOffer(); await pc.setLocalDescription(o); camSig(viewerId, { kind:'offer', sdp: pc.localDescription }); } catch(e){} };
   pc.onconnectionstatechange = function(){ if (pc.connectionState==='failed'||pc.connectionState==='closed'){ try{pc.close();}catch(e){} delete pubPeers[viewerId]; } };
 }
 async function onCamSignal(msg){
   var d = msg.payload; if (!d || d.to !== myCamId) return; var from = d.from;
   try {
-    if (d.kind === 'offer') {
+    if (d.kind === 'offer') {        // sender is a publisher → this is my subscriber connection to them
       var pc = subPeers[from];
       if (!pc) {
         pc = new RTCPeerConnection(ICE); subPeers[from] = pc;
-        pc.onicecandidate = function(ev){ if (ev.candidate) camSig(from, { kind:'candidate', candidate: ev.candidate }); };
+        pc.onicecandidate = function(ev){ if (ev.candidate) camSig(from, { kind:'candidate', role:'sub', candidate: ev.candidate }); };
         pc.ontrack = function(ev){ remoteCamStreams[from] = ev.streams[0]; setBubbleVideo(from, ev.streams[0]); };
         pc.onconnectionstatechange = function(){ if (pc.connectionState==='failed'||pc.connectionState==='closed') camPeerGone(from); };
       }
       await pc.setRemoteDescription(new RTCSessionDescription(d.sdp));
       var a = await pc.createAnswer(); await pc.setLocalDescription(a); camSig(from, { kind:'answer', sdp: pc.localDescription });
-    } else if (d.kind === 'answer') {
+    } else if (d.kind === 'answer') {  // answer to my publisher connection
       var pc2 = pubPeers[from]; if (pc2) await pc2.setRemoteDescription(new RTCSessionDescription(d.sdp));
     } else if (d.kind === 'candidate') {
-      var pc3 = pubPeers[from] || subPeers[from]; if (pc3) { try { await pc3.addIceCandidate(new RTCIceCandidate(d.candidate)); } catch(e){} }
+      // role tells us which of the two possible connections this candidate belongs to
+      var pc3 = (d.role === 'pub') ? subPeers[from] : pubPeers[from];
+      if (pc3) { try { await pc3.addIceCandidate(new RTCIceCandidate(d.candidate)); } catch(e){} }
     }
   } catch(e){}
 }
