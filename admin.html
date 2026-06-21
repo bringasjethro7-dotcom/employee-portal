@@ -315,6 +315,17 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 .crb-sub{font-size:12px;color:var(--t3);margin-top:1px}
 .crb-join{font-family:inherit;font-size:12px;font-weight:600;color:#fff;background:linear-gradient(135deg,#10b981,#059669);border:none;border-radius:9px;padding:9px 16px;cursor:pointer}
 .crb-dismiss{font-family:inherit;font-size:12px;color:var(--t3);background:none;border:1px solid var(--border);border-radius:9px;padding:9px 14px;cursor:pointer}
+#voice-bar{position:fixed;left:18px;bottom:18px;z-index:9000;background:#161616;border:1px solid rgba(16,185,129,.5);border-radius:14px;padding:12px 14px;box-shadow:0 18px 50px rgba(0,0,0,.5);display:none;min-width:200px}
+#voice-bar.show{display:block}
+.vb-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--t1);margin-bottom:10px}
+.vb-head .vb-dot{width:9px;height:9px;border-radius:50%;background:#10b981;box-shadow:0 0 0 4px rgba(16,185,129,.25);animation:tcPulse 1.6s infinite}
+.vb-head .vb-c{color:var(--t3);font-weight:600}
+#vb-people{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:11px;min-height:28px}
+.vb-chip{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;font-size:10.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.vb-chip.me{background:linear-gradient(135deg,#10b981,#059669)}
+.vb-actions{display:flex;gap:8px}
+#vb-mute{flex:1;font-family:inherit;font-size:12px;font-weight:600;color:var(--t1);background:var(--card2);border:1px solid var(--border);border-radius:9px;padding:8px;cursor:pointer}
+.vb-leave{font-family:inherit;font-size:12px;font-weight:600;color:#fff;background:#ef4444;border:none;border-radius:9px;padding:8px 14px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -515,9 +526,9 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
               <div style="font-size:14px;font-weight:600;color:var(--t1);" id="admin-chat-header-name">Group Chat</div>
               <div style="font-size:11px;color:var(--t3);" id="admin-chat-header-status">Everyone</div>
             </div>
-            <button class="chat-call-btn" onclick="startTeamCall()" title="Start / join team audio call">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-              <span>Team Call</span>
+            <button class="chat-call-btn" onclick="toggleVoice()" title="Join / leave the team voice room">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              <span>Voice</span>
             </button>
           </div>
           <div class="chat-messages" id="admin-chat-messages">
@@ -834,13 +845,14 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 
 <div id="toast"></div>
 
-<!-- TEAM AUDIO CALL MODAL -->
-<div id="team-call-modal">
-  <div class="tc-bar">
-    <div class="tc-title"><span class="dot"></span>JMB Virtuals — Team Call</div>
-    <button class="tc-leave" onclick="endTeamCall()">Leave call</button>
+<!-- TEAM VOICE BAR -->
+<div id="voice-bar">
+  <div class="vb-head"><span class="vb-dot"></span><span>Voice room</span><span class="vb-c" id="vb-count"></span></div>
+  <div id="vb-people"></div>
+  <div class="vb-actions">
+    <button id="vb-mute" onclick="toggleMute()">Mute</button>
+    <button class="vb-leave" onclick="leaveVoice()">Leave</button>
   </div>
-  <div id="jitsi-container"></div>
 </div>
 
 <!-- INCOMING TEAM-CALL RING -->
@@ -1062,19 +1074,20 @@ function mirrorAdminBadges(){
 }
 setInterval(mirrorAdminBadges, 4000);
 
-// ════════════ TEAM AUDIO CALL (Jitsi) ════════════
+// ════════════ NATIVE TEAM VOICE (WebRTC + Supabase signalling) ════════════
 var callChannel=null, _callRingTimer=null;
-// ── Daily.co team call ──  PASTE YOUR DAILY ROOM URL BELOW (same as the portal)
-var DAILY_ROOM_URL='https://jmbvirtuals.daily.co/jmb-team';
-var _dailyFrame=null;
+var voiceChannel=null, localStream=null, peers={}, voiceNames={}, inVoice=false, voiceMuted=false, myVoiceId=null;
+var ICE={ iceServers:[ {urls:'stun:stun.l.google.com:19302'}, {urls:'stun:stun1.l.google.com:19302'} ] };
+function voiceSupa(){ return bubbleSupa || adminSupaClient || null; }
+
 function handleIncomingCall(msg){
-  if(_jitsiApi) return;
+  if(inVoice) return;
   var who=(msg&&msg.payload&&msg.payload.name)||'A teammate';
-  var sub=document.getElementById('crb-sub'); if(sub) sub.textContent=who+' started a team call';
+  var sub=document.getElementById('crb-sub'); if(sub) sub.textContent=who+' is in the voice room';
   var b=document.getElementById('call-ring-banner'); if(b) b.classList.add('show');
   playCallRing();
 }
-function joinFromRing(){ dismissRing(); startTeamCall(true); }
+function joinFromRing(){ dismissRing(); joinVoice(true); }
 function dismissRing(){ stopCallRing(); var b=document.getElementById('call-ring-banner'); if(b) b.classList.remove('show'); }
 function playCallRing(){
   stopCallRing();
@@ -1082,21 +1095,73 @@ function playCallRing(){
   ring(); _callRingTimer=setInterval(ring,3000); setTimeout(stopCallRing,30000);
 }
 function stopCallRing(){ if(_callRingTimer){clearInterval(_callRingTimer);_callRingTimer=null;} }
-function startTeamCall(fromRing){
-  stopCallRing();
-  if(!DAILY_ROOM_URL){ if(typeof toast==='function') toast('Team call isn\'t configured yet.'); return; }
+
+function startTeamCall(){ toggleVoice(); }
+function toggleVoice(){ if(inVoice) leaveVoice(); else joinVoice(false); }
+async function joinVoice(fromRing){
+  if(inVoice) return;
+  var sc=voiceSupa(); if(!sc){ if(typeof toast==='function') toast('Voice still connecting — try again.'); return; }
+  try{ localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false}); }
+  catch(e){ if(typeof toast==='function') toast('Allow microphone access to join voice.'); return; }
+  inVoice=true; voiceMuted=false; stopCallRing();
+  myVoiceId=ADMIN_ID;
+  var bar=document.getElementById('voice-bar'); if(bar) bar.classList.add('show'); updateVoiceBtn();
+  voiceChannel=sc.channel('voice-room',{config:{presence:{key:myVoiceId},broadcast:{self:false}}});
+  voiceChannel.on('presence',{event:'sync'},onVoicePresence);
+  voiceChannel.on('presence',{event:'leave'},function(p){ (p.leftPresences||[]).forEach(function(pr){ removePeer(pr.key); }); });
+  voiceChannel.on('broadcast',{event:'vsignal'},onSignal);
+  voiceChannel.subscribe(function(status){ if(status==='SUBSCRIBED') voiceChannel.track({name:ADMIN_NAME}); });
   if(!fromRing){ try{ if(callChannel) callChannel.send({type:'broadcast',event:'call-start',payload:{name:ADMIN_NAME||'Admin'}}); }catch(e){} }
-  var modal=document.getElementById('team-call-modal'); if(modal) modal.classList.add('show');
-  var c=document.getElementById('jitsi-container');
-  if(c && !c.querySelector('iframe')){
-    var f=document.createElement('iframe');
-    f.allow='camera; microphone; fullscreen; speaker; display-capture; autoplay; clipboard-write';
-    f.style.cssText='width:100%;height:100%;border:0;';
-    f.src=DAILY_ROOM_URL;
-    c.innerHTML=''; c.appendChild(f);
-  }
+  renderVoiceBar();
 }
-function endTeamCall(){ var c=document.getElementById('jitsi-container'); if(c)c.innerHTML=''; var modal=document.getElementById('team-call-modal'); if(modal) modal.classList.remove('show'); }
+function leaveVoice(){
+  inVoice=false;
+  Object.keys(peers).forEach(removePeer);
+  if(localStream){ localStream.getTracks().forEach(function(t){t.stop();}); localStream=null; }
+  if(voiceChannel){ try{voiceChannel.untrack();}catch(e){} try{voiceSupa().removeChannel(voiceChannel);}catch(e){} voiceChannel=null; }
+  voiceNames={};
+  var bar=document.getElementById('voice-bar'); if(bar) bar.classList.remove('show'); updateVoiceBtn();
+}
+function endTeamCall(){ leaveVoice(); }
+function onVoicePresence(){
+  if(!voiceChannel) return;
+  var state=voiceChannel.presenceState(), ids=Object.keys(state);
+  ids.forEach(function(id){ var pr=(state[id]||[])[0]; if(pr&&pr.name) voiceNames[id]=pr.name; if(id===myVoiceId) return; if(!peers[id]) createPeer(id, myVoiceId<id); });
+  renderVoiceBar(ids);
+}
+function createPeer(id, initiator){
+  var pc=new RTCPeerConnection(ICE);
+  peers[id]={pc:pc,audioEl:null};
+  localStream.getTracks().forEach(function(t){ pc.addTrack(t,localStream); });
+  pc.onicecandidate=function(ev){ if(ev.candidate) sendSignal(id,{kind:'candidate',candidate:ev.candidate}); };
+  pc.ontrack=function(ev){ var p=peers[id]; if(!p) return; if(!p.audioEl){ var a=document.createElement('audio'); a.autoplay=true; a.playsInline=true; document.body.appendChild(a); p.audioEl=a; } p.audioEl.srcObject=ev.streams[0]; };
+  pc.onconnectionstatechange=function(){ if(pc.connectionState==='failed'||pc.connectionState==='closed') removePeer(id); };
+  if(initiator){ pc.onnegotiationneeded=async function(){ try{ var o=await pc.createOffer(); await pc.setLocalDescription(o); sendSignal(id,{kind:'offer',sdp:pc.localDescription}); }catch(e){} }; }
+}
+async function onSignal(msg){
+  var d=msg.payload; if(!d||d.to!==myVoiceId) return;
+  var from=d.from; if(!peers[from]) createPeer(from,false);
+  var pc=peers[from].pc;
+  try{
+    if(d.kind==='offer'){ await pc.setRemoteDescription(new RTCSessionDescription(d.sdp)); var a=await pc.createAnswer(); await pc.setLocalDescription(a); sendSignal(from,{kind:'answer',sdp:pc.localDescription}); }
+    else if(d.kind==='answer'){ await pc.setRemoteDescription(new RTCSessionDescription(d.sdp)); }
+    else if(d.kind==='candidate'){ try{ await pc.addIceCandidate(new RTCIceCandidate(d.candidate)); }catch(e){} }
+  }catch(e){}
+}
+function sendSignal(to,data){ if(!voiceChannel) return; voiceChannel.send({type:'broadcast',event:'vsignal',payload:Object.assign({to:to,from:myVoiceId},data)}); }
+function removePeer(id){ var p=peers[id]; if(!p) return; try{p.pc.close();}catch(e){} if(p.audioEl){ try{p.audioEl.srcObject=null;p.audioEl.remove();}catch(e){} } delete peers[id]; delete voiceNames[id]; renderVoiceBar(); }
+function toggleMute(){ if(!localStream) return; voiceMuted=!voiceMuted; localStream.getAudioTracks().forEach(function(t){ t.enabled=!voiceMuted; }); updateMuteBtn(); }
+function updateVoiceBtn(){ document.querySelectorAll('.chat-call-btn').forEach(function(b){ var s=b.querySelector('span'); if(s) s.textContent=inVoice?'In Voice':'Voice'; b.style.background=inVoice?'linear-gradient(135deg,#ef4444,#dc2626)':''; }); }
+function updateMuteBtn(){ var m=document.getElementById('vb-mute'); if(m) m.textContent=voiceMuted?'Unmute':'Mute'; }
+function vbFirst(name){ name=String(name||'').trim(); if(name.indexOf(',')>=0){ var a=name.split(',')[1]||''; return (a.trim().split(/\s+/)[0]||name); } return name.split(/\s+/)[0]||name; }
+function renderVoiceBar(ids){
+  var el=document.getElementById('vb-people'); if(!el) return;
+  ids=ids||(voiceChannel?Object.keys(voiceChannel.presenceState()):[]);
+  var cnt=document.getElementById('vb-count'); if(cnt) cnt.textContent=ids.length?'· '+ids.length:'';
+  el.innerHTML=ids.map(function(id){ var nm=(id===myVoiceId)?'Admin':vbFirst(voiceNames[id]||id); var ini=(id===myVoiceId)?'A':(nm||'?').slice(0,2).toUpperCase(); var me=(id===myVoiceId)?' me':''; return '<span class="vb-chip'+me+'" title="'+nm+'">'+ini+'</span>'; }).join('');
+  updateMuteBtn();
+}
+window.addEventListener('beforeunload',function(){ if(inVoice){ try{ leaveVoice(); }catch(e){} } });
 
 // ════════════ ONLINE PRESENCE BUBBLES (active accounts) ════════════
 var presenceNames={}, presenceStatus={}, presenceLastSeen={}, employeePhotos={}, serverStatus={};
