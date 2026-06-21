@@ -7530,7 +7530,14 @@ function initVoice(){
   voiceChannel.on('presence', { event: 'sync' }, onVoicePresence);
   voiceChannel.on('presence', { event: 'leave' }, function(p){ (p.leftPresences||[]).forEach(function(pr){ removePeer(pr.key); setBubbleMic(pr.key, false); setBubbleSpeaking(pr.key, false); delete voiceNames[pr.key]; delete voiceMutedMap[pr.key]; }); });
   voiceChannel.on('broadcast', { event: 'vsignal' }, onSignal);
+  voiceChannel.on('broadcast', { event: 'vmute' }, onMuteSignal);
   voiceChannel.subscribe();   // subscribe but DON'T track — pure watcher until we join
+}
+function onMuteSignal(msg){
+  var d = msg && msg.payload; if (!d || !d.id) return;
+  voiceMutedMap[d.id] = !!d.muted;
+  setBubbleMic(d.id, true, !!d.muted);
+  renderVoiceBar();
 }
 function startTeamCall(){ toggleVoice(); }
 function toggleVoice(){ if (inVoice) leaveVoice(); else joinVoice(false); }
@@ -7621,7 +7628,8 @@ function toggleMute(){
   if (!localStream) return;
   voiceMuted = !voiceMuted;
   localStream.getAudioTracks().forEach(function(t){ t.enabled = !voiceMuted; });
-  try { if (voiceChannel) voiceChannel.track({ name: chatEmpName || myVoiceId, muted: voiceMuted }); } catch(e){}   // tell everyone
+  try { if (voiceChannel) { voiceChannel.track({ name: chatEmpName || myVoiceId, muted: voiceMuted }); voiceChannel.send({ type:'broadcast', event:'vmute', payload:{ id: myVoiceId, muted: voiceMuted } }); } } catch(e){}   // tell everyone instantly
+  voiceMutedMap[myVoiceId] = voiceMuted;
   setBubbleMic(myVoiceId, true, voiceMuted);
   updateMuteBtn(); renderVoiceBar();
 }

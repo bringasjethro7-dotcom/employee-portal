@@ -1148,8 +1148,10 @@ function initVoice(){
   voiceChannel.on('presence',{event:'sync'},onVoicePresence);
   voiceChannel.on('presence',{event:'leave'},function(p){ (p.leftPresences||[]).forEach(function(pr){ removePeer(pr.key); setBubbleMic(pr.key,false); setBubbleSpeaking(pr.key,false); delete voiceNames[pr.key]; delete voiceMutedMap[pr.key]; }); });
   voiceChannel.on('broadcast',{event:'vsignal'},onSignal);
+  voiceChannel.on('broadcast',{event:'vmute'},onMuteSignal);
   voiceChannel.subscribe();
 }
+function onMuteSignal(msg){ var d=msg&&msg.payload; if(!d||!d.id) return; voiceMutedMap[d.id]=!!d.muted; setBubbleMic(d.id,true,!!d.muted); renderVoiceBar(); }
 function startTeamCall(){ toggleVoice(); }
 function toggleVoice(){ if(inVoice) leaveVoice(); else joinVoice(false); }
 async function joinVoice(fromRing){
@@ -1207,7 +1209,7 @@ async function onSignal(msg){
 }
 function sendSignal(to,data){ if(!voiceChannel) return; voiceChannel.send({type:'broadcast',event:'vsignal',payload:Object.assign({to:to,from:myVoiceId},data)}); }
 function removePeer(id){ var p=peers[id]; if(!p) return; try{p.pc.close();}catch(e){} if(p.audioEl){ try{p.audioEl.srcObject=null;p.audioEl.remove();}catch(e){} } detachAnalyser(id); delete peers[id]; renderVoiceBar(); }
-function toggleMute(){ if(!localStream) return; voiceMuted=!voiceMuted; localStream.getAudioTracks().forEach(function(t){ t.enabled=!voiceMuted; }); try{ if(voiceChannel) voiceChannel.track({name:ADMIN_NAME,muted:voiceMuted}); }catch(e){} setBubbleMic(myVoiceId,true,voiceMuted); updateMuteBtn(); }
+function toggleMute(){ if(!localStream) return; voiceMuted=!voiceMuted; localStream.getAudioTracks().forEach(function(t){ t.enabled=!voiceMuted; }); try{ if(voiceChannel){ voiceChannel.track({name:ADMIN_NAME,muted:voiceMuted}); voiceChannel.send({type:'broadcast',event:'vmute',payload:{id:myVoiceId,muted:voiceMuted}}); } }catch(e){} voiceMutedMap[myVoiceId]=voiceMuted; setBubbleMic(myVoiceId,true,voiceMuted); updateMuteBtn(); }
 function attachAnalyser(id,stream){
   try{ if(!stream||!stream.getAudioTracks||!stream.getAudioTracks().length) return; if(voiceAnalysers[id]) return; if(!_adAudio()) return;
     var src=_adAC.createMediaStreamSource(stream); var an=_adAC.createAnalyser(); an.fftSize=256; an.smoothingTimeConstant=0.65; src.connect(an);
