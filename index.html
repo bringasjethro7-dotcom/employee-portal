@@ -3964,7 +3964,7 @@ async function loadScorecard() {
   if (!scEmpId) return;
   var key = scMonthKey(scYear, scMonth);
   document.getElementById('sc-month-label').textContent = scMonthLabel(scYear, scMonth);
-  updateAssessmentGate();   // enable/disable Take Assessment based on the admin switch
+  await updateAssessmentGate();   // resolves assessOpen/assessTaken/assessScore (direct from the assessment data)
 
   // Hide all sections while loading
   ['sc-overall-card','sc-note-wrap','sc-empty'].forEach(function(id) {
@@ -4000,7 +4000,7 @@ async function loadScorecard() {
       setScCard('prod', null);
       setScCard('qual', null);
       setScCard('att',  null);
-      setScCard('assess', null);
+      _renderAssessValue(assessScore);   // show the assessment even if no scorecard is published yet
       setScOverall(null);
       return;
     }
@@ -4010,8 +4010,7 @@ async function loadScorecard() {
       setScCard('prod', sc.productivity);
     setScCard('qual', sc.quality);
     setScCard('att',  sc.attendance);
-    setScCard('assess', sc.assessment);
-    var saEl2=document.getElementById('sum-assess'); if(saEl2) saEl2.textContent = (sc.assessment!==null&&sc.assessment!==undefined) ? ((parseFloat(sc.assessment)*0.15).toFixed(1)+'/15') : '—';
+    _renderAssessValue((sc.assessment!==null&&sc.assessment!==undefined&&sc.assessment!=='') ? sc.assessment : assessScore);
     setScOverall(sc.overall);
 
     // Violation points card
@@ -4105,11 +4104,17 @@ function applyAssessGate(){
     if(st){ st.textContent='Locked — your admin will open it.'; st.style.color='var(--text-3)'; }
   }
 }
+function _renderAssessValue(val){
+  if(typeof setScCard==='function') setScCard('assess', (val==null||val===''?'':val));
+  var saEl=document.getElementById('sum-assess');
+  if(saEl) saEl.textContent = (val!=null&&val!=='') ? ((parseFloat(val)*0.15).toFixed(1)+'/15') : '—';
+}
 async function updateAssessmentGate(){
   var mk=assessMonthKey(), id=_assessEmpId();
   try{ var r=await fetch(APPS_SCRIPT_URL+'?action=get_assessment_open&month='+encodeURIComponent(mk)); var d=await r.json(); assessOpen=!!(d&&d.open); }catch(e){ assessOpen=false; }
   try{ var r2=await fetch(APPS_SCRIPT_URL+'?action=get_assessment&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)); var d2=await r2.json(); assessTaken=!!(d2&&d2.found); assessScore=assessTaken?parseFloat(d2.assessment_score):null; }catch(e){ assessTaken=false; }
   applyAssessGate();
+  if(assessTaken) _renderAssessValue(assessScore);   // show the card straight from the assessment record
 }
 function openAssessment(){
   if(assessTaken){ showToast('You’ve already completed this month’s assessment.'); return; }
