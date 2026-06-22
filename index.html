@@ -2752,6 +2752,14 @@
 
     <!-- CLOCKIFY -->
     <div class="tab-panel" id="tab-clockify">
+      <!-- Activity-detection banner: shown when system-wide activity permission isn't granted -->
+      <div id="idle-perm-banner" style="display:none;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">
+        <span style="font-size:20px;">⚠️</span>
+        <div style="flex:1;font-size:13px;color:var(--text-1);line-height:1.45;">
+          <b>Activity detection is off.</b> <span id="idle-perm-msg">Time you spend working in other apps won't count toward your active time, which can cause inactivity demerits.</span>
+        </div>
+        <button id="idle-perm-btn" onclick="enableIdleDetection()" style="flex-shrink:0;background:var(--orange-3,#FF6B1A);color:#fff;border:none;border-radius:9px;padding:9px 16px;font:600 13px/1 inherit;cursor:pointer;">Enable</button>
+      </div>
       <div class="clockify-wrap" id="clockify-wrap">
 
         <!-- No API key state -->
@@ -4931,6 +4939,7 @@ async function initClockify(empData) {
   loadTrackerHistory();
   updateClockifyStartBtn();
   trkInitActivityWatch();
+  updateIdleBanner();   // prompt to enable system-wide activity detection if it isn't on
 }
 
 async function loadProjects() {
@@ -5461,20 +5470,15 @@ function trkMarkActivity() {
 // System-wide idle detection — counts activity in ANY app/tab (Chrome/Edge, with permission).
 // Falls back to in-tab event detection where unsupported or denied.
 async function ensureIdleDetector() {
-  if (trkIdleReqDone) return;
-  trkIdleReqDone = true;
-  if (!('IdleDetector' in window)) return;          // unsupported → in-portal activity only
+  if (trkIdleDetector) return;                        // already running
+  if (!('IdleDetector' in window)) { updateIdleBanner(); return; }   // unsupported browser
   try {
     var perm = await IdleDetector.requestPermission();
-    if (perm !== 'granted') {                         // denied → in-portal activity only
-      if (typeof showToast === 'function') showToast('Tip: allow activity detection so working in other apps counts as active.');
-      return;
-    }
+    if (perm !== 'granted') { updateIdleBanner(); return; }
     var d = new IdleDetector();
     d.addEventListener('change', function() {
       if (d.userState === 'idle') {
-        // Just went idle — it has already been idle for the ~60s threshold. Backdate so the
-        // 3-minute inactivity clock is accurate (fires at 3 min of TRUE idle, not 4).
+        // Just went idle — already idle for the ~60s threshold. Backdate so the 3-minute clock is accurate.
         trkLastActivity = Math.min(trkLastActivity, Date.now() - 60000);
       } else if (d.screenState === 'unlocked') {
         trkLastActivity = Date.now();                 // active anywhere on the computer
@@ -5483,6 +5487,34 @@ async function ensureIdleDetector() {
     await d.start({ threshold: 60000 });
     trkIdleDetector = d;
   } catch(e) {}
+  updateIdleBanner();
+}
+// Called from the "Enable" button — a real user gesture, so the permission prompt can show.
+async function enableIdleDetection() {
+  await ensureIdleDetector();
+  if (trkIdleDetector) { if (typeof showToast === 'function') showToast('Activity detection enabled — working in other apps now counts as active.'); }
+  else { alert('Couldn’t enable activity detection.\n\nIf no prompt appeared, click the lock/⚙ icon in the address bar → Site settings → set "Your device use" (Idle detection) to Allow, then reload.'); }
+}
+// Show the banner whenever system-wide detection isn't active.
+async function updateIdleBanner() {
+  var b = document.getElementById('idle-perm-banner'); if (!b) return;
+  if (trkIdleDetector) { b.style.display = 'none'; return; }
+  var msg = document.getElementById('idle-perm-msg'), btn = document.getElementById('idle-perm-btn');
+  if (!('IdleDetector' in window)) {
+    if (msg) msg.textContent = 'This browser can’t track activity in other apps — use Google Chrome so your work outside the portal counts.';
+    if (btn) btn.style.display = 'none';
+  } else {
+    var state = '';
+    try { if (navigator.permissions && navigator.permissions.query) { var p = await navigator.permissions.query({ name: 'idle-detection' }); state = p.state; } } catch(e) {}
+    if (state === 'denied') {
+      if (msg) msg.textContent = 'Activity detection was blocked. Click the lock/⚙ icon in the address bar → Site settings → allow "Idle detection", then reload.';
+      if (btn) btn.style.display = 'none';
+    } else {
+      if (msg) msg.textContent = 'Time you spend working in other apps won’t count toward your active time. Click Enable so it does.';
+      if (btn) btn.style.display = '';
+    }
+  }
+  b.style.display = 'flex';
 }
 
 function showInactiveWarn(secLeft){
