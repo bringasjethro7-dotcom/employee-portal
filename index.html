@@ -3573,9 +3573,9 @@ function renderDashboard(data) {
   initLeave(data.employee_id);
 
   // ── ARM INACTIVITY WATCH (always on after login, not only on the Time Tracker tab) ──
+  // (system-wide activity permission is requested on a real user gesture — when a task timer starts)
   trkEmpData = data;
   trkInitActivityWatch();
-  ensureIdleDetector();
 
   // ── HERO SECTION ──
   const hero = document.getElementById('dashboard-hero');
@@ -4318,51 +4318,46 @@ function todayStr() {
 
 function resolveAttToday(empId) {
   var now = new Date();
-  var rawToday = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  function ymd(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+  var rawToday = ymd(now);
 
-  if (now.getHours() < 6 && empId) {
-    var yest = new Date(now);
-    yest.setDate(yest.getDate() - 1);
-    var yKey = yest.getFullYear() + '-' + String(yest.getMonth()+1).padStart(2,'0') + '-' + String(yest.getDate()).padStart(2,'0');
+  if (empId) {
+    var yest = new Date(now); yest.setDate(yest.getDate() - 1);
+    var yKey = ymd(yest);
+    var openIn = null;   // time_in of an OPEN (not yet timed-out) session from yesterday
 
     // Check 1: localStorage sessions key
     var stored = localStorage.getItem('att_today_' + empId + '_' + yKey);
     if (stored) {
       try {
         var rec = JSON.parse(stored);
-        var hasActive = false;
         if (rec.sessions && rec.sessions.length) {
-          hasActive = rec.sessions.some(function(s) { return s.time_in && !s.time_out; });
-        } else if (rec.time_in && !rec.time_out) {
-          hasActive = true;
-        }
-        if (hasActive) return yKey;
+          var os = rec.sessions.filter(function(s){ return s.time_in && !s.time_out; }).pop();
+          if (os) openIn = os.time_in;
+        } else if (rec.time_in && !rec.time_out) { openIn = rec.time_in; }
       } catch(e) {}
     }
-
-    // Check 2: attRecords array (from server) for yesterday flat record
-    try {
-      var allRecs = JSON.parse(localStorage.getItem('att_' + empId) || '[]');
-      var yRec = allRecs.find(function(r) {
-        return r.date && String(r.date).substring(0, 10) === yKey;
-      });
-      if (yRec && yRec.time_in && !yRec.time_out) {
-        // Restore to sessions format and save to correct key
-        var restored = {
-          date: yKey,
-          shift: yRec.shift || 'night',
-          sessions: [{
-            time_in:   yRec.time_in   || null,
-            time_out:  yRec.time_out  || null,
-            lunch_out: yRec.lunch_out || null,
-            lunch_in:  yRec.lunch_in  || null,
-            shift:     yRec.shift     || 'night'
-          }]
-        };
-        localStorage.setItem('att_today_' + empId + '_' + yKey, JSON.stringify(restored));
-        return yKey;
-      }
-    } catch(e) {}
+    // Check 2: server attRecords for yesterday flat record
+    if (!openIn) {
+      try {
+        var allRecs = JSON.parse(localStorage.getItem('att_' + empId) || '[]');
+        var yRec = allRecs.find(function(r) { return r.date && String(r.date).substring(0, 10) === yKey; });
+        if (yRec && yRec.time_in && !yRec.time_out) {
+          openIn = yRec.time_in;
+          var restored = { date: yKey, shift: yRec.shift || 'night', sessions: [{
+            time_in: yRec.time_in || null, time_out: yRec.time_out || null,
+            lunch_out: yRec.lunch_out || null, lunch_in: yRec.lunch_in || null, shift: yRec.shift || 'night' }] };
+          localStorage.setItem('att_today_' + empId + '_' + yKey, JSON.stringify(restored));
+        }
+      } catch(e) {}
+    }
+    // Stay anchored to yesterday while a RECENT open session is still running (long/night shift crossing
+    // the 7 AM business-day boundary), so the user can always Time Out. Cap at 18h so a forgotten
+    // clock-out from long ago doesn't trap them on yesterday.
+    if (openIn) {
+      var ageH = (now - new Date(openIn)) / 3600000;
+      if (ageH >= 0 && ageH <= 18) return yKey;
+    }
   }
   return rawToday;
 }
@@ -5466,9 +5461,28 @@ function trkMarkActivity() {
 // System-wide idle detection — counts activity in ANY app/tab (Chrome/Edge, with permission).
 // Falls back to in-tab event detection where unsupported or denied.
 async function ensureIdleDetector() {
-  // Disabled: inactivity is now based purely on interaction with the portal tab,
-  // so the 3-minute rule is predictable and not affected by other apps.
-  return;
+  if (trkIdleReqDone) return;
+  trkIdleReqDone = true;
+  if (!('IdleDetector' in window)) return;          // unsupported → in-portal activity only
+  try {
+    var perm = await IdleDetector.requestPermission();
+    if (perm !== 'granted') {                         // denied → in-portal activity only
+      if (typeof showToast === 'function') showToast('Tip: allow activity detection so working in other apps counts as active.');
+      return;
+    }
+    var d = new IdleDetector();
+    d.addEventListener('change', function() {
+      if (d.userState === 'idle') {
+        // Just went idle — it has already been idle for the ~60s threshold. Backdate so the
+        // 3-minute inactivity clock is accurate (fires at 3 min of TRUE idle, not 4).
+        trkLastActivity = Math.min(trkLastActivity, Date.now() - 60000);
+      } else if (d.screenState === 'unlocked') {
+        trkLastActivity = Date.now();                 // active anywhere on the computer
+      }
+    });
+    await d.start({ threshold: 60000 });
+    trkIdleDetector = d;
+  } catch(e) {}
 }
 
 function showInactiveWarn(secLeft){
@@ -5491,6 +5505,11 @@ function _beepCountdown(secLeft){
 }
 function trkCheckInactivity() {
   if (!trkRunning || !trkOwns) { hideInactiveWarn(); return; }   // not running / not owner → no warning
+  // Activity ANYWHERE on the computer (with permission granted) keeps the timer alive — so working
+  // in another app counts as active, not just interacting with this tab.
+  if (trkIdleDetector && trkIdleDetector.userState === 'active' && trkIdleDetector.screenState === 'unlocked') {
+    trkLastActivity = Date.now();
+  }
   if (trkInBioBreak()) { trkLastActivity = Date.now(); hideInactiveWarn(); return; }   // bio breaks are exempt
   var idleMs = Date.now() - trkLastActivity;
   if (idleMs >= INACTIVITY_MS) {
