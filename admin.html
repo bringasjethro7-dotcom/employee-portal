@@ -461,7 +461,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       </div>
       <div class="tw">
         <table>
-          <thead><tr><th>Name</th><th>ID</th><th>Position</th><th>Department</th><th>Rate</th><th>Payslips</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>ID</th><th>CL</th><th>Position</th><th>Department</th><th>Rate</th><th>Payslips</th><th>Actions</th></tr></thead>
           <tbody id="etbody"></tbody>
         </table>
       </div>
@@ -843,6 +843,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <div class="fg"><label class="lbl">Full name *</label><input class="inp" type="text" id="m-name" placeholder="Juan Dela Cruz" /></div>
       <div class="fg"><label class="lbl">Employee ID *</label><input class="inp" type="text" id="m-id" placeholder="JMB-001" /></div>
       <div class="fg"><label class="lbl">PIN *</label><input class="inp" type="text" id="m-pin" placeholder="4–6 digit PIN" /></div>
+      <div class="fg"><label class="lbl">Career Level (CL)</label><input class="inp" type="text" id="m-cl" placeholder="e.g. CL9" /></div>
       <div class="fg"><label class="lbl">Position</label><input class="inp" type="text" id="m-pos" placeholder="e.g. Developer" /></div>
       <div class="fg"><label class="lbl">Department</label><input class="inp" type="text" id="m-dept" placeholder="e.g. Engineering" /></div>
       <div class="fg"><label class="lbl">Work schedule</label><select class="inp" id="m-schedule"><option value="weekdays">Weekdays (Mon–Fri)</option><option value="everyday">Every day (Mon–Sun)</option></select></div>
@@ -1398,12 +1399,12 @@ async function loadExpectedGrid(){
   try{ var r=await fetch(API+'?action=get_expected_days&month='+encodeURIComponent(month)); var d=await r.json(); saved=(d&&d.data)||{}; }catch(e){}
   // header row: name + day numbers + quick-fill
   var dn=['S','M','T','W','T','F','S'];
-  var th='<tr><th style="position:sticky;left:0;background:var(--card);z-index:2;text-align:left;min-width:150px;padding:8px;border-bottom:1px solid var(--bd);">VA</th>';
+  var th='<tr><th style="position:sticky;left:0;top:0;background:var(--card);z-index:3;text-align:left;min-width:150px;padding:8px;border-bottom:1px solid var(--bd);">VA</th>';
   for(var dd=1;dd<=daysIn;dd++){
     var w=edDOW(y,mo,dd), wknd=(w===0||w===6);
-    th+='<th style="padding:5px 0;width:26px;text-align:center;border-bottom:1px solid var(--bd);'+(wknd?'background:rgba(255,255,255,.04);':'')+'color:var(--t3);"><div style="font-size:9px;">'+dn[w]+'</div><div style="font-weight:700;color:var(--t2);">'+dd+'</div></th>';
+    th+='<th style="position:sticky;top:0;z-index:2;padding:5px 0;width:26px;text-align:center;border-bottom:1px solid var(--bd);background:'+(wknd?'linear-gradient(rgba(255,255,255,.05),rgba(255,255,255,.05)) var(--card)':'var(--card)')+';color:var(--t3);"><div style="font-size:9px;">'+dn[w]+'</div><div style="font-weight:700;color:var(--t2);">'+dd+'</div></th>';
   }
-  th+='<th style="padding:8px;border-bottom:1px solid var(--bd);min-width:120px;text-align:center;">Fill</th></tr>';
+  th+='<th style="position:sticky;top:0;z-index:2;background:var(--card);padding:8px;border-bottom:1px solid var(--bd);min-width:120px;text-align:center;">Fill</th></tr>';
   head.innerHTML=th;
   // body rows
   var list=(emps||[]).slice().sort(function(a,b){return (a.employee_id||'').localeCompare(b.employee_id||'');});
@@ -1896,10 +1897,12 @@ function renderTable(){
   });
   document.getElementById('ecount').textContent=f.length+' employee'+(f.length!==1?'s':'');
   var tb=document.getElementById('etbody');
-  if(!f.length){tb.innerHTML='<tr><td colspan="7" class="es">No employees yet.</td></tr>';return;}
+  if(!f.length){tb.innerHTML='<tr><td colspan="8" class="es">No employees yet.</td></tr>';return;}
   tb.innerHTML=f.map(function(e){
     var ri=emps.indexOf(e);
-    return'<tr><td style="font-weight:500;color:var(--t1);">'+(e.full_name||'—')+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button><button class="bsm danger" onclick="delEmp('+ri+')">Delete</button></div></td></tr>';
+    var cl=(e.career_level||e.cl||'').toString().trim().toUpperCase();
+    var clCell=cl?'<span style="display:inline-block;font-weight:700;font-size:11px;color:var(--o3);background:rgba(255,107,26,.12);border:1px solid rgba(255,107,26,.28);border-radius:7px;padding:2px 8px;">'+cl+'</span>':'<span style="color:var(--t3)">—</span>';
+    return'<tr><td style="font-weight:500;color:var(--t1);">'+(e.full_name||'—')+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button><button class="bsm danger" onclick="delEmp('+ri+')">Delete</button></div></td></tr>';
   }).join('');
 }
 
@@ -1910,6 +1913,7 @@ function openModal(idx){
   document.getElementById('m-name').value=e.full_name||'';
   document.getElementById('m-id').value=e.employee_id||'';
   document.getElementById('m-pin').value=e.pin||'';
+  document.getElementById('m-cl').value=e.career_level||e.cl||'';
   document.getElementById('m-pos').value=e.position||'';
   document.getElementById('m-dept').value=e.department||'';
   document.getElementById('m-schedule').value=(e.work_schedule||'weekdays');
@@ -2020,12 +2024,12 @@ function saveEmp(){
     if(p)ps.push({period:p,hours:r.querySelector('.ps-h').value.trim(),link:r.querySelector('.ps-l').value.trim(),paid:r.dataset.paid==='true',paid_date:r.dataset.paidDate||''});
   });
   var cf1l=document.getElementById('m-cf1l').value.trim().replace(/\s+/g,'_').toLowerCase();
-  var emp={full_name:name,employee_id:id,pin:pin,position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),work_schedule:document.getElementById('m-schedule').value,client:document.getElementById('m-client').value.trim(),rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
+  var emp={full_name:name,employee_id:id,pin:pin,career_level:document.getElementById('m-cl').value.trim(),position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),work_schedule:document.getElementById('m-schedule').value,client:document.getElementById('m-client').value.trim(),rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
   if(cf1l)emp[cf1l]=document.getElementById('m-cf1v').value.trim();
   if(editIdx>=0){emps[editIdx]=emp;toast('Employee updated.');}
   else{emps.push(emp);toast('Employee added.');}
   // Write work_schedule + client straight to the Employees sheet (used by attendance scoring)
-  fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(id)+'&work_schedule='+encodeURIComponent(emp.work_schedule||'')+'&client='+encodeURIComponent(emp.client||''))
+  fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(id)+'&work_schedule='+encodeURIComponent(emp.work_schedule||'')+'&client='+encodeURIComponent(emp.client||'')+'&career_level='+encodeURIComponent(emp.career_level||''))
     .then(function(r){return r.json();})
     .then(function(d){ if(d&&d.not_found) toast(id+' isn’t in the sheet yet — schedule/client will apply once it is.'); })
     .catch(function(){});
