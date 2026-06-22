@@ -5276,9 +5276,16 @@ function trkClearFields() {
   var c = document.getElementById('cfy-category'); if (c) { c.innerHTML = '<option value="">🗂 Select project first…</option>'; c.disabled = true; }
   var t = document.getElementById('cfy-task'); if (t) { t.innerHTML = '<option value="">🔖 Select category first…</option>'; t.disabled = true; }
 }
-// Unique id for THIS browser session — used so only the device that owns the
-// running timer runs the inactivity check (others just display it read-only).
-var trkSessionId = 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+// Stable id for THIS browser/device — used so only the device that owns the running
+// timer runs the inactivity check (others just display it read-only). Persisted so a
+// page REFRESH keeps the same identity and the device stays the owner.
+var trkSessionId = (function(){
+  try {
+    var s = localStorage.getItem('trk_device_id');
+    if (!s) { s = 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); localStorage.setItem('trk_device_id', s); }
+    return s;
+  } catch(e) { return 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
+})();
 var trkOwns = true;   // does this session own the currently-running timer?
 function _trkPost(action, extra) {
   try { fetch(APPS_SCRIPT_URL, { method:'POST', headers:{'Content-Type':'application/json'}, mode:'no-cors',
