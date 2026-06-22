@@ -2576,6 +2576,17 @@
       </div>
     </div>
 
+    <!-- INACTIVITY COUNTDOWN WARNING (last 10s before demerit) -->
+    <div id="inactive-warn-modal" class="wl-warn-overlay">
+      <div class="wl-warn-box">
+        <div class="wl-warn-icon">⏱️</div>
+        <h3>Are you still there?</h3>
+        <p>No activity detected. Your timer will be paused and a <b style="color:var(--orange-3,#FF6B1A)">0.15 demerit</b> recorded in</p>
+        <div id="inactive-warn-count" style="font-size:54px;font-weight:800;line-height:1;margin:8px 0 10px;color:var(--orange-3,#FF6B1A);">10</div>
+        <p class="wl-warn-note">Move your mouse or press any key to stay active.</p>
+      </div>
+    </div>
+
     <!-- MOBILE ACCESS UNLOCK -->
     <div id="mobile-unlock-modal" class="wl-warn-overlay">
       <div class="wl-warn-box">
@@ -4900,6 +4911,9 @@ var trkLastActivity = Date.now();
 var trkAutoPausedId = null;  // entry auto-paused by inactivity (for auto-resume)
 var trkActivityTick = null;
 var INACTIVITY_MS   = 3 * 60 * 1000;
+var WARN_LEAD_MS    = 10 * 1000;               // show a countdown for the last 10 seconds
+var WARN_MS         = INACTIVITY_MS - WARN_LEAD_MS;
+var trkWarnLastSec  = -1;                       // last second rendered/beeped (-1 = warning hidden)
 var trkIdleDetector = null;   // system-wide idle detection (Chrome/Edge)
 var trkIdleReqDone  = false;
 
@@ -5435,6 +5449,7 @@ function trkInBioBreak() {
 }
 function trkMarkActivity() {
   trkLastActivity = Date.now();
+  if (trkWarnLastSec !== -1) hideInactiveWarn();   // any activity cancels the countdown instantly
   if (trkAutoPausedId) { var id = trkAutoPausedId; trkAutoPausedId = null; resumeTask(id); }
 }
 // System-wide idle detection — counts activity in ANY app/tab (Chrome/Edge, with permission).
@@ -5455,15 +5470,34 @@ async function ensureIdleDetector() {
   } catch(e) {}
 }
 
+function showInactiveWarn(secLeft){
+  var c=document.getElementById('inactive-warn-count'); if(c) c.textContent=secLeft;
+  var m=document.getElementById('inactive-warn-modal'); if(m && !m.classList.contains('show')) m.classList.add('show');
+}
+function hideInactiveWarn(){
+  var m=document.getElementById('inactive-warn-modal'); if(m) m.classList.remove('show');
+  trkWarnLastSec=-1;
+}
+function _beepCountdown(secLeft){
+  if(!_ensureAudio()) return;
+  try{
+    var t=_ac.currentTime, o=_ac.createOscillator(), g=_ac.createGain();
+    o.type='sine';
+    o.frequency.setValueAtTime(secLeft<=3 ? 1180 : (secLeft<=6 ? 940 : 760), t);  // rises as it nears 0
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.18,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.24);
+    o.connect(g); g.connect(_ac.destination); o.start(t); o.stop(t+0.26);
+  }catch(e){}
+}
 function trkCheckInactivity() {
-  if (!trkRunning) return;
-  if (!trkOwns) return;   // a non-owning session never auto-pauses or demerits
+  if (!trkRunning || !trkOwns) { hideInactiveWarn(); return; }   // not running / not owner → no warning
   // If system-wide detection is on and the user is active anywhere, keep the timer alive
   if (trkIdleDetector && trkIdleDetector.userState === 'active' && trkIdleDetector.screenState === 'unlocked') {
     trkLastActivity = Date.now();
   }
-  if (trkInBioBreak()) { trkLastActivity = Date.now(); return; }   // bio breaks are exempt
-  if (Date.now() - trkLastActivity >= INACTIVITY_MS) {
+  if (trkInBioBreak()) { trkLastActivity = Date.now(); hideInactiveWarn(); return; }   // bio breaks are exempt
+  var idleMs = Date.now() - trkLastActivity;
+  if (idleMs >= INACTIVITY_MS) {
+    hideInactiveWarn();
     var id = trkRunning.entry_id;
     pauseTimer({ silent: true });
     trkAutoPausedId = id;
@@ -5472,6 +5506,14 @@ function trkCheckInactivity() {
     showDemeritNotice();
     bumpDemeritDisplay(0.15);   // reflect on HR tab immediately
     if (typeof scEmpId !== 'undefined' && scEmpId) setTimeout(function(){ loadScorecard(); }, 2600); // sync from server
+    return;
+  }
+  if (idleMs >= WARN_MS) {                                        // last 10s → countdown + ring
+    var secLeft = Math.max(0, Math.ceil((INACTIVITY_MS - idleMs) / 1000));
+    showInactiveWarn(secLeft);
+    if (secLeft !== trkWarnLastSec) { trkWarnLastSec = secLeft; _beepCountdown(secLeft); }
+  } else {
+    hideInactiveWarn();
   }
 }
 // Live-update the demerit card on the HR & Scorecard tab (current month only)
@@ -5500,7 +5542,7 @@ function trkInitActivityWatch() {
   ['mousemove','mousedown','keydown','scroll','touchstart','wheel'].forEach(function(ev) {
     document.addEventListener(ev, trkMarkActivity, { passive: true });
   });
-  trkActivityTick = setInterval(trkCheckInactivity, 15000);
+  trkActivityTick = setInterval(trkCheckInactivity, 1000);   // 1s cadence so the 10s countdown is accurate
 }
 
 function updateClockifyStartBtn() {
