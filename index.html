@@ -5460,19 +5460,9 @@ function trkMarkActivity() {
 // System-wide idle detection — counts activity in ANY app/tab (Chrome/Edge, with permission).
 // Falls back to in-tab event detection where unsupported or denied.
 async function ensureIdleDetector() {
-  if (trkIdleReqDone) return;
-  trkIdleReqDone = true;
-  if (!('IdleDetector' in window)) return;
-  try {
-    var perm = await IdleDetector.requestPermission();
-    if (perm !== 'granted') { showToast('Tip: allow activity detection so working in other apps counts as active.'); return; }
-    var d = new IdleDetector();
-    d.addEventListener('change', function() {
-      if (d.userState === 'active' && d.screenState === 'unlocked') trkMarkActivity();
-    });
-    await d.start({ threshold: 60000 });
-    trkIdleDetector = d;
-  } catch(e) {}
+  // Disabled: inactivity is now based purely on interaction with the portal tab,
+  // so the 3-minute rule is predictable and not affected by other apps.
+  return;
 }
 
 function showInactiveWarn(secLeft){
@@ -5495,10 +5485,6 @@ function _beepCountdown(secLeft){
 }
 function trkCheckInactivity() {
   if (!trkRunning || !trkOwns) { hideInactiveWarn(); return; }   // not running / not owner → no warning
-  // If system-wide detection is on and the user is active anywhere, keep the timer alive
-  if (trkIdleDetector && trkIdleDetector.userState === 'active' && trkIdleDetector.screenState === 'unlocked') {
-    trkLastActivity = Date.now();
-  }
   if (trkInBioBreak()) { trkLastActivity = Date.now(); hideInactiveWarn(); return; }   // bio breaks are exempt
   var idleMs = Date.now() - trkLastActivity;
   if (idleMs >= INACTIVITY_MS) {
