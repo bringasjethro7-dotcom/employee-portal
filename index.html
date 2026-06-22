@@ -4090,7 +4090,7 @@ function assessMonthKey(){ var d=new Date(); return d.getFullYear()+'-'+String(d
 function assessMonthName(){ return new Date().toLocaleString('en-US', { month:'long' }); }
 function _fmtMSS(sec){ sec=Math.max(0,Math.floor(sec)); return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0'); }
 function _asClearTimers(){ ['typeTimer','quizTimer','sectionTimer'].forEach(function(k){ if(_asState[k]){ clearInterval(_asState[k]); _asState[k]=null; } }); }
-function _assessEmpId(){ return (typeof scEmpId!=='undefined'&&scEmpId) || attEmpId || (window._currentEmpData&&window._currentEmpData.employee_id) || ''; }
+function _assessEmpId(){ return (window._currentEmpData&&window._currentEmpData.employee_id) || (typeof scEmpId!=='undefined'&&scEmpId) || (typeof attEmpId!=='undefined'&&attEmpId) || ''; }
 function applyAssessGate(){
   var btn=document.getElementById('sc-assess-btn'), st=document.getElementById('sc-assess-status');
   if(!btn) return;
@@ -4285,19 +4285,28 @@ async function assessFinish(){
     '</div>'+
     '<div id="assess-saving" style="font-size:12px;color:var(--text-3);text-align:center;margin-bottom:10px;">Saving…</div>'+
     '<div style="display:flex;justify-content:center;"><button onclick="closeAssessment(); if(typeof loadScorecard===\'function\') loadScorecard();" style="background:var(--orange-3,#FF6B1A);color:#fff;border:none;border-radius:9px;padding:9px 22px;font:600 13px/1 inherit;cursor:pointer;">Done</button></div>';
+  var s=document.getElementById('assess-saving');
+  var empId=_assessEmpId();
+  if(!empId){ if(s){ s.textContent='Couldn’t identify your account — please re-login and try again.'; s.style.color='#f87171'; } return; }
   try{
     var url = APPS_SCRIPT_URL + '?action=save_assessment'
-      + '&employee_id=' + encodeURIComponent((typeof scEmpId!=='undefined'&&scEmpId) || attEmpId || (window._currentEmpData&&window._currentEmpData.employee_id) || '')
+      + '&employee_id=' + encodeURIComponent(empId)
       + '&month=' + encodeURIComponent(assessMonthKey())
       + '&quiz_score=' + _asState.quizPct + '&typing_wpm=' + t.wpm + '&typing_acc=' + t.acc + '&assessment_score=' + score;
     var resp=await fetch(url); var rj={}; try{ rj=await resp.json(); }catch(_e){}
-    var s=document.getElementById('assess-saving');
-    if(rj && rj.error==='ALREADY_TAKEN'){ if(s){ s.textContent='You already completed this month’s assessment — your earlier score stands.'; s.style.color='#f59e0b'; } score=Number(rj.assessment_score)||score; }
-    else if(s){ s.textContent='Saved — added to your scorecard ('+(score*0.15).toFixed(2)+' / 15 pts).'; s.style.color='#4ade80'; }
-    // lock + reflect instantly
-    assessTaken=true; assessScore=score; applyAssessGate();
-    if(typeof loadScorecard==='function') loadScorecard();   // refresh overall + cards now
-  }catch(e){ var s2=document.getElementById('assess-saving'); if(s2){ s2.textContent='Couldn’t save — please try again.'; s2.style.color='#f87171'; } }
+    if(rj && rj.success){
+      if(s){ s.textContent='Saved — added to your scorecard ('+(score*0.15).toFixed(2)+' / 15 pts).'; s.style.color='#4ade80'; }
+      assessTaken=true; assessScore=score; applyAssessGate();
+      if(typeof loadScorecard==='function') loadScorecard();   // refresh overall + cards now
+    } else if(rj && rj.error==='ALREADY_TAKEN'){
+      if(s){ s.textContent='You already completed this month’s assessment — your earlier score stands.'; s.style.color='#f59e0b'; }
+      assessTaken=true; assessScore=(rj.assessment_score!=null?Number(rj.assessment_score):score); applyAssessGate();
+      if(typeof loadScorecard==='function') loadScorecard();
+    } else {
+      var emsg = (rj && rj.error) ? rj.error : ('no response'+(resp?(' ('+resp.status+')'):''));
+      if(s){ s.innerHTML='<b style="color:#f87171;">Not saved — '+emsg+'</b><br><span style="color:var(--text-3);font-size:11px;">Screenshot this and send to your admin.</span>'; }
+    }
+  }catch(e){ if(s){ s.textContent='Couldn’t save (network) — please try again.'; s.style.color='#f87171'; } }
 }
 
 function setScCard(type, score) {
