@@ -223,8 +223,11 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
 .adminbtn:hover{opacity:.92}
 .ghost{font-size:12px;font-weight:600;color:var(--t2);background:none;border:1px solid var(--line);border-radius:9px;padding:8px 13px;cursor:pointer;font-family:inherit}
 .ghost:hover{color:var(--t1);border-color:var(--line-hi)}
-#eod-modal,#eod-warn,#phone-reminder,#reels-alarm{position:fixed;inset:0;z-index:300;display:none;align-items:center;justify-content:center;background:rgba(7,9,13,.8);backdrop-filter:blur(8px);padding:1.5rem}
-#eod-modal.open,#eod-warn.open,#phone-reminder.open,#reels-alarm.open{display:flex;animation:docFade .2s ease}
+#eod-modal,#eod-warn,#phone-reminder,#reels-alarm,#acct-edit-modal{position:fixed;inset:0;z-index:300;display:none;align-items:center;justify-content:center;background:rgba(7,9,13,.8);backdrop-filter:blur(8px);padding:1.5rem}
+#eod-modal.open,#eod-warn.open,#phone-reminder.open,#reels-alarm.open,#acct-edit-modal.open{display:flex;animation:docFade .2s ease}
+#acct-edit-modal .ae-field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em}
+#acct-edit-modal .ae-field input{width:100%;min-width:0;box-sizing:border-box;background:#0c0f15;border:1px solid var(--line);border-radius:8px;color:#fff;padding:9px 12px;font:14px/1.2 inherit;text-transform:none;letter-spacing:0}
+#acct-edit-modal .ae-field input:focus{outline:none;border-color:var(--o2)}
 #reels-alarm .eodbox{max-width:560px}
 #reels-alarm .alarm-in{width:130px;background:#0c0f15;border:1px solid var(--line);border-radius:8px;color:#fff;padding:7px 10px;font:inherit}
 @keyframes alarmPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
@@ -306,9 +309,21 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
         <div class="msel" id="ms-post"><button type="button" class="msel-btn" onclick="toggleMsel('post',event)"><span id="ms-post-lbl">All phones</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button><div class="msel-pan" id="ms-post-pan" onclick="event.stopPropagation()"></div></div>
         <select class="sel" id="post-filter" onchange="renderPosting()"><option value="all">All accounts</option><option value="todo">Not posted</option><option value="done">Posted</option><option value="active">Active only</option></select>
         <input class="search" id="post-search" placeholder="Search handle…" oninput="renderPosting()" />
+        <button class="adminbtn" id="post-assign-btn" onclick="autoAssignPosting()">Auto-assign phones</button>
         <button class="adminbtn" onclick="runEOD()">End of day</button>
       </div>
       <div class="stats" id="post-stats"></div>
+
+      <div class="targbox open" id="postteambox" style="margin-top:0;margin-bottom:1.2rem">
+        <div class="targhead" onclick="document.getElementById('postteambox').classList.toggle('open')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          <b>Posting team</b><span class="targsum" id="postteam-sum"></span>
+        </div>
+        <div class="targbody">
+          <table class="srctable"><thead><tr><th>Employee</th><th>Phone</th><th>Target</th><th>Posted</th><th>Completion</th></tr></thead><tbody id="postteam-body"></tbody></table>
+        </div>
+      </div>
+
       <div id="posting"><div class="muted">Loading accounts…</div></div>
     </div>
 
@@ -316,7 +331,7 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
     <div class="page" id="page-sourcing">
       <div class="toolbar">
         <div class="msel" id="ms-src"><button type="button" class="msel-btn" onclick="toggleMsel('src',event)"><span id="ms-src-lbl">All phones</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button><div class="msel-pan" id="ms-src-pan" onclick="event.stopPropagation()"></div></div>
-        <select class="sel" id="src-filter" onchange="renderSourcing()"><option value="all">All accounts</option><option value="todo">Not sourced</option><option value="done">Sourced</option><option value="active">Active only</option></select>
+        <select class="sel" id="src-filter" onchange="renderSourcing()"><option value="all">All accounts</option><option value="red">Has red (targets)</option><option value="todo">Not sourced</option><option value="done">Sourced</option><option value="active">Active only</option></select>
         <input class="search" id="src-search" placeholder="Search handle…" oninput="renderSourcing()" />
         <button class="adminbtn" id="src-record-btn" style="display:none" onclick="recordDay()">Record day</button>
         <button class="ghost" id="src-import-btn" style="display:none" onclick="importSourcingHistory()">Import history</button>
@@ -359,6 +374,7 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
       <div class="toolbar">
         <select class="sel" id="acct-statusf" onchange="renderAccountsTab()"><option value="all">All statuses</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="logged_out">Logged out</option></select>
         <input class="search" id="acct-search" placeholder="Search handle / phone…" oninput="renderAccountsTab()" />
+        <button class="ghost" onclick="refreshFollowersBulk()" title="Pull latest followers &amp; bio for the accounts shown">↻ Followers &amp; bio</button>
         <button class="adminbtn" id="acct-add-btn" style="display:none" onclick="addAccountPrompt()">+ Add account</button>
       </div>
       <div class="stats" id="acct-stats"></div>
@@ -397,6 +413,22 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
   </div>
 </div>
 
+<!-- Edit IG account (admin) -->
+<div id="acct-edit-modal">
+  <div class="eodbox" style="max-width:480px">
+    <div class="eodhd">Edit account</div>
+    <div class="eodsub">Update this IG account's details.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:.6rem 0">
+      <label class="ae-field">Phone <input id="ae-phone" inputmode="numeric"></label>
+      <label class="ae-field">User <input id="ae-user" inputmode="numeric"></label>
+      <label class="ae-field">Acct <input id="ae-acct" inputmode="numeric"></label>
+      <label class="ae-field" style="grid-column:1/3">Handle (without @) <input id="ae-handle"></label>
+      <label class="ae-field">Followers <input id="ae-foll" inputmode="numeric"></label>
+    </div>
+    <div class="eodbtns"><button class="ghost" style="color:var(--red);border-color:rgba(239,68,68,.4)" onclick="delAccountFromEdit()">Delete</button><button class="ghost" onclick="closeAcctEdit()">Cancel</button><button class="adminbtn" onclick="saveAcctEdit()">Save</button></div>
+  </div>
+</div>
+
 <!-- EOD report modal -->
 <div id="eod-modal">
   <div class="eodbox">
@@ -427,6 +459,8 @@ document.getElementById('hdr-logo').src = LOGO;
 
 var USER=null, ISADMIN=false, STATE=null, MYVA='';  // MYVA now holds the marker's name
 var ANIMATE_AUDIO=false;   // set true when the Insights tab is opened so the trend line draws in
+var DIRTY={};              // account-key -> timestamp of last local edit (protects against poll races)
+function markDirty(k){ DIRTY[k]=Date.now(); }
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function toast(m){ var t=$('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(function(){t.classList.remove('show');},1800); }
@@ -546,7 +580,7 @@ function enterApp(user, admin){
   if(!configured()){ $('setup').style.display='block'; return; }
   $('app').style.display='block';
   $('who-name').textContent=firstName(user.full_name||user.employee_id);
-  if(ISADMIN){ $('import-btn').style.display=''; $('src-record-btn').style.display=''; $('src-import-btn').style.display=''; $('src-reset-btn').style.display=''; $('src-clear-btn').style.display=''; $('src-assign-btn').style.display=''; $('ig-cookie-btn').style.display=''; var ab=$('acct-add-btn'); if(ab) ab.style.display=''; }
+  if(ISADMIN){ $('import-btn').style.display=''; $('src-record-btn').style.display=''; $('src-import-btn').style.display=''; $('src-reset-btn').style.display=''; $('src-clear-btn').style.display=''; $('src-assign-btn').style.display=''; $('ig-cookie-btn').style.display=''; var ab=$('acct-add-btn'); if(ab) ab.style.display=''; var pab=$('post-assign-btn'); if(pab) pab.style.display=''; }
   // record the marker's name (the signed-in person)
   MYVA = ISADMIN ? 'Admin' : (user.full_name || user.employee_id || '');
   // dates default today (filled after state load)
@@ -568,7 +602,9 @@ async function loadState(){
   }catch(e){ toast('Could not load data. Check the backend URL.'); }
 }
 function todayPST(){
-  try{ var s=new Date().toLocaleString('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}); return s; }catch(e){ return new Date().toISOString().slice(0,10); }
+  // default to the user's LOCAL today (not LA time) so the Posting date opens on the real current day
+  var d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 function onDateChange(){
   loadState();
@@ -638,12 +674,13 @@ function setAllPhones(kind,on){ PHFILTER[kind]=[]; buildPhoneFilter(); if(kind==
 document.addEventListener('click', function(){ document.querySelectorAll('.msel.open').forEach(function(m){ m.classList.remove('open'); }); });
 function renderPosting(){
   if(!STATE) return;
+  renderPostTeam();
   var accts=(STATE.accounts||[]), map=postingMap(), disc=disconnectedPhones();
   var ff=$('post-filter').value, q=$('post-search').value.trim().toLowerCase();
-  // stats — disconnected phones excluded from totals
+  // stats — target counts ALL active accounts across phones (connected OR disconnected)
   var green=0, orange=0, mine=0;
-  accts.forEach(function(a){ if(disc[String(a.phone)]) return; var r=map[postKey(a)]; if(!r) return; var n=boxesFor('post',a); green+=countAt(r.cells,n,2); orange+=countAt(r.cells,n,1); if(r.va_code===MYVA) mine+=countAt(r.cells,n,2); });
-  var postable = accts.filter(function(a){ return !disc[String(a.phone)] && (!a.status||a.status==='active'); }).length;
+  accts.forEach(function(a){ if(a.status && a.status!=='active') return; var r=map[postKey(a)]; if(!r) return; var n=boxesFor('post',a); green+=countAt(r.cells,n,2); orange+=countAt(r.cells,n,1); if(r.va_code===MYVA) mine+=countAt(r.cells,n,2); });
+  var postable = accts.filter(function(a){ return (!a.status||a.status==='active'); }).length;
   var pct = postable ? Math.round(green/postable*100) : 0;
   $('post-stats').innerHTML=
     statCard('Posted', green, 'g')+
@@ -657,6 +694,72 @@ function renderPosting(){
   $('posting').innerHTML=phones.map(function(ph){ return groupHTML('post', ph, byPhone[ph], map, disc); }).join('');
 }
 function disconnectedPhones(){ var d={}; (STATE&&STATE.phones||[]).forEach(function(p){ if((p.status||'')==='disconnected') d[String(p.phone)]=true; }); return d; }
+/* ---- POSTING TEAM (auto-assign connected phones by active-account count) ---- */
+function phonePostStats_(ph){
+  var map=postingMap(), gp=String(greenState('post')), active=0, posted=0;
+  (STATE.accounts||[]).forEach(function(a){
+    if(String(a.phone)!==String(ph)) return;
+    if(a.status && a.status!=='active') return;     // only active accounts count
+    active++; var r=map[postKey(a)]; if(r && cellAt(r.cells,0)===gp) posted++;
+  });
+  return { active:active, posted:posted };
+}
+function renderPostTeam(){
+  var posters=(STATE.posters||[]).slice().sort(function(a,b){ return fnum(a.id)-fnum(b.id); });
+  var disc=disconnectedPhones(), totT=0, totP=0, html='', claimed={};
+  posters.forEach(function(px){
+    var phones=String(px.phones||'').split(',').map(function(x){return x.trim();}).filter(function(x){return x!==''; });
+    var target=0, posted=0;
+    phones.forEach(function(ph){
+      if(claimed[ph]) return; claimed[ph]=true;       // a phone counts for only one poster
+      if(disc[String(ph)]) return;                    // disconnected phones excluded
+      var st=phonePostStats_(ph); target+=st.active; posted+=st.posted;
+    });
+    totT+=target; totP+=posted;
+    var p=target?Math.round(posted/target*100):0, pc=p>=100?'ok':(p>=70?'mid':'low');
+    var active = String(px.active||'').toUpperCase()!=='FALSE';
+    var chk = ISADMIN ? '<input type="checkbox" class="empchk" title="Working today" '+(active?'checked':'')+' onchange="setPoster(\''+esc(px.id)+'\',\'active\',this.checked?\'TRUE\':\'FALSE\')">' : '';
+    var nameCell = ISADMIN
+      ? '<div class="empwrap">'+chk+'<input class="empin" value="'+escAttr(px.name||'')+'" placeholder="Employee" onchange="setPoster(\''+esc(px.id)+'\',\'name\',this.value)"></div>'
+      : esc(px.name||'—');
+    var phoneCell = ISADMIN
+      ? '<input class="empin" value="'+escAttr(String(px.phones||''))+'" placeholder="e.g. 1, 4, 7" onchange="setPoster(\''+esc(px.id)+'\',\'phones\',this.value)">'
+      : (phones.length?esc(phones.map(function(x){return 'P'+x;}).join(', ')):'<span style="color:var(--t3)">—</span>');
+    html+='<tr'+(active?'':' style="opacity:.45"')+'><td>'+nameCell+'</td><td>'+phoneCell+'</td><td><b>'+target+'</b></td><td>'+posted+'</td>'+
+      '<td><div style="display:flex;align-items:center;gap:10px"><span class="pct '+pc+'">'+p+'%</span><div class="pbar"><i style="width:'+Math.min(100,p)+'%"></i></div></div></td></tr>';
+  });
+  var sum=$('postteam-sum'); if(sum) sum.textContent=totP+' / '+totT+' posted · '+(totT?Math.round(totP/totT*100):0)+'%';
+  var body=$('postteam-body'); if(body) body.innerHTML = html || '<tr><td colspan="5" class="muted">No posting team.</td></tr>';
+}
+function setPoster(id, field, val){
+  var s=(STATE.posters||[]).filter(function(x){ return String(x.id)===String(id); })[0]; if(s){ s[field]=val; }
+  var obj={ action:'poster_set', id:id }; obj[field]=val;
+  renderPostTeam();
+  apiPost(obj).catch(function(){ toast('Save failed'); });
+}
+async function autoAssignPosting(){
+  if(!confirm('Auto-assign all CONNECTED phones across the posting team, balanced by active-account count?\nThis overwrites the current posting-team phone assignments.\n\nTip: update phone statuses in Digital first — disconnected phones are skipped.')) return;
+  var disc=disconnectedPhones(), acctByPhone={}, phonesSet={};
+  (STATE.accounts||[]).forEach(function(a){
+    if(a.status && a.status!=='active') return;        // only active accounts
+    var ph=String(a.phone); if(disc[ph]) return;        // only connected (non-disconnected) phones
+    phonesSet[ph]=true; acctByPhone[ph]=(acctByPhone[ph]||0)+1;
+  });
+  var phones=Object.keys(phonesSet).filter(function(ph){ return (acctByPhone[ph]||0)>0; }).sort(function(a,b){ return (acctByPhone[b]-acctByPhone[a]) || (fnum(a)-fnum(b)); });
+  if(!phones.length){ toast('No connected phones with active accounts — check Digital first'); return; }
+  var team=(STATE.posters||[]).filter(function(s){ return String(s.active||'').toUpperCase()!=='FALSE'; }).sort(function(a,b){ return fnum(a.id)-fnum(b.id); });
+  if(!team.length){ toast('Tick the posting-team members working today first'); return; }
+  var buckets=team.map(function(s){ return { id:s.id, sum:0, phones:[] }; });
+  phones.forEach(function(ph){
+    var best=buckets[0];
+    for(var i=1;i<buckets.length;i++){ if(buckets[i].sum<best.sum || (buckets[i].sum===best.sum && buckets[i].phones.length<best.phones.length)) best=buckets[i]; }
+    best.phones.push(ph); best.sum += (acctByPhone[ph]||0);
+  });
+  buckets.forEach(function(b){ b.list=b.phones.sort(function(a,c){ return fnum(a)-fnum(c); }).join(', '); var s=(STATE.posters||[]).filter(function(x){ return String(x.id)===String(b.id); })[0]; if(s) s.phones=b.list; });
+  renderPostTeam();
+  try{ for(var i=0;i<buckets.length;i++){ await apiPost({ action:'poster_set', id:buckets[i].id, phones:buckets[i].list }); } toast('Connected phones assigned across '+buckets.length+' team members'); }
+  catch(e){ toast('Save failed'); }
+}
 function countActive(accts){ return accts.filter(function(a){ return !a.status || a.status==='active'; }).length; }
 /* ---- shared cell grid — posting: 50 boxes (blank→orange→green) ;
         sourcing: per-account admin target boxes (blank→red→orange→green) ---- */
@@ -685,6 +788,7 @@ function filterAccounts(kind, accts, map, ff, q){
     if(kind==='src' && !ISADMIN){ var rr=map[keyOf(a)]; if(countNonBlank(rr?rr.cells:'', srcLen(rr))<=0) return false; }  // VAs only see accounts with assignments
     if(ff==='active' && (a.status&&a.status!=='active')) return false;
     if(ff==='todo' || ff==='done'){ var r2=map[keyOf(a)]; var n=boxesFor(kind,a,r2); var has=greenCount(kind,r2&&r2.cells,n)>0; if(ff==='todo'&&has)return false; if(ff==='done'&&!has)return false; }
+    if(ff==='red'){ var rr3=map[keyOf(a)]; if(!rr3 || countAt(rr3.cells, srcLen(rr3), 1)<=0) return false; }   // only accounts with remaining red targets
     if(q && esc(a.handle).toLowerCase().indexOf(q)<0) return false;
     return true;
   });
@@ -721,7 +825,7 @@ function groupHTML(kind, ph, list, map, disc){
   });
   var pct=denom?Math.round(withGreen/denom*100):0;
   var isDisc = kind==='post' && !!disc[String(ph)];
-  var badge = isDisc ? '<span class="discb">disconnected · not counted</span>' : '';
+  var badge = isDisc ? '<span class="discb">disconnected · can’t post yet</span>' : '';
   var open = !!OPEN[kind][ph];
   var body = open ? list.map(function(a){ return acctRow(kind, a, map[keyOf(a)]); }).join('') : '';
   var phctrl = (kind==='src' && ISADMIN) ?
@@ -772,8 +876,9 @@ async function cycleCell(kind,phone,user,acct,handle,idx){
   } else {
     r={ date:STATE.date, phone:phone, user:user, acct:acct, handle:handle, va_code:MYVA, cells:cells }; STATE.posting.push(r);
   }
+  markDirty(k);
   if(isSrc) renderSourcing(); else renderPosting();
-  try{ await apiPost({ action:'cell_set', kind:kind, date:STATE.date, phone:phone, user:user, acct:acct, handle:handle, index:idx, state:next, va_code:MYVA, admin:(ISADMIN?1:0), by:firstName(USER.full_name||USER.employee_id) }); }
+  try{ await apiPost({ action:'cell_set', kind:kind, date:STATE.date, phone:phone, user:user, acct:acct, handle:handle, index:idx, state:next, va_code:MYVA, admin:(ISADMIN?1:0), by:firstName(USER.full_name||USER.employee_id) }); markDirty(k); }
   catch(e){ toast('Save failed'); }
 }
 // admin: set/add a sourcing box with an explicit number
@@ -783,8 +888,9 @@ async function setSrcBox(phone,user,acct,handle,idx,state,num){
   r.cells=setCellAt(r.cells,idx,String(state)); r.va_code=MYVA;
   if(num!==undefined && num!==null && num!=='') r.nums=gdSet(r.nums,idx,String(num));
   if(String(state)===String(greenState('src'))) r.gdates=gdSet(r.gdates,idx,srcToday()); else r.gdates=gdSet(r.gdates,idx,'');
+  markDirty(k);
   renderSourcing();
-  try{ await apiPost({ action:'cell_set', kind:'src', phone:phone, user:user, acct:acct, handle:handle, index:idx, state:state, num:num, va_code:MYVA, by:firstName(USER.full_name||USER.employee_id) }); }
+  try{ await apiPost({ action:'cell_set', kind:'src', phone:phone, user:user, acct:acct, handle:handle, index:idx, state:state, num:num, va_code:MYVA, by:firstName(USER.full_name||USER.employee_id) }); markDirty(k); }
   catch(e){ toast('Save failed'); }
 }
 function addSrcBox(phone,user,acct,handle){
@@ -809,8 +915,9 @@ function srcSaveBoxes(phone,user,acct,handle, boxes){
   var k=[phone,user,acct,handle].join('|'); var r=sourceMap()[k];
   if(r){ r.cells=cells; r.nums=nums; r.gdates=gds; }
   else { r={ phone:phone,user:user,acct:acct,handle:handle, va_code:MYVA, cells:cells, nums:nums, gdates:gds }; STATE.sourcelog.push(r); }
+  markDirty(k);
   renderSourcing();
-  apiPost({ action:'src_set_account', phone:phone, user:user, acct:acct, handle:handle, cells:cells, nums:nums, gdates:gds, va_code:MYVA, by:firstName(USER.full_name||USER.employee_id) }).catch(function(){ toast('Save failed'); });
+  apiPost({ action:'src_set_account', phone:phone, user:user, acct:acct, handle:handle, cells:cells, nums:nums, gdates:gds, va_code:MYVA, by:firstName(USER.full_name||USER.employee_id) }).then(function(){ markDirty(k); }).catch(function(){ toast('Save failed'); });
 }
 /* ======================= IG ACCOUNTS ======================= */
 function acctStatusBadge(a){
@@ -836,13 +943,82 @@ function renderAccountsTab(){
     return true;
   });
   rows.sort(function(x,y){ return (fnum(x.phone)-fnum(y.phone)) || (fnum(x.user)-fnum(y.user)) || (fnum(x.acct)-fnum(y.acct)); });
+  ACCT_ROWS=rows;
   if(!rows.length){ $('accounts-list').innerHTML='<div class="muted">No accounts match.</div>'; return; }
+  var fref='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
   var body=rows.map(function(a){
-    var url=a.link?esc(a.link):('https://instagram.com/'+esc(a.handle||''));
-    var handle=a.handle?('<a href="'+url+'" target="_blank" rel="noopener" style="color:var(--o2);text-decoration:none">@'+esc(a.handle)+'</a>'):'<span class="muted">—</span>';
-    return '<tr><td>P'+esc(a.phone)+'</td><td>U'+esc(a.user)+'</td><td>A'+esc(a.acct)+'</td><td class="nm">'+handle+'</td><td>'+(a.followers?esc(a.followers):'—')+'</td><td>'+acctStatusBadge(a)+'</td></tr>';
+    var hh=String(a.handle||'').replace(/^@/,'');
+    var url = (a.link && /^https?:\/\//i.test(a.link)) ? a.link : (hh ? ('https://www.instagram.com/'+hh+'/') : '');
+    var handle=hh?('<a href="'+esc(url)+'" target="_blank" rel="noopener" style="color:var(--o2);text-decoration:none">@'+esc(hh)+'</a>'):'<span class="muted">—</span>';
+    var folBtn = hh?(' <button title="Pull latest followers &amp; bio from Instagram" style="background:none;border:none;color:var(--t3);cursor:pointer;padding:2px" onclick="refreshFollowers(\''+esc(a.phone)+'\',\''+esc(a.user)+'\',\''+esc(a.acct)+'\',\''+escAttr(a.handle)+'\')">'+fref+'</button>'):'';
+    var actions = ISADMIN ? ('<td style="text-align:right;white-space:nowrap">'
+      + '<button title="Edit" style="background:none;border:none;color:var(--t2);cursor:pointer;padding:4px" onclick="editAccount(\''+esc(a.phone)+'\',\''+esc(a.user)+'\',\''+esc(a.acct)+'\',\''+escAttr(a.handle)+'\')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>'
+      + '<button title="Delete" style="background:none;border:none;color:var(--red);cursor:pointer;padding:4px" onclick="delAccount(\''+esc(a.phone)+'\',\''+esc(a.user)+'\',\''+esc(a.acct)+'\',\''+escAttr(a.handle)+'\')">✕</button></td>') : '';
+    var bioFull=String(a.bio||'').trim();
+    var bioShort=bioFull.length>48?bioFull.slice(0,48)+'…':bioFull;
+    var bioCell=bioFull?('<span title="'+escAttr(bioFull)+'" style="color:var(--t2)">'+esc(bioShort)+'</span>'):'<span class="muted">—</span>';
+    return '<tr><td>P'+esc(a.phone)+'</td><td>U'+esc(a.user)+'</td><td>A'+esc(a.acct)+'</td><td class="nm">'+handle+'</td><td>'+(a.followers?esc(Number(a.followers).toLocaleString?Number(a.followers).toLocaleString():a.followers):'—')+folBtn+'</td><td style="max-width:260px;white-space:normal;line-height:1.35">'+bioCell+'</td><td>'+acctStatusBadge(a)+'</td>'+actions+'</tr>';
   }).join('');
-  $('accounts-list').innerHTML='<table class="srctable"><thead><tr><th>Phone</th><th>User</th><th>Acct</th><th>Handle</th><th>Followers</th><th>Status</th></tr></thead><tbody>'+body+'</tbody></table>';
+  $('accounts-list').innerHTML='<table class="srctable"><thead><tr><th>Phone</th><th>User</th><th>Acct</th><th>Handle</th><th>Followers</th><th>Bio</th><th>Status</th>'+(ISADMIN?'<th></th>':'')+'</tr></thead><tbody>'+body+'</tbody></table>';
+}
+var EDIT_ACCT=null, ACCT_ROWS=[];
+async function refreshFollowers(phone,user,acct,handle){
+  toast('Checking @'+handle+'…');
+  try{
+    var r=await apiPost({ action:'ig_followers', phone:phone, user:user, acct:acct, handle:handle });
+    var got = r && r.ok && ((r.count!=='' && r.count!=null) || (r.bio!=='' && r.bio!=null));
+    if(got){
+      var a=(STATE.accounts||[]).filter(function(x){ return String(x.phone)===String(phone)&&String(x.user)===String(user)&&String(x.acct)===String(acct)&&String(x.handle)===String(handle); })[0];
+      if(a){ if(r.count!==''&&r.count!=null) a.followers=r.count; if(r.bio!==''&&r.bio!=null) a.bio=r.bio; }
+      renderAccountsTab(); toast('@'+handle+' updated'+(r.count!==''&&r.count!=null?(' · '+Number(r.count).toLocaleString()+' followers'):''));
+    } else if(r&&r.no_cookie){ toast('No IG session set — open Goal/Insights → IG session and paste a fresh sessionid.'); }
+    else { toast(r&&r.blocked?'IG blocked / session expired — refresh the IG session on Goal/Insights.':'Couldn’t read @'+handle); }
+  }catch(e){ toast('Failed'); }
+}
+async function refreshFollowersBulk(){
+  var rows=ACCT_ROWS.filter(function(a){ return String(a.handle||'').trim()!==''; });
+  if(!rows.length){ toast('No accounts to refresh'); return; }
+  if(!confirm('Pull latest followers for '+rows.length+' account'+(rows.length>1?'s':'')+' (the ones currently shown)?\nInstagram is queried one at a time, so this can take a while.')) return;
+  var ok=0, fail=0;
+  for(var i=0;i<rows.length;i++){
+    var a=rows[i]; toast('Followers '+(i+1)+'/'+rows.length+' — @'+a.handle);
+    try{ var r=await apiPost({ action:'ig_followers', phone:a.phone, user:a.user, acct:a.acct, handle:a.handle });
+      if(r && r.ok && ((r.count!==''&&r.count!=null)||(r.bio!==''&&r.bio!=null))){ if(r.count!==''&&r.count!=null) a.followers=r.count; if(r.bio!==''&&r.bio!=null) a.bio=r.bio; ok++; renderAccountsTab(); } else fail++;
+    }catch(e){ fail++; }
+    await new Promise(function(res){ setTimeout(res, 700); });   // gentle pacing to avoid IG rate limits
+  }
+  toast('Followers updated: '+ok+(fail?(' · '+fail+' failed'):''));
+}
+function editAccount(phone,user,acct,handle){
+  if(!ISADMIN) return;
+  var a=(STATE.accounts||[]).filter(function(x){ return String(x.phone)===String(phone)&&String(x.user)===String(user)&&String(x.acct)===String(acct)&&String(x.handle)===String(handle); })[0];
+  if(!a) return;
+  EDIT_ACCT={ phone:String(a.phone), user:String(a.user), acct:String(a.acct), handle:String(a.handle||'') };
+  $('ae-phone').value=a.phone; $('ae-user').value=a.user; $('ae-acct').value=a.acct; $('ae-handle').value=a.handle||''; $('ae-foll').value=a.followers||'';
+  $('acct-edit-modal').classList.add('open');
+}
+function closeAcctEdit(){ $('acct-edit-modal').classList.remove('open'); EDIT_ACCT=null; }
+function delAccountFromEdit(){ if(EDIT_ACCT) delAccount(EDIT_ACCT.phone, EDIT_ACCT.user, EDIT_ACCT.acct, EDIT_ACCT.handle); }
+async function saveAcctEdit(){
+  if(!EDIT_ACCT) return;
+  var phone=$('ae-phone').value.trim(), user=$('ae-user').value.trim(), acct=$('ae-acct').value.trim();
+  if(!phone||!user||!acct){ toast('Phone, user and account number are required'); return; }
+  var handle=$('ae-handle').value.replace(/^@/,'').trim(), followers=$('ae-foll').value.trim();
+  try{
+    var r=await apiPost({ action:'account_edit', old:EDIT_ACCT, phone:phone, user:user, acct:acct, handle:handle, followers:followers, by:firstName(USER.full_name||USER.employee_id) });
+    if(r && r.error){ toast(r.error); return; }
+    closeAcctEdit(); await refreshQuiet(); renderAccountsTab(); toast('Account updated');
+  }catch(e){ toast('Save failed'); }
+}
+async function delAccount(phone,user,acct,handle){
+  if(!ISADMIN) return;
+  if(!confirm('Delete account P'+phone+' · U'+user+' · A'+acct+(handle?' (@'+handle+')':'')+'?\nThis removes it from the tracker.')) return;
+  try{
+    var r=await apiPost({ action:'account_del', phone:phone, user:user, acct:acct, handle:handle, by:firstName(USER.full_name||USER.employee_id) });
+    if(r && r.error){ toast(r.error); return; }
+    if($('acct-edit-modal')) closeAcctEdit();
+    await refreshQuiet(); renderAccountsTab(); toast('Account deleted');
+  }catch(e){ toast('Delete failed'); }
 }
 async function addAccountPrompt(){
   if(!ISADMIN){ toast('Admins only'); return; }
@@ -897,11 +1073,12 @@ function runEOD(){ $('eod-warn').classList.add('open'); }       // show the warn
 function closeEodWarn(){ $('eod-warn').classList.remove('open'); }
 async function confirmEOD(){
   closeEodWarn();
+  toast('Ending the day… please wait');
   try{
     var r=await apiPost({ action:'eod', date:STATE.date, by:firstName(USER.full_name||USER.employee_id) });
-    if(r && r.ok){ showEod(r.message); await refreshQuiet(); }
-    else toast('EOD failed'+(r&&r.error?': '+r.error:''));
-  }catch(e){ toast('EOD failed'); }
+    if(r && r.ok){ showEod(r.message); refreshQuiet(); }
+    else { alert('Couldn’t end the day'+(r&&r.error?(':\n\n'+r.error):'.')+'\n\nPlease try again in a moment.'); }
+  }catch(e){ alert('Couldn’t end the day — network error. Please try again.'); }
 }
 function showEod(msg){ $('eod-text').value=msg||''; $('eod-modal').classList.add('open'); }
 function closeEod(){ $('eod-modal').classList.remove('open'); }
@@ -940,10 +1117,20 @@ async function togglePostBox(phone,user,acct,handle){
     }
     renderPosting(); renderSourcing();
   }
-  // persist in background; only reconcile on error
-  apiPost({ action:'post_tick', date:STATE.date, phone:phone, user:user, acct:acct, handle:handle, posted:!posted, va_code:MYVA, by:firstName(USER.full_name||USER.employee_id) })
-    .then(function(resp){ if(resp && resp.error){ toast(resp.error); refreshQuiet(); } })
-    .catch(function(){ toast('Save failed'); refreshQuiet(); });
+  markDirty(key);
+  // persist and apply the AUTHORITATIVE server result (exact cycle number + sourcing cells)
+  try{
+    var resp=await apiPost({ action:'post_tick', date:STATE.date, phone:phone, user:user, acct:acct, handle:handle, posted:!posted, va_code:MYVA, by:firstName(USER.full_name||USER.employee_id) });
+    if(resp && resp.error){ toast(resp.error); await refreshQuiet(); return; }
+    var prc=postingMap()[key];
+    if(prc){
+      if(!posted){ prc.cells=setCellAt(prc.cells,0,GP); if(resp.num!=null && resp.num!=='') prc.num=String(resp.num); }
+      else { prc.cells=setCellAt(prc.cells,0,'0'); prc.num=''; }
+    }
+    if(resp.src_cells!=null){ var src=sourceMap()[key]; if(src) src.cells=String(resp.src_cells); }
+    markDirty(key);
+    renderPosting(); renderSourcing();
+  }catch(e){ toast('Save failed'); await refreshQuiet(); }
 }
 var ACCT_STATUS_CYCLE=['active','suspended','logged_out'];
 async function cycleAcctStatus(phone,user,acct,handle){
@@ -972,7 +1159,7 @@ function renderSourcing(){
   var ff=$('src-filter')?$('src-filter').value:'all', q=$('src-search')?$('src-search').value.trim().toLowerCase():'';
   // states: red(1)=target, orange(2)=queued/sourced, green(3)=posted
   var red=0, orange=0, green=0, today=0;
-  accts.forEach(function(a){ var r=map[srcKey(a)]; if(!r) return; var n=srcLen(r); red+=countAt(r.cells,n,1); orange+=countAt(r.cells,n,2); green+=countAt(r.cells,n,3); today+=countTodaySrc(r.cells,r.gdates,n); });
+  accts.forEach(function(a){ if(a.status && a.status!=='active') return; var r=map[srcKey(a)]; if(!r) return; var n=srcLen(r); red+=countAt(r.cells,n,1); orange+=countAt(r.cells,n,2); green+=countAt(r.cells,n,3); today+=countTodaySrc(r.cells,r.gdates,n); });
   $('src-stats').innerHTML=
     statCard('Target', red+today, 'r')+   // stable daily target = still-red + already-sourced-today (matches per-employee total)
     statCard('Queued', orange, 'a')+
@@ -990,16 +1177,25 @@ function renderSourcing(){
    Assigned = # accounts ; Target = red today (red now + sourced today) ; Sourced = red->orange today */
 function phoneStats_(ph){
   var map=sourceMap(), red=0, sourced=0, accounts=0;
-  (STATE.accounts||[]).forEach(function(a){ if(String(a.phone)!==String(ph)) return; accounts++; var r=map[srcKey(a)]; if(!r) return; var n=srcLen(r); red+=countAt(r.cells,n,1); sourced+=countTodaySrc(r.cells,r.gdates,n); });
+  (STATE.accounts||[]).forEach(function(a){
+    if(String(a.phone)!==String(ph)) return;
+    if(a.status && a.status!=='active') return;     // suspended / logged-out accounts don't count toward target
+    accounts++; var r=map[srcKey(a)]; if(!r) return; var n=srcLen(r);
+    red+=countAt(r.cells,n,1); sourced+=countTodaySrc(r.cells,r.gdates,n);
+  });
   return { accounts:accounts, red:red, sourced:sourced };
 }
 function renderTargets(){
   var sourcers=(STATE.sourcers||[]).slice().sort(function(a,b){ return fnum(a.id)-fnum(b.id); });
-  var totT=0, totS=0, html='';
+  var totT=0, totS=0, html='', claimed={};   // a phone counts for only ONE employee (no double-count if it's in two lists)
   sourcers.forEach(function(srx){
     var phones=String(srx.phones||'').split(',').map(function(x){return x.trim();}).filter(function(x){return x!==''; });
     var red=0, sourced=0;
-    phones.forEach(function(ph){ var st=phoneStats_(ph); red+=st.red; sourced+=st.sourced; });
+    phones.forEach(function(ph){
+      if(claimed[ph]) return;          // already counted for an earlier employee — skip so we don't inflate
+      claimed[ph]=true;
+      var st=phoneStats_(ph); red+=st.red; sourced+=st.sourced;
+    });
     var target=red+sourced; totT+=target; totS+=sourced;
     var p=target?Math.round(sourced/target*100):0, pc=p>=100?'ok':(p>=70?'mid':'low');
     var active = String(srx.active||'').toUpperCase()!=='FALSE';   // default working unless explicitly FALSE
@@ -1111,6 +1307,21 @@ async function doImport(){
 async function refreshQuiet(){
   try{ var s=await apiGet({ action:'state', date:STATE.date }); if(!s.error){
     s.phones=s.phones||[]; s.accounts=s.accounts||[]; s.posting=s.posting||[]; s.sourcing=s.sourcing||[]; s.sourcelog=s.sourcelog||[];
+    // Protect very-recent local edits: if a box was changed in the last 8s, keep the local row so a
+    // poll that raced ahead of the server write can't revert the colour / number.
+    var now=Date.now(), GRACE=8000;
+    var pk=function(r){ return [r.phone,r.user,r.acct,r.handle].join('|'); };
+    function keepFresh(serverArr, localArr){
+      var loc={}; (localArr||[]).forEach(function(r){ loc[pk(r)]=r; });
+      var seen={};
+      var out=serverArr.map(function(r){ var k=pk(r); seen[k]=1; return (DIRTY[k] && (now-DIRTY[k])<GRACE && loc[k]) ? loc[k] : r; });
+      // keep local-only rows that were just created and may not be on the server yet
+      (localArr||[]).forEach(function(r){ var k=pk(r); if(!seen[k] && DIRTY[k] && (now-DIRTY[k])<GRACE) out.push(r); });
+      return out;
+    }
+    s.posting   = keepFresh(s.posting,   STATE.posting);
+    s.sourcelog = keepFresh(s.sourcelog, STATE.sourcelog);
+    Object.keys(DIRTY).forEach(function(k){ if(now-DIRTY[k]>GRACE) delete DIRTY[k]; });   // prune
     STATE=s; renderAll();
   } }catch(e){}
 }
@@ -1130,25 +1341,39 @@ function renderInsights(){
   var igb=$('ig-cookie-btn'); if(igb && ISADMIN){ var on=!!STATE.ig_cookie; igb.textContent='IG session: '+(on?'on':'off'); igb.style.borderColor=on?'rgba(34,197,94,.4)':''; igb.style.color=on?'var(--green)':''; }
   var audios=STATE.audios||[];
   var inprog=audios.filter(function(a){ return String(a.status).toLowerCase()!=='done'; }).length;
+  var reposts=STATE.reposts||[];
+  var chartIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>';
   $('ins-stats').innerHTML=
-    '<div class="inscard"><div class="inshd"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg> Audio promotion trend</span>'+
-    '<span class="goalsub" style="margin:0">reels using promoted audios · '+audios.length+' tracked · '+inprog+' in progress</span></div>'+buildAudioChart()+'</div>';
+    '<div class="inscard"><div class="inshd"><span>'+chartIcon+' Audio promotion trend</span>'+
+    '<span class="goalsub" style="margin:0">reels using promoted audios · '+audios.length+' tracked · '+inprog+' in progress</span></div>'+buildAudioChart()+'</div>'+
+    '<div class="inscard" style="margin-top:1.2rem"><div class="inshd"><span>'+chartIcon+' IG reels trend</span>'+
+    '<span class="goalsub" style="margin:0">reach of reposted reels · '+reposts.length+' tracked</span></div>'+buildReelsChart()+'</div>';
+  ANIMATE_AUDIO=false;   // consume the one-shot animate flag after both charts have rendered
   renderAudios(); renderReposts();
 }
 function buildAudioChart(){
-  var hist=STATE.audio_history||[];
-  if(!hist.length) return '<div class="muted">No trend yet — update an audio’s reels count over time and each change plots a point to build the line.</div>';
-  var titles={}; (STATE.audios||[]).forEach(function(a){ titles[String(a.id)]=a.title||('Audio '+a.id); });
+  return buildTrendChart(STATE.audio_history||[], (function(){ var t={}; (STATE.audios||[]).forEach(function(a){ t[String(a.id)]=a.title||('Audio '+a.id); }); return t; })(),
+    { idKey:'audio_id', fixedMax:10000, glow:'audglow', def:'Audio ', empty:'No trend yet — update an audio’s reels count over time and each change plots a point to build the line.' });
+}
+function buildReelsChart(){
+  return buildTrendChart(STATE.repost_history||[], (function(){ var t={}; (STATE.reposts||[]).forEach(function(r){ t[String(r.id)]=('Reel '+r.id); }); return t; })(),
+    { idKey:'repost_id', fixedMax:2000, glow:'reelglow', def:'Reel ', empty:'No trend yet — log a reel repost and update its reach over time to build the line.' });
+}
+function buildTrendChart(hist, titles, opt){
+  if(!hist.length) return '<div class="muted">'+opt.empty+'</div>';
   // each history row is its OWN point (in order). Same-date rows no longer collapse, so a line forms.
   var byAud={};
-  hist.forEach(function(h,seq){ var id=String(h.audio_id); (byAud[id]=byAud[id]||[]).push({ d:String(h.date), v:fnum(h.count), seq:seq }); });
+  hist.forEach(function(h,seq){ var id=String(h[opt.idKey]); (byAud[id]=byAud[id]||[]).push({ d:String(h.date), v:fnum(h.count), seq:seq }); });
   var ids=Object.keys(byAud).filter(function(id){ return titles[id]!==undefined; });
   ids.forEach(function(id){ byAud[id].sort(function(a,b){ return (a.d<b.d?-1:a.d>b.d?1:0) || (a.seq-b.seq); }); }); // chronological (timestamp, then save order)
   function latest(id){ var a=byAud[id]; return a.length?a[a.length-1].v:0; }
   ids.sort(function(a,b){ return latest(b)-latest(a); }); ids=ids.slice(0,8);
-  // ----- fixed Y to 10,000 ; X = a 7-day week starting at the first reading -----
-  var DAY=86400000, MAXY=10000, WEEK=7;
-  function dayMs(s){ return Date.parse(String(s).slice(0,10)+'T00:00:00'); }   // midnight of a point's date
+  // ----- Y: fixed 10,000 (audio) or auto nice-max (reels) ; X = a 7-day week from the first reading -----
+  var DAY=86400000, WEEK=7;
+  var GMAX=1; ids.forEach(function(id){ byAud[id].forEach(function(p){ if(p.v>GMAX) GMAX=p.v; }); });
+  function niceMax(v){ var pow=Math.pow(10,Math.floor(Math.log10(v))); var n=v/pow; var m=n<=1?1:n<=1.5?1.5:n<=2?2:n<=2.5?2.5:n<=3?3:n<=4?4:n<=5?5:n<=8?8:10; return m*pow; }
+  var MAXY = opt.fixedMax || niceMax(GMAX), GLINES = opt.fixedMax?10:5, GSTEP = MAXY/GLINES;
+  function dayMs(s){ return Date.parse(String(s).slice(0,10)+'T00:00:00Z'); }   // UTC midnight — matches the UTC day labels
   var startMs=Infinity; ids.forEach(function(id){ byAud[id].forEach(function(p){ var d=dayMs(p.d); if(!isNaN(d)&&d<startMs) startMs=d; }); });
   if(!isFinite(startMs)) startMs=dayMs(new Date().toISOString());
   // place each point: dayIndex within the week + spread inside its day (so same-day points still draw a line)
@@ -1161,9 +1386,10 @@ function buildAudioChart(){
   function yAt(v){ return padT + plotH - (Math.min(v,MAXY)/MAXY)*plotH; }
   var colors=['#ff6b1a','#22c55e','#3b82f6','#f59e0b','#a855f7','#ef4444','#14b8a6','#eab308'];
   var animate = ANIMATE_AUDIO;   // draw the line when the tab is opened, not on every background refresh
+  var GLOW=opt.glow;
   var svg='<svg viewBox="0 0 '+W+' '+H+'" class="trendsvg" preserveAspectRatio="xMidYMid meet">';
-  svg+='<defs><filter id="audglow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
-  for(var g=1;g<=10;g++){ var yv=g*1000, yy=yAt(yv); svg+='<line x1="'+padL+'" y1="'+yy+'" x2="'+(W-padR)+'" y2="'+yy+'" stroke="rgba(255,255,255,.06)"/><text x="'+(padL-8)+'" y="'+(yy+4)+'" text-anchor="end" class="axt">'+yv.toLocaleString()+'</text>'; }
+  svg+='<defs><filter id="'+GLOW+'" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+  for(var g=1;g<=GLINES;g++){ var yv=Math.round(g*GSTEP), yy=yAt(yv); svg+='<line x1="'+padL+'" y1="'+yy+'" x2="'+(W-padR)+'" y2="'+yy+'" stroke="rgba(255,255,255,.06)"/><text x="'+(padL-8)+'" y="'+(yy+4)+'" text-anchor="end" class="axt">'+yv.toLocaleString()+'</text>'; }
   for(var di=0; di<WEEK; di++){ var lbl=new Date(startMs+di*DAY); var mm=('0'+(lbl.getUTCMonth()+1)).slice(-2), dd=('0'+lbl.getUTCDate()).slice(-2); svg+='<text x="'+xAt(di+0.5)+'" y="'+(H-padB+20)+'" text-anchor="middle" class="axt">'+mm+'-'+dd+'</text>'; }
   function polyLen(pts){ var L=0; for(var i=1;i<pts.length;i++){ var dx=pts[i][0]-pts[i-1][0], dy=pts[i][1]-pts[i-1][1]; L+=Math.sqrt(dx*dx+dy*dy); } return L; }
   ids.forEach(function(id,ci){ var col=colors[ci%colors.length]; var pts=byAud[id].map(function(p){ return [xAt(p.frac),yAt(p.v)]; });
@@ -1171,15 +1397,14 @@ function buildAudioChart(){
     var dstr='M'+pts.map(function(p){return p[0]+' '+p[1];}).join(' L'), len=Math.max(1,polyLen(pts)), dur=Math.min(2.2,Math.max(0.8,len/700));
     var draw = animate ? ' stroke-dasharray="'+len+'" stroke-dashoffset="'+len+'"' : '';
     var anim = animate ? '<animate attributeName="stroke-dashoffset" from="'+len+'" to="0" dur="'+dur+'s" begin="0.1s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1" values="'+len+';0"/>' : '';
-    svg+='<path d="'+dstr+'" fill="none" stroke="'+col+'" stroke-width="2.8" filter="url(#audglow)" stroke-linejoin="round" stroke-linecap="round"'+draw+'>'+anim+'</path>';
+    svg+='<path d="'+dstr+'" fill="none" stroke="'+col+'" stroke-width="2.8" filter="url(#'+GLOW+')" stroke-linejoin="round" stroke-linecap="round"'+draw+'>'+anim+'</path>';
     pts.forEach(function(p,pi){
       var capp = animate ? '<animate attributeName="opacity" from="0" to="1" dur="0.25s" begin="'+(0.1 + dur*(pts.length>1?pi/(pts.length-1):1)).toFixed(2)+'s" fill="freeze"/>' : '';
-      svg+='<circle cx="'+p[0]+'" cy="'+p[1]+'" r="3.6" fill="'+col+'" filter="url(#audglow)"'+(animate?' opacity="0"':'')+'>'+capp+'</circle>';
+      svg+='<circle cx="'+p[0]+'" cy="'+p[1]+'" r="3.6" fill="'+col+'" filter="url(#'+GLOW+')"'+(animate?' opacity="0"':'')+'>'+capp+'</circle>';
     });
   });
   svg+='</svg>';
-  ANIMATE_AUDIO=false;   // consume the one-shot animate flag
-  var leg='<div class="trendleg">'+ids.map(function(id,ci){ return '<span class="lgi"><i style="background:'+colors[ci%colors.length]+'"></i>'+esc(titles[id]||('Audio '+id))+' ('+latest(id)+')</span>'; }).join('')+'</div>';
+  var leg='<div class="trendleg">'+ids.map(function(id,ci){ return '<span class="lgi"><i style="background:'+colors[ci%colors.length]+'"></i>'+esc(titles[id]||(opt.def+id))+' ('+Number(latest(id)).toLocaleString()+')</span>'; }).join('')+'</div>';
   return svg+leg;
 }
 function goalCard(label, val, target, key, pct){
