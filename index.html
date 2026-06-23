@@ -629,6 +629,25 @@
   }
   .bio-fab:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 10px 30px rgba(13,148,136,0.6); }
   .bio-fab:active { transform: scale(0.97); }
+  /* ── Buddy mode toggle (above the bio-break button) ── */
+  .buddy-fab {
+    position: fixed; left: 28px; bottom: 168px; z-index: 1200;
+    width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; color: #fff;
+    background: linear-gradient(135deg, #8b7bff, #5a4be0);
+    box-shadow: 0 6px 22px rgba(91,75,224,0.45);
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .buddy-fab:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 10px 30px rgba(91,75,224,0.6); }
+  .buddy-fab:active { transform: scale(0.97); }
+  .buddy-fab.on { background: linear-gradient(135deg, #ff8a3c, #ff6b1a); box-shadow: 0 0 0 3px rgba(255,107,26,0.4), 0 6px 22px rgba(232,61,0,0.5); }
+  .buddy-fab .bf-badge {
+    position: absolute; top: -3px; right: -3px; background: #22c55e; color: #fff;
+    font-size: 8px; font-weight: 800; line-height: 1; padding: 2px 4px; border-radius: 7px;
+    border: 1.5px solid var(--bg-deep, #0d1117); display: none;
+  }
+  .buddy-fab.on .bf-badge { display: block; }
+  @media (max-width: 1180px) { .buddy-fab { display: none; } }
   .bio-fab.ringing { animation: bioRing 0.45s ease-in-out infinite; box-shadow: 0 0 0 6px rgba(20,184,166,0.25), 0 10px 30px rgba(13,148,136,0.6); }
   @keyframes bioRing {
     0%,100%{transform:scale(1) rotate(0)}
@@ -2522,6 +2541,10 @@
     </div>
 
     <!-- BIO BREAK FLOATING BUTTON -->
+    <button id="buddy-fab" class="buddy-fab" onclick="toggleBuddyMode()" title="Try Buddy mode" aria-label="Toggle Buddy mode">
+      <span class="bf-badge">ON</span>
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.3" r="2.2"/><circle cx="17.5" cy="6.3" r="2.2"/><circle cx="12" cy="13.5" r="7"/><circle cx="9.6" cy="12.4" r="1"/><circle cx="14.4" cy="12.4" r="1"/><path d="M9.5 16c1.5 1.2 3.5 1.2 5 0"/></svg>
+    </button>
     <button id="bio-fab" class="bio-fab" onclick="toggleBioPop(event)" title="Bio Break Reminders" aria-label="Bio Break Reminders">
       <span class="bio-dot"></span>
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
@@ -3652,6 +3675,7 @@ function renderDashboard(data) {
   renderProfile(data);
   initCOE(data);
   initScorecard(data);
+  initAvatar(data);
 }
 
 // ─────────────────────────────────────────────
@@ -5457,29 +5481,33 @@ async function loadTrackerHistory() {
 // each tracked task this shift before recording them.
 async function syncWorklogOnTimeOut() {
   try {
+    // make sure any running timer is actually stopped (retry once if it didn't take)
     if (cfyRunningId && typeof stopTimer === 'function') {
       try { await stopTimer(); } catch(e) {}
+      if (cfyRunningId) { try { await new Promise(function(r){ setTimeout(r, 1200); }); await stopTimer(); } catch(e) {} }
     }
-    // give the stop a moment to persist server-side before we read entries back
-    await new Promise(function(r){ setTimeout(r, 2600); });
     var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
     var date  = businessDateOf(new Date().toISOString());
     var url   = APPS_SCRIPT_URL + '?action=get_tracker_today&employee_id=' + encodeURIComponent(empId) + '&date=' + encodeURIComponent(date);
-    var res   = await fetch(url);
-    var json  = await res.json();
-    // Only entries that are stopped but not yet given a volume/recorded
-    var rows = (json.entries || []).filter(function(e){ return e.status === 'stopped'; }).map(function(e) {
-      return {
-        entry_id: e.entry_id,
-        project: e.project || '',
-        task: e.task || '',
-        description: e.description || '',
-        hours: e.hours || 0,
-        start: e.start,
-        end: e.end
-      };
-    });
-    if (!rows.length) return; // nothing new to record
+    // Retry: the just-stopped entry can take a few seconds to persist server-side,
+    // so poll a few times instead of giving up after one read (this is why the
+    // volume prompt sometimes didn't appear on time-out).
+    var rows = [], stillRunning = false;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await new Promise(function(r){ setTimeout(r, attempt === 0 ? 2200 : 1600); });
+      try {
+        var res  = await fetch(url + '&_=' + Date.now());
+        var json = await res.json();
+        var ents = json.entries || [];
+        rows = ents.filter(function(e){ return e.status === 'stopped'; }).map(function(e) {
+          return { entry_id: e.entry_id, project: e.project || '', task: e.task || '',
+                   description: e.description || '', hours: e.hours || 0, start: e.start, end: e.end };
+        });
+        stillRunning = ents.some(function(e){ return e.status === 'running'; });
+        if (rows.length && !stillRunning) break;   // got the stopped entries and nothing is mid-save
+      } catch(e) {}
+    }
+    if (!rows.length) return; // genuinely nothing tracked this shift
     var trackedTotal    = rows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
     var attendanceTotal = (typeof getTotalHoursToday === 'function') ? getTotalHoursToday() : 0;
     _pendingWorklog = { rows: rows, clockifyTotal: trackedTotal, attendanceTotal: attendanceTotal };
@@ -6687,14 +6715,13 @@ function loadEmployeePhotoDirectory(){
           employeePhotos[emp.employee_id] = convertDriveLink(emp.photo);
         }
       });
-      // refresh any bubbles already on screen now that photos are known
+      // fill bubbles with real photos as they load — except customized buddies (which keep their mascot)
       Object.keys(_bubbleEls).forEach(function(id){
-        var url = employeePhotos[id];
-        if (!url) return;
+        if (id === 'ADMIN') return;
+        if (window.BUDDY_ON && typeof hasCustomBuddy==='function' && hasCustomBuddy(id)) return;
+        var url = employeePhotos[id]; if (!url) return;
         var skin = _bubbleEls[id].querySelector('.skin');
-        if (skin && !skin.querySelector('img')){
-          skin.innerHTML = '<img src="' + url + '" alt="">';
-        }
+        if (skin && !skin.querySelector('img') && !skin.querySelector('video')) skin.innerHTML = '<img src="' + url + '" alt="">';
       });
     })
     .catch(function(){ _photoDirLoaded = false; });
@@ -6836,9 +6863,10 @@ function addBubble(id, silent){
   el.style.setProperty('--dx', Math.round(Math.random()*22 - 11) + 'px');
   el.style.setProperty('--dy', Math.round(-12 - Math.random()*16) + 'px');
   var first = bubbleFirstName(name);
-  var skin = photo ? '<img src="'+photo+'" alt="">' : '<span>'+bubbleInitials(id,name)+'</span>';
-  if (isAdmin) skin = '<img src="'+ADMIN_LOGO+'" alt="Admin">';   // JMB logo in the admin bubble
-  el.innerHTML = '<div class="skin">'+skin+'</div><div class="plabel">'+first+(isSelf?' (you)':'')+'</div>';
+  var skin = (typeof bubbleSkinHTML==='function') ? bubbleSkinHTML(id, name)
+           : (isAdmin ? '<img src="'+ADMIN_LOGO+'" alt="Admin">' : (photo ? '<img src="'+photo+'" alt="">' : '<span>'+bubbleInitials(id,name)+'</span>'));
+  var limbs = (window.BUDDY_ON && !isAdmin && typeof hasCustomBuddy==='function' && hasCustomBuddy(id) && typeof bubbleLimbsSvg==='function') ? bubbleLimbsSvg(id) : '';   // limbs only on customized buddies
+  el.innerHTML = limbs + '<div class="skin">'+skin+'</div><div class="plabel">'+first+(isSelf?' (you)':'')+'</div>';
   el.title = first + (isSelf ? ' (you)' : '');
   el.onclick = function(){ bubbleClicked(id, name, isSelf); };
   container.appendChild(el);
@@ -6883,6 +6911,7 @@ function spawnShards(el){
 function removeBubble(id){
   var el = _bubbleEls[id];
   if (!el) return;
+  if (window.SLING && SLING.loadedId === id){ SLING.loadedId = null; if (typeof slingSetBands === 'function') slingSetBands(SLING.ax, SLING.ay); }
   delete _bubbleEls[id];
   delete _phys[id];                  // stop physics so the burst animation can play
   el.classList.remove('floating', 'entering');
@@ -6895,6 +6924,7 @@ function removeBubble(id){
 
 function bubbleClicked(id, name, isSelf){
   if (isSelf){
+    if (typeof openAvatarEditor === 'function'){ openAvatarEditor(); return; }   // tap your own bubble → customize your buddy
     switchTab('profile', null);
     var pb = Array.from(document.querySelectorAll('.tab-btn')).find(function(b){
       return ((b.getAttribute('onclick')||'').indexOf("'profile'") >= 0);
@@ -6950,6 +6980,7 @@ function attachBubbleDrag(id, el){
     p.x = ev.clientX - c.left - p.grabX;
     p.y = ev.clientY - c.top  - p.grabY;
     el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    if (window.SLING && SLING.loadedId === id && window._slingPull) window._slingPull(id);
     moved += Math.abs(ev.clientX - lastX) + Math.abs(ev.clientY - lastY);
     var now = performance.now(), dt = Math.max(8, now - lastT);
     // velocity in px/frame (~16ms), so a flick throws the bubble
@@ -6960,7 +6991,9 @@ function attachBubbleDrag(id, el){
   function release(ev){
     var p = _phys[id]; if (!p || !p.dragging) return;
     p.dragging = false;
-    el.classList.remove('grabbing'); el.style.zIndex = '';
+    el.classList.remove('grabbing');
+    if (window._slingRelease && window._slingRelease(id, el)) return;   // slingshot load/fire consumed it
+    el.style.zIndex = '';
     var max = 32; // cap throw speed
     p.vx = Math.max(-max, Math.min(max, p.vx));
     p.vy = Math.max(-max, Math.min(max, p.vy));
@@ -6981,7 +7014,7 @@ function physicsStep(){
   for (var i=0;i<ids.length;i++){
     var p = _phys[ids[i]], el = _bubbleEls[ids[i]];
     if (!el){ delete _phys[ids[i]]; continue; }
-    if (p.dragging) continue;
+    if (p.dragging || (window.SLING && SLING.loadedId === ids[i])) continue;   // held in the slingshot
     var size = p.size;
     // neutral float — gentle random wander, no constant drift (keeps them spread, off the edges)
     p.vx += (Math.random()-0.5) * 0.05;
@@ -6996,6 +7029,7 @@ function physicsStep(){
     if (p.y < M){ p.y = M; p.vy = Math.abs(p.vy) * 0.6; }
     else if (p.y > maxY){ p.y = maxY; p.vy = -Math.abs(p.vy) * 0.6; }
     el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    if (el.classList.contains('pb-launching') && (Math.abs(p.vx)+Math.abs(p.vy) < 4)) el.classList.remove('pb-launching');  // stop the tumble once it settles
   }
   // soft bubble-to-bubble collisions
   for (var a=0;a<ids.length;a++){
@@ -7007,8 +7041,10 @@ function physicsStep(){
       var dist = Math.sqrt(dx*dx+dy*dy) || 0.01, minD = ra+rb;
       if (dist < minD){
         var ov = (minD-dist)/2, ux = dx/dist, uy = dy/dist;
-        if (!pa.dragging){ pa.x -= ux*ov; pa.y -= uy*ov; pa.vx -= ux*0.45; pa.vy -= uy*0.45; }
-        if (!pb.dragging){ pb.x += ux*ov; pb.y += uy*ov; pb.vx += ux*0.45; pb.vy += uy*0.45; }
+        var aHeld = pa.dragging || (window.SLING && SLING.loadedId===ids[a]);
+        var bHeld = pb.dragging || (window.SLING && SLING.loadedId===ids[b]);
+        if (!aHeld){ pa.x -= ux*ov; pa.y -= uy*ov; pa.vx -= ux*0.45; pa.vy -= uy*0.45; }
+        if (!bHeld){ pb.x += ux*ov; pb.y += uy*ov; pb.vx += ux*0.45; pb.vy += uy*0.45; }
       }
     }
   }
@@ -7021,6 +7057,7 @@ function syncPresenceBubbles(opts){
   var container = document.getElementById('presence-bubbles');
   if (!container) return;
   if (isMobileDevice()){ container.style.display = 'none'; return; }
+  if (typeof ensureSlingshot === 'function') ensureSlingshot();
   var now = Date.now();
   var online = {};
   Object.keys(onlineUsers).forEach(function(id){
@@ -8279,8 +8316,8 @@ function restoreBubbleSkin(id){
   if (id === 'ADMIN') { skin.innerHTML = '<img src="' + ADMIN_LOGO + '" alt="Admin">'; return; }
   var isSelf = (id === chatEmpId);
   var name = isSelf ? (chatEmpName || 'You') : (presenceNames[id] || id);
-  var photo = employeePhotos[id] || presencePhotos[id] || (isSelf && window._currentEmpData && window._currentEmpData.photo ? convertDriveLink(window._currentEmpData.photo) : null);
-  skin.innerHTML = photo ? '<img src="'+photo+'" alt="">' : '<span>'+bubbleInitials(id, name)+'</span>';
+  skin.innerHTML = (typeof bubbleSkinHTML==='function') ? bubbleSkinHTML(id, name)
+    : ((function(){ var photo = employeePhotos[id] || presencePhotos[id] || (isSelf && window._currentEmpData && window._currentEmpData.photo ? convertDriveLink(window._currentEmpData.photo) : null); return photo ? '<img src="'+photo+'" alt="">' : '<span>'+bubbleInitials(id, name)+'</span>'; })());
 }
 function updateCamBtn(){
   var b = document.getElementById('cam-toggle'); if (!b) return;
@@ -8319,5 +8356,435 @@ window.addEventListener('beforeunload', function(){ if (camOn) { try { stopCam()
     <button class="crb-dismiss" onclick="dismissRing()">Dismiss</button>
   </div>
 </div>
+
+<!-- ════════════════ CUSTOMIZABLE MASCOT ════════════════ -->
+<style>
+  /* mascot fills each presence bubble (head-only render) */
+  .pbubble .skin svg{width:122%;height:122%;margin:-11%;display:block;}
+  /* swinging teddy-bear limbs sit behind the round face and extend beyond it */
+  .pbubble .pb-limbs{position:absolute;left:-45%;top:-40%;width:190%;height:190%;overflow:visible;pointer-events:none;z-index:0;}
+  .pbubble .skin{position:relative;z-index:1;}
+  /* ── live face: blinking eyes + a little mouth movement ── */
+  .mascot-eyes{transform-box:fill-box;transform-origin:center;animation:mascotBlink 4.4s ease-in-out infinite;}
+  .mascot-mouth{transform-box:fill-box;transform-origin:center;animation:mascotTalk 3s ease-in-out infinite;}
+  @keyframes mascotBlink{0%,90%,100%{transform:scaleY(1);}94%{transform:scaleY(.12);}97%{transform:scaleY(1);}}
+  @keyframes mascotTalk{0%,100%{transform:scaleY(1);}45%{transform:scaleY(1.28);}70%{transform:scaleY(.9);}}
+  /* ── teddy limbs: gentle idle swing, left arm waves on hover ── */
+  .pb-arm-l,.pb-arm-r,.pb-leg-l,.pb-leg-r{transform-box:view-box;}
+  .pb-leg-l{transform-origin:82px 136px;animation:legSwingL 3s ease-in-out infinite;}
+  .pb-leg-r{transform-origin:108px 136px;animation:legSwingR 2.7s ease-in-out infinite;}
+  .pb-arm-l{transform-origin:60px 114px;animation:armSwingL 2.3s ease-in-out infinite;}
+  .pb-arm-r{transform-origin:130px 114px;animation:armSwingR 2.05s ease-in-out infinite;}
+  @keyframes legSwingL{0%,100%{transform:rotate(-8deg);}50%{transform:rotate(8deg);}}
+  @keyframes legSwingR{0%,100%{transform:rotate(8deg);}50%{transform:rotate(-8deg);}}
+  @keyframes armSwingL{0%,100%{transform:rotate(-13deg);}50%{transform:rotate(13deg);}}
+  @keyframes armSwingR{0%,100%{transform:rotate(13deg);}50%{transform:rotate(-13deg);}}
+  /* hover → the left arm raises up-and-out and waves hello */
+  .pbubble:hover .pb-arm-l{animation:armWave .5s ease-in-out infinite;}
+  @keyframes armWave{0%{transform:rotate(82deg);}25%{transform:rotate(112deg);}50%{transform:rotate(82deg);}75%{transform:rotate(112deg);}100%{transform:rotate(82deg);}}
+  @media (prefers-reduced-motion: reduce){.mascot-eyes,.mascot-mouth,.pb-arm-l,.pb-arm-r,.pb-leg-l,.pb-leg-r,.pbubble:hover .pb-arm-l{animation:none;}}
+  /* ── slingshot ── */
+  #sling{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:20;overflow:visible;}
+  #sling .sl-prong{stroke:#6f421f;stroke-width:11;stroke-linecap:round;fill:none;}
+  #sling .sl-prong2{stroke:#94612f;stroke-width:5;stroke-linecap:round;fill:none;}
+  #sling .sl-band{stroke:#2e1c12;stroke-width:6;stroke-linecap:round;}
+  #sling .sl-pouch{fill:#3a2414;stroke:#1d1109;stroke-width:2;}
+  #sling .sl-aim{stroke:rgba(255,107,26,.7);stroke-width:3;stroke-dasharray:2 8;stroke-linecap:round;}
+  #sling .sl-hint{fill:rgba(255,255,255,.30);font:600 11px var(--font-sans,sans-serif);}
+  /* launch tumble + glow while flying fast out of the slingshot */
+  .pbubble.pb-launching{animation:pbSpin .5s linear infinite;filter:drop-shadow(0 0 10px rgba(255,140,40,.85));}
+  @keyframes pbSpin{from{transform:rotate(0);}to{transform:rotate(360deg);}}
+  #hero-photo-wrap.mascot-avatar{position:relative;}
+  #hero-photo-wrap.mascot-avatar::after{content:"✏";position:absolute;right:2px;bottom:2px;width:22px;height:22px;border-radius:50%;
+    background:var(--o3,#ff6b1a);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.25);}
+  .av-modal-back{position:fixed;inset:0;background:rgba(15,18,28,.55);backdrop-filter:blur(3px);z-index:1600;display:none;
+    align-items:center;justify-content:center;padding:20px;}
+  .av-modal{background:#fff;border-radius:22px;width:100%;max-width:760px;max-height:92vh;overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,.35);}
+  .av-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;z-index:2;}
+  .av-head h3{margin:0;font-size:18px;color:#1d2330;}
+  .av-x{border:none;background:#f1efec;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;color:#555;}
+  .av-body{display:grid;grid-template-columns:240px 1fr;gap:22px;padding:22px;}
+  @media(max-width:640px){.av-body{grid-template-columns:1fr;}}
+  .av-preview{background:linear-gradient(160deg,#fff6f0,#ffe9dc);border-radius:18px;display:flex;align-items:center;justify-content:center;
+    padding:18px;position:sticky;top:78px;align-self:start;}
+  .av-preview svg{width:200px;height:auto;}
+  .av-section{margin-bottom:18px;}
+  .av-section h4{margin:0 0 9px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#8a8076;}
+  .av-row{display:flex;flex-wrap:wrap;gap:8px;}
+  .av-swatch{width:34px;height:34px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1px #ddd;cursor:pointer;transition:transform .12s;}
+  .av-swatch:hover{transform:scale(1.12);}
+  .av-swatch.sel{box-shadow:0 0 0 3px var(--o3,#ff6b1a);transform:scale(1.1);}
+  .av-chip{padding:7px 14px;border-radius:11px;border:1.5px solid #e3ddd6;background:#faf8f6;color:#444;font-size:13px;cursor:pointer;
+    font-family:inherit;transition:all .12s;}
+  .av-chip:hover{border-color:#cdbfae;}
+  .av-chip.sel{background:var(--o3,#ff6b1a);border-color:var(--o3,#ff6b1a);color:#fff;font-weight:600;}
+  .av-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 22px;border-top:1px solid #eee;position:sticky;bottom:0;background:#fff;}
+  .av-save{background:var(--o3,#ff6b1a);color:#fff;border:none;padding:11px 26px;border-radius:12px;font-weight:700;cursor:pointer;font-family:inherit;font-size:14px;}
+  .av-save:disabled{opacity:.6;cursor:default;}
+  .av-cancel{background:#f1efec;color:#555;border:none;padding:11px 20px;border-radius:12px;cursor:pointer;font-family:inherit;font-size:14px;}
+  .av-rand{background:#fff;border:1.5px solid #e3ddd6;color:#666;padding:11px 16px;border-radius:12px;cursor:pointer;font-family:inherit;font-size:14px;margin-right:auto;}
+  /* mascot as profile avatar */
+  .mascot-avatar{display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#fff6f0,#ffe9dc);}
+  .mascot-avatar svg{width:96%;height:96%;}
+</style>
+
+<div class="av-modal-back" id="avatar-modal">
+  <div class="av-modal">
+    <div class="av-head">
+      <h3>🎨 Customize your buddy</h3>
+      <button class="av-x" onclick="closeAvatarEditor()">✕</button>
+    </div>
+    <div class="av-body">
+      <div class="av-preview" id="av-preview"></div>
+      <div>
+        <div class="av-section"><h4>Body color</h4><div class="av-row" id="av-body-colors"></div></div>
+        <div class="av-section"><h4>Hair style</h4><div class="av-row" id="av-hair-styles"></div></div>
+        <div class="av-section"><h4>Hair color</h4><div class="av-row" id="av-hair-colors"></div></div>
+        <div class="av-section"><h4>Glasses</h4><div class="av-row" id="av-glasses"></div></div>
+        <div class="av-section"><h4>Face</h4><div class="av-row" id="av-faces"></div></div>
+      </div>
+    </div>
+    <div class="av-foot">
+      <button class="av-rand" onclick="avatarRandomize()">🎲 Surprise me</button>
+      <button class="av-cancel" onclick="closeAvatarEditor()">Cancel</button>
+      <button class="av-save" id="av-save-btn" onclick="avatarSave()">Save buddy</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ───────── Customizable mascot ───────── */
+var AV_BODY_COLORS = ['#e8523a','#ff8a3c','#ffc24b','#52b788','#3a9bdc','#7b6cf6','#e86ab0','#9aa7b4','#5b4636','#222a33'];
+var AV_HAIR_COLORS = ['#2b2018','#5b3a21','#8a5a2b','#c99a4e','#e8c267','#d94f3d','#7a7f87','#222831','#f4f1ea','#6a4fb0'];
+var AV_HAIR_STYLES = [['none','Bald'],['short','Short'],['spiky','Spiky'],['curly','Curly'],['bun','Top bun'],['mohawk','Mohawk'],['long','Long'],['braids','Braided']];
+var AV_GLASSES = [['none','None'],['round','Round'],['square','Square'],['sun','Shades']];
+var AV_FACES = [['happy','Happy'],['cool','Chill'],['wink','Wink'],['neutral','Calm'],['star','Starry']];
+
+function _avDark(hex,f){f=f||.72;var n=parseInt(hex.slice(1),16);var r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  return '#'+[r,g,b].map(function(x){return Math.round(x*f).toString(16).padStart(2,'0');}).join('');}
+function _avDefault(){return {body:'#e8523a',hairStyle:'short',hairColor:'#2b2018',glasses:'none',face:'happy'};}
+
+function _avParts(cfg){
+  cfg = cfg || _avDefault();
+  var hc=cfg.hairColor||'#2b2018';
+  var hair='';
+  if(cfg.hairStyle==='short') hair='<path d="M58 78 Q120 18 182 78 Q150 56 120 56 Q90 56 58 78 Z" fill="'+hc+'"/>';
+  else if(cfg.hairStyle==='spiky') hair='<path d="M60 80 L74 40 L90 70 L104 34 L120 68 L136 34 L150 70 L166 40 L180 80 Q120 54 60 80 Z" fill="'+hc+'"/>';
+  else if(cfg.hairStyle==='curly') hair='<g fill="'+hc+'"><circle cx="70" cy="66" r="16"/><circle cx="94" cy="52" r="17"/><circle cx="120" cy="47" r="18"/><circle cx="146" cy="52" r="17"/><circle cx="170" cy="66" r="16"/></g>';
+  else if(cfg.hairStyle==='bun') hair='<g fill="'+hc+'"><circle cx="120" cy="34" r="15"/><path d="M64 76 Q120 30 176 76 Q150 58 120 58 Q90 58 64 76 Z"/></g>';
+  else if(cfg.hairStyle==='mohawk') hair='<path d="M110 28 Q120 16 130 28 L130 72 Q120 64 110 72 Z" fill="'+hc+'"/>';
+  else if(cfg.hairStyle==='long') hair='<g fill="'+hc+'"><path d="M54 122 Q120 12 186 122 Q186 78 120 56 Q54 78 54 122 Z"/><path d="M58 104 Q40 146 58 178 Q76 154 70 108 Z"/><path d="M182 104 Q200 146 182 178 Q164 154 170 108 Z"/></g>';
+  else if(cfg.hairStyle==='braids') hair='<g fill="'+hc+'"><path d="M56 116 Q120 16 184 116 Q120 54 56 116 Z"/><ellipse cx="58" cy="122" rx="12" ry="13"/><ellipse cx="56" cy="142" rx="12" ry="13"/><ellipse cx="58" cy="161" rx="11" ry="12"/><ellipse cx="56" cy="178" rx="9" ry="10"/><ellipse cx="182" cy="122" rx="12" ry="13"/><ellipse cx="184" cy="142" rx="12" ry="13"/><ellipse cx="182" cy="161" rx="11" ry="12"/><ellipse cx="184" cy="178" rx="9" ry="10"/></g>';
+  var eyes,brows='',mouth;
+  if(cfg.face==='cool'){
+    eyes='<path d="M86 108 q14 10 28 0" stroke="#1d2330" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M126 108 q14 10 28 0" stroke="#1d2330" stroke-width="5" fill="none" stroke-linecap="round"/>';
+    mouth='<path d="M104 142 q16 10 34 -2" stroke="#7a2018" stroke-width="5" fill="none" stroke-linecap="round"/>';
+  } else if(cfg.face==='wink'){
+    eyes='<circle cx="100" cy="112" r="9" fill="#1d2330"/><circle cx="103" cy="109" r="3" fill="#fff"/><path d="M132 112 q8 -7 16 0" stroke="#1d2330" stroke-width="5" fill="none" stroke-linecap="round"/>';
+    mouth='<path d="M102 140 q18 16 38 0" stroke="#7a2018" stroke-width="5" fill="#fff" stroke-linecap="round"/>';
+  } else if(cfg.face==='neutral'){
+    eyes='<circle cx="100" cy="112" r="9" fill="#1d2330"/><circle cx="140" cy="112" r="9" fill="#1d2330"/>';
+    mouth='<line x1="106" y1="142" x2="134" y2="142" stroke="#7a2018" stroke-width="5" stroke-linecap="round"/>';
+  } else if(cfg.face==='star'){
+    eyes='<text x="92" y="120" font-size="22">⭐</text><text x="132" y="120" font-size="22">⭐</text>';
+    mouth='<path d="M100 138 q20 20 40 0 q-20 8 -40 0 Z" fill="#7a2018"/>';
+  } else {
+    eyes='<circle cx="100" cy="110" r="11" fill="#fff"/><circle cx="140" cy="110" r="11" fill="#fff"/><circle cx="103" cy="112" r="6" fill="#1d2330"/><circle cx="143" cy="112" r="6" fill="#1d2330"/>';
+    brows='<path d="M88 92 q12 -8 24 -2" stroke="#1d2330" stroke-width="4" fill="none" stroke-linecap="round"/><path d="M128 90 q12 -6 24 2" stroke="#1d2330" stroke-width="4" fill="none" stroke-linecap="round"/>';
+    mouth='<path d="M98 138 q22 26 44 0 q-22 10 -44 0 Z" fill="#7a2018"/><path d="M112 150 q8 8 16 0 q-8 4 -16 0 Z" fill="#e8607a"/>';
+  }
+  var glass='';
+  if(cfg.glasses==='round') glass='<g fill="none" stroke="#1d2330" stroke-width="4"><circle cx="100" cy="111" r="16"/><circle cx="140" cy="111" r="16"/><line x1="116" y1="111" x2="124" y2="111"/></g>';
+  else if(cfg.glasses==='square') glass='<g fill="none" stroke="#1d2330" stroke-width="4"><rect x="84" y="98" width="32" height="26" rx="5"/><rect x="124" y="98" width="32" height="26" rx="5"/><line x1="116" y1="110" x2="124" y2="110"/></g>';
+  else if(cfg.glasses==='sun') glass='<g stroke="#1d2330" stroke-width="4"><rect x="82" y="98" width="36" height="26" rx="7" fill="#1d2330"/><rect x="122" y="98" width="36" height="26" rx="7" fill="#1d2330"/><line x1="118" y1="104" x2="122" y2="104"/></g>';
+  return { body:cfg.body||'#e8523a', rim:_avDark(cfg.body||'#e8523a',.78), hair:hair, brows:brows, eyes:eyes, glass:glass, mouth:mouth };
+}
+function _avHead(p){
+  return '<circle cx="120" cy="120" r="74" fill="#dcdcdc"/>'
+    + '<circle cx="120" cy="120" r="64" fill="'+p.body+'"/>'
+    + '<path d="M64 150 a64 64 0 0 0 112 0 a64 64 0 0 1 -112 0 Z" fill="'+p.rim+'" opacity=".55"/>'
+    + '<ellipse cx="98" cy="92" rx="20" ry="12" fill="#fff" opacity=".18"/>'
+    + p.hair + p.brows
+    + '<g class="mascot-eyes">' + p.eyes + '</g>'
+    + p.glass
+    + '<g class="mascot-mouth">' + p.mouth + '</g>';
+}
+/* round head only — used in presence bubbles & profile avatar */
+function renderAvatarHead(cfg){
+  return '<svg viewBox="28 12 184 184" xmlns="http://www.w3.org/2000/svg">'+_avHead(_avParts(cfg))+'</svg>';
+}
+/* full body (arms, legs, shoes) — used in the customizer preview */
+function renderAvatar(cfg){
+  var p=_avParts(cfg);
+  return '<svg viewBox="0 0 240 270" xmlns="http://www.w3.org/2000/svg">'
+    + '<ellipse cx="120" cy="252" rx="56" ry="9" fill="rgba(0,0,0,.12)"/>'
+    + '<path d="M104 188 L98 226" stroke="#1d2330" stroke-width="9" stroke-linecap="round"/>'
+    + '<path d="M136 188 L142 226" stroke="#1d2330" stroke-width="9" stroke-linecap="round"/>'
+    + '<path d="M78 228 q20 -14 34 -2 l-2 12 q-18 6 -34 0 q-4 -6 2 -10 Z" fill="#3a3f48"/><ellipse cx="94" cy="240" rx="18" ry="5" fill="#f2b277"/>'
+    + '<path d="M162 228 q-20 -14 -34 -2 l2 12 q18 6 34 0 q4 -6 -2 -10 Z" fill="#3a3f48"/><ellipse cx="146" cy="240" rx="18" ry="5" fill="#f2b277"/>'
+    + '<path d="M58 132 Q34 110 26 84" stroke="#1d2330" stroke-width="9" fill="none" stroke-linecap="round"/>'
+    + '<circle cx="22" cy="78" r="13" fill="#fff" stroke="#1d2330" stroke-width="3"/>'
+    + '<path d="M182 132 Q208 150 214 178" stroke="#1d2330" stroke-width="9" fill="none" stroke-linecap="round"/>'
+    + '<circle cx="216" cy="184" r="13" fill="#fff" stroke="#1d2330" stroke-width="3"/>'
+    + _avHead(p)
+    + '</svg>';
+}
+
+/* ── state + presence cache ── */
+var _avCfg = _avDefault();
+var _avDraft = null;
+var _avatarCache = {};   // { employee_id: config }
+
+function _avEmpId(){ return (window._currentEmpData&&window._currentEmpData.employee_id) || (typeof scEmpId!=='undefined'&&scEmpId) || ''; }
+
+/* deterministic cute default so first-timers still get a distinct buddy */
+function _avSeed(id){ var h=0; id=String(id||''); for(var i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))>>>0; return h; }
+function _avConfigFor(id){
+  if(_avatarCache[id]) return _avatarCache[id];
+  var h=_avSeed(id);
+  return { body:AV_BODY_COLORS[h%AV_BODY_COLORS.length],
+    hairStyle:AV_HAIR_STYLES[(Math.floor(h/7))%AV_HAIR_STYLES.length][0],
+    hairColor:AV_HAIR_COLORS[(Math.floor(h/13))%AV_HAIR_COLORS.length],
+    glasses:AV_GLASSES[(Math.floor(h/29))%AV_GLASSES.length][0],
+    face:AV_FACES[(Math.floor(h/53))%AV_FACES.length][0] };
+}
+/* ── buddy mode is opt-in (toggle above the bio-break button), remembered per device ── */
+window.BUDDY_ON = false;
+try{ window.BUDDY_ON = (localStorage.getItem('buddy_mode')==='1'); }catch(e){}
+function toggleBuddyMode(){
+  window.BUDDY_ON = !window.BUDDY_ON;
+  applyBuddyMode();
+  if(window.BUDDY_ON && typeof openAvatarEditor==='function') openAvatarEditor();   // open the customizer when switching on
+}
+function applyBuddyMode(){
+  try{ localStorage.setItem('buddy_mode', window.BUDDY_ON?'1':'0'); }catch(e){}
+  var btn=document.getElementById('buddy-fab');
+  if(btn){ btn.classList.toggle('on', window.BUDDY_ON); btn.title = window.BUDDY_ON ? 'Buddy mode ON — tap to switch off' : 'Try Buddy mode'; }
+  var sl=document.getElementById('sling'); if(sl) sl.style.display = window.BUDDY_ON ? '' : 'none';
+  if(!window.BUDDY_ON && window.SLING) SLING.loadedId=null;
+  // re-skin every bubble in place (add/remove mascot + limbs)
+  if(typeof _bubbleEls==='object' && _bubbleEls){
+    Object.keys(_bubbleEls).forEach(function(id){
+      if(id==='ADMIN') return;
+      var el=_bubbleEls[id]; if(!el) return;
+      var sk=el.querySelector('.skin');
+      if(sk && !sk.querySelector('video')) sk.innerHTML=bubbleSkinHTML(id);
+      applyBubbleLimbs(id, el);
+    });
+  }
+}
+/* HTML for a presence bubble's skin */
+function bubbleMascotHtml(id){ return renderAvatarHead(_avConfigFor(id)); }
+/* a user only becomes a mascot once they've actually customized their buddy */
+function hasCustomBuddy(id){ return !!(_avatarCache && _avatarCache[id]); }
+function bubbleSkinHTML(id, name){
+  if(id==='ADMIN') return '<img src="'+ADMIN_LOGO+'" alt="Admin">';
+  if(window.BUDDY_ON && hasCustomBuddy(id)) return bubbleMascotHtml(id);
+  var isSelf=(id===chatEmpId);
+  var photo=employeePhotos[id]||presencePhotos[id]||(isSelf&&window._currentEmpData&&window._currentEmpData.photo?convertDriveLink(window._currentEmpData.photo):null);
+  return photo ? '<img src="'+photo+'" alt="">' : '<span>'+bubbleInitials(id, name||presenceNames[id]||id)+'</span>';
+}
+function applyBubbleLimbs(id, el){
+  if(!el) return;
+  var want = window.BUDDY_ON && id!=='ADMIN' && hasCustomBuddy(id);   // limbs only on customized buddies
+  var limbs = el.querySelector('.pb-limbs');
+  if(want){ if(limbs) limbs.outerHTML=bubbleLimbsSvg(id); else el.insertAdjacentHTML('afterbegin', bubbleLimbsSvg(id)); }
+  else if(limbs){ limbs.remove(); }
+}
+
+/* stubby swinging teddy-bear limbs that peek out behind the round face.
+   viewBox is 190 units; the round face occupies the central 100 units (x/y 45..145),
+   so limbs drawn outside that circle stick out past the bubble. */
+function bubbleLimbsSvg(id){
+  var c=_avConfigFor(id), body=c.body||'#e8523a', dk=_avDark(body,.6), pad=_avDark(body,.45);
+  function limb(cls,d,px,py,w,rx,ry){
+    return '<g class="'+cls+'">'
+      + '<path d="'+d+'" stroke="'+body+'" stroke-width="'+w+'" fill="none" stroke-linecap="round"/>'
+      + '<ellipse cx="'+px+'" cy="'+py+'" rx="'+rx+'" ry="'+ry+'" fill="'+dk+'"/>'
+      + '<ellipse cx="'+px+'" cy="'+(py+0.6)+'" rx="'+(rx*0.5)+'" ry="'+(ry*0.45)+'" fill="'+pad+'"/></g>';
+  }
+  return '<svg class="pb-limbs" viewBox="0 0 190 190" preserveAspectRatio="xMidYMid meet">'
+    // legs (hips just inside the body bottom, feet poke out below)
+    + limb('pb-leg-l','M82 134 Q78 158 76 174', 76,176, 14, 11,8)
+    + limb('pb-leg-r','M108 134 Q112 158 114 174', 114,176, 14, 11,8)
+    // arms (shoulders at lower sides, paws swing out; left arm waves on hover)
+    + limb('pb-arm-l','M58 116 Q42 138 36 158', 36,160, 12, 9.5,8.5)
+    + limb('pb-arm-r','M132 116 Q148 138 154 158', 154,160, 12, 9.5,8.5)
+    + '</svg>';
+}
+function refreshBubbleLimbs(id){
+  var el=_bubbleEls[id]; if(!el || id==='ADMIN') return;
+  var existing=el.querySelector('.pb-limbs'), html=bubbleLimbsSvg(id);
+  if(existing) existing.outerHTML=html; else el.insertAdjacentHTML('afterbegin', html);
+}
+
+async function loadAllAvatars(){
+  try{ var r=await fetch(APPS_SCRIPT_URL+'?action=get_all_avatars'); var j=await r.json(); if(j&&j.avatars) _avatarCache=j.avatars; }catch(e){}
+}
+
+async function initAvatar(data){
+  var id=_avEmpId();
+  await loadAllAvatars();
+  if(id && _avatarCache[id]) _avCfg=Object.assign(_avDefault(),_avatarCache[id]);
+  else if(id) _avCfg=_avConfigFor(id);   // seeded default until they customize
+  _avRenderEverywhere();
+  applyBuddyMode();   // reflect the saved on/off state on the toggle + bubbles
+}
+
+function _avRenderEverywhere(){
+  // profile picture stays original (photo/initials) — mascots live only in the presence bubbles
+  // refresh any presence bubbles already on screen
+  if(typeof _bubbleEls==='object' && _bubbleEls){
+    Object.keys(_bubbleEls).forEach(function(bid){
+      if(bid==='ADMIN') return;
+      var sk=_bubbleEls[bid] && _bubbleEls[bid].querySelector('.skin');
+      if(sk && !sk.querySelector('video')) sk.innerHTML=bubbleSkinHTML(bid);
+      applyBubbleLimbs(bid, _bubbleEls[bid]);
+    });
+  }
+}
+
+/* ── editor ── */
+function openAvatarEditor(){
+  _avDraft = Object.assign({}, _avCfg);
+  _avBuildControls();
+  _avUpdatePreview();
+  document.getElementById('avatar-modal').style.display='flex';
+}
+function closeAvatarEditor(){ document.getElementById('avatar-modal').style.display='none'; }
+
+function _avBuildControls(){
+  var bc=document.getElementById('av-body-colors'); bc.innerHTML='';
+  AV_BODY_COLORS.forEach(function(c){ bc.appendChild(_avSwatch(c,_avDraft.body===c,function(){_avDraft.body=c;_avBuildControls();_avUpdatePreview();})); });
+  var hs=document.getElementById('av-hair-styles'); hs.innerHTML='';
+  AV_HAIR_STYLES.forEach(function(s){ hs.appendChild(_avChip(s[1],_avDraft.hairStyle===s[0],function(){_avDraft.hairStyle=s[0];_avBuildControls();_avUpdatePreview();})); });
+  var hcw=document.getElementById('av-hair-colors'); hcw.innerHTML='';
+  AV_HAIR_COLORS.forEach(function(c){ hcw.appendChild(_avSwatch(c,_avDraft.hairColor===c,function(){_avDraft.hairColor=c;_avBuildControls();_avUpdatePreview();})); });
+  var gw=document.getElementById('av-glasses'); gw.innerHTML='';
+  AV_GLASSES.forEach(function(s){ gw.appendChild(_avChip(s[1],_avDraft.glasses===s[0],function(){_avDraft.glasses=s[0];_avBuildControls();_avUpdatePreview();})); });
+  var fw=document.getElementById('av-faces'); fw.innerHTML='';
+  AV_FACES.forEach(function(s){ fw.appendChild(_avChip(s[1],_avDraft.face===s[0],function(){_avDraft.face=s[0];_avBuildControls();_avUpdatePreview();})); });
+}
+function _avSwatch(color,sel,fn){var d=document.createElement('div');d.className='av-swatch'+(sel?' sel':'');d.style.background=color;d.onclick=fn;return d;}
+function _avChip(label,sel,fn){var b=document.createElement('button');b.className='av-chip'+(sel?' sel':'');b.textContent=label;b.onclick=fn;return b;}
+function _avUpdatePreview(){ document.getElementById('av-preview').innerHTML=renderAvatar(_avDraft); }
+
+function avatarRandomize(){
+  var pick=function(a){return a[Math.floor(Math.random()*a.length)];};
+  _avDraft={ body:pick(AV_BODY_COLORS), hairStyle:pick(AV_HAIR_STYLES)[0], hairColor:pick(AV_HAIR_COLORS),
+    glasses:pick(AV_GLASSES)[0], face:pick(AV_FACES)[0] };
+  _avBuildControls(); _avUpdatePreview();
+}
+
+async function avatarSave(){
+  var btn=document.getElementById('av-save-btn'); btn.disabled=true; var old=btn.textContent; btn.textContent='Saving…';
+  _avCfg=Object.assign({},_avDraft);
+  var id=_avEmpId();
+  if(id) _avatarCache[id]=_avCfg;            // update local cache so my bubble updates instantly
+  _avRenderEverywhere();
+  if(id && typeof _bubbleEls==='object' && _bubbleEls[id]){
+    var sk=_bubbleEls[id].querySelector('.skin'); if(sk && !sk.querySelector('video')) sk.innerHTML=bubbleSkinHTML(id);
+    applyBubbleLimbs(id, _bubbleEls[id]);
+  }
+  try{
+    if(id){ await fetch(APPS_SCRIPT_URL+'?action=save_avatar&employee_id='+encodeURIComponent(id)+'&config='+encodeURIComponent(JSON.stringify(_avCfg))); }
+  }catch(e){}
+  btn.disabled=false; btn.textContent=old;
+  closeAvatarEditor();
+}
+
+/* ═══════════════ SLINGSHOT ═══════════════
+   Drop a bubble onto the pouch, drag it back, release to fling it. */
+var SLING = { loadedId:null, ax:0, ay:0, lx:0, ly:0, rx:0, ry:0 };
+function ensureSlingshot(){
+  var c=document.getElementById('presence-bubbles'); if(!c) return;
+  if(document.getElementById('sling')){ slingLayout(); document.getElementById('sling').style.display=window.BUDDY_ON?'':'none'; return; }
+  var ns='http://www.w3.org/2000/svg';
+  var svg=document.createElementNS(ns,'svg'); svg.id='sling'; svg.setAttribute('preserveAspectRatio','none');
+  svg.innerHTML='<path class="sl-prong" id="sl-stem"></path>'
+    + '<line class="sl-band" id="sl-band-l"></line>'
+    + '<line class="sl-aim" id="sl-aim" style="display:none"></line>'
+    + '<circle class="sl-pouch" id="sl-pouch" r="9"></circle>'
+    + '<line class="sl-band" id="sl-band-r"></line>'
+    + '<text class="sl-hint" id="sl-hint" text-anchor="middle">drop a buddy here → pull → fling</text>';
+  c.appendChild(svg);
+  slingLayout();
+  svg.style.display = window.BUDDY_ON ? '' : 'none';
+  if(!window._slingResize){ window._slingResize=true; window.addEventListener('resize', slingLayout); }
+}
+function slingLayout(){
+  var c=document.getElementById('presence-bubbles'), svg=document.getElementById('sling'); if(!c||!svg) return;
+  var W=c.clientWidth, H=c.clientHeight;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.setAttribute('width',W); svg.setAttribute('height',H);
+  var ax=Math.round(W*0.5), baseY=H-22, forkY=H-118, joinY=Math.round((baseY+forkY)/2), tipDX=34;
+  SLING.ax=ax; SLING.ay=forkY; SLING.lx=ax-tipDX; SLING.ly=forkY; SLING.rx=ax+tipDX; SLING.ry=forkY;
+  var stem=document.getElementById('sl-stem');
+  if(stem) stem.setAttribute('d','M'+ax+' '+baseY+' L'+ax+' '+joinY+' M'+ax+' '+joinY+' L'+SLING.lx+' '+SLING.ly+' M'+ax+' '+joinY+' L'+SLING.rx+' '+SLING.ry);
+  var hint=document.getElementById('sl-hint'); if(hint){ hint.setAttribute('x',ax); hint.setAttribute('y',baseY+16); }
+  // if a bubble is loaded keep bands on it, else rest at the pouch
+  if(SLING.loadedId && _phys[SLING.loadedId]){ var p=_phys[SLING.loadedId]; slingSetBands(p.x+p.size/2, p.y+p.size/2); }
+  else slingSetBands(ax, forkY);
+}
+function slingSetBands(cx,cy){
+  var bl=document.getElementById('sl-band-l'), br=document.getElementById('sl-band-r'), po=document.getElementById('sl-pouch');
+  if(bl){ bl.setAttribute('x1',SLING.lx); bl.setAttribute('y1',SLING.ly); bl.setAttribute('x2',cx); bl.setAttribute('y2',cy); }
+  if(br){ br.setAttribute('x1',SLING.rx); br.setAttribute('y1',SLING.ry); br.setAttribute('x2',cx); br.setAttribute('y2',cy); }
+  if(po){ po.setAttribute('cx',cx); po.setAttribute('cy',cy); po.style.display = SLING.loadedId ? 'none' : ''; }
+  var hint=document.getElementById('sl-hint'); if(hint) hint.style.display = SLING.loadedId ? 'none' : '';
+}
+// called from the drag handler while a loaded bubble is being pulled
+window._slingPull=function(id){
+  if(!window.BUDDY_ON) return;
+  var p=_phys[id]; if(!p || SLING.loadedId!==id) return;
+  var cx=p.x+p.size/2, cy=p.y+p.size/2;
+  slingSetBands(cx,cy);
+  var aim=document.getElementById('sl-aim');
+  if(aim){ aim.style.display=''; aim.setAttribute('x1',SLING.ax); aim.setAttribute('y1',SLING.ay);
+    aim.setAttribute('x2', SLING.ax+(SLING.ax-cx)*1.4); aim.setAttribute('y2', SLING.ay+(SLING.ay-cy)*1.4); }
+};
+// burst of sparks + a shockwave ring at the pouch when a buddy is fired
+function slingFX(cx,cy,vx,vy){
+  var c=document.getElementById('presence-bubbles'); if(!c) return;
+  var ang=Math.atan2(vy,vx);
+  var ring=document.createElement('div');
+  ring.style.cssText='position:absolute;left:'+(SLING.ax-22)+'px;top:'+(SLING.ay-22)+'px;width:44px;height:44px;border-radius:50%;border:3px solid rgba(255,150,60,.9);pointer-events:none;z-index:29';
+  c.appendChild(ring);
+  ring.animate([{transform:'scale(.35)',opacity:.95},{transform:'scale(2.6)',opacity:0}],{duration:430,easing:'ease-out'}).onfinish=function(){ ring.remove(); };
+  for(var i=0;i<10;i++){
+    (function(){
+      var s=document.createElement('div');
+      s.style.cssText='position:absolute;left:'+SLING.ax+'px;top:'+SLING.ay+'px;width:7px;height:7px;border-radius:50%;background:#ffb066;pointer-events:none;z-index:30;box-shadow:0 0 8px rgba(255,140,40,.85)';
+      c.appendChild(s);
+      var a=ang+Math.PI+(Math.random()-0.5)*1.3, d=28+Math.random()*46;   // backblast opposite the flight
+      s.animate([{transform:'translate(0,0) scale(1)',opacity:1},{transform:'translate('+Math.cos(a)*d+'px,'+Math.sin(a)*d+'px) scale(0)',opacity:0}],{duration:380+Math.random()*260,easing:'ease-out'}).onfinish=function(){ s.remove(); };
+    })();
+  }
+}
+// called on release; returns true if the slingshot handled it
+window._slingRelease=function(id,el){
+  if(!window.BUDDY_ON){ SLING.loadedId=null; return false; }   // slingshot only works in buddy mode
+  var p=_phys[id]; if(!p) return false;
+  var size=p.size, cx=p.x+size/2, cy=p.y+size/2;
+  var aim=document.getElementById('sl-aim'); if(aim) aim.style.display='none';
+  if(SLING.loadedId===id){
+    var dx=SLING.ax-cx, dy=SLING.ay-cy, k=0.85, max=140;     // fling toward where you aimed (opposite the pull) — 5× stronger
+    p.vx=Math.max(-max,Math.min(max,dx*k)); p.vy=Math.max(-max,Math.min(max,dy*k));
+    SLING.loadedId=null; slingSetBands(SLING.ax,SLING.ay);
+    if(el){ el.style.zIndex=''; el.classList.add('pb-launching'); }   // tumble + glow while flying
+    slingFX(cx,cy,p.vx,p.vy);
+    try{ playBubblePop(); }catch(e){}
+    return true;
+  }
+  var ddx=cx-SLING.ax, ddy=cy-SLING.ay;
+  if(Math.sqrt(ddx*ddx+ddy*ddy) < 72){                       // dropped on the pouch → load it
+    SLING.loadedId=id; p.vx=0; p.vy=0;
+    p.x=SLING.ax-size/2; p.y=SLING.ay-size/2;
+    if(el){ el.style.left=p.x+'px'; el.style.top=p.y+'px'; el.style.zIndex=85; }
+    slingSetBands(SLING.ax,SLING.ay);
+    return true;
+  }
+  return false;
+};
+</script>
 </body>
 </html>
