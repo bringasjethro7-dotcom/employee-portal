@@ -857,6 +857,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
       <div class="fg"><label class="lbl">Department</label><input class="inp" type="text" id="m-dept" placeholder="e.g. Engineering" /></div>
       <div class="fg"><label class="lbl">Work schedule</label><select class="inp" id="m-schedule"><option value="weekdays">Weekdays (Mon–Fri)</option><option value="everyday">Every day (Mon–Sun)</option></select></div>
       <div class="fg"><label class="lbl">Client</label><input class="inp" type="text" id="m-client" placeholder="e.g. ALTR Media" /></div>
+      <div class="fg"><label class="lbl">Account status</label><select class="inp" id="m-status"><option value="active">Active</option><option value="inactive">Deactivated (can't log in)</option></select></div>
       <div class="fg"><label class="lbl">Monthly rate</label><input class="inp" type="number" id="m-rate" placeholder="45000" /></div>
       <div class="fg"><label class="lbl">Start date</label><input class="inp" type="date" id="m-start" /></div>
       <div class="fg"><label class="lbl">Birthday</label><input class="inp" type="date" id="m-bday" /></div>
@@ -1911,8 +1912,23 @@ function renderTable(){
     var ri=emps.indexOf(e);
     var cl=(e.career_level||e.cl||'').toString().trim().toUpperCase();
     var clCell=cl?'<span style="display:inline-block;font-weight:700;font-size:11px;color:var(--o3);background:rgba(255,107,26,.12);border:1px solid rgba(255,107,26,.28);border-radius:7px;padding:2px 8px;">'+cl+'</span>':'<span style="color:var(--t3)">—</span>';
-    return'<tr><td style="font-weight:500;color:var(--t1);">'+(e.full_name||'—')+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button><button class="bsm danger" onclick="delEmp('+ri+')">Delete</button></div></td></tr>';
+    var inactive=((e.status||'').toLowerCase()==='inactive'||(e.status||'').toLowerCase()==='deactivated');
+    var nameCell=(e.full_name||'—')+(inactive?' <span style="display:inline-block;font-weight:700;font-size:10px;color:#f87171;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.32);border-radius:7px;padding:1px 7px;margin-left:6px;vertical-align:1px;">DEACTIVATED</span>':'');
+    var toggleBtn=inactive
+      ? '<button class="bsm" style="border-color:rgba(34,197,94,.4);color:#4ade80;" onclick="toggleActive('+ri+')">Reactivate</button>'
+      : '<button class="bsm" style="border-color:rgba(248,113,113,.4);color:#f87171;" onclick="toggleActive('+ri+')">Deactivate</button>';
+    return'<tr'+(inactive?' style="opacity:.55"':'')+'><td style="font-weight:500;color:var(--t1);">'+nameCell+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button>'+toggleBtn+'<button class="bsm danger" onclick="delEmp('+ri+')">Delete</button></div></td></tr>';
   }).join('');
+}
+function toggleActive(idx){
+  var e=emps[idx]; if(!e) return;
+  var nowInactive=((e.status||'').toLowerCase()==='inactive'||(e.status||'').toLowerCase()==='deactivated');
+  if(!nowInactive && !confirm('Deactivate '+(e.full_name||e.employee_id)+'?\nThey will not be able to log into the portal until you reactivate them. Their data is kept.')) return;
+  e.status = nowInactive ? 'active' : 'inactive';
+  persist(); renderTable();
+  fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(e.employee_id)+'&status='+encodeURIComponent(e.status))
+    .then(function(r){return r.json();}).then(function(d){ if(d&&d.not_found) toast(e.employee_id+' isn’t in the sheet yet.'); }).catch(function(){});
+  toast(nowInactive?'Account reactivated.':'Account deactivated.');
 }
 
 function openModal(idx){
@@ -1927,11 +1943,12 @@ function openModal(idx){
   document.getElementById('m-dept').value=e.department||'';
   document.getElementById('m-schedule').value=(e.work_schedule||'weekdays');
   document.getElementById('m-client').value=e.client||'';
+  document.getElementById('m-status').value=((e.status||'').toLowerCase()==='inactive'||(e.status||'').toLowerCase()==='deactivated')?'inactive':'active';
   document.getElementById('m-rate').value=e.rate||'';
   document.getElementById('m-start').value=e.start_date||'';
   document.getElementById('m-bday').value=e.birthday||'';
   document.getElementById('m-photo').value=e.photo||'';
-  var res=['full_name','employee_id','pin','position','department','rate','start_date','birthday','payslips','photo','clockify_api_key'];
+  var res=['full_name','employee_id','pin','position','department','rate','start_date','birthday','payslips','photo','clockify_api_key','career_level','cl','work_schedule','client','status'];
   var cv=Object.entries(e).filter(function(kv){return!res.includes(kv[0]);});
   document.getElementById('m-cf1l').value=cv[0]?cv[0][0]:'';
   document.getElementById('m-cf1v').value=cv[0]?cv[0][1]:'';
@@ -2033,12 +2050,12 @@ function saveEmp(){
     if(p)ps.push({period:p,hours:r.querySelector('.ps-h').value.trim(),link:r.querySelector('.ps-l').value.trim(),paid:r.dataset.paid==='true',paid_date:r.dataset.paidDate||''});
   });
   var cf1l=document.getElementById('m-cf1l').value.trim().replace(/\s+/g,'_').toLowerCase();
-  var emp={full_name:name,employee_id:id,pin:pin,career_level:document.getElementById('m-cl').value.trim(),position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),work_schedule:document.getElementById('m-schedule').value,client:document.getElementById('m-client').value.trim(),rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
+  var emp={full_name:name,employee_id:id,pin:pin,career_level:document.getElementById('m-cl').value.trim(),position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),work_schedule:document.getElementById('m-schedule').value,client:document.getElementById('m-client').value.trim(),status:document.getElementById('m-status').value,rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
   if(cf1l)emp[cf1l]=document.getElementById('m-cf1v').value.trim();
   if(editIdx>=0){emps[editIdx]=emp;toast('Employee updated.');}
   else{emps.push(emp);toast('Employee added.');}
-  // Write work_schedule + client straight to the Employees sheet (used by attendance scoring)
-  fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(id)+'&work_schedule='+encodeURIComponent(emp.work_schedule||'')+'&client='+encodeURIComponent(emp.client||'')+'&career_level='+encodeURIComponent(emp.career_level||''))
+  // Write work_schedule + client + status straight to the Employees sheet (used by attendance scoring + login gate)
+  fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(id)+'&work_schedule='+encodeURIComponent(emp.work_schedule||'')+'&client='+encodeURIComponent(emp.client||'')+'&career_level='+encodeURIComponent(emp.career_level||'')+'&status='+encodeURIComponent(emp.status||''))
     .then(function(r){return r.json();})
     .then(function(d){ if(d&&d.not_found) toast(id+' isn’t in the sheet yet — schedule/client will apply once it is.'); })
     .catch(function(){});
