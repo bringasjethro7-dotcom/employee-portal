@@ -377,6 +377,12 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
         <button class="ghost" onclick="refreshFollowersBulk()" title="Pull latest followers &amp; bio for the accounts shown">↻ Followers &amp; bio</button>
         <button class="adminbtn" id="acct-add-btn" style="display:none" onclick="addAccountPrompt()">+ Add account</button>
       </div>
+      <div id="acct-progress" style="display:none;margin:12px 0 4px">
+        <div id="acct-progress-label" style="font-size:13px;color:var(--t2);margin-bottom:6px">Pulling followers &amp; bio…</div>
+        <div style="height:22px;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);overflow:hidden">
+          <div id="acct-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#ffb066,#ff6b1a);border-radius:11px;transition:width .35s ease;box-shadow:0 0 10px rgba(255,107,26,.5)"></div>
+        </div>
+      </div>
       <div class="stats" id="acct-stats"></div>
       <div id="accounts-list"><div class="muted">Loading accounts…</div></div>
     </div>
@@ -595,7 +601,7 @@ async function loadState(){
     if(STATE.error) throw new Error(STATE.error);
     STATE.phones=STATE.phones||[]; STATE.accounts=STATE.accounts||[]; STATE.posting=STATE.posting||[]; STATE.sourcing=STATE.sourcing||[]; STATE.sourcelog=STATE.sourcelog||[];
     STATE.audios=STATE.audios||[]; STATE.reposts=STATE.reposts||[]; STATE.goals=STATE.goals||[]; STATE.sourcers=STATE.sourcers||[];
-    if(!$('post-date').value){ $('post-date').value=STATE.date; }
+    if(!$('post-date').value){ $('post-date').value=todayPST(); }   // show local today, not the server echo
     buildPhoneFilter();
     renderDevice(); renderPosting(); renderSourcing(); renderInsights();
     maybePhoneReminder();
@@ -978,16 +984,28 @@ async function refreshFollowers(phone,user,acct,handle){
 async function refreshFollowersBulk(){
   var rows=ACCT_ROWS.filter(function(a){ return String(a.handle||'').trim()!==''; });
   if(!rows.length){ toast('No accounts to refresh'); return; }
-  if(!confirm('Pull latest followers for '+rows.length+' account'+(rows.length>1?'s':'')+' (the ones currently shown)?\nInstagram is queried one at a time, so this can take a while.')) return;
+  if(!confirm('Pull latest followers & bio for '+rows.length+' account'+(rows.length>1?'s':'')+' (the ones currently shown)?\nInstagram is queried one at a time, so this can take a while.')) return;
   var ok=0, fail=0;
+  var box=$('acct-progress'), fill=$('acct-progress-fill'), lab=$('acct-progress-label');
+  function setProg(done,total,handle,done2){
+    var pct=Math.round(done/total*100);
+    if(fill) fill.style.width=pct+'%';
+    if(lab) lab.textContent = done2 ? done2 : ('Pulling followers & bio… '+done+'/'+total+' ('+pct+'%)'+(handle?(' — @'+handle):''));
+  }
+  if(box) box.style.display='block';
+  setProg(0, rows.length, rows[0].handle);
   for(var i=0;i<rows.length;i++){
-    var a=rows[i]; toast('Followers '+(i+1)+'/'+rows.length+' — @'+a.handle);
+    var a=rows[i];
+    setProg(i, rows.length, a.handle);
     try{ var r=await apiPost({ action:'ig_followers', phone:a.phone, user:a.user, acct:a.acct, handle:a.handle });
       if(r && r.ok && ((r.count!==''&&r.count!=null)||(r.bio!==''&&r.bio!=null))){ if(r.count!==''&&r.count!=null) a.followers=r.count; if(r.bio!==''&&r.bio!=null) a.bio=r.bio; ok++; renderAccountsTab(); } else fail++;
     }catch(e){ fail++; }
+    setProg(i+1, rows.length, '');
     await new Promise(function(res){ setTimeout(res, 700); });   // gentle pacing to avoid IG rate limits
   }
-  toast('Followers updated: '+ok+(fail?(' · '+fail+' failed'):''));
+  setProg(rows.length, rows.length, '', 'Done — '+ok+' updated'+(fail?(' · '+fail+' failed'):''));
+  setTimeout(function(){ if(box) box.style.display='none'; if(fill) fill.style.width='0%'; }, 2800);
+  toast('Followers & bio updated: '+ok+(fail?(' · '+fail+' failed'):''));
 }
 function editAccount(phone,user,acct,handle){
   if(!ISADMIN) return;
