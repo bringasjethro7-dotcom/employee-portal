@@ -4122,7 +4122,7 @@ function applyAssessGate(){
   if(!btn) return;
   if(assessTaken){
     btn.disabled=true; btn.style.opacity='0.55'; btn.style.cursor='not-allowed'; btn.textContent='Completed ✓';
-    if(st){ st.textContent = (assessScore!=null) ? ('Recorded: '+(assessScore*0.15).toFixed(2)+' / 15 pts') : 'Already completed this month.'; st.style.color='var(--text-3)'; }
+    if(st){ st.textContent = (assessScore!=null) ? ('Recorded: '+parseFloat(assessScore).toFixed(2)+' / 100') : 'Already completed this month.'; st.style.color='var(--text-3)'; }
   } else if(assessOpen){
     btn.disabled=false; btn.style.opacity='1'; btn.style.cursor='pointer'; btn.textContent='Take assessment';
     if(st){ st.textContent='One attempt only.'; st.style.color='var(--text-3)'; }
@@ -4134,7 +4134,7 @@ function applyAssessGate(){
 function _renderAssessValue(val){
   if(typeof setScCard==='function') setScCard('assess', (val==null||val===''?'':val));
   var saEl=document.getElementById('sum-assess');
-  if(saEl) saEl.textContent = (val!=null&&val!=='') ? ((parseFloat(val)*0.15).toFixed(1)+'/15') : '—';
+  if(saEl) saEl.textContent = (val!=null&&val!=='') ? (parseFloat(val).toFixed(0)+'%') : '—';
 }
 async function updateAssessmentGate(){
   var mk=assessMonthKey(), id=_assessEmpId();
@@ -4327,7 +4327,7 @@ async function assessFinish(){
       + '&quiz_score=' + _asState.quizPct + '&typing_wpm=' + t.wpm + '&typing_acc=' + t.acc + '&assessment_score=' + score;
     var resp=await fetch(url); var rj={}; try{ rj=await resp.json(); }catch(_e){}
     if(rj && rj.success){
-      if(s){ s.textContent='Saved — added to your scorecard ('+(score*0.15).toFixed(2)+' / 15 pts).'; s.style.color='#4ade80'; }
+      if(s){ s.textContent='Saved — added to your scorecard ('+parseFloat(score).toFixed(2)+' / 100).'; s.style.color='#4ade80'; }
       assessTaken=true; assessScore=score; applyAssessGate();
       if(typeof loadScorecard==='function') loadScorecard();   // refresh overall + cards now
     } else if(rj && rj.error==='ALREADY_TAKEN'){
@@ -4353,11 +4353,10 @@ function setScCard(type, score) {
     return;
   }
   var s = parseFloat(score);
-  if (type === 'assess') {                       // show the weighted points it contributes (out of 15)
-    var pts = s * 0.15;
-    num.textContent = pts.toFixed(2);
+  if (type === 'assess') {                       // show as a percentage out of 100 (like Quality)
+    num.textContent = s.toFixed(2);
     bar.style.width = Math.min(s, 100) + '%';
-    badge.textContent = '/15 pts';
+    badge.textContent = s.toFixed(2) + '/100';
     return;
   }
   num.textContent = s.toFixed(2);
