@@ -2079,6 +2079,7 @@
   .att-badge-late    { color: #f87171; font-size: 11px; font-weight: 600; }
   .att-badge-ontime  { color: #4ade80; font-size: 11px; font-weight: 600; }
   .att-badge-incomplete { color: var(--orange-3); font-size: 11px; font-weight: 600; }
+  .att-badge-present { color: #38bdf8; font-size: 11px; font-weight: 600; }
 
   @media (max-width: 600px) {
     .time-btn-grid { grid-template-columns: repeat(2, 1fr); }
@@ -4816,6 +4817,7 @@ function checkPreviousSession() {
 
   var incomplete = attRecords.find(function(r) {
     if (r.date === attToday || !r.time_in || r.time_out) return false;
+    if (String(r.status || '').toLowerCase() === 'present') return false;   // already resolved
     // Only show if the time_in was within the last hour
     var timeIn = new Date(r.time_in);
     return timeIn >= oneHourAgo;
@@ -5216,11 +5218,10 @@ function renderAttTable() {
     var late     = isLate(rec);
     var shift    = rec.shift || 'morning';
     var hasTO    = sessions.some(function(s){ return !!s.time_out; });
-    var status   = !hasTO
-      ? '<span class="att-badge-incomplete">Incomplete</span>'
-      : late
-        ? '<span class="att-badge-late">Late</span>'
-        : '<span class="att-badge-ontime">On Time</span>';
+    var marked   = String(rec.status || '').toLowerCase() === 'present';
+    var status   = hasTO
+      ? (late ? '<span class="att-badge-late">Late</span>' : '<span class="att-badge-ontime">On Time</span>')
+      : (marked ? '<span class="att-badge-present">Present</span>' : '<span class="att-badge-incomplete">Incomplete</span>');
     var lunchStr = firstLO
       ? fmtTime(firstLO) + (firstLI ? ' – ' + fmtTime(firstLI) : ' – …')
       : '—';
