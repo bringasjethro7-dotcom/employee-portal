@@ -5612,27 +5612,29 @@ function submitWorklogVolumes() {
   var attendanceTotal = _pendingWorklog.attendanceTotal;
   // Always record (no "pending" limbo). Overtime is shown as a non-blocking notice only.
   var overtime = !_pendingWorklog.forceRecord && trackedTotal > (attendanceTotal + 0.05);
-  var pending = false;
-  try {
-    fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'tracker_set_volumes',
-        employee_id: attEmpId,
-        pending: pending,
-        tracked_hours: Math.round(trackedTotal * 100) / 100,
-        attendance_hours: Math.round(attendanceTotal * 100) / 100,
-        items: rows.map(function(r){ return { entry_id: r.entry_id, volume: r.volume }; })
-      }),
-      mode: 'no-cors'
+  // Confirmed recording via GET — the prompt only closes once the server confirms,
+  // so output is never lost and nothing stays at "stopped/pending".
+  var items = encodeURIComponent(JSON.stringify(rows.map(function(r){ return { entry_id: r.entry_id, volume: r.volume }; })));
+  var url = APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(attEmpId) +
+    '&pending=false&items=' + items;
+  var btns = document.querySelectorAll('#worklog-volume .wl-vol-actions button');
+  btns.forEach(function(b){ b.disabled = true; });
+  (function attempt(n){
+    fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+      btns.forEach(function(b){ b.disabled = false; });
+      if (d && (d.success || d.ok)) {
+        closeVolumePrompt();
+        showToast('Output recorded. ✅');
+        if (overtime && typeof showWorklogWarning === 'function') showWorklogWarning(trackedTotal, attendanceTotal);
+        _pendingWorklog = null;
+        setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1200);
+      } else if (d && d.error === 'BUSY' && n < 5) { setTimeout(function(){ attempt(n+1); }, 600*n); }
+      else { showToast('Could not record yet — please tap Submit again.'); }
+    }).catch(function(){
+      if (n < 5) { setTimeout(function(){ attempt(n+1); }, 700*n); }
+      else { btns.forEach(function(b){ b.disabled = false; }); showToast('Network error — your output is not saved yet. Please tap Submit again.'); }
     });
-  } catch(e) {}
-  closeVolumePrompt();
-  showToast('Output recorded. ✅');
-  if (overtime && typeof showWorklogWarning === 'function') showWorklogWarning(trackedTotal, attendanceTotal);
-  _pendingWorklog = null;
-  setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1200);
+  })(1);
 }
 
 // Warning shown when tracked time exceeds attendance hours
@@ -5763,9 +5765,39 @@ var trkSessionId = (function(){
 })();
 var trkOwns = true;   // does this session own the currently-running timer?
 function _trkPost(action, extra) {
-  try { fetch(APPS_SCRIPT_URL, { method:'POST', headers:{'Content-Type':'application/json'}, mode:'no-cors',
-    body: JSON.stringify(Object.assign({ action: action, employee_id: attEmpId, session: trkSessionId }, extra || {})) }); } catch(e) {}
+  // Confirmed write via GET (Apps Script returns a readable JSON response) with retry,
+  // so a Stop/Pause/Start never silently fails and leaves an orphaned/incorrect timer.
+  // Runs in the background; only warns the user if every attempt fails.
+  var params = Object.assign({ action: action, employee_id: attEmpId, session: trkSessionId }, extra || {});
+  var qs = Object.keys(params).map(function(k){
+    var v = params[k]; if (v && typeof v === 'object') v = JSON.stringify(v);
+    return encodeURIComponent(k) + '=' + encodeURIComponent(v == null ? '' : v);
+  }).join('&');
+  var url = APPS_SCRIPT_URL + '?' + qs;
+  (function attempt(n){
+    fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+      if (d && (d.success || d.ok)) return;                                  // confirmed saved
+      if (d && d.error === 'BUSY' && n < 5) { setTimeout(function(){ attempt(n+1); }, 600*n); return; }
+      if (d && d.error === 'LOCKED') showToast('That month is locked — timer changes aren’t allowed.');
+    }).catch(function(){
+      if (n < 5) setTimeout(function(){ attempt(n+1); }, 700*n);
+      else if (action !== 'tracker_heartbeat') showToast('Couldn’t save your timer change — check your connection and retry.');
+    });
+  })(1);
 }
+// Heartbeat: while a timer runs, prove it's alive every 60s. The server only credits
+// time up to the last beat, so a closed tab / sleeping laptop can't inflate hours.
+var trkHeartbeatTick = null;
+function startHeartbeat() {
+  stopHeartbeat();
+  trkHeartbeatTick = setInterval(function(){
+    if (trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });
+  }, 60000);
+}
+function stopHeartbeat() { if (trkHeartbeatTick) { clearInterval(trkHeartbeatTick); trkHeartbeatTick = null; } }
+document.addEventListener('visibilitychange', function(){
+  if (!document.hidden && trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });
+});
 // Move the running task into the paused list locally (banks its active seconds)
 function _bankRunningToPaused() {
   if (!trkRunning) return;
@@ -5879,6 +5911,7 @@ async function stopTimer() {        // main Stop button — stops the running ta
 function stopDisplayTick() {
   if (cfyTimerTick) clearInterval(cfyTimerTick);
   cfyTimerTick = null;
+  stopHeartbeat();
   var disp = document.getElementById('cfy-timer-display');
   if (disp) { disp.textContent = '00:00:00'; disp.classList.remove('running'); }
 }
@@ -5886,6 +5919,7 @@ function startTimerDisplay() {
   if (cfyTimerTick) clearInterval(cfyTimerTick);
   updateTimerDisplay();
   cfyTimerTick = setInterval(updateTimerDisplay, 1000);
+  if (trkOwns) startHeartbeat();   // only the owning device beats
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.classList.add('running');
 }
