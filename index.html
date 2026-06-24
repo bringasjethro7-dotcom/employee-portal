@@ -2080,6 +2080,12 @@
   .att-badge-ontime  { color: #4ade80; font-size: 11px; font-weight: 600; }
   .att-badge-incomplete { color: var(--orange-3); font-size: 11px; font-weight: 600; }
   .att-badge-present { color: #38bdf8; font-size: 11px; font-weight: 600; }
+  .att-resolve-btn { margin-left: 6px; background: rgba(255,107,26,0.14); border: 1px solid rgba(255,107,26,0.4); color: var(--orange-3,#FF6B1A); border-radius: 7px; padding: 3px 9px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .att-resolve-btn:hover { background: rgba(255,107,26,0.24); }
+  .att-resolve-field { margin: 14px 0; }
+  .att-resolve-field label { display:block; font-size:12px; color: var(--text-2); margin-bottom:6px; font-weight:600; }
+  .att-resolve-field input, .att-resolve-field textarea { width:100%; background: var(--bg-deep); border:1px solid var(--border); border-radius:8px; color: var(--text-1); font-size:14px; padding:10px 12px; outline:none; font-family:inherit; }
+  .att-resolve-field input:focus, .att-resolve-field textarea:focus { border-color: var(--orange-1); }
 
   @media (max-width: 600px) {
     .time-btn-grid { grid-template-columns: repeat(2, 1fr); }
@@ -2528,8 +2534,7 @@
 
     <div class="tabs">
       <button class="tab-btn active" onclick="switchTab('overview', this)" title="Overview"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> Overview</button>
-      <button class="tab-btn" id="tabbtn-attendance" onclick="switchTab('attendance', this)" title="Attendance"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg> Attendance</button>
-      <button class="tab-btn" id="tabbtn-clockify" onclick="switchTab('clockify', this)" title="Time Tracker"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Time Tracker</button>
+      <button class="tab-btn" id="tabbtn-attendance" onclick="switchTab('attendance', this)" title="Attendance & Time"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg> Attendance &amp; Time</button>
       <button class="tab-btn" onclick="switchTab('leave', this)" title="Leave"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Leave</button>
       <button class="tab-btn" onclick="switchTab('scorecard', this)" title="HR & Scorecard">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2643,6 +2648,22 @@
         <div class="wl-vol-actions">
           <button onclick="submitWorklogVolumes()">Submit &amp; Record</button>
           <button class="wl-vol-later" onclick="closeVolumePrompt(true)">Later (won't be recorded yet)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESOLVE INCOMPLETE ATTENDANCE -->
+    <div id="att-resolve" class="wl-vol-overlay">
+      <div class="wl-vol-box">
+        <div class="wl-vol-head">
+          <h3>⚠️ Resolve incomplete shift</h3>
+          <p id="att-resolve-sub">This day is missing some required time entries. Please complete them to resolve it.</p>
+        </div>
+        <div id="att-resolve-list" style="padding:0.25rem 1.5rem;"></div>
+        <div id="att-resolve-err" style="display:none;padding:0 1.5rem;color:#ef4444;font-size:12px;"></div>
+        <div class="wl-vol-actions">
+          <button onclick="submitResolveAtt()">Resolve shift</button>
+          <button class="wl-vol-later" onclick="closeResolveAtt()">Cancel</button>
         </div>
       </div>
     </div>
@@ -2781,8 +2802,15 @@
       </div>
     </div>
 
-    <!-- CLOCKIFY -->
+    <!-- CLOCKIFY (merged below Attendance in the same view) -->
     <div class="tab-panel" id="tab-clockify">
+      <div style="border-top:1px solid var(--border);margin:1.75rem 0 1.25rem;"></div>
+      <div class="attendance-header" style="margin-bottom:1rem;">
+        <div>
+          <p class="section-eyebrow">Time Tracker</p>
+          <div style="font-size:12px;color:var(--text-3);margin-top:2px;">Track time per task. You must enter the output volume to stop a task, so nothing goes unrecorded.</div>
+        </div>
+      </div>
       <!-- Activity-detection banner: shown when system-wide activity permission isn't granted -->
       <div id="idle-perm-banner" style="display:none;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">
         <span style="font-size:20px;">⚠️</span>
@@ -3762,7 +3790,7 @@ function mobileAccessActive() {
 function lockMobileTabs() {
   if (!isMobileDevice()) return;
   if (mobileAccessActive()) { unlockMobileTabs(); scheduleMobileRelock(); return; }
-  ['attendance','clockify'].forEach(function(n){
+  ['attendance'].forEach(function(n){
     var b = document.getElementById('tabbtn-' + n);
     if (b && b.dataset.locked !== '1') {
       b.dataset.locked = '1';
@@ -3774,7 +3802,7 @@ function lockMobileTabs() {
   });
 }
 function unlockMobileTabs() {
-  ['attendance','clockify'].forEach(function(n){
+  ['attendance'].forEach(function(n){
     var b = document.getElementById('tabbtn-' + n);
     if (b) { b.dataset.locked = ''; b.style.opacity = ''; b.style.cursor = ''; b.title = '';
       var lk = b.querySelector('.mob-lock'); if (lk) lk.remove(); }
@@ -3836,6 +3864,8 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b   => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
+  // Attendance & Time Tracker are merged into one view — show both panels together
+  if (name === 'attendance') { var _ck = document.getElementById('tab-clockify'); if (_ck) _ck.classList.add('active'); }
   if (btn) btn.classList.add('active');
   var _fab = document.getElementById('msg-fab');
   if (_fab) { if (name === 'messages') _fab.classList.add('active'); else _fab.classList.remove('active'); }
@@ -3850,7 +3880,10 @@ function switchTab(name, btn) {
     });
   }
 
-  if (name === 'attendance') { if (attEmpId) { loadAttendanceLogs(); } }
+  if (name === 'attendance') {
+    if (attEmpId) { loadAttendanceLogs(); }
+    if (!cfyInited && window._currentEmpData) { cfyInited = true; initClockify(window._currentEmpData); }
+  }
   if (name === 'leave')      { if (leaveEmpId) { syncLeaveFromServer(); updateLeaveBalance(); renderLeaveHistory(); } }
   if (name === 'messages' && chatEmpId) {
     loadMessages(); loadContacts();
@@ -3859,10 +3892,6 @@ function switchTab(name, btn) {
     if (tabDot) tabDot.classList.remove('show');
     var badge = document.getElementById('msg-badge');
     if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
-  }
-  if (name === 'clockify' && !cfyInited && window._currentEmpData) {
-    cfyInited = true;
-    initClockify(window._currentEmpData);
   }
   // Scorecard and HR are static for now
 }
@@ -5218,10 +5247,20 @@ function renderAttTable() {
     var late     = isLate(rec);
     var shift    = rec.shift || 'morning';
     var hasTO    = sessions.some(function(s){ return !!s.time_out; });
-    var marked   = String(rec.status || '').toLowerCase() === 'present';
-    var status   = hasTO
-      ? (late ? '<span class="att-badge-late">Late</span>' : '<span class="att-badge-ontime">On Time</span>')
-      : (marked ? '<span class="att-badge-present">Present</span>' : '<span class="att-badge-incomplete">Incomplete</span>');
+    var st       = String(rec.status || '').toLowerCase();
+    var marked   = (st === 'present');
+    var needsLunchIn = !!(firstLO && !firstLI);
+    var incomplete   = (!hasTO || needsLunchIn) && st !== 'present' && st !== 'resolved';
+    var status;
+    if (incomplete) {
+      status = '<span class="att-badge-incomplete">Incomplete</span>' +
+               ' <button class="att-resolve-btn" onclick="openResolveAtt(\'' + rec.date + '\')">Resolve</button>';
+    } else if (hasTO) {
+      status = (late ? '<span class="att-badge-late">Late</span>' : '<span class="att-badge-ontime">On Time</span>') +
+               (st === 'resolved' ? ' <span class="att-badge-present" title="' + escapeHtml(rec.note || 'Resolved by employee') + '">✓ Resolved</span>' : '');
+    } else {
+      status = '<span class="att-badge-present">Present</span>';
+    }
     var lunchStr = firstLO
       ? fmtTime(firstLO) + (firstLI ? ' – ' + fmtTime(firstLI) : ' – …')
       : '—';
@@ -5356,11 +5395,18 @@ function businessDateOf(iso) {
   var b = businessDayStart(iso);
   return b.getFullYear() + '-' + String(b.getMonth() + 1).padStart(2, '0') + '-' + String(b.getDate()).padStart(2, '0');
 }
+// The date every work log should be filed under. Anchored to the attendance shift
+// date (attToday) so a NIGHT shift crossing midnight (e.g. lunch/work past 1 AM)
+// keeps recording under the date the shift began — right up until the user times out.
+function shiftDate() {
+  if (typeof attToday === 'string' && attToday) return attToday;   // shift date from resolveAttToday()
+  return businessDateOf(new Date().toISOString());                 // fallback before attendance inits
+}
 
 async function loadTodayEntries() {
   try {
     var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
-    var date  = businessDateOf(new Date().toISOString());
+    var date  = shiftDate();
     var url   = APPS_SCRIPT_URL + '?action=get_tracker_today&employee_id=' + encodeURIComponent(empId) + '&date=' + encodeURIComponent(date);
     var res     = await fetch(url);
     var json    = await res.json();
@@ -5451,7 +5497,7 @@ async function loadTrackerHistory() {
     var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
     var res  = await fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(empId));
     var json = await res.json();
-    var todayB = businessDateOf(new Date().toISOString());
+    var todayB = shiftDate();
     var byDate = {};
     (json.worklog || []).forEach(function(w) {
       if (!w.date || w.status === 'running') return;
@@ -5484,13 +5530,15 @@ async function loadTrackerHistory() {
 // each tracked task this shift before recording them.
 async function syncWorklogOnTimeOut() {
   try {
-    // make sure any running timer is actually stopped (retry once if it didn't take)
-    if (cfyRunningId && typeof stopTimer === 'function') {
-      try { await stopTimer(); } catch(e) {}
-      if (cfyRunningId) { try { await new Promise(function(r){ setTimeout(r, 1200); }); await stopTimer(); } catch(e) {} }
-    }
+    // Clock-out is linked to the tracker: stop the running timer AND any paused
+    // tasks (without the per-task prompt), then prompt once below so every tracked
+    // task gets a volume and is recorded — nothing is left running past the shift.
+    if (trkRunning) { _trkPost('tracker_stop', { entry_id: trkRunning.entry_id }); trkSetRunning(null); stopDisplayTick(); if (typeof trkClearFields === 'function') trkClearFields(); }
+    (trkPaused || []).slice().forEach(function(e){ _trkPost('tracker_stop', { entry_id: e.entry_id }); });
+    trkPaused = [];
+    renderTimerButtons(); renderPausedList(); updateButtons();
     var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
-    var date  = businessDateOf(new Date().toISOString());
+    var date  = shiftDate();
     var url   = APPS_SCRIPT_URL + '?action=get_tracker_today&employee_id=' + encodeURIComponent(empId) + '&date=' + encodeURIComponent(date);
     // Retry: the just-stopped entry can take a few seconds to persist server-side,
     // so poll a few times instead of giving up after one read (this is why the
@@ -5514,13 +5562,13 @@ async function syncWorklogOnTimeOut() {
     var trackedTotal    = rows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
     var attendanceTotal = (typeof getTotalHoursToday === 'function') ? getTotalHoursToday() : 0;
     _pendingWorklog = { rows: rows, clockifyTotal: trackedTotal, attendanceTotal: attendanceTotal };
-    showVolumePrompt(rows);
+    showVolumePrompt(rows, true);   // mandatory volume before recording
   } catch(e) { console.warn('worklog sync:', e); }
 }
 
 // Volume/output prompt shown at time-out before recording
 var _pendingWorklog = null;
-function showVolumePrompt(rows) {
+function showVolumePrompt(rows, required) {
   var list = document.getElementById('wl-vol-list');
   if (!list) return;
   list.innerHTML = rows.map(function(r, i) {
@@ -5534,7 +5582,11 @@ function showVolumePrompt(rows) {
       '<input class="wl-vol-input" type="number" min="0" step="any" inputmode="numeric" data-i="' + i + '" placeholder="Qty" />' +
     '</div>';
   }).join('');
+  // Volume is mandatory now — hide the "Later" skip so a task can't be left unrecorded.
+  var later = document.querySelector('#worklog-volume .wl-vol-later');
+  if (later) later.style.display = (required === false) ? '' : 'none';
   var o = document.getElementById('worklog-volume'); if (o) o.classList.add('show');
+  setTimeout(function(){ var f = document.querySelector('#wl-vol-list .wl-vol-input'); if (f) f.focus(); }, 60);
 }
 function closeVolumePrompt(later) {
   var o = document.getElementById('worklog-volume'); if (o) o.classList.remove('show');
@@ -5553,7 +5605,9 @@ function submitWorklogVolumes() {
   inputs.forEach(function(inp) { var i = parseInt(inp.dataset.i, 10); if (rows[i]) rows[i].volume = parseFloat(inp.value); });
   var trackedTotal = _pendingWorklog.clockifyTotal;
   var attendanceTotal = _pendingWorklog.attendanceTotal;
-  var pending = trackedTotal > (attendanceTotal + 0.05);
+  // Always record (no "pending" limbo). Overtime is shown as a non-blocking notice only.
+  var overtime = !_pendingWorklog.forceRecord && trackedTotal > (attendanceTotal + 0.05);
+  var pending = false;
   try {
     fetch(APPS_SCRIPT_URL, {
       method: 'POST',
@@ -5570,8 +5624,8 @@ function submitWorklogVolumes() {
     });
   } catch(e) {}
   closeVolumePrompt();
-  showToast(pending ? 'Output logged — pending admin approval.' : 'Output recorded. ✅');
-  if (pending && typeof showWorklogWarning === 'function') showWorklogWarning(trackedTotal, attendanceTotal);
+  showToast('Output recorded. ✅');
+  if (overtime && typeof showWorklogWarning === 'function') showWorklogWarning(trackedTotal, attendanceTotal);
   _pendingWorklog = null;
   setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1200);
 }
@@ -5586,6 +5640,76 @@ function showWorklogWarning(tracked, attendance) {
 }
 function closeWorklogWarning() {
   var o = document.getElementById('worklog-warn'); if (o) o.classList.remove('show');
+}
+
+// ── RESOLVE INCOMPLETE ATTENDANCE (employee self-service) ──
+var _resolveAtt = null;
+function attMissingReqs(rec) {
+  var sessions = rec.sessions || [];
+  if (!sessions.length && rec.time_in) sessions = [{ time_in:rec.time_in, time_out:rec.time_out, lunch_out:rec.lunch_out, lunch_in:rec.lunch_in }];
+  var hasTO = sessions.some(function(s){ return !!s.time_out; });
+  var firstLO = sessions.length ? sessions[0].lunch_out : rec.lunch_out;
+  var firstLI = sessions.length ? sessions[0].lunch_in  : rec.lunch_in;
+  var miss = [];
+  if (!hasTO) miss.push('time_out');
+  if (firstLO && !firstLI) miss.push('lunch_in');
+  return miss;
+}
+function openResolveAtt(date) {
+  var rec = attRecords.find(function(r){ return r.date === date; });
+  if (!rec) { showToast('Record not found.'); return; }
+  var miss = attMissingReqs(rec);
+  if (!miss.length) { showToast('This day is already complete.'); return; }
+  _resolveAtt = { date: date, missing: miss };
+  var labels = { time_out:'Time Out', lunch_in:'Lunch In' };
+  var fields = miss.map(function(m){
+    return '<div class="att-resolve-field"><label>' + labels[m] + ' — the time you actually ' +
+      (m === 'time_out' ? 'clocked out' : 'returned from lunch') + '</label>' +
+      '<input type="time" data-req="' + m + '" /></div>';
+  }).join('');
+  fields += '<div class="att-resolve-field"><label>Reason — why was this left incomplete?</label>' +
+    '<textarea data-req="reason" rows="2" placeholder="e.g. Forgot to clock out, power outage, browser closed…"></textarea></div>';
+  document.getElementById('att-resolve-list').innerHTML = fields;
+  document.getElementById('att-resolve-sub').textContent =
+    'This shift (' + fmtDateShort(date) + ') is missing: ' + miss.map(function(m){ return labels[m]; }).join(', ') +
+    '. Enter the correct time(s) and a reason to resolve it.';
+  var err = document.getElementById('att-resolve-err'); if (err) { err.style.display='none'; err.textContent=''; }
+  var o = document.getElementById('att-resolve'); if (o) o.classList.add('show');
+}
+function closeResolveAtt() {
+  var o = document.getElementById('att-resolve'); if (o) o.classList.remove('show');
+  _resolveAtt = null;
+}
+async function submitResolveAtt() {
+  if (!_resolveAtt) { closeResolveAtt(); return; }
+  var inputs = document.querySelectorAll('#att-resolve-list [data-req]');
+  var vals = {}, ok = true;
+  inputs.forEach(function(inp){
+    var v = (inp.value || '').trim();
+    if (!v) { inp.style.borderColor = '#ef4444'; ok = false; } else inp.style.borderColor = '';
+    vals[inp.dataset.req] = v;
+  });
+  var err = document.getElementById('att-resolve-err');
+  function showErr(t){ if (err) { err.textContent = t; err.style.display = 'block'; } }
+  if (!ok) { showErr('Please fill in every field above.'); return; }   // try again until valid
+  var date = _resolveAtt.date;
+  var url = APPS_SCRIPT_URL + '?action=resolve_attendance&employee_id=' + encodeURIComponent(attEmpId) +
+    '&date=' + encodeURIComponent(date) + '&reason=' + encodeURIComponent(vals.reason || '');
+  if (vals.time_out) url += '&time_out=' + encodeURIComponent(vals.time_out);
+  if (vals.lunch_in) url += '&lunch_in=' + encodeURIComponent(vals.lunch_in);
+  try {
+    var res = await fetch(url + '&_=' + Date.now());
+    var d = await res.json();
+    if (d && d.success && d.complete) {
+      closeResolveAtt();
+      showToast('Shift resolved. ✅');
+      setTimeout(function(){ loadAttendanceLogs(); }, 800);
+    } else if (d && d.success) {
+      showErr('Still missing: ' + (d.missing || []).join(', ') + '. Please complete it and submit again.');
+    } else {
+      showErr((d && d.error) ? d.error : 'Could not resolve — please try again.');
+    }
+  } catch (e) { showErr('Network error — please try again.'); }
 }
 
 // ── TIMER ──
@@ -5664,7 +5788,7 @@ async function startTimer() {
   var entryId  = trkUid();
   trkSetRunning({ entry_id:entryId, project:f.proj, category:f.cat, task:f.task, description:f.desc, baseSecs:0, segStart: Date.now() });
   var data = trkEmpData || window._currentEmpData || {};
-  _trkPost('tracker_start', { full_name: data.full_name || attEmpId, date: businessDateOf(startIso), project:f.proj, category:f.cat, task:f.task, description:f.desc, start: startIso, entry_id: entryId });
+  _trkPost('tracker_start', { full_name: data.full_name || attEmpId, date: shiftDate(), project:f.proj, category:f.cat, task:f.task, description:f.desc, start: startIso, entry_id: entryId });
   trkOwns = true;   // this device now owns the running timer
   trkLastActivity = Date.now(); trkAutoPausedId = null;
   startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI();
@@ -5717,16 +5841,29 @@ function updateOwnershipUI() {
 }
 
 function stopTask(entryId) {
+  // Stopping now REQUIRES volume — the task is stopped server-side, then the
+  // mandatory volume prompt records it so nothing is left as "stopped".
+  var info = null, hours = 0;
   if (trkRunning && trkRunning.entry_id === entryId) {
+    var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
+    hours = secs / 3600;
+    info = { entry_id: entryId, project: trkRunning.project, task: trkRunning.task, description: trkRunning.description, hours: hours };
     _trkPost('tracker_stop', { entry_id: entryId });
     trkSetRunning(null); stopDisplayTick(); trkClearFields();
   } else {
-    for (var k = 0; k < trkPaused.length; k++) { if (trkPaused[k].entry_id === entryId) { trkPaused.splice(k, 1); break; } }
+    for (var k = 0; k < trkPaused.length; k++) {
+      if (trkPaused[k].entry_id === entryId) {
+        var e = trkPaused[k]; hours = (e.secs || 0) / 3600;
+        info = { entry_id: entryId, project: e.project, task: e.task, description: e.description, hours: hours };
+        trkPaused.splice(k, 1); break;
+      }
+    }
     _trkPost('tracker_stop', { entry_id: entryId });
   }
   renderTimerButtons(); renderPausedList(); updateButtons();
-  showToast('Task stopped.');
-  setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1400);
+  if (!info) { setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1400); return; }
+  _pendingWorklog = { rows: [info], clockifyTotal: hours, attendanceTotal: 0, forceRecord: true };
+  showVolumePrompt([info], true);   // mandatory — records on submit
 }
 
 async function stopTimer() {        // main Stop button — stops the running task
