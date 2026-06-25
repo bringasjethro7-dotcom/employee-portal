@@ -2491,6 +2491,43 @@
   .att-badge-late::before, .att-badge-ontime::before, .att-badge-incomplete::before, .att-badge-present::before {
     content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0;
   }
+  /* ── Self-audit card ── */
+  .audit-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 16px 18px; box-shadow: 0 10px 30px rgba(0,0,0,.22);
+  }
+  .audit-empty { color: var(--text-3); font-size: 13px; padding: 8px 2px; }
+  .audit-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+  .audit-stat {
+    background: var(--bg-card2); border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px;
+  }
+  .audit-stat-l { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3); font-weight: 600; margin-bottom: 5px; }
+  .audit-stat-v { font-family: 'Sora','Inter',sans-serif; font-size: 19px; font-weight: 800; color: var(--text-1); line-height: 1; }
+  .audit-stat.audit-ok   { border-color: rgba(74,222,128,.35);  background: rgba(74,222,128,.08); }
+  .audit-stat.audit-warn { border-color: rgba(255,107,26,.40);  background: rgba(255,107,26,.08); }
+  .audit-stat.audit-bad  { border-color: rgba(248,113,113,.42); background: rgba(248,113,113,.09); }
+  .audit-stat.audit-ok   .audit-stat-v { color: #4ade80; }
+  .audit-stat.audit-warn .audit-stat-v { color: var(--orange-3); }
+  .audit-stat.audit-bad  .audit-stat-v { color: #f87171; }
+  .audit-note { font-size: 12.5px; line-height: 1.5; border-radius: 10px; padding: 9px 12px; }
+  .audit-note.audit-ok   { color: #4ade80; background: rgba(74,222,128,.08); }
+  .audit-note.audit-warn { color: var(--orange-3); background: rgba(255,107,26,.08); }
+  .audit-note.audit-bad  { color: #f87171; background: rgba(248,113,113,.09); }
+  .audit-days { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .audit-day {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: var(--bg-card2); border: 1px solid var(--border); border-radius: 11px;
+    padding: 9px 12px; cursor: pointer; font-family: inherit; transition: border-color .15s, transform .12s;
+  }
+  .audit-day:hover { border-color: var(--orange-1); transform: translateX(2px); }
+  .audit-day-date { font-size: 13px; font-weight: 600; color: var(--text-1); flex-shrink: 0; min-width: 92px; }
+  .audit-day-meta { font-size: 11.5px; color: var(--text-3); flex: 1; }
+  .audit-day-gap { font-size: 12.5px; font-weight: 700; flex-shrink: 0; }
+  .audit-day-gap.audit-warn { color: var(--orange-3); }
+  .audit-day-gap.audit-bad  { color: #f87171; }
+  .audit-day-gap.audit-ok   { color: #4ade80; }
+  @media (max-width: 600px) { .audit-summary { grid-template-columns: 1fr; } .audit-day-meta { display: none; } }
+
   .att-badge-ontime     { color: #4ade80; background: rgba(74,222,128,.12);  border-color: rgba(74,222,128,.26); }
   .att-badge-late       { color: #f87171; background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.28); }
   .att-badge-present    { color: #38bdf8; background: rgba(56,189,248,.12);  border-color: rgba(56,189,248,.26); }
@@ -3612,6 +3649,16 @@
         <div class="today-grid" id="today-grid"></div>
       </div>
       <div class="status-bar" id="status-bar" style="display:none;"></div>
+
+      <!-- SELF-AUDIT: worked (clock) vs tracked (tasks) -->
+      <div class="card-head" style="margin-top:1.5rem;">
+        <div class="ch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div><div class="ch-t">Self-audit</div></div>
+        <div class="ch-line"></div>
+        <button class="btn-sm" onclick="runSelfAudit()">Re-run</button>
+      </div>
+      <div id="self-audit" class="audit-card"><div class="loading-state"><div class="spinner"></div> Analyzing…</div></div>
+
       <div class="card-head" style="margin-top:1.5rem;">
         <div class="ch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></div>
         <div><div class="ch-t">Recent logs</div></div>
@@ -6102,6 +6149,7 @@ function renderAttendance() {
   updateStatusBar();
   updateTodaySummary();
   renderAttTable();
+  try { runSelfAudit(); } catch(e) {}
 }
 
 function updateStatusBar() {
@@ -6565,6 +6613,82 @@ function renderDayLog(items) {
 function closeDayLog() {
   var m = document.getElementById('daylog-modal');
   if (m) m.classList.remove('show');
+}
+
+// ── SELF-AUDIT: reconcile clocked hours vs tracked task hours ──
+// Discrepancy = hours worked (time-out − time-in − lunch) − hours tracked in the timer.
+// A positive gap = worked time that wasn't tracked against a task.
+var _auditRunning = false;
+async function ensureWorklogCache() {
+  if (window._trkByDate) return window._trkByDate;
+  try {
+    var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
+    var res  = await fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(empId));
+    var json = await res.json();
+    var byDate = {};
+    (json.worklog || []).forEach(function(w){ if (!w.date || w.status === 'running') return; (byDate[w.date] = byDate[w.date] || []).push(w); });
+    window._trkByDate = byDate;
+  } catch (e) { window._trkByDate = window._trkByDate || {}; }
+  return window._trkByDate;
+}
+function auditFmt(mins) { var a = Math.abs(mins); var h = Math.floor(a/60), m = a%60; return (h>0 ? h+'h ' : '') + m + 'm'; }
+function auditSeverity(mins) { var a = Math.abs(mins); return a <= 15 ? 'ok' : (a <= 45 ? 'warn' : 'bad'); }
+async function runSelfAudit() {
+  var box = document.getElementById('self-audit');
+  if (!box || _auditRunning) return;
+  _auditRunning = true;
+  box.innerHTML = '<div class="loading-state"><div class="spinner"></div> Analyzing…</div>';
+  try {
+    var byDate = await ensureWorklogCache();
+    var recs = (attRecords || []).filter(function(r){ return r.time_in && r.time_out; })
+      .slice().sort(function(a,b){ return b.date.localeCompare(a.date); }).slice(0, 14);
+    if (!recs.length) { box.innerHTML = '<div class="audit-empty">No completed days to audit yet.</div>'; return; }
+
+    var rows = [], totW = 0, totT = 0;
+    recs.forEach(function(r) {
+      var w = minsWorked(r) || 0;
+      var items = byDate[r.date] || [];
+      var t = Math.round(items.reduce(function(s, x){ return s + (parseFloat(x.hours) || 0); }, 0) * 60);
+      totW += w; totT += t;
+      rows.push({ date: r.date, w: w, t: t, d: w - t });
+    });
+    var totD = totW - totT;
+    var sev  = auditSeverity(totD);
+    var sign = function(m){ return (m > 0 ? '+' : (m < 0 ? '−' : '')) + auditFmt(m); };
+
+    var notable = rows.filter(function(x){ return auditSeverity(x.d) !== 'ok'; });
+
+    var head =
+      '<div class="audit-summary">' +
+        '<div class="audit-stat"><div class="audit-stat-l">Hours worked</div><div class="audit-stat-v">' + auditFmt(totW) + '</div></div>' +
+        '<div class="audit-stat"><div class="audit-stat-l">Hours tracked</div><div class="audit-stat-v">' + auditFmt(totT) + '</div></div>' +
+        '<div class="audit-stat audit-' + sev + '"><div class="audit-stat-l">Discrepancy</div><div class="audit-stat-v">' + sign(totD) + '</div></div>' +
+      '</div>';
+
+    var verdict = (sev === 'ok')
+      ? '<div class="audit-note audit-ok">✓ Your tracked time reconciles with your clocked hours (within 15m over ' + rows.length + ' days).</div>'
+      : '<div class="audit-note audit-' + sev + '">' + (totD > 0
+          ? 'You worked about ' + auditFmt(totD) + ' more than you tracked across ' + rows.length + ' days — some clocked time isn\'t logged against a task.'
+          : 'You tracked about ' + auditFmt(totD) + ' more than your clocked hours — review the days below.') + '</div>';
+
+    var list = notable.length
+      ? '<div class="audit-days">' + notable.map(function(x) {
+          var s = auditSeverity(x.d);
+          var dl = new Date(x.date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+          return '<button class="audit-day" onclick="openDayLog(event,&quot;' + x.date + '&quot;)">' +
+            '<span class="audit-day-date">' + dl + '</span>' +
+            '<span class="audit-day-meta">worked ' + auditFmt(x.w) + ' · tracked ' + auditFmt(x.t) + '</span>' +
+            '<span class="audit-day-gap audit-' + s + '">' + sign(x.d) + '</span>' +
+          '</button>';
+        }).join('') + '</div>'
+      : '';
+
+    box.innerHTML = head + verdict + list;
+  } catch (e) {
+    box.innerHTML = '<div class="audit-empty">Could not run the audit.</div>';
+  } finally {
+    _auditRunning = false;
+  }
 }
 
 // ── FINALIZE TRACKER → WORKLOG ON TIME-OUT ──
