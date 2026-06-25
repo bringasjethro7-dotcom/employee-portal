@@ -445,6 +445,26 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
 .vb-leave{font-family:inherit;font-size:12px;font-weight:600;color:#fff;background:#ef4444;border:none;border-radius:9px;padding:8px 14px;cursor:pointer}
 
 #presence-bubbles,#cam-toggle{display:none!important}
+
+/* admin chat — message feature parity with portal */
+#admin-chat-messages .chat-msg{display:flex;flex-direction:row;align-items:flex-end;gap:8px;max-width:80%}
+#admin-chat-messages .chat-msg.mine{align-self:flex-end}
+#admin-chat-messages .chat-msg.theirs{align-self:flex-start}
+#admin-chat-messages .chat-msg.grouped{margin-top:-4px}
+#admin-chat-messages .cmsg-ava{width:28px;height:28px;flex-shrink:0}
+#admin-chat-messages .cmsg-ava-spacer{width:28px;height:1px}
+#admin-chat-messages .cmsg-ava-img,#admin-chat-messages .cmsg-ava-fb{width:28px;height:28px;border-radius:50%;object-fit:cover;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff}
+#admin-chat-messages .cmsg-col{display:flex;flex-direction:column;min-width:0;max-width:100%}
+#admin-chat-messages .chat-msg.mine .cmsg-col{align-items:flex-end}
+#admin-chat-messages .chat-msg.theirs .cmsg-col{align-items:flex-start}
+#admin-chat-messages .chat-msg-sender{font-size:10.5px;color:var(--t3);margin:0 0 3px 4px;font-weight:600;letter-spacing:.02em}
+#admin-chat-messages .chat-msg-time{font-size:9.5px;color:var(--t3);margin:3px 4px 0;opacity:.85}
+#admin-chat-messages .chat-date-divider{display:flex;justify-content:center;margin:12px 0 6px}
+#admin-chat-messages .chat-date-divider span{font-size:10.5px;color:var(--t3);background:var(--card2);border:1px solid var(--border);padding:3px 12px;border-radius:20px}
+#admin-chat-messages .chat-msg-bubble a.chat-link{color:inherit;text-decoration:underline;text-underline-offset:2px;word-break:break-all}
+#admin-chat-messages .chat-msg.theirs .chat-msg-bubble a.chat-link{color:var(--o3)}
+#admin-chat-messages .chat-mention{color:var(--o3);font-weight:600}
+#admin-chat-messages .chat-msg.mine .chat-mention{color:#fff;text-decoration:underline;text-underline-offset:2px}
 </style>
 </head>
 <body>
@@ -1217,10 +1237,12 @@ async function loadDiscrepancy(){
     var recs=(aData.records||aData.attendance||[]);
     var byDate={};
     (wData.worklog||[]).forEach(function(w){ if(!w.date||w.status==='running'||w.status==='rejected') return; var dk=discDate(w.date); (byDate[dk]=byDate[dk]||[]).push(w); });
+    // aggregate worked minutes per date (a day can have multiple session rows)
+    var workedByDate={};
+    recs.forEach(function(r){ var w=minsWorkedAdmin(r); if(w===null) return; var dk=discDate(r.date); workedByDate[dk]=(workedByDate[dk]||0)+w; });
     var rows=[]; window._discTargets={};
-    recs.forEach(function(r){
-      var w=minsWorkedAdmin(r); if(w===null) return;
-      var dk=discDate(r.date); var items=byDate[dk]||[];
+    Object.keys(workedByDate).forEach(function(dk){
+      var w=workedByDate[dk]; var items=byDate[dk]||[];
       var t=Math.round(items.reduce(function(a,x){return a+(parseFloat(x.hours)||0);},0)*60);
       rows.push({date:dk,w:w,t:t,d:w-t,has:items.length>0});
       if(items.length) window._discTargets[dk]=w;
@@ -2606,50 +2628,51 @@ async function loadAdminMessages() {
   }
 }
 
+function adminAvatarFor(id,name){
+  if(id===ADMIN_ID || id==='ADMIN'){ var L=((document.getElementById('admin-logo-img')||{}).src)||''; return L? '<img src="'+L+'" class="cmsg-ava-img" style="background:#1a1a2e;padding:3px;object-fit:contain;">' : '<div class="cmsg-ava-fb" style="background:#ff6b1a;">A</div>'; }
+  var url=employeePhotos[id]||'';
+  if(url) return '<img src="'+url+'" class="cmsg-ava-img" alt="">';
+  return '<div class="cmsg-ava-fb" style="background:'+bubbleColorFor(id)+';">'+bubbleInitials(id,name)+'</div>';
+}
+function adminEsc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function adminLinkify(h){return (h||'').replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g,function(u){return '<a href="'+u+'" target="_blank" rel="noopener noreferrer" class="chat-link">'+u+'</a>';});}
+function adminFirst(name){name=String(name||'').trim();if(name.indexOf(',')>=0){var a=name.split(',')[1]||'';return a.trim().split(/\s+/)[0]||name;}return name.split(/\s+/)[0]||name;}
+function adminKnownNames(){var set={};Object.keys(presenceNames||{}).forEach(function(id){var f=adminFirst(presenceNames[id]);if(f)set[f.toLowerCase()]=1;});try{(emps||[]).forEach(function(e){var f=adminFirst(e.full_name);if(f)set[f.toLowerCase()]=1;});}catch(e){}return set;}
+function adminMentionify(h,set){return (h||'').replace(/@(\w+)/g,function(full,w){return set[w.toLowerCase()]?'<span class="chat-mention">@'+w+'</span>':full;});}
+
 function renderAdminMessages(msgs) {
   var msgEl = document.getElementById('admin-chat-messages');
   if (!msgs.length) { msgEl.innerHTML = '<div style="text-align:center;color:var(--t3);font-size:13px;margin:auto;">No messages yet.</div>'; return; }
-  var lastDate = '';
-  msgEl.innerHTML = msgs.map(function(m) {
-    var isMine = m.sender_id === ADMIN_ID;
-    var d = new Date(m.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric'});
-    var divider = d !== lastDate ? '<div class="chat-date-divider">' + d + '</div>' : '';
-    lastDate = d;
-    var t = new Date(m.created_at).toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:true});
-    var msgText = (m.message||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-    // Reaction pills
-    var reactions = {};
-    try { reactions = m.reactions ? JSON.parse(m.reactions) : {}; } catch(e) {}
-    var pillsHtml = '';
-    Object.keys(reactions).forEach(function(emoji) {
-      var users = reactions[emoji] || [];
-      if (!users.length) return;
-      var iMine = users.indexOf(ADMIN_ID) >= 0;
-      pillsHtml += '<span class="reaction-pill' + (iMine ? ' my-react' : '') + '" data-mid="' + m.id + '" data-emoji="' + encodeURIComponent(emoji) + '" onclick="adminHandlePillReaction(this)" title="' + users.join(', ') + '">' +
-        emoji + '<span class="reaction-count">' + users.length + '</span></span>';
-    });
-
-    // Emoji picker
-    var emojis = ['❤️','👍','😂','😮','😢','🔥'];
-    var pickerSpans = emojis.map(function(e) {
-      return '<span data-mid="' + m.id + '" data-emoji="' + encodeURIComponent(e) + '" onclick="adminHandlePickReaction(this)">' + e + '</span>';
-    }).join('');
-    var pickerHtml = '<div class="react-picker" id="adminpicker-' + m.id + '">' + pickerSpans + '</div>';
-
-    return divider +
-      '<div class="chat-msg ' + (isMine?'mine':'theirs') + '">' +
-        (!isMine && adminCurrentChat==='group' ? '<div class="chat-msg-sender">' + (m.sender_name||'') + '</div>' : '') +
-        '<div class="chat-msg-wrap" data-mid="' + m.id + '">' +
-          pickerHtml +
-          '<button class="react-btn" data-mid="' + m.id + '" onclick="adminOpenPicker(this.dataset.mid)">😊</button>' +
-          '<div class="chat-msg-bubble">' + msgText + '</div>' +
-          '<div class="chat-msg-time">' + t + '</div>' +
-          (pillsHtml ? '<div class="msg-reactions">' + pillsHtml + '</div>' : '') +
-        '</div>' +
-      '</div>';
-  }).join('');
-  msgEl.scrollTop = msgEl.scrollHeight;
+  var emojis = ['❤️','👍','😂','😮','😢','🔥'];
+  var GAP = 5*60000;
+  var mset = adminKnownNames();
+  var dayStr = function(d){ return new Date(d).toLocaleDateString('en-US', {month:'short',day:'numeric'}); };
+  var lastDate = '', html = '';
+  for (var i=0;i<msgs.length;i++){
+    var m=msgs[i], prev=msgs[i-1], next=msgs[i+1];
+    var isMine=m.sender_id===ADMIN_ID;
+    var md=dayStr(m.created_at), newDay=md!==lastDate;
+    if(newDay){ html+='<div class="chat-date-divider"><span>'+md+'</span></div>'; lastDate=md; }
+    var t=new Date(m.created_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+    var grouped=!newDay&&prev&&prev.sender_id===m.sender_id&&(new Date(m.created_at)-new Date(prev.created_at)<GAP);
+    var lastOfGrp=!(next&&next.sender_id===m.sender_id&&dayStr(next.created_at)===md&&(new Date(next.created_at)-new Date(m.created_at)<GAP));
+    var reactions={}; try{reactions=m.reactions?JSON.parse(m.reactions):{};}catch(e){}
+    var pillsHtml=''; Object.keys(reactions).forEach(function(emoji){var users=reactions[emoji]||[];if(!users.length)return;var iMine=users.indexOf(ADMIN_ID)>=0;pillsHtml+='<span class="reaction-pill'+(iMine?' my-react':'')+'" data-mid="'+m.id+'" data-emoji="'+encodeURIComponent(emoji)+'" onclick="adminHandlePillReaction(this)" title="'+users.join(', ')+'">'+emoji+'<span class="reaction-count">'+users.length+'</span></span>';});
+    var pickerSpans=emojis.map(function(e){return '<span data-mid="'+m.id+'" data-emoji="'+encodeURIComponent(e)+'" onclick="adminHandlePickReaction(this)">'+e+'</span>';}).join('');
+    var pickerHtml='<div class="react-picker" id="adminpicker-'+m.id+'">'+pickerSpans+'</div>';
+    var showName=!isMine&&adminCurrentChat==='group'&&!grouped;
+    var avatar=(!isMine)?(lastOfGrp?'<div class="cmsg-ava">'+adminAvatarFor(m.sender_id,m.sender_name)+'</div>':'<div class="cmsg-ava cmsg-ava-spacer"></div>'):'';
+    var body=adminMentionify(adminLinkify(adminEsc(m.message)),mset);
+    html+='<div class="chat-msg '+(isMine?'mine':'theirs')+(grouped?' grouped':'')+'">'+avatar+
+      '<div class="cmsg-col">'+(showName?'<div class="chat-msg-sender">'+adminEsc(m.sender_name||'')+'</div>':'')+
+      '<div class="chat-msg-wrap" data-mid="'+m.id+'">'+pickerHtml+
+      '<button class="react-btn" data-mid="'+m.id+'" onclick="adminOpenPicker(this.dataset.mid)">😊</button>'+
+      '<div class="chat-msg-bubble">'+body+'</div>'+
+      (pillsHtml?'<div class="msg-reactions">'+pillsHtml+'</div>':'')+'</div>'+
+      (lastOfGrp?'<div class="chat-msg-time">'+t+'</div>':'')+'</div></div>';
+  }
+  msgEl.innerHTML=html;
+  msgEl.scrollTop=msgEl.scrollHeight;
 }
 
 // ── ADMIN REACTIONS ──
