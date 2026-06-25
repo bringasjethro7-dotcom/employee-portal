@@ -2513,6 +2513,10 @@
   .audit-note.audit-ok   { color: #4ade80; background: rgba(74,222,128,.08); }
   .audit-note.audit-warn { color: var(--orange-3); background: rgba(255,107,26,.08); }
   .audit-note.audit-bad  { color: #f87171; background: rgba(248,113,113,.09); }
+  .audit-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .audit-fix-btn { background: linear-gradient(135deg, var(--orange-1), var(--orange-2)) !important; color: #fff !important; border: none !important; }
+  .audit-fix-btn:hover { box-shadow: 0 6px 16px rgba(255,107,26,.35) !important; }
+  .audit-fix-hint { font-size: 11px; color: var(--text-3); }
   .audit-days { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
   .audit-day {
     display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
@@ -6645,12 +6649,14 @@ async function runSelfAudit() {
     if (!recs.length) { box.innerHTML = '<div class="audit-empty">No completed days to audit yet.</div>'; return; }
 
     var rows = [], totW = 0, totT = 0;
+    window._auditTargets = {};   // date -> worked minutes (the target tracked total)
     recs.forEach(function(r) {
       var w = minsWorked(r) || 0;
       var items = byDate[r.date] || [];
       var t = Math.round(items.reduce(function(s, x){ return s + (parseFloat(x.hours) || 0); }, 0) * 60);
       totW += w; totT += t;
       rows.push({ date: r.date, w: w, t: t, d: w - t });
+      if (items.length) window._auditTargets[r.date] = w;   // only days with tasks can be reconciled
     });
     var totD = totW - totT;
     var sev  = auditSeverity(totD);
@@ -6683,11 +6689,58 @@ async function runSelfAudit() {
         }).join('') + '</div>'
       : '';
 
-    box.innerHTML = head + verdict + list;
+    var canFix = isAdminUser() && totD !== 0 && Object.keys(window._auditTargets).length;
+    var fixBar = canFix
+      ? '<div class="audit-actions"><button class="btn-sm audit-fix-btn" onclick="fixDiscrepancies()">⚖ Fix discrepancies</button>' +
+        '<span class="audit-fix-hint">Admin · scales each day\'s tasks so tracked = worked</span></div>'
+      : '';
+
+    box.innerHTML = head + fixBar + verdict + list;
   } catch (e) {
     box.innerHTML = '<div class="audit-empty">Could not run the audit.</div>';
   } finally {
     _auditRunning = false;
+  }
+}
+
+function isAdminUser() {
+  var d = window._currentEmpData || {};
+  return String(d.employee_id || '').toUpperCase() === 'ADMIN'
+      || d.is_admin === true
+      || /\badmin\b/i.test(String(d.role || d.position || ''));
+}
+
+// Admin: reconcile tracked hours to clocked hours (proportional, both directions)
+async function fixDiscrepancies() {
+  if (!isAdminUser()) return;
+  var targets = window._auditTargets || {};
+  var dates = Object.keys(targets);
+  if (!dates.length) { showToast('Nothing to reconcile.', 'info'); return; }
+  if (!confirm('Reconcile tracked hours to match clocked hours for ' + dates.length + ' day(s)?\n\n'
+    + 'Each day\'s tracked tasks are scaled proportionally so tracked = worked. This changes recorded productive hours.')) return;
+
+  var box = document.getElementById('self-audit');
+  var prev = box ? box.innerHTML : '';
+  if (box) box.innerHTML = '<div class="loading-state"><div class="spinner"></div> Applying fix…</div>';
+  try {
+    var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
+    var url = APPS_SCRIPT_URL + '?action=audit_fix&employee_id=' + encodeURIComponent(empId)
+            + '&targets=' + encodeURIComponent(JSON.stringify(targets));
+    var res = await fetch(url);
+    var j = await res.json();
+    if (j && j.ok) {
+      window._trkByDate = null;   // bust cache → audit re-pulls the corrected hours
+      var sk = (j.skipped && j.skipped.length) ? ' · ' + j.skipped.length + ' skipped' : '';
+      showToast('Reconciled ' + (j.fixed_days || 0) + ' day(s) · ' + (j.updated_rows || 0) + ' entries' + sk, 'success');
+      await runSelfAudit();
+      if (typeof loadAttendanceLogs === 'function') loadAttendanceLogs();
+    } else {
+      if (box) box.innerHTML = prev;
+      showToast((j && j.error) ? ('Fix failed: ' + j.error) : 'Fix failed.', 'error');
+    }
+  } catch (e) {
+    if (box) box.innerHTML = prev;
+    showToast('Could not reach the server.', 'error');
   }
 }
 
