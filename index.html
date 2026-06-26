@@ -6718,6 +6718,7 @@ function shiftDate() {
   return businessDateOf(new Date().toISOString());                 // fallback before attendance inits
 }
 
+var _recentIdle = {};   // just-recorded idle entries, kept visible until the server reflects them
 async function loadTodayEntries() {
   try {
     var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
@@ -6726,6 +6727,16 @@ async function loadTodayEntries() {
     var res     = await fetch(url);
     var json    = await res.json();
     var entries = json.entries || [];
+    // Bridge: keep a just-stopped idle block on screen until the server returns it.
+    try {
+      var nowT = Date.now();
+      Object.keys(_recentIdle).forEach(function(id){
+        var rec = _recentIdle[id];
+        if (nowT - (rec._ts || 0) > 120000) { delete _recentIdle[id]; return; }     // expire after 2 min
+        if (entries.some(function(e){ return String(e.entry_id) === String(id); })) { delete _recentIdle[id]; }  // server caught up
+        else { entries.push(rec); }
+      });
+    } catch(_e) {}
     // Restore paused tasks
     trkPaused = entries.filter(function(e){ return e.status === 'paused'; }).map(function(e){
       return { entry_id:e.entry_id, project:e.project, category:e.category, task:e.task, description:e.description, secs: Number(e.active_secs)||0 };
@@ -7604,17 +7615,18 @@ function stopTask(entryId) {
   // Real-output tasks require a volume on stop. Idle (Internal) is tracked time
   // only, so it is stopped and recorded straight away — no volume prompt.
   var _mk = _readActiveMarker(); if (_mk && _mk.entry_id === entryId) _clearActiveMarker();   // intentional stop → don't resurrect
-  var info = null, hours = 0;
+  var info = null, hours = 0, durSecs = 0, startMs = null;
   if (trkRunning && trkRunning.entry_id === entryId) {
-    var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
-    hours = secs / 3600;
-    info = { entry_id: entryId, project: trkRunning.project, task: trkRunning.task, description: trkRunning.description, hours: hours };
+    durSecs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
+    hours = durSecs / 3600;
+    startMs = (Number(trkRunning.segStart) || Date.now()) - (Number(trkRunning.baseSecs) || 0) * 1000;
+    info = { entry_id: entryId, project: trkRunning.project, category: trkRunning.category, task: trkRunning.task, description: trkRunning.description, hours: hours };
     trkSetRunning(null); _clearActiveMarker(); stopDisplayTick(); trkClearFields();
   } else {
     for (var k = 0; k < trkPaused.length; k++) {
       if (trkPaused[k].entry_id === entryId) {
-        var e = trkPaused[k]; hours = (e.secs || 0) / 3600;
-        info = { entry_id: entryId, project: e.project, task: e.task, description: e.description, hours: hours };
+        var e = trkPaused[k]; durSecs = Math.floor(e.secs || 0); hours = durSecs / 3600; startMs = Date.now() - durSecs * 1000;
+        info = { entry_id: entryId, project: e.project, category: e.category, task: e.task, description: e.description, hours: hours };
         trkPaused.splice(k, 1); break;
       }
     }
@@ -7622,6 +7634,12 @@ function stopTask(entryId) {
   renderTimerButtons(); renderPausedList(); updateButtons();
   // Idle (Internal): stop + record immediately, no volume required.
   if (info && typeof isIdleProject === 'function' && isIdleProject(info.project)) {
+    // Optimistically show the recorded idle block right away — graph + today's list —
+    // so it never looks like it vanished while the server round-trip completes.
+    var localIdle = { entry_id: entryId, status: 'recorded', project: info.project, category: info.category || '', task: info.task || '', description: info.description || '', start: new Date(startMs || Date.now()).toISOString(), end: new Date().toISOString(), active_secs: durSecs, hours: hours, volume: '', _ts: Date.now() };
+    _recentIdle[entryId] = localIdle;   // keep it visible across reloads until the server reflects it
+    window._trkTodayEntries = (window._trkTodayEntries || []).filter(function(x){ return String(x.entry_id) !== String(entryId); }).concat([localIdle]);
+    try { renderTodayEntries(window._trkTodayEntries); } catch(_e) {}
     recordIdleStop(entryId);
     return;
   }
