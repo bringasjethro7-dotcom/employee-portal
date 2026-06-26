@@ -7378,13 +7378,29 @@ function trkRequirementsMet() {
   if (catHasTasks && !f.task) return false;
   return true;
 }
+// Force a <select> to show a value even if the option list doesn't (yet) contain it
+// — without this, setting .value to a missing option silently snaps back to the
+// placeholder, which is why the project/category/task kept resetting on refresh.
+function _setSelectValue(sel, val) {
+  if (!sel) return;
+  val = val || '';
+  if (val) {
+    var has = false;
+    for (var i = 0; i < sel.options.length; i++) { if (sel.options[i].value === val) { has = true; break; } }
+    if (!has) { var o = document.createElement('option'); o.value = val; o.textContent = val; sel.appendChild(o); }
+    sel.disabled = false;
+  }
+  sel.value = val;
+}
 function trkRestoreFields(e) {
   var d = document.getElementById('cfy-desc'); if (d) d.value = e.description || '';
   var p = document.getElementById('cfy-project');
-  if (p) { p.value = e.project || ''; loadCategories();
-    var c = document.getElementById('cfy-category'); if (c) c.value = e.category || '';
-    loadTasks();
-    var t = document.getElementById('cfy-task'); if (t) t.value = e.task || ''; }
+  if (!p) return;
+  _setSelectValue(p, e.project || '');
+  loadCategories();   // rebuilds the category list for this project (resets task list)
+  _setSelectValue(document.getElementById('cfy-category'), e.category || '');
+  loadTasks();        // rebuilds the task list for this project+category
+  _setSelectValue(document.getElementById('cfy-task'), e.task || '');
 }
 function trkClearFields() {
   var d = document.getElementById('cfy-desc'); if (d) d.value = '';
