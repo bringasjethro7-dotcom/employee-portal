@@ -6876,12 +6876,19 @@ function renderTimeBar(entries) {
 
 function renderTodayEntries(entries) {
   window._trkTodayEntries = entries || [];   // cached so the bar can refresh live on the timer tick
+  try { _saveTodayCache(entries); } catch(e) {}   // keep today's completed rows durable so the bar never vanishes
   try { refreshTimeBar(); } catch(e) { try { renderTimeBar(entries); } catch(_e) {} }   // include the live running task
   var wrap = document.getElementById('cfy-today-wrap');
   var totalBar = document.getElementById('cfy-total-bar');
 
-  // Completed = finalized rows (exclude running/paused in-progress)
-  var completed = (entries || []).filter(function(e) { return e.status !== 'running' && e.status !== 'paused' && e.end; });
+  // Completed = finalized rows (exclude running/paused). Built from the durable
+  // union (cache + server) so the list — like the bar — never drops today's work.
+  var _byId = {}, _seen = {};
+  try { _loadTodayCache().forEach(function(e){ if (e && e.entry_id) _byId[e.entry_id] = e; }); } catch(e) {}
+  (entries || []).forEach(function(e){ if (e && e.entry_id) _byId[e.entry_id] = e; });
+  var _union = Object.keys(_byId).map(function(k){ return _byId[k]; });
+  (entries || []).forEach(function(e){ if (e && !e.entry_id) _union.push(e); });
+  var completed = _union.filter(function(e) { return e.status !== 'running' && e.status !== 'paused' && e.end; });
 
   if (completed.length === 0) {
     wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No completed entries today yet.</div></div>';
@@ -7694,10 +7701,30 @@ function startTimerDisplay() {
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.classList.add('running');
 }
-// Entries for the timeline bar, with the CURRENT running task always represented —
-// so the bar starts forming the instant a task is started, before the server round-trip.
+// ── Durable today-cache for the timeline ──────────────────────────────────────
+// Today's completed entries are cached in the browser and ALWAYS merged into the
+// bar, so a later fetch that returns fewer rows (or an empty/filtered response)
+// can never make the graph vanish. Keyed per employee + shift date, so it resets
+// cleanly on a new day.
+function _todayKey() { return 'trk_daycache_' + (attEmpId || (trkEmpData && trkEmpData.employee_id) || '') + '_' + (typeof shiftDate === 'function' ? shiftDate() : ''); }
+function _loadTodayCache() { try { return JSON.parse(localStorage.getItem(_todayKey()) || '[]'); } catch(e) { return []; } }
+function _saveTodayCache(entries) {
+  try {
+    var map = {};
+    _loadTodayCache().forEach(function(e){ if (e && e.entry_id) map[e.entry_id] = e; });
+    (entries || []).forEach(function(e){
+      if (e && e.entry_id && e.status !== 'running' && e.status !== 'paused' && e.start) map[e.entry_id] = e;  // only durable, completed rows
+    });
+    localStorage.setItem(_todayKey(), JSON.stringify(Object.keys(map).map(function(k){ return map[k]; })));
+  } catch(e) {}
+}
+// Entries for the timeline bar: union of the durable cache + latest server data +
+// the CURRENT running task (so the bar forms instantly and never disappears).
 function _barEntries() {
-  var base = (window._trkTodayEntries || []).slice();
+  var byId = {}, loose = [];
+  _loadTodayCache().forEach(function(e){ if (e && e.entry_id) byId[e.entry_id] = e; });
+  (window._trkTodayEntries || []).forEach(function(e){ if (e && e.entry_id) byId[e.entry_id] = e; else if (e) loose.push(e); });   // server data wins
+  var base = Object.keys(byId).map(function(k){ return byId[k]; }).concat(loose);
   if (trkRunning) {
     var startMs = (Number(trkRunning.segStart) || Date.now()) - (Number(trkRunning.baseSecs) || 0) * 1000;
     var live = {
@@ -7715,6 +7742,9 @@ function _barEntries() {
   return base;
 }
 function refreshTimeBar() { try { renderTimeBar(_barEntries()); } catch(e) {} }
+// Self-heal: re-render the bar from the durable union every 15s, so it can never
+// be left blank by a transient empty render.
+setInterval(function(){ if (document.getElementById('time-bar-wrap')) { try { refreshTimeBar(); } catch(e) {} } }, 15000);
 function updateTimerDisplay() {
   if (!trkRunning) return;
   var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
