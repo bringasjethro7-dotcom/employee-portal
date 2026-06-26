@@ -6850,8 +6850,8 @@ function renderTimeBar(entries) {
 }
 
 function renderTodayEntries(entries) {
-  try { renderTimeBar(entries); } catch(e) {}
   window._trkTodayEntries = entries || [];   // cached so the bar can refresh live on the timer tick
+  try { refreshTimeBar(); } catch(e) { try { renderTimeBar(entries); } catch(_e) {} }   // include the live running task
   var wrap = document.getElementById('cfy-today-wrap');
   var totalBar = document.getElementById('cfy-total-bar');
 
@@ -7197,10 +7197,16 @@ async function syncWorklogOnTimeOut() {
       } catch(e) {}
     }
     if (!rows.length) return; // genuinely nothing tracked this shift
-    var trackedTotal    = rows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
+    // Idle (Internal) tasks are tracked time only — record them now without a
+    // volume, and only prompt for the real-output tasks that remain.
+    var idleRows = rows.filter(function(r){ return typeof isIdleProject === 'function' && isIdleProject(r.project); });
+    var workRows = rows.filter(function(r){ return !(typeof isIdleProject === 'function' && isIdleProject(r.project)); });
+    idleRows.forEach(function(r){ try { recordIdleStop(r.entry_id); } catch(e) {} });
+    if (!workRows.length) return;   // only idle this shift → nothing needs a volume
+    var trackedTotal    = workRows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
     var attendanceTotal = (typeof getTotalHoursToday === 'function') ? getTotalHoursToday() : 0;
-    _pendingWorklog = { rows: rows, clockifyTotal: trackedTotal, attendanceTotal: attendanceTotal };
-    showVolumePrompt(rows, true);   // mandatory volume before recording
+    _pendingWorklog = { rows: workRows, clockifyTotal: trackedTotal, attendanceTotal: attendanceTotal };
+    showVolumePrompt(workRows, true);   // mandatory volume before recording
   } catch(e) { console.warn('worklog sync:', e); }
 }
 
@@ -7528,6 +7534,7 @@ async function startTimer() {
   trkLastActivity = Date.now(); trkAutoPausedId = null;
   _saveActiveMarker();
   startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI();
+  refreshTimeBar();   // the bar starts forming immediately on start
   showToast('Timer started!');
 }
 
@@ -7557,6 +7564,7 @@ function resumeTask(entryId) {
   trkLastActivity = Date.now(); trkAutoPausedId = null;
   _saveActiveMarker();
   startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI();
+  refreshTimeBar();   // the bar reflects the resumed task immediately
   showToast('Resumed.');
 }
 
@@ -7579,15 +7587,14 @@ function updateOwnershipUI() {
 }
 
 function stopTask(entryId) {
-  // Stopping now REQUIRES volume — the task is stopped server-side, then the
-  // mandatory volume prompt records it so nothing is left as "stopped".
+  // Real-output tasks require a volume on stop. Idle (Internal) is tracked time
+  // only, so it is stopped and recorded straight away — no volume prompt.
   var _mk = _readActiveMarker(); if (_mk && _mk.entry_id === entryId) _clearActiveMarker();   // intentional stop → don't resurrect
   var info = null, hours = 0;
   if (trkRunning && trkRunning.entry_id === entryId) {
     var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
     hours = secs / 3600;
     info = { entry_id: entryId, project: trkRunning.project, task: trkRunning.task, description: trkRunning.description, hours: hours };
-    _trkPost('tracker_stop', { entry_id: entryId });
     trkSetRunning(null); _clearActiveMarker(); stopDisplayTick(); trkClearFields();
   } else {
     for (var k = 0; k < trkPaused.length; k++) {
@@ -7597,12 +7604,42 @@ function stopTask(entryId) {
         trkPaused.splice(k, 1); break;
       }
     }
-    _trkPost('tracker_stop', { entry_id: entryId });
   }
   renderTimerButtons(); renderPausedList(); updateButtons();
+  // Idle (Internal): stop + record immediately, no volume required.
+  if (info && typeof isIdleProject === 'function' && isIdleProject(info.project)) {
+    recordIdleStop(entryId);
+    return;
+  }
+  _trkPost('tracker_stop', { entry_id: entryId });
   if (!info) { setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1400); return; }
   _pendingWorklog = { rows: [info], clockifyTotal: hours, attendanceTotal: 0, forceRecord: true };
   showVolumePrompt([info], true);   // mandatory — records on submit
+}
+
+// Stop an Idle (Internal) task and flip it straight to "recorded" with NO volume.
+// Chained (stop → record) so the row is finalized in the right order and never
+// left in a "stopped" limbo or shown a volume prompt.
+function recordIdleStop(entryId) {
+  var stopUrl = APPS_SCRIPT_URL + '?action=tracker_stop&employee_id=' + encodeURIComponent(attEmpId) +
+    '&session=' + encodeURIComponent(trkSessionId) + '&entry_id=' + encodeURIComponent(entryId);
+  var items  = encodeURIComponent(JSON.stringify([{ entry_id: entryId }]));   // no volume → trackerSetVolumes only sets status
+  var recUrl = APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(attEmpId) +
+    '&pending=false&items=' + items;
+  function markRecorded(n) {
+    fetch(recUrl + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+      if (d && (d.success || d.ok)) { showToast('Idle time recorded. ✅'); setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 800); }
+      else if (d && (d.error === 'BUSY' || d.error === 'LOCKED') && n < 5) { setTimeout(function(){ markRecorded(n + 1); }, 600 * n); }
+      else { setTimeout(function(){ loadTodayEntries(); }, 900); }
+    }).catch(function(){ if (n < 5) { setTimeout(function(){ markRecorded(n + 1); }, 700 * n); } else { setTimeout(function(){ loadTodayEntries(); }, 1000); } });
+  }
+  (function stopThen(n){
+    fetch(stopUrl + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+      if (d && (d.success || d.ok)) { markRecorded(1); }
+      else if (d && (d.error === 'BUSY' || d.error === 'LOCKED') && n < 5) { setTimeout(function(){ stopThen(n + 1); }, 600 * n); }
+      else { markRecorded(1); }   // already stopped → still mark recorded
+    }).catch(function(){ if (n < 5) { setTimeout(function(){ stopThen(n + 1); }, 700 * n); } else { markRecorded(1); } });
+  })(1);
 }
 
 async function stopTimer() {        // main Stop button — stops the running task
@@ -7625,6 +7662,31 @@ function startTimerDisplay() {
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.classList.add('running');
 }
+// Entries for the timeline bar, with the CURRENT running task always represented —
+// so the bar starts forming the instant a task is started, before the server round-trip.
+function _barEntries() {
+  var base = (window._trkTodayEntries || []).slice();
+  if (trkRunning) {
+    var found = false;
+    for (var i = 0; i < base.length; i++) {
+      if (String(base[i].entry_id) === String(trkRunning.entry_id)) {
+        base[i] = Object.assign({}, base[i], { status: 'running', project: trkRunning.project, category: trkRunning.category, task: trkRunning.task, description: trkRunning.description });
+        found = true; break;
+      }
+    }
+    if (!found) {
+      var startMs = (Number(trkRunning.segStart) || Date.now()) - (Number(trkRunning.baseSecs) || 0) * 1000;
+      base.push({
+        entry_id: trkRunning.entry_id, status: 'running',
+        project: trkRunning.project, category: trkRunning.category, task: trkRunning.task, description: trkRunning.description,
+        start: new Date(startMs).toISOString(), segment_start: new Date(Number(trkRunning.segStart) || Date.now()).toISOString(),
+        active_secs: Number(trkRunning.baseSecs) || 0
+      });
+    }
+  }
+  return base;
+}
+function refreshTimeBar() { try { renderTimeBar(_barEntries()); } catch(e) {} }
 function updateTimerDisplay() {
   if (!trkRunning) return;
   var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
@@ -7632,7 +7694,7 @@ function updateTimerDisplay() {
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
   if (trkOwns && secs % 10 === 0) _saveActiveMarker();   // keep the refresh-resume marker fresh
-  if (secs % 5 === 0) { try { renderTimeBar(window._trkTodayEntries || []); } catch(e) {} }   // refresh the bar live
+  if (secs % 2 === 0) refreshTimeBar();   // grow the live bar every 2s
 }
 function pad(n) { return n < 10 ? '0' + n : String(n); }
 
