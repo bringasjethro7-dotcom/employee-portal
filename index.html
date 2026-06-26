@@ -6741,26 +6741,28 @@ async function loadTodayEntries() {
       startTimerDisplay();
       updateOwnershipUI();
     } else {
-      // ── Refresh-resilience ──
-      // The backend auto-pauses (sweeps) a running timer when its heartbeat looks
-      // stale, which can happen across a page refresh. If our own timer was running
-      // moments ago (local marker, still inside the window), transparently resume it
-      // so a refresh never silently drops the active task + its project details.
+      // ── Refresh-resilience (client-authoritative) ──
+      // The server may not report the timer as running across a refresh (e.g. an old
+      // backend swept it on a stale heartbeat). If our own browser snapshot shows a
+      // timer that was live moments ago, rebuild it from that snapshot — full project
+      // details and accumulated time — with zero dependence on the server response,
+      // then re-assert it server-side. This guarantees a refresh never drops the task.
       var mk = _readActiveMarker();
       var resumed = false;
-      if (mk && mk.entry_id && (Date.now() - mk.ts) < TRK_RESUME_WINDOW_MS) {
-        var pIdx = -1;
-        for (var pk = 0; pk < trkPaused.length; pk++) { if (trkPaused[pk].entry_id === mk.entry_id) { pIdx = pk; break; } }
-        if (pIdx >= 0) {
-          var pe = trkPaused.splice(pIdx, 1)[0];
-          trkSetRunning({ entry_id:pe.entry_id, project:pe.project, category:pe.category, task:pe.task, description:pe.description, baseSecs: Number(pe.secs)||0, segStart: Date.now() });
-          trkOwns = true;
-          trkRestoreFields(pe);
-          _trkPost('tracker_resume', { entry_id: pe.entry_id });   // re-assert live on the server
-          startTimerDisplay();
-          updateOwnershipUI();
-          resumed = true;
-        }
+      if (mk && mk.entry_id && (Date.now() - mk.ts) < TRK_RESUME_WINDOW_MS &&
+          (!mk.date || mk.date === shiftDate())) {
+        // Remove a paused/duplicate copy of the same entry if the server returned one.
+        for (var pk = trkPaused.length - 1; pk >= 0; pk--) { if (trkPaused[pk].entry_id === mk.entry_id) trkPaused.splice(pk, 1); }
+        // Accumulated time carries forward: banked seconds + the segment that was live.
+        var carriedSecs = (Number(mk.baseSecs) || 0) + Math.max(0, (Date.now() - (Number(mk.segStartMs) || Date.now())) / 1000);
+        trkSetRunning({ entry_id: mk.entry_id, project: mk.project, category: mk.category, task: mk.task, description: mk.description, baseSecs: carriedSecs, segStart: Date.now() });
+        trkOwns = true;
+        trkRestoreFields({ project: mk.project, category: mk.category, task: mk.task, description: mk.description });
+        _trkPost('tracker_resume', { entry_id: mk.entry_id });   // re-assert live on the server (harmless if already running)
+        _saveActiveMarker();
+        startTimerDisplay();
+        updateOwnershipUI();
+        resumed = true;
       }
       if (!resumed) {
         trkSetRunning(null);
@@ -7168,6 +7170,7 @@ async function syncWorklogOnTimeOut() {
     // tasks (without the per-task prompt), then prompt once below so every tracked
     // task gets a volume and is recorded — nothing is left running past the shift.
     if (trkRunning) { _trkPost('tracker_stop', { entry_id: trkRunning.entry_id }); trkSetRunning(null); stopDisplayTick(); if (typeof trkClearFields === 'function') trkClearFields(); }
+    _clearActiveMarker();   // shift is over — never resurrect this timer on a later refresh
     (trkPaused || []).slice().forEach(function(e){ _trkPost('tracker_stop', { entry_id: e.entry_id }); });
     trkPaused = [];
     renderTimerButtons(); renderPausedList(); updateButtons();
@@ -7424,18 +7427,28 @@ function _trkPost(action, extra) {
 // Heartbeat: while a timer runs, prove it's alive every 60s. The server only credits
 // time up to the last beat, so a closed tab / sleeping laptop can't inflate hours.
 var trkHeartbeatTick = null;
-// Window within which a refresh will transparently resume a just-swept timer.
-// Must exceed the server sweep threshold (5 min) so a refresh right after a sweep
-// still recovers, but stay short enough that a genuinely abandoned timer (overnight)
-// is not resurrected.
-var TRK_RESUME_WINDOW_MS = 8 * 60 * 1000;
+// Window within which a refresh will transparently restore a running timer purely
+// from the local snapshot (independent of the server). Long enough to cover a
+// refresh, a brief close, or a server-side sweep; short enough that a genuinely
+// abandoned timer (overnight) is not resurrected.
+var TRK_RESUME_WINDOW_MS = 30 * 60 * 1000;
+function _trkKey() { return 'trk_active_' + (attEmpId || (trkEmpData && trkEmpData.employee_id) || ''); }
 function _readActiveMarker() {
-  try { return JSON.parse(localStorage.getItem('trk_active_' + (attEmpId || '')) || 'null'); } catch(e) { return null; }
+  try { return JSON.parse(localStorage.getItem(_trkKey()) || 'null'); } catch(e) { return null; }
 }
+// Persist the FULL running timer so a refresh can rebuild it with zero server help.
 function _saveActiveMarker() {
-  try { if (trkRunning) localStorage.setItem('trk_active_' + (attEmpId || ''), JSON.stringify({ entry_id: trkRunning.entry_id, ts: Date.now() })); } catch(e) {}
+  try {
+    if (!trkRunning) return;
+    localStorage.setItem(_trkKey(), JSON.stringify({
+      entry_id: trkRunning.entry_id, project: trkRunning.project, category: trkRunning.category,
+      task: trkRunning.task, description: trkRunning.description,
+      baseSecs: Number(trkRunning.baseSecs) || 0, segStartMs: Number(trkRunning.segStart) || Date.now(),
+      date: (typeof shiftDate === 'function' ? shiftDate() : ''), ts: Date.now()
+    }));
+  } catch(e) {}
 }
-function _clearActiveMarker() { try { localStorage.removeItem('trk_active_' + (attEmpId || '')); } catch(e) {} }
+function _clearActiveMarker() { try { localStorage.removeItem(_trkKey()); } catch(e) {} }
 function startHeartbeat() {
   stopHeartbeat();
   if (trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });   // beat immediately so a fresh restore isn't swept
@@ -7532,6 +7545,7 @@ function updateOwnershipUI() {
 function stopTask(entryId) {
   // Stopping now REQUIRES volume — the task is stopped server-side, then the
   // mandatory volume prompt records it so nothing is left as "stopped".
+  var _mk = _readActiveMarker(); if (_mk && _mk.entry_id === entryId) _clearActiveMarker();   // intentional stop → don't resurrect
   var info = null, hours = 0;
   if (trkRunning && trkRunning.entry_id === entryId) {
     var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
