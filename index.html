@@ -6042,21 +6042,11 @@ async function forceTimeOut(date) {
   rec.time_out = isoNow;
   localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'log_attendance',
-        employee_id: attEmpId,
-        date: date,
-        type: 'time_out',
-        timestamp: isoNow,
-        shift: rec.shift || 'night',
-      }),
-      mode: 'no-cors',
-    });
-  } catch(e) {}
-  showToast('Time Out recorded for ' + fmtDateShort(date));
+    await attConfirmed({ action: 'log_attendance', employee_id: attEmpId, date: date, type: 'time_out', timestamp: isoNow, shift: rec.shift || 'night' });
+    showToast('Time Out recorded for ' + fmtDateShort(date));
+  } catch(e) {
+    showToast('Could not save the time-out — please try again.', 'error');
+  }
   await loadAttendanceLogs();
 }
 
@@ -6228,6 +6218,24 @@ function getTotalHoursToday() {
   return total;
 }
 
+// Confirmed attendance write over GET — verifies it persisted and retries, so a
+// time-in/out is never silently lost (the cause of missing days for the user).
+function attConfirmed(params) {
+  var qs = Object.keys(params).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+  var base = APPS_SCRIPT_URL + '?' + qs;
+  var attempt = 0;
+  function go() {
+    return fetch(base + '&_=' + Date.now())
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if (j && (j.success || j.ok)) return j; throw new Error((j && j.error) || 'no-confirm'); })
+      .catch(function(err){
+        attempt++;
+        if (attempt < 4) return new Promise(function(res){ setTimeout(res, 600 * attempt); }).then(go);
+        throw err;
+      });
+  }
+  return go();
+}
 function logTime(type) {
   var now    = new Date();
   var isoNow = now.toISOString();
@@ -6255,18 +6263,13 @@ function logTime(type) {
   localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
   localStorage.setItem('att_today_' + attEmpId + '_' + attToday, JSON.stringify(todayLog));
 
-  try {
-    fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'log_attendance', employee_id: attEmpId,
-        date: attToday, type: type, timestamp: isoNow,
-        shift: todayLog.shift, session_num: todayLog.sessions.length,
-      }),
-      mode: 'no-cors',
-    });
-  } catch(e) {}
+  attConfirmed({
+    action: 'log_attendance', employee_id: attEmpId,
+    date: attToday, type: type, timestamp: isoNow,
+    shift: todayLog.shift, session_num: todayLog.sessions.length
+  }).catch(function(){
+    showToast('Your ' + typeLabel(type) + ' didn\'t save to the server — please tap the button again.', 'error');
+  });
 
   if (type === 'time_out' && typeof syncWorklogOnTimeOut === 'function') syncWorklogOnTimeOut();
 
