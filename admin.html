@@ -842,7 +842,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <select id="disc-emp" onchange="loadDiscrepancy()" style="background:var(--card2);border:1px solid var(--border);border-radius:9px;color:var(--t1);font-family:inherit;font-size:13px;padding:9px 12px;cursor:pointer;"><option value="">Select employee…</option></select>
-          <button class="bsm" onclick="loadDiscrepancy()">Refresh</button>
+          <button class="bsm" onclick="recoverMissingDays()" title="Create attendance rows for days that have tracked work but no attendance">↻ Recover missing days</button><button class="bsm" onclick="loadDiscrepancy()">Refresh</button>
         </div>
       </div>
       <div id="disc-body"><div style="color:var(--t3);font-size:13px;padding:24px 0;text-align:center;">Pick an employee to audit their discrepancies.</div></div>
@@ -1272,6 +1272,17 @@ function renderDiscrepancy(rows,id){
       return '<div class="disc-row"><span class="dd">'+dl+'</span><span>'+discFmt(x.w)+'</span><span>'+discFmt(x.t)+'</span><span class="disc-gap '+sev+' col-hide">'+discSign(x.d)+'</span><span style="text-align:right;">'+btn+'</span></div>';
     }).join('')+'</div>';
   body.innerHTML=head+actions+table;
+}
+async function recoverMissingDays(){
+  var sel=document.getElementById('disc-emp'); var id=sel?sel.value:'';
+  var scope = id ? ('for '+ (sel.options[sel.selectedIndex]?sel.options[sel.selectedIndex].text:id)) : 'for ALL employees';
+  if(!confirm('Create attendance entries (marked Incomplete, for the employee to resolve the time-out) for any day that has tracked work but no attendance, '+scope+'?')) return;
+  try{
+    var url=API+'?action=attendance_backfill'+(id?('&employee_id='+encodeURIComponent(id)):'');
+    var r=await fetch(url); var j=await r.json();
+    if(j&&j.ok){ alert('Recovered '+(j.created||0)+' day(s).'+((j.dates&&j.dates.length)?('\n\n'+j.dates.slice(0,40).join('\n')):'')); if(id) loadDiscrepancy(); }
+    else alert('Recovery failed'+(j&&j.error?(': '+j.error):'.'));
+  }catch(e){ alert('Could not reach the server.'); }
 }
 async function fixDiscrepancy(id,date){
   var targets;
