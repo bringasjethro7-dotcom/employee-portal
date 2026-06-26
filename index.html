@@ -3496,6 +3496,20 @@
       </div>
     </div>
 
+    <!-- TIME OUT CONFIRMATION -->
+    <div id="timeout-confirm" class="wl-warn-overlay" onclick="if(event.target===this)closeTimeOutConfirm()">
+      <div class="wl-warn-box">
+        <div class="wl-warn-icon">🚪</div>
+        <h3>End your shift?</h3>
+        <p>You're about to <b>Time Out</b>. This closes your current session and stops the clock for today.</p>
+        <p class="wl-warn-note">Make sure any running task is stopped and your output volumes are filled in before you go.</p>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:6px;">
+          <button onclick="closeTimeOutConfirm()" style="background:transparent;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--border);">Cancel</button>
+          <button id="timeout-confirm-yes" onclick="confirmTimeOutYes()">Yes, Time Out</button>
+        </div>
+      </div>
+    </div>
+
     <!-- INACTIVITY DEMERIT NOTICE -->
     <div id="inactive-demerit-modal" class="wl-warn-overlay">
       <div class="wl-warn-box">
@@ -3690,7 +3704,7 @@
         <!-- Time buttons -->
         <div class="time-btn-grid" id="time-btn-grid">
           <button class="time-action-btn" id="btn-time-in"     onclick="logTime('time_in')"     disabled>Time In</button>
-          <button class="time-action-btn" id="btn-time-out"    onclick="logTime('time_out')"    disabled>Time Out</button>
+          <button class="time-action-btn" id="btn-time-out"    onclick="askTimeOut()"    disabled>Time Out</button>
           <!-- Lunch/Microbreak/No-task are now tracked via the Time Tracker under "Idle (Internal)" -->
           <button class="time-action-btn" id="btn-lunch-out"   onclick="logTime('lunch_out')"   disabled style="display:none;">Lunch Out</button>
           <button class="time-action-btn" id="btn-lunch-in"    onclick="logTime('lunch_in')"    disabled style="display:none;">Lunch In</button>
@@ -6301,6 +6315,22 @@ function attConfirmed(params) {
   }
   return go();
 }
+// ── TIME OUT CONFIRMATION ──
+function askTimeOut() {
+  var active = getActiveSession();
+  if (!active) { showToast('Please Time In first.'); return; }
+  var m = document.getElementById('timeout-confirm');
+  if (m) m.classList.add('show'); else { if (confirm('Time Out and end your shift for today?')) logTime('time_out'); }
+}
+function closeTimeOutConfirm() {
+  var m = document.getElementById('timeout-confirm');
+  if (m) m.classList.remove('show');
+}
+function confirmTimeOutYes() {
+  closeTimeOutConfirm();
+  logTime('time_out');
+}
+
 function logTime(type) {
   var now    = new Date();
   var isoNow = now.toISOString();
@@ -6707,12 +6737,37 @@ async function loadTodayEntries() {
       // Only the owning session runs the inactivity check; others view it read-only.
       trkOwns = (!running.owner || running.owner === trkSessionId);
       trkRestoreFields(running);
+      if (trkOwns) _saveActiveMarker();
       startTimerDisplay();
       updateOwnershipUI();
     } else {
-      trkSetRunning(null);
-      trkOwns = true;
-      updateOwnershipUI();
+      // ── Refresh-resilience ──
+      // The backend auto-pauses (sweeps) a running timer when its heartbeat looks
+      // stale, which can happen across a page refresh. If our own timer was running
+      // moments ago (local marker, still inside the window), transparently resume it
+      // so a refresh never silently drops the active task + its project details.
+      var mk = _readActiveMarker();
+      var resumed = false;
+      if (mk && mk.entry_id && (Date.now() - mk.ts) < TRK_RESUME_WINDOW_MS) {
+        var pIdx = -1;
+        for (var pk = 0; pk < trkPaused.length; pk++) { if (trkPaused[pk].entry_id === mk.entry_id) { pIdx = pk; break; } }
+        if (pIdx >= 0) {
+          var pe = trkPaused.splice(pIdx, 1)[0];
+          trkSetRunning({ entry_id:pe.entry_id, project:pe.project, category:pe.category, task:pe.task, description:pe.description, baseSecs: Number(pe.secs)||0, segStart: Date.now() });
+          trkOwns = true;
+          trkRestoreFields(pe);
+          _trkPost('tracker_resume', { entry_id: pe.entry_id });   // re-assert live on the server
+          startTimerDisplay();
+          updateOwnershipUI();
+          resumed = true;
+        }
+      }
+      if (!resumed) {
+        trkSetRunning(null);
+        trkOwns = true;
+        _clearActiveMarker();
+        updateOwnershipUI();
+      }
     }
     renderTimerButtons();
     renderPausedList();
@@ -7369,8 +7424,21 @@ function _trkPost(action, extra) {
 // Heartbeat: while a timer runs, prove it's alive every 60s. The server only credits
 // time up to the last beat, so a closed tab / sleeping laptop can't inflate hours.
 var trkHeartbeatTick = null;
+// Window within which a refresh will transparently resume a just-swept timer.
+// Must exceed the server sweep threshold (5 min) so a refresh right after a sweep
+// still recovers, but stay short enough that a genuinely abandoned timer (overnight)
+// is not resurrected.
+var TRK_RESUME_WINDOW_MS = 8 * 60 * 1000;
+function _readActiveMarker() {
+  try { return JSON.parse(localStorage.getItem('trk_active_' + (attEmpId || '')) || 'null'); } catch(e) { return null; }
+}
+function _saveActiveMarker() {
+  try { if (trkRunning) localStorage.setItem('trk_active_' + (attEmpId || ''), JSON.stringify({ entry_id: trkRunning.entry_id, ts: Date.now() })); } catch(e) {}
+}
+function _clearActiveMarker() { try { localStorage.removeItem('trk_active_' + (attEmpId || '')); } catch(e) {} }
 function startHeartbeat() {
   stopHeartbeat();
+  if (trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });   // beat immediately so a fresh restore isn't swept
   trkHeartbeatTick = setInterval(function(){
     if (trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });
   }, 60000);
@@ -7409,6 +7477,7 @@ async function startTimer() {
   _trkPost('tracker_start', { full_name: data.full_name || attEmpId, date: shiftDate(), project:f.proj, category:f.cat, task:f.task, description:f.desc, start: startIso, entry_id: entryId });
   trkOwns = true;   // this device now owns the running timer
   trkLastActivity = Date.now(); trkAutoPausedId = null;
+  _saveActiveMarker();
   startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI();
   showToast('Timer started!');
 }
@@ -7418,6 +7487,7 @@ function pauseTimer(opts) {
   if (!trkRunning) return;
   var id = trkRunning.entry_id;
   _bankRunningToPaused();
+  _clearActiveMarker();
   _trkPost('tracker_pause', { entry_id: id });
   stopDisplayTick();
   renderTimerButtons(); renderPausedList(); updateButtons();
@@ -7436,6 +7506,7 @@ function resumeTask(entryId) {
   _trkPost('tracker_resume', { entry_id: entryId });
   trkOwns = true;   // resuming here claims ownership for this device
   trkLastActivity = Date.now(); trkAutoPausedId = null;
+  _saveActiveMarker();
   startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI();
   showToast('Resumed.');
 }
@@ -7467,7 +7538,7 @@ function stopTask(entryId) {
     hours = secs / 3600;
     info = { entry_id: entryId, project: trkRunning.project, task: trkRunning.task, description: trkRunning.description, hours: hours };
     _trkPost('tracker_stop', { entry_id: entryId });
-    trkSetRunning(null); stopDisplayTick(); trkClearFields();
+    trkSetRunning(null); _clearActiveMarker(); stopDisplayTick(); trkClearFields();
   } else {
     for (var k = 0; k < trkPaused.length; k++) {
       if (trkPaused[k].entry_id === entryId) {
@@ -7510,6 +7581,7 @@ function updateTimerDisplay() {
   var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
+  if (trkOwns && secs % 10 === 0) _saveActiveMarker();   // keep the refresh-resume marker fresh
   if (secs % 5 === 0) { try { renderTimeBar(window._trkTodayEntries || []); } catch(e) {} }   // refresh the bar live
 }
 function pad(n) { return n < 10 ? '0' + n : String(n); }
