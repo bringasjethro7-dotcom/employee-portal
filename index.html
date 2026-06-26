@@ -1148,6 +1148,13 @@
   }
 
   /* ── PROFILE FIELDS ── */
+  .bg-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 12px; margin-top: 0.75rem; }
+  .bg-swatch { display: flex; flex-direction: column; gap: 7px; padding: 6px; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; font-family: inherit; transition: border-color .15s, transform .12s, box-shadow .15s; }
+  .bg-swatch:hover { transform: translateY(-2px); border-color: var(--border-hi); box-shadow: 0 10px 24px rgba(0,0,0,.3); }
+  .bg-swatch.on { border-color: var(--orange-1); box-shadow: 0 0 0 2px rgba(255,107,26,.3), 0 10px 24px rgba(0,0,0,.3); }
+  .bg-swatch-prev { height: 58px; border-radius: 9px; border: 1px solid rgba(255,255,255,.06); }
+  .bg-swatch-name { font-size: 11.5px; font-weight: 600; color: var(--text-2); text-align: center; }
+  .bg-swatch.on .bg-swatch-name { color: var(--orange-3); }
   .profile-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -2940,6 +2947,13 @@
   .hero-aside { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; margin-left: auto; text-align: right; }
   .hero-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #4ade80; background: rgba(34,197,94,.12); border: 1px solid rgba(34,197,94,.3); border-radius: 20px; padding: 3px 10px; }
   .hero-status .hs-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 0 0 rgba(74,222,128,.6); animation: hsPulse 2s infinite; }
+  /* live work-status colors for the hero badge */
+  .hero-status.st-active { color: #4ade80; background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); }
+  .hero-status.st-active .hs-dot { background: #4ade80; animation: hsPulse 2s infinite; }
+  .hero-status.st-idle { color: #f59e0b; background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.32); }
+  .hero-status.st-idle .hs-dot { background: #f59e0b; animation: none; box-shadow: none; }
+  .hero-status.st-check { color: #cbd5e1; background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.18); }
+  .hero-status.st-check .hs-dot { background: #cbd5e1; animation: none; box-shadow: none; }
   @keyframes hsPulse { 0%{ box-shadow:0 0 0 0 rgba(74,222,128,.55);} 70%{ box-shadow:0 0 0 7px rgba(74,222,128,0);} 100%{ box-shadow:0 0 0 0 rgba(74,222,128,0);} }
   .hero-clock { font-family: 'Sora','Inter',sans-serif; font-size: 26px; font-weight: 800; color: var(--text-1); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
   .hero-date { font-size: 11.5px; color: var(--text-3); }
@@ -3375,7 +3389,7 @@
         <div class="hero-id"   id="hero-id"></div>
       </div>
       <div class="hero-aside">
-        <div class="hero-status"><span class="hs-dot"></span> Active</div>
+        <div class="hero-status st-check" id="hero-status"><span class="hs-dot"></span> Checking in</div>
         <div class="hero-clock" id="hero-clock">--:--</div>
         <div class="hero-date" id="hero-date"></div>
       </div>
@@ -4129,6 +4143,14 @@
       </div>
       <div class="profile-grid" id="profile-grid"></div>
 
+      <!-- BACKGROUND CUSTOMIZER -->
+      <div class="card-head" style="margin-top:1.5rem;">
+        <div class="ch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h2a4 4 0 0 0 4-4 10 10 0 0 0-10-8z"/></svg></div>
+        <div><div class="ch-t">Background</div><div class="ch-s">Personalize your dashboard backdrop</div></div>
+        <div class="ch-line"></div>
+      </div>
+      <div class="bg-swatches" id="bg-swatches"></div>
+
       <!-- PIN CHANGE -->
       <div class="card-head" style="margin-top:1.5rem;">
         <div class="ch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
@@ -4624,6 +4646,7 @@ document.addEventListener('DOMContentLoaded', function(){ renderCareerLevels(); 
 function renderProfile(data) {
   if (!data) return;
   try { renderCareerLevels(data.position); } catch(e) {}
+  try { renderBgSwatches(); } catch(e) {}
   var name   = data.full_name || 'Employee';
   var custom = Object.entries(data).filter(function(e) {
     var key = String(e[0]).toLowerCase();
@@ -4700,6 +4723,7 @@ function renderDashboard(data) {
   document.getElementById('hero-name').textContent = name;
   document.getElementById('hero-role').textContent = [data.position, data.department].filter(Boolean).join(' · ');
   startHeroClock(name);
+  try { applySavedBg(); } catch(e) {}
   var clCode = String(data.career_level || data.cl || data.cl_code || data.cl_level || data.level || '').trim();
   var heroId = (data.employee_id || '');
   document.getElementById('hero-id').innerHTML = escapeHtml(heroId) + (clCode ? ' <span class="hero-cl">' + escapeHtml(clCode.toUpperCase()) + '</span>' : '');
@@ -6363,6 +6387,7 @@ function updateButtons() {
 
   // Update Clockify Start button state
   if (typeof updateClockifyStartBtn === 'function') updateClockifyStartBtn();
+  try { updateHeroStatus(); } catch(e) {}
 }
 
 // updateTodaySummary replaced with multi-session version above
@@ -9922,8 +9947,62 @@ function startHeroClock(fullName) {
     var h12 = hh % 12 || 12;
     var ce = document.getElementById('hero-clock'); if (ce) ce.textContent = h12 + ':' + mm + ' ' + ap;
     var de = document.getElementById('hero-date'); if (de) de.textContent = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+    updateHeroStatus();
   }
   tick(); if (_heroClockT) clearInterval(_heroClockT); _heroClockT = setInterval(tick, 1000 * 30);
+}
+// ── DASHBOARD BACKGROUND CUSTOMIZER (10 presets, saved locally) ──
+var BG_PRESETS = [
+  { id:'ember',   name:'Ember',    css:'radial-gradient(1100px 420px at 50% -140px, rgba(255,107,26,.12), transparent 70%), radial-gradient(760px 460px at 108% 4%, rgba(99,102,241,.06), transparent 70%), radial-gradient(700px 460px at -8% 12%, rgba(255,138,74,.045), transparent 72%), rgba(12,23,51,.34)' },
+  { id:'midnight',name:'Midnight', css:'radial-gradient(1100px 460px at 50% -140px, rgba(56,120,255,.12), transparent 66%), radial-gradient(700px 440px at 100% 100%, rgba(99,102,241,.10), transparent 70%), linear-gradient(180deg,#0a1020,#070b14)' },
+  { id:'aurora',  name:'Aurora',   css:'radial-gradient(900px 420px at 12% -120px, rgba(255,107,26,.12), transparent 60%), radial-gradient(820px 520px at 92% 8%, rgba(167,139,250,.13), transparent 64%), radial-gradient(900px 600px at 60% 112%, rgba(96,165,250,.10), transparent 66%), linear-gradient(180deg,#0b0e14,#090b11)' },
+  { id:'emerald', name:'Emerald',  css:'radial-gradient(1000px 440px at 50% -130px, rgba(34,197,94,.13), transparent 66%), radial-gradient(720px 460px at 104% 6%, rgba(20,184,166,.10), transparent 70%), linear-gradient(180deg,#08130d,#060d09)' },
+  { id:'sunset',  name:'Sunset',   css:'radial-gradient(1000px 460px at 50% -130px, rgba(255,107,26,.16), transparent 66%), radial-gradient(760px 480px at 100% 10%, rgba(236,72,153,.12), transparent 70%), linear-gradient(180deg,#160a10,#0c0709)' },
+  { id:'nebula',  name:'Nebula',   css:'radial-gradient(1000px 480px at 30% -120px, rgba(139,92,246,.16), transparent 64%), radial-gradient(820px 520px at 92% 18%, rgba(59,130,246,.12), transparent 66%), linear-gradient(180deg,#0c0a1a,#08060f)' },
+  { id:'crimson', name:'Crimson',  css:'radial-gradient(1000px 440px at 50% -130px, rgba(239,68,68,.15), transparent 66%), radial-gradient(720px 460px at 100% 8%, rgba(249,115,22,.10), transparent 70%), linear-gradient(180deg,#150909,#0b0606)' },
+  { id:'teal',    name:'Lagoon',   css:'radial-gradient(1000px 440px at 50% -130px, rgba(45,212,191,.14), transparent 66%), radial-gradient(740px 460px at 102% 8%, rgba(56,189,248,.11), transparent 70%), linear-gradient(180deg,#07151a,#050d11)' },
+  { id:'royal',   name:'Royal',    css:'radial-gradient(1000px 460px at 50% -130px, rgba(99,102,241,.16), transparent 66%), radial-gradient(760px 480px at 100% 10%, rgba(168,85,247,.12), transparent 70%), linear-gradient(180deg,#0b0c1c,#070811)' },
+  { id:'graphite',name:'Graphite', css:'radial-gradient(1100px 420px at 50% -150px, rgba(255,255,255,.05), transparent 64%), linear-gradient(180deg,#14161c,#0c0d12)' }
+];
+function bgKey(){ var id=(window._currentEmpData&&window._currentEmpData.employee_id)||'me'; return 'portal_bg_'+id; }
+function savedBgId(){ try{ return localStorage.getItem(bgKey()); }catch(e){ return null; } }
+function applyBgPreset(id){
+  var p = BG_PRESETS.filter(function(x){ return x.id===id; })[0] || BG_PRESETS[0];
+  var mc = document.querySelector('.main-content');
+  if (mc) { mc.style.backgroundColor = 'transparent'; mc.style.backgroundImage = 'none'; mc.style.background = p.css; }
+  try { localStorage.setItem(bgKey(), p.id); } catch(e) {}
+}
+function applySavedBg(){ var id = savedBgId(); if (id) applyBgPreset(id); }
+function renderBgSwatches(){
+  var box = document.getElementById('bg-swatches'); if (!box) return;
+  var cur = savedBgId() || 'ember';
+  box.innerHTML = BG_PRESETS.map(function(p){
+    return '<button class="bg-swatch' + (p.id===cur?' on':'') + '" data-bg="' + p.id + '" onclick="pickBg(this.dataset.bg)" title="' + p.name + '">' +
+      '<span class="bg-swatch-prev" style="background:' + p.css + '"></span>' +
+      '<span class="bg-swatch-name">' + p.name + '</span>' +
+    '</button>';
+  }).join('');
+}
+function pickBg(id){
+  applyBgPreset(id);
+  document.querySelectorAll('#bg-swatches .bg-swatch').forEach(function(b){ b.classList.toggle('on', b.dataset.bg===id); });
+  try { showToast('Background updated', 'success'); } catch(e) {}
+}
+
+// Reflect the real work state in the hero badge: Active only while the timer runs,
+// Idle/On break when idle/paused, Checking in when logged in but not tracking.
+function updateHeroStatus() {
+  var el = document.getElementById('hero-status'); if (!el) return;
+  var s = (typeof myWorkStatus === 'function') ? myWorkStatus() : 'online';
+  var map = {
+    working: { cls: 'st-active', label: 'Active' },
+    idle:    { cls: 'st-idle',   label: 'Idle' },
+    paused:  { cls: 'st-idle',   label: 'On break' },
+    online:  { cls: 'st-check',  label: 'Checking in' }
+  };
+  var m = map[s] || map.online;
+  el.className = 'hero-status ' + m.cls;
+  el.innerHTML = '<span class="hs-dot"></span> ' + m.label;
 }
 // Animate a number from 0 → target (premium count-up).
 function countUp(el, to, opts) {
