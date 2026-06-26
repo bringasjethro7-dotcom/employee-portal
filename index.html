@@ -6622,6 +6622,7 @@ async function initClockify(empData) {
   } catch(e) {}
   await loadProjects();        // populate projects + nativeProjects FIRST, so a running task's project/category/task restore correctly
   loadTodayEntries();          // this restores the running task's fields (needs the dropdowns/options to exist)
+  restoreTrkSelection();       // independently re-apply the last Project/Category/Task so the selectors never reset
   loadTrackerHistory();
   updateClockifyStartBtn();
 }
@@ -7448,6 +7449,25 @@ var trkHeartbeatTick = null;
 // refresh, a brief close, or a server-side sweep; short enough that a genuinely
 // abandoned timer (overnight) is not resurrected.
 var TRK_RESUME_WINDOW_MS = 30 * 60 * 1000;
+// ── Independent dropdown memory ──────────────────────────────────────────────
+// The Project / Category / Task selection is remembered on its own (separate from
+// the running-timer snapshot), and re-applied on load with retries that wait for
+// the option lists to populate. This makes the three selectors survive a refresh
+// no matter which restore path runs or how the option lists are timed.
+function _selKey() { return 'trk_sel_' + (attEmpId || (trkEmpData && trkEmpData.employee_id) || ''); }
+function saveTrkSelection() {
+  try { var f = trkFormFields(); if (f && f.proj) localStorage.setItem(_selKey(), JSON.stringify(f)); } catch(e) {}
+}
+function restoreTrkSelection(tries) {
+  tries = tries || 0;
+  var p = document.getElementById('cfy-project');
+  if (!p) return;
+  if (p.value) return;                                  // a timer restore already filled the fields
+  if (p.options.length <= 1 && tries < 25) { setTimeout(function(){ restoreTrkSelection(tries + 1); }, 150); return; }
+  var saved; try { saved = JSON.parse(localStorage.getItem(_selKey()) || 'null'); } catch(e) { saved = null; }
+  if (!saved || !saved.proj) return;
+  trkRestoreFields({ project: saved.proj, category: saved.cat, task: saved.task, description: saved.desc });
+}
 function _trkKey() { return 'trk_active_' + (attEmpId || (trkEmpData && trkEmpData.employee_id) || ''); }
 function _readActiveMarker() {
   try { return JSON.parse(localStorage.getItem(_trkKey()) || 'null'); } catch(e) { return null; }
@@ -7797,6 +7817,7 @@ function trkInitActivityWatch() {
 }
 
 function updateClockifyStartBtn() {
+  try { saveTrkSelection(); } catch(e) {}   // remember the current Project/Category/Task across refreshes
   var btn = document.getElementById('cfy-start-btn');
   if (!btn) return;
   // Timer running → always enable (need to stop it)
