@@ -1199,13 +1199,32 @@ function goTab(name){
 
 
 // ── DISCREPANCY MANAGEMENT (worked vs tracked; admin fix) ──
+// Parse an attendance timestamp to absolute ms. Handles ISO AND the PHT wall-clock
+// format the sheet stores ("yyyy-MM-dd HH:mm:ss", UTC+8) — Safari/iOS return Invalid
+// Date for the space form, which silently produced 0-hour days.
+function parseAttTime(v){
+  if(v==null) return NaN;
+  var s=String(v).trim(); if(!s) return NaN;
+  if(s.indexOf('T')>=0 || /(Z|[+\-]\d\d:?\d\d)$/.test(s)){ var d=new Date(s); return isNaN(d.getTime())?NaN:d.getTime(); }
+  var m=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s);
+  if(m) return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0)) - 8*3600000;   // PHT = UTC+8
+  var d2=new Date(s); return isNaN(d2.getTime())?NaN:d2.getTime();
+}
 function minsWorkedAdmin(rec){
+  // PRIMARY: trust the hours_worked the backend already computed and stored in the
+  // sheet — correct for night shifts crossing midnight, multi-session days, and not
+  // dependent on browser date parsing. This is the number you see in the sheet.
+  var hw=parseFloat(rec.hours_worked);
+  if(!isNaN(hw) && hw>0) return Math.round(hw*60);
+  // FALLBACK: derive from time_in/out only when no stored hours (PHT-aware, midnight-safe).
   var ss=(rec.sessions&&rec.sessions.length)?rec.sessions:[{time_in:rec.time_in,time_out:rec.time_out,lunch_out:rec.lunch_out,lunch_in:rec.lunch_in}];
   var total=0, any=false;
   ss.forEach(function(s){
-    if(!s.time_in||!s.time_out) return; any=true;
-    var d=(new Date(s.time_out)-new Date(s.time_in))/60000;
-    if(s.lunch_out&&s.lunch_in) d-=(new Date(s.lunch_in)-new Date(s.lunch_out))/60000;
+    if(!s.time_in||!s.time_out) return;
+    var ti=parseAttTime(s.time_in), to=parseAttTime(s.time_out);
+    if(isNaN(ti)||isNaN(to)) return; any=true;
+    var d=(to-ti)/60000; if(d<0) d+=1440;   // shift crossed midnight
+    if(s.lunch_out&&s.lunch_in){ var lo=parseAttTime(s.lunch_out), li=parseAttTime(s.lunch_in); if(!isNaN(lo)&&!isNaN(li)){ var l=(li-lo)/60000; if(l<0)l+=1440; d-=l; } }
     else if(s.lunch_out) d-=60;
     total+=Math.max(0,d);
   });
