@@ -4517,6 +4517,9 @@ function railAvatarFor(id, name) {
 function railStatusLabel(s) {
   switch (s) { case 'working': return 'Working'; case 'paused': return 'On break'; case 'idle': return 'Idle'; default: return 'Online'; }
 }
+// A deactivated employee is hidden everywhere (presence wall, chat contacts).
+// Unknown (directory not loaded yet) is treated as active until proven otherwise.
+function isActiveUser(id){ var d = employeeDir[id]; return !d || d.active !== false; }
 // Click a presence card → open a direct message with that teammate
 function railOpenDM(id, name) {
   if (!id || id === chatEmpId) return;
@@ -4532,6 +4535,7 @@ function renderRailOnline() {
   var now = Date.now();
   var ids = Object.keys(onlineUsers).filter(function(id) {
     if (id === chatEmpId || !onlineUsers[id]) return false;
+    if (!isActiveUser(id)) return false;                 // deactivated users never appear
     var ls = presenceLastSeen[id];
     if (ls && (now - ls) > PRESENCE_TTL_MS) return false;
     return true;
@@ -4764,6 +4768,13 @@ function refreshEmployeeData(callback) {
   fetch(APPS_SCRIPT_URL + '?id=' + encodeURIComponent(empId) + '&pin=' + encodeURIComponent(pin))
     .then(function(r) { return r.json(); })
     .then(function(fresh) {
+      // If the account was deactivated mid-session, drop presence and sign out.
+      if (fresh && fresh.error === 'DEACTIVATED') {
+        try { updatePresence(false); } catch(e) {}
+        try { showToast('Your account has been deactivated.', 'error'); } catch(e) {}
+        setTimeout(function(){ try { doLogout(); } catch(e) {} }, 600);
+        return;
+      }
       if (!fresh.error) {
         fresh._pin = pin; // keep PIN for future refreshes
         window._currentEmpData = fresh;
@@ -8263,10 +8274,12 @@ function loadEmployeePhotoDirectory(){
         employeeDir[emp.employee_id] = {
           position: String(emp.position || ''),
           cl: String(emp.career_level || emp.cl || emp.cl_level || emp.level || '').trim(),
-          full_name: String(emp.full_name || '')
+          full_name: String(emp.full_name || ''),
+          active: !/^(inactive|deactivated|disabled)$/i.test(String(emp.status || 'active').trim())
         };
       });
       try { renderRailOnline(); } catch(e) {}
+      try { if (typeof loadContacts === 'function' && supaClient) loadContacts(); } catch(e) {}   // re-filter contacts now that we know who's deactivated
       // fill bubbles with real photos as they load — except customized buddies (which keep their mascot)
       Object.keys(_bubbleEls).forEach(function(id){
         if (id === 'ADMIN') return;
@@ -8720,7 +8733,7 @@ function renderContactList(data) {
   // Remove old dynamic contacts
   contacts.querySelectorAll('.chat-contact:not(#contact-group)').forEach(function(el) { el.remove(); });
 
-  var others  = (data||[]).filter(function(e) { return e.employee_id !== chatEmpId; });
+  var others  = (data||[]).filter(function(e) { return e.employee_id !== chatEmpId && isActiveUser(e.employee_id); });
   var online  = others.filter(function(e) { return e.is_online; });
   var offline = others.filter(function(e) { return !e.is_online; });
 
