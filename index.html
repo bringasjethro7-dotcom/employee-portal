@@ -866,6 +866,26 @@
   .wl-vol-input::-webkit-outer-spin-button, .wl-vol-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
   .wl-vol-input:focus { border-color:var(--orange-1); box-shadow:0 0 0 3px rgba(255,107,26,.16); }
   .wl-vol-unit { position:absolute; right:11px; top:50%; transform:translateY(-50%); font-size:10px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.04em; pointer-events:none; }
+  /* ── EOD receipt rows ── */
+  #eod-list { max-height:50vh; overflow-y:auto; padding:0.4rem 1.4rem; }
+  .eod-row { display:flex; align-items:center; gap:12px; padding:11px 4px; border-bottom:1px solid var(--border); }
+  .eod-row:last-child { border-bottom:none; }
+  .eod-row.idle { opacity:.72; }
+  .eod-main { flex:1; min-width:0; }
+  .eod-task { font-size:14px; font-weight:600; color:var(--text-1); }
+  .eod-meta { font-size:11.5px; color:var(--orange-3); margin-top:1px; }
+  .eod-time { font-size:11.5px; color:var(--text-3); margin-top:3px; font-variant-numeric:tabular-nums; }
+  .eod-right { flex-shrink:0; }
+  .eod-vol { width:104px; background:var(--bg-deep,var(--bg-card)); border:1px solid var(--border); border-radius:10px; color:var(--text-1); font-family:inherit; font-size:14px; padding:9px 11px; outline:none; text-align:center; transition:border-color .15s, box-shadow .15s; }
+  .eod-vol:focus { border-color:var(--orange-1); box-shadow:0 0 0 3px rgba(255,107,26,.16); }
+  .eod-vol::-webkit-outer-spin-button, .eod-vol::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  .eod-idle { font-size:11px; font-weight:700; color:var(--text-3); background:rgba(148,163,184,.12); border:1px solid rgba(148,163,184,.3); border-radius:20px; padding:4px 10px; white-space:nowrap; }
+  .eod-appeal { margin-top:4px; }
+  .eod-appeal a { font-size:11.5px; color:var(--orange-3); cursor:pointer; }
+  .eod-appeal a:hover { text-decoration:underline; }
+  .eod-untracked { padding:12px 4px 4px; text-align:center; }
+  .eod-untracked a { font-size:12.5px; font-weight:600; color:var(--orange-2); cursor:pointer; }
+  .eod-untracked a:hover { text-decoration:underline; }
   .wl-vol-actions { padding:1.1rem 1.6rem 1.4rem; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:10px; background:linear-gradient(0deg,rgba(255,255,255,.02),transparent); }
   .wl-vol-submit { width:100%; padding:14px; background:linear-gradient(135deg,var(--orange-2),var(--orange-1)); color:#fff; border:none; border-radius:11px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 8px 22px rgba(255,107,26,.34); transition:transform .12s, filter .2s; }
   .wl-vol-submit:hover { filter:brightness(1.07); transform:translateY(-1px); }
@@ -3511,16 +3531,48 @@
       </div>
     </div>
 
-    <!-- TIME OUT CONFIRMATION -->
+    <!-- EOD CONFIRMATION -->
     <div id="timeout-confirm" class="wl-warn-overlay" onclick="if(event.target===this)closeTimeOutConfirm()">
       <div class="wl-warn-box">
-        <div class="wl-warn-icon">🚪</div>
-        <h3>End your shift?</h3>
-        <p>You're about to <b>Time Out</b>. This closes your current session and stops the clock for today.</p>
-        <p class="wl-warn-note">Make sure any running task is stopped and your output volumes are filled in before you go.</p>
+        <div class="wl-warn-icon">🏁</div>
+        <h3>Done for the day?</h3>
+        <p>You're about to end your day. We'll stop any running task and show you a <b>receipt</b> of everything you tracked so you can review the times and enter your output before submitting.</p>
         <div style="display:flex;gap:10px;justify-content:center;margin-top:6px;">
-          <button onclick="closeTimeOutConfirm()" style="background:transparent;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--border);">Cancel</button>
-          <button id="timeout-confirm-yes" onclick="confirmTimeOutYes()">Yes, Time Out</button>
+          <button onclick="closeTimeOutConfirm()" style="background:transparent;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--border);">Not yet</button>
+          <button id="timeout-confirm-yes" onclick="confirmTimeOutYes()">Yes, review &amp; submit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RATE ACCESS CODE GATE -->
+    <div id="rate-gate" class="wl-warn-overlay" onclick="if(event.target===this)closeRateGate()">
+      <div class="wl-warn-box">
+        <div class="wl-warn-icon">🔒</div>
+        <h3>Confidential — verify it's you</h3>
+        <p id="rate-gate-msg">For your privacy, we'll email a one-time code to your registered address. Enter it to view your rate.</p>
+        <input id="rate-gate-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="display:none;width:100%;text-align:center;letter-spacing:8px;font-size:20px;font-weight:700;background:var(--bg-deep,var(--bg-card));border:1px solid var(--border);border-radius:11px;color:var(--text-1);padding:12px;margin:6px 0 2px;outline:none;" />
+        <div id="rate-gate-err" style="display:none;color:#ef4444;font-size:12.5px;margin-top:4px;"></div>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:10px;">
+          <button onclick="closeRateGate()" style="background:transparent;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--border);">Cancel</button>
+          <button id="rate-gate-send" onclick="sendRateCode()">Email me a code</button>
+          <button id="rate-gate-verify" onclick="verifyRateCode()" style="display:none;">Verify &amp; show</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- EOD RECEIPT -->
+    <div id="eod-receipt" class="wl-vol-overlay">
+      <div class="wl-vol-box">
+        <div class="wl-vol-head">
+          <div class="wl-vol-icon">🧾</div>
+          <h3>End of day — review &amp; submit</h3>
+          <p>Check each task's time is accurate and enter your output. Submitting ends your day.</p>
+          <div class="wl-vol-summary" id="eod-summary"></div>
+        </div>
+        <div id="eod-list"></div>
+        <div class="wl-vol-actions">
+          <button class="wl-vol-submit" onclick="submitEOD()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> End day &amp; submit</button>
+          <button class="wl-vol-later" onclick="closeEodReceipt()">Back</button>
         </div>
       </div>
     </div>
@@ -3719,7 +3771,7 @@
         <!-- Time buttons -->
         <div class="time-btn-grid" id="time-btn-grid">
           <button class="time-action-btn" id="btn-time-in"     onclick="logTime('time_in')"     disabled>Time In</button>
-          <button class="time-action-btn" id="btn-time-out"    onclick="askTimeOut()"    disabled>Time Out</button>
+          <button class="time-action-btn" id="btn-time-out"    onclick="askEOD()"    disabled>EOD</button>
           <!-- Lunch/Microbreak/No-task are now tracked via the Time Tracker under "Idle (Internal)" -->
           <button class="time-action-btn" id="btn-lunch-out"   onclick="logTime('lunch_out')"   disabled style="display:none;">Lunch Out</button>
           <button class="time-action-btn" id="btn-lunch-in"    onclick="logTime('lunch_in')"    disabled style="display:none;">Lunch In</button>
@@ -5663,6 +5715,60 @@ function setScOverall(score) {
 
 
 
+// Rate is confidential — first reveal per session requires a one-time code emailed
+// to the employee's registered address.
+var _rateUnlocked = false;
+function _revealRate() {
+  var bullets = document.getElementById('rate-bullets');
+  var amount  = document.getElementById('rate-amount');
+  var btn     = document.getElementById('rate-btn');
+  var hBullets = document.getElementById('hourly-bullets');
+  var hAmount  = document.getElementById('hourly-amount');
+  if (bullets)  bullets.style.display  = 'none';
+  if (amount)   amount.style.display   = '';
+  if (hBullets) hBullets.style.display = 'none';
+  if (hAmount)  hAmount.style.display  = '';
+  if (btn) btn.textContent = 'Hide';
+}
+function openRateGate() {
+  var m = document.getElementById('rate-gate'); if (!m) { if (confirm('View confidential rate?')) { _rateUnlocked = true; _revealRate(); } return; }
+  document.getElementById('rate-gate-code').style.display = 'none';
+  document.getElementById('rate-gate-code').value = '';
+  document.getElementById('rate-gate-err').style.display = 'none';
+  document.getElementById('rate-gate-send').style.display = '';
+  document.getElementById('rate-gate-verify').style.display = 'none';
+  document.getElementById('rate-gate-msg').textContent = "For your privacy, we'll email a one-time code to your registered address. Enter it to view your rate.";
+  m.classList.add('show');
+}
+function closeRateGate() { var m = document.getElementById('rate-gate'); if (m) m.classList.remove('show'); }
+function _rateEmpId() { return attEmpId || (window._currentEmpData && window._currentEmpData.employee_id) || ''; }
+function sendRateCode() {
+  var btn = document.getElementById('rate-gate-send'); btn.disabled = true; btn.textContent = 'Sending…';
+  fetch(APPS_SCRIPT_URL + '?action=rate_code_request&employee_id=' + encodeURIComponent(_rateEmpId()) + '&_=' + Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      btn.disabled = false; btn.textContent = 'Resend code';
+      if (d && d.ok && d.emailed) {
+        document.getElementById('rate-gate-msg').textContent = 'We emailed a 6-digit code to ' + (d.to || 'your registered email') + '. Enter it below (expires in 10 min).';
+        var c = document.getElementById('rate-gate-code'); c.style.display = ''; c.focus();
+        document.getElementById('rate-gate-verify').style.display = '';
+      } else {
+        var err = document.getElementById('rate-gate-err'); err.style.display = 'block';
+        err.textContent = (d && d.error === 'NO_EMAIL') ? 'No email on file — contact your admin.' : 'Could not send the code. Try again.';
+      }
+    }).catch(function(){ btn.disabled = false; btn.textContent = 'Email me a code'; var err = document.getElementById('rate-gate-err'); err.style.display = 'block'; err.textContent = 'Network error. Try again.'; });
+}
+function verifyRateCode() {
+  var code = (document.getElementById('rate-gate-code').value || '').trim();
+  var err = document.getElementById('rate-gate-err'); err.style.display = 'none';
+  if (!/^\d{6}$/.test(code)) { err.style.display = 'block'; err.textContent = 'Enter the 6-digit code.'; return; }
+  var btn = document.getElementById('rate-gate-verify'); btn.disabled = true; btn.textContent = 'Verifying…';
+  fetch(APPS_SCRIPT_URL + '?action=rate_code_verify&employee_id=' + encodeURIComponent(_rateEmpId()) + '&code=' + encodeURIComponent(code) + '&_=' + Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      btn.disabled = false; btn.textContent = 'Verify & show';
+      if (d && d.ok) { _rateUnlocked = true; closeRateGate(); _revealRate(); showToast('Rate unlocked for this session.'); }
+      else { err.style.display = 'block'; err.textContent = (d && d.error === 'EXPIRED') ? 'Code expired — resend a new one.' : 'Incorrect code.'; }
+    }).catch(function(){ btn.disabled = false; btn.textContent = 'Verify & show'; err.style.display = 'block'; err.textContent = 'Network error. Try again.'; });
+}
 function toggleRate() {
   var bullets = document.getElementById('rate-bullets');
   var amount  = document.getElementById('rate-amount');
@@ -5671,6 +5777,8 @@ function toggleRate() {
   var hAmount  = document.getElementById('hourly-amount');
 
   var isHidden = amount && amount.style.display === 'none';
+
+  if (isHidden && !_rateUnlocked) { openRateGate(); return; }   // require the email code first
 
   if (isHidden) {
     // Show amounts
@@ -6322,19 +6430,118 @@ function attConfirmed(params) {
   return go();
 }
 // ── TIME OUT CONFIRMATION ──
-function askTimeOut() {
+// ── EOD (End of Day) — submission of work logs ──
+function askEOD() {
   var active = getActiveSession();
   if (!active) { showToast('Please Time In first.'); return; }
   var m = document.getElementById('timeout-confirm');
-  if (m) m.classList.add('show'); else { if (confirm('Time Out and end your shift for today?')) logTime('time_out'); }
+  if (m) m.classList.add('show'); else { if (confirm('Are you done for the day?')) openEodReceipt(); }
 }
+function askTimeOut() { askEOD(); }   // back-compat alias
 function closeTimeOutConfirm() {
   var m = document.getElementById('timeout-confirm');
   if (m) m.classList.remove('show');
 }
 function confirmTimeOutYes() {
   closeTimeOutConfirm();
-  logTime('time_out');
+  openEodReceipt();
+}
+// Stop the running + any paused tasks (records them), then show the EOD receipt.
+function openEodReceipt() {
+  if (typeof trkRunning !== 'undefined' && trkRunning) { try { stopTask(trkRunning.entry_id); } catch(e) {} }
+  (trkPaused || []).slice().forEach(function(p){ try { stopTask(p.entry_id); } catch(e) {} });
+  setTimeout(buildEodReceipt, 600);   // let the optimistic records settle into _trkTodayEntries
+}
+function closeEodReceipt() {
+  var o = document.getElementById('eod-receipt'); if (o) o.classList.remove('show');
+}
+function buildEodReceipt() {
+  var ents = (window._trkTodayEntries || []).filter(function(e){ return e && e.status !== 'running' && e.status !== 'paused' && e.end; });
+  ents.sort(function(a,b){ return parseTrkTime(a.start) - parseTrkTime(b.start); });
+  var prodCount = 0, prodMins = 0, idleMins = 0;
+  var rows = ents.map(function(e) {
+    var idle = (typeof isIdleProject === 'function') && isIdleProject(e.project);
+    var mins = entryMins(e);
+    if (idle) idleMins += mins; else { prodMins += mins; prodCount++; }
+    var st = new Date(parseTrkTime(e.start)).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
+    var et = new Date(parseTrkTime(e.end)).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
+    var label = e.task || e.description || e.project || 'Task';
+    var sub = (e.project || '') + (e.category ? ' · ' + e.category : '');
+    var hasVol = e.volume !== '' && e.volume != null && !isNaN(parseFloat(e.volume));
+    var right = idle
+      ? '<span class="eod-idle">unproductive</span>'
+      : '<input class="eod-vol" data-eid="' + encodeURIComponent(e.entry_id) + '" type="number" min="0" step="any" inputmode="decimal" value="' + (hasVol ? escapeHtml(String(e.volume)) : '') + '" placeholder="output qty">';
+    return '<div class="eod-row' + (idle ? ' idle' : '') + '">' +
+      '<div class="eod-main"><div class="eod-task">' + escapeHtml(label) + '</div>' +
+      '<div class="eod-meta">' + escapeHtml(sub) + '</div>' +
+      '<div class="eod-time">🕒 ' + st + ' – ' + et + ' · ' + fmtMins(mins) + '</div>' +
+      '<div class="eod-appeal"><a onclick="appealEntry(\'' + encodeURIComponent(e.entry_id) + '\',\'' + encodeURIComponent(label) + '\')">⚑ Appeal time</a></div></div>' +
+      '<div class="eod-right">' + right + '</div></div>';
+  }).join('');
+  if (!ents.length) rows = '<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">No tracked tasks today.</div>';
+  rows += '<div class="eod-untracked"><a onclick="appealUntracked()">＋ Appeal missing / untracked work</a></div>';
+  document.getElementById('eod-list').innerHTML = rows;
+  var sum = document.getElementById('eod-summary');
+  if (sum) sum.innerHTML = '<span class="wl-vol-chip"><b>' + prodCount + '</b> productive</span>' +
+    '<span class="wl-vol-chip">✅ <b>' + fmtMins(prodMins) + '</b></span>' +
+    (idleMins > 0 ? '<span class="wl-vol-chip">💤 <b>' + fmtMins(idleMins) + '</b> idle</span>' : '');
+  var o = document.getElementById('eod-receipt'); if (o) o.classList.add('show');
+}
+// ── Appeals: missing hours on a task, or untracked work → admin approval ──
+function _postAppeal(p) {
+  var base = APPS_SCRIPT_URL + '?action=worklog_appeal&employee_id=' + encodeURIComponent(attEmpId) +
+    '&full_name=' + encodeURIComponent((trkEmpData && trkEmpData.full_name) || attEmpId);
+  var qs = Object.keys(p).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(p[k] == null ? '' : p[k]); }).join('&');
+  fetch(base + '&' + qs + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+    showToast(d && d.ok ? 'Appeal sent to admin for approval. ✅' : 'Could not send appeal.');
+  }).catch(function(){ showToast('Network error — appeal not sent.'); });
+}
+function appealEntry(entryIdEnc, labelEnc) {
+  var entryId = decodeURIComponent(entryIdEnc), label = decodeURIComponent(labelEnc);
+  var hrs = prompt('Appeal "' + label + '" — enter the corrected TOTAL hours for this task (e.g. 1.5):');
+  if (hrs === null) return;
+  var h = parseFloat(hrs); if (isNaN(h) || h < 0) { showToast('Enter valid hours.'); return; }
+  var reason = prompt('Reason (what time was missing / untracked?):', ''); if (reason === null) return;
+  _postAppeal({ entry_id: entryId, claim_hours: h, reason: reason });
+}
+function appealUntracked() {
+  var task = prompt('Untracked work — task or description:'); if (!task) return;
+  var proj = prompt('Project (optional):', '') || '';
+  var hrs = prompt('Hours worked (e.g. 1.5):'); if (hrs === null) return;
+  var h = parseFloat(hrs); if (isNaN(h) || h <= 0) { showToast('Enter valid hours.'); return; }
+  var reason = prompt('Reason / details:', '') || '';
+  _postAppeal({ task: task, project: proj, claim_hours: h, reason: reason, date: (typeof shiftDate === 'function' ? shiftDate() : '') });
+}
+function submitEOD() {
+  var inputs = document.querySelectorAll('#eod-list .eod-vol');
+  var ok = true, items = [];
+  inputs.forEach(function(inp){
+    var v = inp.value;
+    if (v === '' || isNaN(parseFloat(v)) || parseFloat(v) < 0) { inp.style.borderColor = '#ef4444'; ok = false; }
+    else { inp.style.borderColor = ''; items.push({ entry_id: decodeURIComponent(inp.getAttribute('data-eid')), volume: parseFloat(v) }); }
+  });
+  if (!ok) { showToast('Enter your output for every task.'); return; }
+  var btns = document.querySelectorAll('#eod-receipt .wl-vol-actions button');
+  btns.forEach(function(b){ b.disabled = true; });
+  function clockOutAndClose() {
+    logTime('time_out');                 // record the clock-out
+    closeEodReceipt();
+    showToast('Day ended — work logs submitted. ✅');
+    setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1000);
+  }
+  if (!items.length) { clockOutAndClose(); return; }   // only idle / nothing to volume
+  var qs = encodeURIComponent(JSON.stringify(items));
+  var url = APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(attEmpId) + '&pending=false&items=' + qs;
+  (function attempt(n){
+    fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+      if (d && (d.success || d.ok)) { clockOutAndClose(); }
+      else if (d && (d.error === 'BUSY' || d.error === 'LOCKED') && n < 5) { setTimeout(function(){ attempt(n+1); }, 600*n); }
+      else { btns.forEach(function(b){ b.disabled = false; }); showToast('Could not submit yet — tap End day again.'); }
+    }).catch(function(){
+      if (n < 5) { setTimeout(function(){ attempt(n+1); }, 700*n); }
+      else { btns.forEach(function(b){ b.disabled = false; }); showToast('Network error — not submitted. Tap End day again.'); }
+    });
+  })(1);
 }
 
 function logTime(type) {
@@ -6372,7 +6579,7 @@ function logTime(type) {
     showToast('Your ' + typeLabel(type) + ' didn\'t save to the server — please tap the button again.', 'error');
   });
 
-  if (type === 'time_out' && typeof syncWorklogOnTimeOut === 'function') syncWorklogOnTimeOut();
+  // (Volume entry + work-log submission now happen in the EOD receipt, not on time-out.)
 
   renderAttendance();
   if (typeof updateClockifyStartBtn === 'function') updateClockifyStartBtn();
@@ -6490,8 +6697,12 @@ function updateButtons() {
   // LUNCH IN — only when on lunch
   if (btnLI) btnLI.disabled = !hasActive || !hasLO || hasLI;
 
-  // TIME OUT — available whenever clocked in (timing out auto-stops the timer)
-  if (btnTO) btnTO.disabled = !hasActive;
+  // EOD — only when clocked in AND no task is currently running (productive or idle).
+  // The employee must Stop the running task before they can end the day.
+  if (btnTO) {
+    btnTO.disabled = !hasActive || cfyRunning;
+    btnTO.title = cfyRunning ? 'Stop your running task before ending the day' : '';
+  }
 
   // IDLE — only when active
   if (btnIdle) btnIdle.disabled = !hasActive;
@@ -7021,12 +7232,17 @@ async function loadTrackerHistory() {
     var dates = Object.keys(byDate).sort(function(a, b){ return b.localeCompare(a); }).slice(0, 14);
     if (!dates.length) { wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No earlier entries yet.</div></div>'; return; }
     function hm(h) { h = parseFloat(h) || 0; return Math.floor(h) + 'h ' + Math.round((h - Math.floor(h)) * 60) + 'm'; }
+    var isIdleW = function(w){ return (typeof isIdleProject === 'function') && isIdleProject(w.project); };
     var html = dates.map(function(d) {
-      // Recent logs show PRODUCTIVE work only — Idle (Internal) is excluded.
-      var items = (byDate[d] || []).filter(function(w){ return !((typeof isIdleProject === 'function') && isIdleProject(w.project)); });
-      if (!items.length) return '';
-      var tot = items.reduce(function(s, w){ return s + (parseFloat(w.hours) || 0); }, 0);
+      // Listed rows = PRODUCTIVE work only; the day total is split productive vs unproductive.
+      var all = byDate[d] || [];
+      var items = all.filter(function(w){ return !isIdleW(w); });
+      var prodTot = items.reduce(function(s, w){ return s + (parseFloat(w.hours) || 0); }, 0);
+      var idleTot = all.filter(isIdleW).reduce(function(s, w){ return s + (parseFloat(w.hours) || 0); }, 0);
+      if (!items.length && idleTot <= 0) return '';
       var dlabel = new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+      var totHtml = '<span style="color:#16a34a">' + hm(prodTot) + '</span>' +
+        (idleTot > 0 ? ' <span style="color:var(--text-3)">· ' + hm(idleTot) + ' unproductive</span>' : '');
       var rowsH = items.map(function(w) {
         var label = w.task || w.category || w.description || 'Task';
         var sub = (w.category && w.task) ? w.category : (w.project || '');
@@ -7035,8 +7251,8 @@ async function loadTrackerHistory() {
         return '<div class="cfy-entry"><div class="cfy-entry-left"><div class="cfy-entry-desc">' + escapeHtml(label) + badge + '</div>' +
           (sub ? '<div class="cfy-entry-project">📁 ' + escapeHtml(sub) + '</div>' : '') +
           '</div><div class="cfy-entry-dur">' + hm(w.hours) + '</div></div>';
-      }).join('');
-      return '<div style="margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;color:var(--text-2);margin:0 2px 6px;"><span>' + dlabel + '</span><span>' + hm(tot) + '</span></div><div class="cfy-entries-wrap">' + rowsH + '</div></div>';
+      }).join('') || '<div class="cfy-no-entries" style="padding:14px 0;font-size:12.5px;">No productive tasks this day.</div>';
+      return '<div style="margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;color:var(--text-2);margin:0 2px 6px;gap:10px;"><span>' + dlabel + '</span><span style="text-align:right">' + totHtml + '</span></div><div class="cfy-entries-wrap">' + rowsH + '</div></div>';
     }).join('');
     wrap.innerHTML = html || '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No earlier productive entries yet.</div></div>';
   } catch(e) { wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">Could not load history.</div></div>'; }
@@ -7070,16 +7286,20 @@ function renderDayLog(items) {
   var body = document.getElementById('daylog-body');
   var sub  = document.getElementById('daylog-sub');
   if (!body) return;
-  // Folder shows PRODUCTIVE work only — Idle (Internal) is excluded.
-  items = (items || []).filter(function(w){ return !((typeof isIdleProject === 'function') && isIdleProject(w.project)); });
-  if (!items.length) {
-    body.innerHTML = '<div class="cfy-no-entries" style="padding:20px 0;text-align:center;">No productive work recorded this day.</div>';
+  var hm = function(h){ h = parseFloat(h) || 0; return Math.floor(h) + 'h ' + Math.round((h - Math.floor(h)) * 60) + 'm'; };
+  var isIdleW = function(w){ return (typeof isIdleProject === 'function') && isIdleProject(w.project); };
+  var all = items || [];
+  var idleTot = all.filter(isIdleW).reduce(function(s, w){ return s + (parseFloat(w.hours) || 0); }, 0);
+  // Folder lists PRODUCTIVE work only — unproductive is summarized in the total.
+  items = all.filter(function(w){ return !isIdleW(w); });
+  if (!items.length && idleTot <= 0) {
+    body.innerHTML = '<div class="cfy-no-entries" style="padding:20px 0;text-align:center;">No work recorded this day.</div>';
     if (sub) sub.textContent = '';
     return;
   }
-  var hm = function(h){ h = parseFloat(h) || 0; return Math.floor(h) + 'h ' + Math.round((h - Math.floor(h)) * 60) + 'm'; };
   var tot = items.reduce(function(s, w){ return s + (parseFloat(w.hours) || 0); }, 0);
-  if (sub) sub.textContent = items.length + ' task' + (items.length !== 1 ? 's' : '') + ' · ' + hm(tot) + ' total';
+  if (sub) sub.textContent = items.length + ' task' + (items.length !== 1 ? 's' : '') + ' · ' + hm(tot) + ' productive' + (idleTot > 0 ? ' · ' + hm(idleTot) + ' unproductive' : '');
+  if (!items.length) { body.innerHTML = '<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">No productive tasks — ' + hm(idleTot) + ' unproductive only.</div>'; return; }
   body.innerHTML = '<div class="cfy-entries-wrap">' + items.map(function(w) {
     var label = w.task || w.category || w.description || 'Task';
     var subp  = (w.category && w.task) ? w.category : (w.project || '');
@@ -7645,8 +7865,8 @@ function updateOwnershipUI() {
 }
 
 function stopTask(entryId) {
-  // Real-output tasks require a volume on stop. Idle (Internal) is tracked time
-  // only, so it is stopped and recorded straight away — no volume prompt.
+  // NEW FLOW: Stop just records the task (no per-task volume prompt). Output volumes
+  // are entered all at once at End-of-Day (EOD). Works for productive + idle tasks.
   var _mk = _readActiveMarker(); if (_mk && _mk.entry_id === entryId) _clearActiveMarker();   // intentional stop → don't resurrect
   var info = null, hours = 0, durSecs = 0, startMs = null;
   if (trkRunning && trkRunning.entry_id === entryId) {
@@ -7665,21 +7885,14 @@ function stopTask(entryId) {
     }
   }
   renderTimerButtons(); renderPausedList(); updateButtons();
-  // Idle (Internal): stop + record immediately, no volume required.
-  if (info && typeof isIdleProject === 'function' && isIdleProject(info.project)) {
-    // Optimistically show the recorded idle block right away — graph + today's list —
-    // so it never looks like it vanished while the server round-trip completes.
-    var localIdle = { entry_id: entryId, status: 'recorded', project: info.project, category: info.category || '', task: info.task || '', description: info.description || '', start: new Date(startMs || Date.now()).toISOString(), end: new Date().toISOString(), active_secs: durSecs, hours: hours, volume: '', _ts: Date.now() };
-    _recentIdle[entryId] = localIdle;   // keep it visible across reloads until the server reflects it
-    window._trkTodayEntries = (window._trkTodayEntries || []).filter(function(x){ return String(x.entry_id) !== String(entryId); }).concat([localIdle]);
-    try { renderTodayEntries(window._trkTodayEntries); } catch(_e) {}
-    recordIdleStop(entryId);
-    return;
-  }
-  _trkPost('tracker_stop', { entry_id: entryId });
-  if (!info) { setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1400); return; }
-  _pendingWorklog = { rows: [info], clockifyTotal: hours, attendanceTotal: 0, forceRecord: true };
-  showVolumePrompt([info], true);   // mandatory — records on submit
+  if (!info) { _trkPost('tracker_stop', { entry_id: entryId }); setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1400); return; }
+  // Optimistically show the recorded block right away (graph + today's list), then
+  // finalize on the server WITHOUT a volume (volume is collected at EOD).
+  var localRec = { entry_id: entryId, status: 'recorded', project: info.project, category: info.category || '', task: info.task || '', description: info.description || '', start: new Date(startMs || Date.now()).toISOString(), end: new Date().toISOString(), active_secs: durSecs, hours: hours, volume: '', _ts: Date.now() };
+  _recentIdle[entryId] = localRec;
+  window._trkTodayEntries = (window._trkTodayEntries || []).filter(function(x){ return String(x.entry_id) !== String(entryId); }).concat([localRec]);
+  try { renderTodayEntries(window._trkTodayEntries); } catch(_e) {}
+  recordIdleStop(entryId);   // stop → mark recorded (no volume); volume entered at EOD
 }
 
 // Stop an Idle (Internal) task and flip it straight to "recorded" with NO volume.
@@ -7693,7 +7906,7 @@ function recordIdleStop(entryId) {
     '&pending=false&items=' + items;
   function markRecorded(n) {
     fetch(recUrl + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
-      if (d && (d.success || d.ok)) { showToast('Idle time recorded. ✅'); setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 800); }
+      if (d && (d.success || d.ok)) { showToast('Task recorded. ✅'); setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 800); }
       else if (d && (d.error === 'BUSY' || d.error === 'LOCKED') && n < 5) { setTimeout(function(){ markRecorded(n + 1); }, 600 * n); }
       else { setTimeout(function(){ loadTodayEntries(); }, 900); }
     }).catch(function(){ if (n < 5) { setTimeout(function(){ markRecorded(n + 1); }, 700 * n); } else { setTimeout(function(){ loadTodayEntries(); }, 1000); } });

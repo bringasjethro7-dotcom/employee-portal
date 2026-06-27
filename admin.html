@@ -815,6 +815,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
       </div>
+      <div id="appeals-panel"></div>
       <div class="tw">
         <table id="wl-table">
           <thead><tr>
@@ -2068,7 +2069,38 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
   w.document.open(); w.document.write(html); w.document.close();
 }
 
+async function loadAppeals(){
+  var box=document.getElementById('appeals-panel'); if(!box) return;
+  try{
+    var r=await fetch(API+'?action=get_appeals&_='+Date.now()); var d=await r.json();
+    var a=(d&&d.appeals)||[];
+    if(!a.length){ box.innerHTML=''; return; }
+    box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
+      '<div style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">⚑ Pending appeals ('+a.length+')</div>'+
+      a.map(function(x){
+        var claim=(x.claim_hours!==''&&x.claim_hours!=null)?(parseFloat(x.claim_hours).toFixed(2)+'h'):'—';
+        var cur=(x.hours!==''&&x.hours!=null)?(parseFloat(x.hours).toFixed(2)+'h'):'0h';
+        var untracked=String(x.status).toLowerCase()==='appeal';
+        return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(255,255,255,.06);">'+
+          '<div style="flex:1;min-width:200px;"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.date)+'<br>'+
+          '<span style="color:var(--t2);font-size:12px;">'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' <span style="color:#fbbf24">(untracked)</span>':'')+' — current '+cur+' → claim <b style="color:#4ade80">'+claim+'</b></span>'+
+          (x.note?('<br><span style="color:var(--t3);font-size:12px;">“'+escAdmin(x.note)+'”</span>'):'')+'</div>'+
+          '<button class="bsm" style="color:#4ade80;border-color:rgba(74,222,128,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button>'+
+          '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'reject\')">Reject</button>'+
+        '</div>';
+      }).join('')+'</div>';
+  }catch(e){ box.innerHTML=''; }
+}
+async function resolveAppeal(entryId, decision){
+  if(decision==='reject' && !confirm('Reject this appeal?')) return;
+  try{
+    var r=await fetch(API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ loadAppeals(); loadWorkLog(); } else { alert('Could not resolve the appeal.'); }
+  }catch(e){ alert('Network error.'); }
+}
 async function loadWorkLog(){
+  try{ loadAppeals(); }catch(e){}
   var empSel = document.getElementById('wl-emp-filter');
   if(empSel && empSel.options.length <= 1){
     try{
