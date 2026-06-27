@@ -3832,15 +3832,6 @@
       </div>
       <div class="status-bar" id="status-bar" style="display:none;"></div>
 
-      <!-- SELF-AUDIT: worked (clock) vs tracked (tasks) -->
-      <div class="card-head" style="margin-top:1.5rem;">
-        <div class="ch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5z"/><path d="M9 12l2 2 4-4"/></svg></div>
-        <div><div class="ch-t">Self-audit</div></div>
-        <div class="ch-line"></div>
-        <button class="btn-sm" onclick="runSelfAudit()">Re-run</button>
-      </div>
-      <div id="self-audit" class="audit-card"><div class="loading-state"><div class="spinner"></div> Analyzing…</div></div>
-
       <div class="card-head" style="margin-top:1.5rem;">
         <div class="ch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></div>
         <div><div class="ch-t">Recent logs</div></div>
@@ -6399,7 +6390,6 @@ function renderAttendance() {
   updateStatusBar();
   updateTodaySummary();
   renderAttTable();
-  try { runSelfAudit(); } catch(e) {}
 }
 
 function updateStatusBar() {
@@ -6877,12 +6867,14 @@ function renderTimeBar(entries) {
   var total = Object.keys(secs).reduce(function(a, k){ return a + secs[k]; }, 0);
   var order = ['Working','Lunch Break','Microbreak','No task'];
   var legend = order.map(function(k){ return '<span class="tbar-lg"><i style="background:' + TIME_CAT_COLORS[k] + '"></i>' + k + ' <b>' + hm(secs[k]*1000) + '</b></span>'; }).join('');
-  var prodPct = total > 0 ? Math.round(secs['Working']/total*100) : 0;
+  var prodSecs = secs['Working'] || 0;
+  var unprodSecs = Math.max(0, total - prodSecs);
+  var prodPct = total > 0 ? Math.round(prodSecs/total*100) : 0;
 
   var prevScroll = (function(){ var w = document.getElementById('tl-wrap'); return w ? w.scrollLeft : null; })();
   box.innerHTML =
     '<div class="tbar-head"><span class="section-eyebrow" style="margin:0">Timeline · ' + dstr + '</span>' +
-      '<span class="tbar-prod">' + prodPct + '% productive · ' + hm(total*1000) + ' tracked</span></div>' +
+      '<span class="tbar-prod"><b style="color:#22c55e">' + hm(prodSecs*1000) + '</b> productive · <b style="color:#94a3b8">' + hm(unprodSecs*1000) + '</b> unproductive · ' + prodPct + '%</span></div>' +
     '<div class="tl-wrap" id="tl-wrap"><div class="tl-track" style="width:' + totalW + 'px">' + hours + segs + nowM + '</div></div>' +
     '<div class="tbar-legend">' + legend + '</div>';
   box.style.display = 'block';
@@ -6904,18 +6896,22 @@ function renderTodayEntries(entries) {
   (entries || []).forEach(function(e){ if (e && e.entry_id) _byId[e.entry_id] = e; });
   var _union = Object.keys(_byId).map(function(k){ return _byId[k]; });
   (entries || []).forEach(function(e){ if (e && !e.entry_id) _union.push(e); });
-  var completed = _union.filter(function(e) { return e.status !== 'running' && e.status !== 'paused' && e.end; });
+  var allDone = _union.filter(function(e) { return e.status !== 'running' && e.status !== 'paused' && e.end; });
+  // PRODUCTIVE only. Idle (Internal) = unproductive: no volume, and not listed here or
+  // in Recent logs. It still appears on the timeline bar (categorized) for context.
+  var completed = allDone.filter(function(e) { return !((typeof isIdleProject === 'function') && isIdleProject(e.project)); });
 
   if (completed.length === 0) {
-    wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No completed entries today yet.</div></div>';
+    wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No productive entries today yet.</div></div>';
     totalBar.style.display = 'none';
     return;
   }
 
   var totalMins = 0;
   var rows = completed.map(function(e, i) {
-    var dur  = calcCfyDur(e.start, e.end);
-    totalMins += dur.mins;
+    var mins = entryMins(e);
+    totalMins += mins;
+    var durLabel = fmtMins(mins);
     var startT   = new Date(parseTrkTime(e.start)).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
     var endT     = new Date(parseTrkTime(e.end)).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
     var mainLabel = e.description || e.task || null;
@@ -6941,7 +6937,7 @@ function renderTodayEntries(entries) {
         '<div class="cfy-entry-time">' + startT + ' – ' + endT + '</div>' +
         volBlock +
       '</div>' +
-      '<div class="cfy-entry-dur">' + dur.label + '</div>' +
+      '<div class="cfy-entry-dur">' + durLabel + '</div>' +
     '</div>';
   }).join('');
 
@@ -6991,6 +6987,15 @@ function saveEntryVolume(entryIdEnc, i) {
   })(1);
 }
 
+// Authoritative minutes for an entry: prefer the recorded hours / banked seconds the
+// backend stored, falling back to the start→end span only if neither exists. Keeps the
+// portal's durations in sync with the admin Time Log.
+function entryMins(e) {
+  var h = parseFloat(e && e.hours); if (!isNaN(h) && h > 0) return Math.round(h * 60);
+  var s = parseFloat(e && e.active_secs); if (!isNaN(s) && s > 0) return Math.round(s / 60);
+  return calcCfyDur(e && e.start, e && e.end).mins;
+}
+function fmtMins(m) { m = Math.max(0, Math.round(m || 0)); var h = Math.floor(m / 60); return (h > 0 ? h + 'h ' : '') + (m % 60) + 'm'; }
 function calcCfyDur(start, end) {
   var diff = Math.round((parseTrkTime(end) - parseTrkTime(start)) / 60000);
   if (isNaN(diff) || diff < 0) diff = 0;
@@ -7016,8 +7021,10 @@ async function loadTrackerHistory() {
     var dates = Object.keys(byDate).sort(function(a, b){ return b.localeCompare(a); }).slice(0, 14);
     if (!dates.length) { wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No earlier entries yet.</div></div>'; return; }
     function hm(h) { h = parseFloat(h) || 0; return Math.floor(h) + 'h ' + Math.round((h - Math.floor(h)) * 60) + 'm'; }
-    wrap.innerHTML = dates.map(function(d) {
-      var items = byDate[d];
+    var html = dates.map(function(d) {
+      // Recent logs show PRODUCTIVE work only — Idle (Internal) is excluded.
+      var items = (byDate[d] || []).filter(function(w){ return !((typeof isIdleProject === 'function') && isIdleProject(w.project)); });
+      if (!items.length) return '';
       var tot = items.reduce(function(s, w){ return s + (parseFloat(w.hours) || 0); }, 0);
       var dlabel = new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
       var rowsH = items.map(function(w) {
@@ -7031,6 +7038,7 @@ async function loadTrackerHistory() {
       }).join('');
       return '<div style="margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;color:var(--text-2);margin:0 2px 6px;"><span>' + dlabel + '</span><span>' + hm(tot) + '</span></div><div class="cfy-entries-wrap">' + rowsH + '</div></div>';
     }).join('');
+    wrap.innerHTML = html || '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No earlier productive entries yet.</div></div>';
   } catch(e) { wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">Could not load history.</div></div>'; }
 }
 
@@ -7062,8 +7070,10 @@ function renderDayLog(items) {
   var body = document.getElementById('daylog-body');
   var sub  = document.getElementById('daylog-sub');
   if (!body) return;
-  if (!items || !items.length) {
-    body.innerHTML = '<div class="cfy-no-entries" style="padding:20px 0;text-align:center;">No tracked work recorded this day.</div>';
+  // Folder shows PRODUCTIVE work only — Idle (Internal) is excluded.
+  items = (items || []).filter(function(w){ return !((typeof isIdleProject === 'function') && isIdleProject(w.project)); });
+  if (!items.length) {
+    body.innerHTML = '<div class="cfy-no-entries" style="padding:20px 0;text-align:center;">No productive work recorded this day.</div>';
     if (sub) sub.textContent = '';
     return;
   }
