@@ -5753,7 +5753,9 @@ function sendRateCode() {
         document.getElementById('rate-gate-verify').style.display = '';
       } else {
         var err = document.getElementById('rate-gate-err'); err.style.display = 'block';
-        err.textContent = (d && d.error === 'NO_EMAIL') ? 'No email on file — contact your admin.' : 'Could not send the code. Try again.';
+        err.textContent = (d && d.error === 'NO_EMAIL') ? 'No email on file — contact your admin.'
+          : (d && d.error) ? ('Could not send: ' + d.error)
+          : 'Could not send the code — the rate feature may not be deployed yet.';
       }
     }).catch(function(){ btn.disabled = false; btn.textContent = 'Email me a code'; var err = document.getElementById('rate-gate-err'); err.style.display = 'block'; err.textContent = 'Network error. Try again.'; });
 }
@@ -6716,6 +6718,29 @@ function updateButtons() {
 
 // updateStatusBar replaced with multi-session version above
 
+// Tracked idle info for a date: total idle minutes (Lunch Break + Microbreak + No task)
+// and the Lunch Break time range — pulled from the worklog so the Recent-logs table can
+// show lunch and exclude idle from the worked-hours total.
+function dateIdleInfo(date) {
+  var seen = {}, entries = [];
+  ((window._trkByDate && window._trkByDate[date]) || []).forEach(function(w){ var id = String(w.clockify_id || w.entry_id || ('h' + Math.random())); if (!seen[id]) { seen[id] = 1; entries.push(w); } });
+  if ((typeof shiftDate === 'function') && shiftDate() === date) {
+    (window._trkTodayEntries || []).forEach(function(e){ if (e && e.status !== 'running' && e.status !== 'paused' && e.end) { var id = String(e.entry_id || ''); if (!seen[id]) { seen[id] = 1; entries.push(e); } } });
+  }
+  var idle = entries.filter(function(w){ return (typeof isIdleProject === 'function') && isIdleProject(w.project); });
+  var idleMins = idle.reduce(function(s, w){ return s + entryMins(w); }, 0);
+  var lunches = idle.filter(function(w){ return String(w.category || '') === 'Lunch Break'; });
+  var lunchRange = '';
+  if (lunches.length) {
+    var starts = [], ends = [];
+    lunches.forEach(function(w){ var s = parseTrkTime(w.start), e = parseTrkTime(w.end); if (!isNaN(s)) starts.push(s); if (!isNaN(e)) ends.push(e); });
+    if (starts.length && ends.length) {
+      var f = function(t){ return new Date(t).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true }); };
+      lunchRange = f(Math.min.apply(null, starts)) + ' – ' + f(Math.max.apply(null, ends));
+    }
+  }
+  return { idleMins: Math.round(idleMins), lunchRange: lunchRange };
+}
 function renderAttTable() {
   var body = document.getElementById('att-body');
   if (!body) return;
@@ -6733,7 +6758,18 @@ function renderAttTable() {
     var lastOut  = sessions.length ? sessions[sessions.length-1].time_out : rec.time_out;
     var firstLO  = sessions.length ? sessions[0].lunch_out  : rec.lunch_out;
     var firstLI  = sessions.length ? sessions[0].lunch_in   : rec.lunch_in;
-    var mins     = minsWorked(rec);
+    // Clocked minutes computed from sessions (TZ-safe, multi-session), minus tracked idle.
+    var di = dateIdleInfo(rec.date);
+    var clockMins = 0, anyComplete = false;
+    sessions.forEach(function(s){
+      if (s.time_in && s.time_out) {
+        anyComplete = true;
+        var d = (parseTrkTime(s.time_out) - parseTrkTime(s.time_in)) / 60000;
+        if (!isNaN(d)) { if (d < 0) d += 1440; clockMins += d; }
+        if (s.lunch_out && s.lunch_in) { var l = (parseTrkTime(s.lunch_in) - parseTrkTime(s.lunch_out)) / 60000; if (!isNaN(l) && l > 0) clockMins -= l; }
+      }
+    });
+    var mins = anyComplete ? Math.max(0, Math.round(clockMins - di.idleMins)) : null;   // worked hours exclude idle breaks
     var late     = isLate(rec);
     var shift    = rec.shift || 'morning';
     var hasTO    = sessions.some(function(s){ return !!s.time_out; });
@@ -6751,9 +6787,9 @@ function renderAttTable() {
     } else {
       status = '<span class="att-badge-present">Present</span>';
     }
-    var lunchStr = firstLO
-      ? fmtTime(firstLO) + (firstLI ? ' – ' + fmtTime(firstLI) : ' – …')
-      : '—';
+    var lunchStr = di.lunchRange
+      ? di.lunchRange
+      : (firstLO ? fmtTime(firstLO) + (firstLI ? ' – ' + fmtTime(firstLI) : ' – …') : '—');
     var sessBadge = sessions.length > 1
       ? ' <span style="font-size:9px;background:rgba(255,107,26,0.15);color:var(--orange-3);border:1px solid rgba(255,107,26,0.25);border-radius:10px;padding:1px 6px;">' + sessions.length + 'x</span>'
       : '';
@@ -7003,6 +7039,7 @@ async function loadTodayEntries() {
     renderTimerButtons();
     renderPausedList();
     renderTodayEntries(entries);
+    try { renderAttTable(); } catch(e) {}   // reflect today's tracked lunch/idle in Recent logs
   } catch(e) {
     document.getElementById('cfy-today-wrap').innerHTML = '<div class="cfy-no-entries">Could not load entries.</div>';
   }
@@ -7095,6 +7132,14 @@ function renderTimeBar(entries) {
 
 function renderTodayEntries(entries) {
   window._trkTodayEntries = entries || [];   // cached so the bar can refresh live on the timer tick
+  // Day already ended (EOD / timed out for today) → clear Today's entries + bar.
+  var dayEnded = (typeof getActiveSession === 'function') && !getActiveSession() && ((todayLog && todayLog.sessions) || []).some(function(s){ return s.time_out; });
+  if (dayEnded) {
+    var w0 = document.getElementById('cfy-today-wrap'); if (w0) w0.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">Day ended — work logs submitted ✅<br><span style="font-size:12px;color:var(--text-3)">View today\'s tasks in Recent logs.</span></div></div>';
+    var tb0 = document.getElementById('cfy-total-bar'); if (tb0) tb0.style.display = 'none';
+    var bar0 = document.getElementById('time-bar-wrap'); if (bar0) bar0.style.display = 'none';
+    return;
+  }
   try { _saveTodayCache(entries); } catch(e) {}   // keep today's completed rows durable so the bar never vanishes
   try { refreshTimeBar(); } catch(e) { try { renderTimeBar(entries); } catch(_e) {} }   // include the live running task
   var wrap = document.getElementById('cfy-today-wrap');
@@ -7255,6 +7300,7 @@ async function loadTrackerHistory() {
       return '<div style="margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;color:var(--text-2);margin:0 2px 6px;gap:10px;"><span>' + dlabel + '</span><span style="text-align:right">' + totHtml + '</span></div><div class="cfy-entries-wrap">' + rowsH + '</div></div>';
     }).join('');
     wrap.innerHTML = html || '<div class="cfy-entries-wrap"><div class="cfy-no-entries">No earlier productive entries yet.</div></div>';
+    try { renderAttTable(); } catch(e) {}   // refresh Lunch column + idle-excluded hours now that worklog is loaded
   } catch(e) { wrap.innerHTML = '<div class="cfy-entries-wrap"><div class="cfy-no-entries">Could not load history.</div></div>'; }
 }
 
