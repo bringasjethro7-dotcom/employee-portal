@@ -10861,6 +10861,31 @@ function pickBg(id){
   try { showToast('Background updated', 'success'); } catch(e) {}
 }
 
+// ── FORCE-REFRESH WATCH ──
+// Admin can bump a version token; every open portal sees it and reloads with a fresh
+// cache-buster so everyone picks up a new build without manually hard-refreshing.
+var PORTAL_VER_KEY = 'portal_seen_ver';
+function checkForcedRefresh(){
+  fetch(APPS_SCRIPT_URL + '?action=get_refresh&_=' + Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var ver = (d && d.ver) ? String(d.ver) : '';
+      if (!ver) return;
+      var seen = ''; try { seen = localStorage.getItem(PORTAL_VER_KEY) || ''; } catch(e) {}
+      if (!seen) { try { localStorage.setItem(PORTAL_VER_KEY, ver); } catch(e) {} return; }   // first run: just record
+      if (ver !== seen) {
+        try { localStorage.setItem(PORTAL_VER_KEY, ver); } catch(e) {}
+        try { showToast('Portal updated — refreshing…'); } catch(e) {}
+        setTimeout(function(){
+          try { var u = new URL(location.href); u.searchParams.set('v', ver); location.replace(u.toString()); }
+          catch(e) { location.reload(); }
+        }, 1400);
+      }
+    }).catch(function(){});
+}
+setTimeout(checkForcedRefresh, 5000);
+setInterval(checkForcedRefresh, 60000);
+
 // Reflect the real work state in the hero badge: Active only while the timer runs,
 // Idle/On break when idle/paused, Checking in when logged in but not tracking.
 function updateHeroStatus() {

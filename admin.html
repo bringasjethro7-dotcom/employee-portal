@@ -499,7 +499,10 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
   </button>
   <header>
     <div class="htitle"><img id="admin-logo-img" alt="" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%2276%2082%20360%20360%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22m%22%20x1%3D%220%22%20y1%3D%22.05%22%20x2%3D%220%22%20y2%3D%22.95%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FFE0BE%22%2F%3E%3Cstop%20offset%3D%22.16%22%20stop-color%3D%22%23FFB16A%22%2F%3E%3Cstop%20offset%3D%22.46%22%20stop-color%3D%22%23FF7A29%22%2F%3E%3Cstop%20offset%3D%22.78%22%20stop-color%3D%22%23F1560F%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23C3380A%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22b%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FF8E45%22%2F%3E%3Cstop%20offset%3D%22.55%22%20stop-color%3D%22%23E64C10%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23A52E08%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20x%3D%22241%22%20y%3D%22110%22%20width%3D%2230%22%20height%3D%22304%22%20rx%3D%2215%22%20fill%3D%22url%28%23m%29%22%2F%3E%3Cpath%20d%3D%22M256%20226Q341%20264%20398%20320Q341%20376%20256%20414Q171%20376%20114%20320Q171%20264%20256%20226Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23b%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3Cpath%20d%3D%22M256%20110Q341%20148%20398%20204Q341%20260%20256%20298Q171%20260%20114%20204Q171%20148%20256%20110Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23m%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E" /> Portal admin <span class="pill" style="margin-bottom:0;">Admin</span></div>
-    <button class="blogout" onclick="doLogout()">Sign out</button>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="blogout" onclick="forceRefreshAll()" title="Reload every open portal so users get the latest update" style="border-color:rgba(255,107,26,.45);color:var(--o3);">↻ Refresh all users</button>
+      <button class="blogout" onclick="doLogout()">Sign out</button>
+    </div>
   </header>
   <div class="body">
     <!-- Grouped navigation (top-level groups + sub-tabs) -->
@@ -1103,6 +1106,15 @@ function doLogin(){
   }
 }
 
+async function forceRefreshAll(){
+  if(!confirm('Reload the portal for ALL signed-in users now?\n\nUse this after publishing a portal update — everyone’s open portal will refresh within ~1 minute.')) return;
+  try{
+    var r = await fetch(API + '?action=set_refresh&pass=' + encodeURIComponent(PASS) + '&_=' + Date.now());
+    var d = await r.json();
+    if(d && d.ok){ alert('Done. All open portals will refresh within ~1 minute (v' + d.ver + ').'); }
+    else { alert('Could not trigger refresh' + (d && d.error ? (': ' + d.error) : '.')); }
+  }catch(e){ alert('Network error — could not trigger refresh.'); }
+}
 function doLogout(){
   try { localStorage.removeItem('admin_authed'); } catch(e) {}
   document.getElementById('shell').style.display='none';
@@ -1269,14 +1281,19 @@ async function loadDiscrepancy(){
     ]);
     var aData=resp[0]||{}, wData=resp[1]||{};
     var recs=(aData.records||aData.attendance||[]);
-    var byDate={};
-    (wData.worklog||[]).forEach(function(w){ if(!w.date||w.status==='running'||w.status==='rejected') return; var dk=discDate(w.date); (byDate[dk]=byDate[dk]||[]).push(w); });
+    var isIdle=function(w){ return String(w.project||'')==='Idle (Internal)'; };
+    var byDate={}, idleByDate={};
+    (wData.worklog||[]).forEach(function(w){ if(!w.date||w.status==='running'||w.status==='rejected') return; var dk=discDate(w.date);
+      if(isIdle(w)){ idleByDate[dk]=(idleByDate[dk]||0)+Math.round((parseFloat(w.hours)||0)*60); return; }   // idle = unproductive, excluded from Tracked
+      (byDate[dk]=byDate[dk]||[]).push(w);
+    });
     // aggregate worked minutes per date (a day can have multiple session rows)
     var workedByDate={};
     recs.forEach(function(r){ var w=minsWorkedAdmin(r); if(w===null) return; var dk=discDate(r.date); workedByDate[dk]=(workedByDate[dk]||0)+w; });
     var rows=[]; window._discTargets={};
     Object.keys(workedByDate).forEach(function(dk){
-      var w=workedByDate[dk]; var items=byDate[dk]||[];
+      var w=Math.max(0, workedByDate[dk] - (idleByDate[dk]||0));   // Worked excludes idle breaks
+      var items=byDate[dk]||[];                                     // productive tasks only
       var t=Math.round(items.reduce(function(a,x){return a+(parseFloat(x.hours)||0);},0)*60);
       rows.push({date:dk,w:w,t:t,d:w-t,has:items.length>0});
       if(items.length) window._discTargets[dk]=w;
