@@ -2455,7 +2455,8 @@
   #cfy-task:disabled { opacity: 0.45; cursor: not-allowed; }
   .cfy-timer-right { display: flex; flex-direction: column; align-items: center; gap: 10px; flex-shrink: 0; }
   /* unified card layout — compact, no sprawl */
-  #idle-perm-banner { display: none !important; }          /* inactivity tracking is off */
+  /* idle-perm-banner visibility is controlled by updateIdleBanner() so users can grant
+     system-wide activity detection (so work in other apps keeps the timer running) */
   #cfy-total-bar { display: none !important; }             /* total shown in the timeline header instead */
   .at-card #trk-mount #cfy-main { display: block; }
   .at-card #trk-mount #cfy-timer-card { margin-top: .4rem; }
@@ -3793,9 +3794,9 @@
       <div class="wl-warn-box">
         <div class="wl-warn-icon">⏱️</div>
         <h3>Are you still there?</h3>
-        <p>No activity detected. Your timer will be paused and a <b style="color:var(--orange-3,#FF6B1A)">0.15 demerit</b> recorded in</p>
+        <p>No activity detected. Your timer will <b style="color:var(--orange-3,#FF6B1A)">stop</b> in</p>
         <div id="inactive-warn-count" style="font-size:54px;font-weight:800;line-height:1;margin:8px 0 10px;color:var(--orange-3,#FF6B1A);">10</div>
-        <p class="wl-warn-note">Move your mouse or press any key to stay active.</p>
+        <p class="wl-warn-note">Move your mouse or press any key to keep the timer running.</p>
       </div>
     </div>
 
@@ -3992,7 +3993,7 @@
       <div id="idle-perm-banner" style="display:none;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">
         <span style="font-size:20px;">⚠️</span>
         <div style="flex:1;font-size:13px;color:var(--text-1);line-height:1.45;">
-          <b>Activity detection is off.</b> <span id="idle-perm-msg">Time you spend working in other apps won't count toward your active time, which can cause inactivity demerits.</span>
+          <b>Activity detection is off.</b> <span id="idle-perm-msg">Time you spend working in other apps won't count as active, so your timer may stop after 3 minutes of inactivity. Click Enable so work in any app keeps it running.</span>
         </div>
         <button id="idle-perm-btn" onclick="enableIdleDetection()" style="flex-shrink:0;background:var(--orange-3,#FF6B1A);color:#fff;border:none;border-radius:9px;padding:9px 16px;font:600 13px/1 inherit;cursor:pointer;">Enable</button>
       </div>
@@ -5082,6 +5083,7 @@ function renderDashboard(data) {
   // (system-wide activity permission is requested on a real user gesture — when a task timer starts)
   trkEmpData = data;
   trkInitActivityWatch();
+  try { updateIdleBanner(); } catch(e) {}   // surface the "enable activity detection" banner if not yet granted
 
   // ── HERO SECTION ──
   const hero = document.getElementById('dashboard-hero');
@@ -7125,9 +7127,9 @@ var trkEmpData   = null;
 var trkLastActivity = Date.now();
 var trkAutoPausedId = null;  // entry auto-paused by inactivity (for auto-resume)
 var trkActivityTick = null;
-// Inactivity enforcement disabled — it was auto-pausing timers + adding demerits and
-// undercounting tracked hours. The timer now runs until you stop it / clock out.
-var TRACK_INACTIVITY = false;
+// Inactivity handling: after 3 min with no activity we show a 10-second warning;
+// if still inactive, the running task is STOPPED automatically. No demerit is applied.
+var TRACK_INACTIVITY = true;
 var INACTIVITY_MS   = 3 * 60 * 1000;
 var WARN_LEAD_MS    = 10 * 1000;               // show a countdown for the last 10 seconds
 var WARN_MS         = INACTIVITY_MS - WARN_LEAD_MS;
@@ -8461,17 +8463,14 @@ function trkCheckInactivity() {
     trkLastActivity = Date.now();
   }
   if (trkInBioBreak()) { trkLastActivity = Date.now(); hideInactiveWarn(); return; }   // bio breaks are exempt
+  // Idle (Internal) tasks — Lunch / Microbreak / No task — are intentional time away,
+  // so don't auto-stop them; only productive tasks are watched.
+  if (isIdleProject(trkRunning.project)) { hideInactiveWarn(); return; }
   var idleMs = Date.now() - trkLastActivity;
   if (idleMs >= INACTIVITY_MS) {
     hideInactiveWarn();
-    var id = trkRunning.entry_id;
-    pauseTimer({ silent: true });
-    trkAutoPausedId = id;
-    var data = trkEmpData || window._currentEmpData || {};
-    _trkPost('add_demerit', { points: 0.15, full_name: data.full_name || attEmpId });
-    showDemeritNotice();
-    bumpDemeritDisplay(0.15);   // reflect on HR tab immediately
-    if (typeof scEmpId !== 'undefined' && scEmpId) setTimeout(function(){ loadScorecard(); }, 2600); // sync from server
+    try { stopTimer(); } catch(e) {}                       // still inactive → stop the timer (NO demerit)
+    if (typeof showToast === 'function') showToast('Timer stopped after 3 minutes of inactivity.');
     return;
   }
   if (idleMs >= WARN_MS) {                                        // last 10s → countdown + ring
@@ -11071,16 +11070,15 @@ setInterval(checkForcedRefresh, 60000);
 
 // ── WHAT'S NEW changelog (shows once per portal update) ──
 var CHANGELOG = {
-  ver: '2026-06-28a',
+  ver: '2026-06-28b',
   date: 'June 28, 2026',
   items: [
-    ['🏁', 'EOD replaces Time Out', 'End your day with the new EOD button. It shows a receipt of all your tasks and times so you can check they\'re accurate, then submit.'],
-    ['⏱', 'Stop is simpler', 'Stopping a task no longer asks for output each time — you enter all your volumes once, at EOD.'],
-    ['⚑', 'Appeal missing hours', 'On the EOD receipt you can appeal missing or untracked time. It goes to your admin for approval.'],
-    ['🔒', 'Private salary rate', 'Viewing your rate now sends a one-time code to your email — keeping it confidential.'],
-    ['📊', 'Productive vs unproductive', 'Lunch, Microbreak and No-task are separated from productive work in Today\'s entries, Recent logs and your totals. Lunch shows in the Lunch column.'],
-    ['🟢', 'Cleaner controls', 'Buttons are grouped into Shift (Time In · EOD) and Task timer (Start/Stop), with icons and a live pulse while tracking.'],
-    ['🎨', 'Creative backgrounds', 'New animated themes in My Profile → Background: Aurora Drift, Mesh Flow, Starfield, Cyber Grid and more.']
+    ['⏲️', 'Idle reminder is back — no demerit', 'If your running task sees no activity for 3 minutes, you\'ll get a 10-second "Are you still there?" warning. Move your mouse or press a key to keep going. If still inactive, the timer just stops — no demerit, no penalty.'],
+    ['🖥️', 'Work in other apps still counts', 'Click "Enable" on the activity banner in the Time Tracker (best on Chrome) so time you spend working in Vysor, Reddit and other apps keeps your timer running.'],
+    ['☕', 'Breaks won\'t auto-stop', 'Lunch, Microbreak and No-task are exempt from the idle stop — step away on a break without losing your tracking.'],
+    ['📡', 'Team Live view (team leads)', 'CL7–CL9 now have a "Team Live" tab showing everyone\'s running timers in real time, color-coded by status (working / lunch / microbreak / no task).'],
+    ['🏁', 'EOD replaces Time Out', 'End your day with the EOD button. It shows a receipt of all your tasks and times to verify before you submit.'],
+    ['🔒', 'Private salary rate', 'Viewing your rate sends a one-time code to your email — keeping it confidential.']
   ]
 };
 function maybeShowWhatsNew(){
