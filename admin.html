@@ -317,6 +317,10 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
   .sales-lock-card .sl-ic{font-size:34px}
   .sales-lock-card h3{font-family:'Sora','Inter',sans-serif;font-size:18px;font-weight:800;color:var(--t1);margin:6px 0}
   .sales-lock-card p{font-size:13px;color:var(--t2);margin-bottom:8px}
+  .sales-calc{margin-top:12px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--border);font-size:13px;color:var(--t2);display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+  .sales-calc b{color:var(--t1)}
+  .sales-calc .net{color:#34d399;font-weight:800;font-size:15px}
+  .sales-calc .net.neg{color:#f87171}
   /* discrepancy management */
   .disc-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
   .disc-stat{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
@@ -632,15 +636,17 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         <div class="paygen">
           <div class="paygen-title">＋ Record sales for a cutoff</div>
           <div class="paygen-controls" style="margin-top:8px;">
-            <label>Period / cutoff <input class="sinp" id="sl-period" placeholder="e.g. Jun 16 – 30, 2026" style="width:200px;"></label>
-            <label>Revenue (₱) <input class="sinp" id="sl-amount" type="number" min="0" step="any" placeholder="0" style="width:140px;"></label>
-            <label>Client <input class="sinp" id="sl-client" placeholder="optional" style="width:150px;"></label>
-            <label>Note <input class="sinp" id="sl-note" placeholder="optional" style="width:180px;"></label>
+            <label>Period / cutoff <input class="sinp" id="sl-period" placeholder="e.g. Jun 16 – 30, 2026" style="width:190px;" onchange="salesRefreshPayroll()" onblur="salesRefreshPayroll()"></label>
+            <label>Invoice (USD) <input class="sinp" id="sl-usd" type="number" min="0" step="any" placeholder="0.00" style="width:120px;" oninput="salesRecompute()"></label>
+            <label>USD→PHP rate <input class="sinp" id="sl-fx" type="number" min="0" step="any" placeholder="—" style="width:110px;" oninput="salesRecompute()"></label>
+            <label>Client <input class="sinp" id="sl-client" placeholder="optional" style="width:130px;"></label>
+            <label>Note <input class="sinp" id="sl-note" placeholder="optional" style="width:150px;"></label>
             <button class="bsm" onclick="salesAdd()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">Add record</button>
           </div>
+          <div id="sales-calc" class="sales-calc">Enter an invoice amount to see the computed net revenue.</div>
         </div>
         <div class="live-summary" id="sales-summary"></div>
-        <div class="tw"><table id="sales-table"><thead><tr><th>Period</th><th>Revenue</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="6" class="es">Loading…</td></tr></tbody></table></div>
+        <div class="tw"><table id="sales-table"><thead><tr><th>Period</th><th>Invoice (USD)</th><th>Rate</th><th>Revenue (₱)</th><th>Payroll (₱)</th><th>Net (₱)</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="10" class="es">Loading…</td></tr></tbody></table></div>
         <div style="margin-top:10px;text-align:right;"><button class="bsm" onclick="salesLock()" style="color:var(--t2)">🔒 Lock again</button> <button class="bsm" onclick="loadSalesData()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button></div>
       </div>
     </div>
@@ -1269,7 +1275,7 @@ async function forceRefreshAll(){
 /* ════════ COMPANY SALES (OTP-gated) ════════ */
 function _salesToken(){ try{ return sessionStorage.getItem('sales_token')||''; }catch(e){ return ''; } }
 function loadSales(){
-  if(_salesToken()){ document.getElementById('sales-lock').style.display='none'; document.getElementById('sales-app').style.display='block'; loadSalesData(); }
+  if(_salesToken()){ document.getElementById('sales-lock').style.display='none'; document.getElementById('sales-app').style.display='block'; salesLoadFx(); loadSalesData(); }
   else { document.getElementById('sales-app').style.display='none'; document.getElementById('sales-lock').style.display='flex';
     var sc=document.getElementById('sales-code'); sc.value='';
     var sb=document.getElementById('sales-send'); sb.disabled=false; sb.textContent='Email me a code';
@@ -1304,28 +1310,69 @@ async function salesVerify(){
     else { err.style.display='block'; err.textContent=(d&&d.error==='EXPIRED')?'Code expired — resend a new one.':'Incorrect code.'; }
   }catch(e){ btn.disabled=false; btn.textContent='Verify & unlock'; err.style.display='block'; err.textContent='Network error.'; }
 }
+var _salesPayroll=0;   // auto-fetched payroll (PHP) for the period currently typed
+function _peso(n){ return '₱'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+async function salesLoadFx(){
+  var fx=document.getElementById('sl-fx');
+  try{
+    var r=await fetch(API+'?action=fx_rate&_='+Date.now()); var d=await r.json();
+    if(d&&d.ok&&d.rate){ if(!fx.value) fx.value=(Math.round(d.rate*1e4)/1e4); fx.placeholder=(Math.round(d.rate*1e4)/1e4)+' (today)'; }
+    else fx.placeholder='enter rate';
+  }catch(e){ fx.placeholder='enter rate'; }
+  salesRecompute();
+}
+async function salesRefreshPayroll(){
+  var period=document.getElementById('sl-period').value.trim(); _salesPayroll=0;
+  if(period){
+    try{ var r=await fetch(API+'?action=payroll_period&token='+encodeURIComponent(_salesToken())+'&period='+encodeURIComponent(period)+'&_='+Date.now()); var d=await r.json(); if(d&&!d.error) _salesPayroll=Number(d.total)||0; }catch(e){}
+  }
+  salesRecompute();
+}
+function salesRecompute(){
+  var usd=parseFloat(document.getElementById('sl-usd').value)||0;
+  var fx=parseFloat(document.getElementById('sl-fx').value)||0;
+  var rev=usd*fx; var net=rev-_salesPayroll;
+  var el=document.getElementById('sales-calc');
+  if(!usd||!fx){ el.innerHTML='Enter invoice (USD) and rate to see the computed net revenue.'; return; }
+  el.innerHTML='<span>Revenue: <b>'+_peso(rev)+'</b> <span style="color:var(--t3)">('+usd.toLocaleString()+' × '+fx+')</span></span>'+
+    '<span>− Payroll for period: <b>'+_peso(_salesPayroll)+'</b></span>'+
+    '<span>= Net revenue: <span class="net'+(net<0?' neg':'')+'">'+_peso(net)+'</span></span>';
+}
 async function loadSalesData(){
-  var tb=document.getElementById('sales-tbody'); tb.innerHTML='<tr><td colspan="6" class="es">Loading…</td></tr>';
+  var tb=document.getElementById('sales-tbody'); tb.innerHTML='<tr><td colspan="10" class="es">Loading…</td></tr>';
   try{
     var r=await fetch(API+'?action=get_sales&token='+encodeURIComponent(_salesToken())+'&_='+Date.now()); var d=await r.json();
     if(d&&d.error==='LOCKED'){ salesLock(); return; }
     var rows=(d&&d.sales)||[];
-    if(!rows.length){ tb.innerHTML='<tr><td colspan="6" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
-    var tot=rows.reduce(function(s,x){ return s+(x.amount||0); },0);
-    document.getElementById('sales-summary').innerHTML='<div class="ls"><b>₱'+tot.toLocaleString(undefined,{maximumFractionDigits:2})+'</b><span>Total revenue</span></div><div class="ls"><b>'+rows.length+'</b><span>Records</span></div>';
+    if(!rows.length){ tb.innerHTML='<tr><td colspan="10" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
+    var tRev=0,tPay=0,tNet=0; rows.forEach(function(x){ tRev+=x.revenue_php||0; tPay+=x.payroll_php||0; tNet+=x.net_php||0; });
+    document.getElementById('sales-summary').innerHTML=
+      '<div class="ls"><b>'+_peso(tRev)+'</b><span>Gross revenue</span></div>'+
+      '<div class="ls"><b>'+_peso(tPay)+'</b><span>Payroll paid</span></div>'+
+      '<div class="ls"><b style="color:'+(tNet<0?'#f87171':'#34d399')+'">'+_peso(tNet)+'</b><span>Net revenue</span></div>'+
+      '<div class="ls"><b>'+rows.length+'</b><span>Records</span></div>';
     tb.innerHTML=rows.map(function(x){
-      return '<tr><td>'+escAdmin(x.period)+'</td><td><b>₱'+(x.amount||0).toLocaleString(undefined,{maximumFractionDigits:2})+'</b></td><td>'+escAdmin(x.client||'—')+'</td><td>'+escAdmin(x.note||'—')+'</td><td style="color:var(--t3);font-size:12px">'+escAdmin(x.created_at||'')+(x.by?(' · '+escAdmin(x.by)):'')+'</td><td><button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')">✕</button></td></tr>';
+      return '<tr><td>'+escAdmin(x.period)+'</td>'+
+        '<td>$'+(x.invoice_usd||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+        '<td>'+(x.fx_rate||0)+'</td>'+
+        '<td>'+_peso(x.revenue_php)+'</td>'+
+        '<td style="color:var(--t2)">'+_peso(x.payroll_php)+'</td>'+
+        '<td><b style="color:'+((x.net_php||0)<0?'#f87171':'#34d399')+'">'+_peso(x.net_php)+'</b></td>'+
+        '<td>'+escAdmin(x.client||'—')+'</td><td>'+escAdmin(x.note||'—')+'</td>'+
+        '<td style="color:var(--t3);font-size:12px">'+escAdmin(x.created_at||'')+(x.by?(' · '+escAdmin(x.by)):'')+'</td>'+
+        '<td><button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')">✕</button></td></tr>';
     }).join('');
-  }catch(e){ tb.innerHTML='<tr><td colspan="6" class="es" style="color:#f87171">Could not load.</td></tr>'; }
+  }catch(e){ tb.innerHTML='<tr><td colspan="10" class="es" style="color:#f87171">Could not load.</td></tr>'; }
 }
 async function salesAdd(){
-  var period=document.getElementById('sl-period').value.trim(), amount=document.getElementById('sl-amount').value, client=document.getElementById('sl-client').value.trim(), note=document.getElementById('sl-note').value.trim();
+  var period=document.getElementById('sl-period').value.trim(), usd=document.getElementById('sl-usd').value, fx=document.getElementById('sl-fx').value, client=document.getElementById('sl-client').value.trim(), note=document.getElementById('sl-note').value.trim();
   if(!period){ alert('Enter a period / cutoff.'); return; }
-  if(amount===''||isNaN(parseFloat(amount))){ alert('Enter the revenue amount.'); return; }
+  if(usd===''||isNaN(parseFloat(usd))){ alert('Enter the invoice amount in USD.'); return; }
+  if(fx===''||isNaN(parseFloat(fx))||parseFloat(fx)<=0){ alert('Enter the USD→PHP rate.'); return; }
   try{
-    var u=API+'?action=save_sales&token='+encodeURIComponent(_salesToken())+'&period='+encodeURIComponent(period)+'&amount='+encodeURIComponent(amount)+'&client='+encodeURIComponent(client)+'&note='+encodeURIComponent(note)+'&by='+encodeURIComponent(PASS?'Admin':'')+'&_='+Date.now();
+    var u=API+'?action=save_sales&token='+encodeURIComponent(_salesToken())+'&period='+encodeURIComponent(period)+'&invoice_usd='+encodeURIComponent(usd)+'&fx_rate='+encodeURIComponent(fx)+'&client='+encodeURIComponent(client)+'&note='+encodeURIComponent(note)+'&by='+encodeURIComponent(PASS?'Admin':'')+'&_='+Date.now();
     var r=await fetch(u); var d=await r.json();
-    if(d&&d.ok){ document.getElementById('sl-period').value=''; document.getElementById('sl-amount').value=''; document.getElementById('sl-client').value=''; document.getElementById('sl-note').value=''; loadSalesData(); }
+    if(d&&d.ok){ document.getElementById('sl-period').value=''; document.getElementById('sl-usd').value=''; document.getElementById('sl-client').value=''; document.getElementById('sl-note').value=''; _salesPayroll=0; salesRecompute(); loadSalesData(); }
     else if(d&&d.error==='LOCKED'){ salesLock(); }
     else alert('Could not save'+(d&&d.error?(': '+d.error):'.'));
   }catch(e){ alert('Network error.'); }
