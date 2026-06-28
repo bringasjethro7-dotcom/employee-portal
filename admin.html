@@ -616,6 +616,8 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
       <div id="live-chart" class="live-chart"></div>
       <div class="live-title2" style="margin-top:18px;">Total hours per employee · selected range <span id="live-byemp-tot" class="live-badge" style="background:rgba(255,107,26,.14);color:var(--o3);border-color:rgba(255,107,26,.3)"></span></div>
       <div id="live-byemp" class="live-byemp"><div class="es">Pick a range and Analyze.</div></div>
+      <div class="live-title2" style="margin-top:18px;">Total hours per project · selected range <span id="live-byproject-tot" class="live-badge" style="background:rgba(96,165,250,.14);color:#8bc0f0;border-color:rgba(96,165,250,.3)"></span></div>
+      <div id="live-byproject" class="live-byemp"><div class="es">Pick a range and Analyze.</div></div>
       <div class="live-title2" style="margin-top:18px;">Daily breakdown</div>
       <div class="tw"><table id="live-table"><thead><tr><th>Date</th><th>Productive</th><th>Idle</th><th>Total</th><th>People</th></tr></thead><tbody id="live-tbody"><tr><td colspan="5" class="es">Pick a range and Analyze.</td></tr></tbody></table></div>
     </div>
@@ -1233,13 +1235,14 @@ async function loadRangeHours(){
   try{
     var url=API+'?action=get_worklog&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(emp?('&employee_id='+encodeURIComponent(emp)):'')+'&_='+Date.now();
     var r=await fetch(url); var d=await r.json(); var rows=(d&&d.worklog)||[];
-    var byDate={}, byEmp={};
-    rows.forEach(function(w){ if(!w.date||w.status==='running'||w.status==='rejected') return; var dk=String(w.date).slice(0,10); var h=parseFloat(w.hours)||0;
-      var o=byDate[dk]||(byDate[dk]={prod:0,idle:0,people:{}}); if(isIdleProj(w.project)) o.idle+=h; else o.prod+=h; o.people[w.employee_id]=1;
-      var eid=String(w.employee_id||'?'); var em=byEmp[eid]||(byEmp[eid]={name:w.full_name||eid,prod:0,idle:0,days:{}}); if(isIdleProj(w.project)) em.idle+=h; else em.prod+=h; em.days[dk]=1;
+    var byDate={}, byEmp={}, byProj={};
+    rows.forEach(function(w){ if(!w.date||w.status==='running'||w.status==='rejected') return; var dk=String(w.date).slice(0,10); var h=parseFloat(w.hours)||0; var idle=isIdleProj(w.project);
+      var o=byDate[dk]||(byDate[dk]={prod:0,idle:0,people:{}}); if(idle) o.idle+=h; else o.prod+=h; o.people[w.employee_id]=1;
+      var eid=String(w.employee_id||'?'); var em=byEmp[eid]||(byEmp[eid]={name:w.full_name||eid,prod:0,idle:0,days:{}}); if(idle) em.idle+=h; else em.prod+=h; em.days[dk]=1;
+      var pj=String(w.project||'—')||'—'; var pp=byProj[pj]||(byProj[pj]={name:pj,prod:0,idle:0,people:{}}); if(idle) pp.idle+=h; else pp.prod+=h; pp.people[w.employee_id]=1;
     });
     var dates=Object.keys(byDate).sort();
-    if(!dates.length){ tbody.innerHTML='<tr><td colspan="5" class="es">No tracked work in this range.</td></tr>'; document.getElementById('live-chart').innerHTML=''; document.getElementById('live-summary').innerHTML=''; document.getElementById('live-byemp').innerHTML='<div class="es">No tracked work in this range.</div>'; document.getElementById('live-byemp-tot').textContent=''; return; }
+    if(!dates.length){ tbody.innerHTML='<tr><td colspan="5" class="es">No tracked work in this range.</td></tr>'; document.getElementById('live-chart').innerHTML=''; document.getElementById('live-summary').innerHTML=''; document.getElementById('live-byemp').innerHTML='<div class="es">No tracked work in this range.</div>'; document.getElementById('live-byemp-tot').textContent=''; document.getElementById('live-byproject').innerHTML='<div class="es">No tracked work in this range.</div>'; document.getElementById('live-byproject-tot').textContent=''; return; }
     var totP=0,totI=0; dates.forEach(function(dk){ totP+=byDate[dk].prod; totI+=byDate[dk].idle; });
     var days=dates.length;
     document.getElementById('live-summary').innerHTML=
@@ -1249,6 +1252,7 @@ async function loadRangeHours(){
       '<div class="ls"><b>'+days+'</b><span>Days</span></div>';
     document.getElementById('live-chart').innerHTML=renderHoursChart(dates, byDate, incIdle);
     renderByEmp(byEmp, incIdle);
+    renderByProject(byProj, incIdle);
     tbody.innerHTML=dates.slice().reverse().map(function(dk){ var o=byDate[dk]; var ppl=Object.keys(o.people).length; var tot=o.prod+(incIdle?o.idle:0);
       return '<tr><td>'+dk+'</td><td>'+o.prod.toFixed(2)+'h</td><td>'+o.idle.toFixed(2)+'h</td><td><b>'+tot.toFixed(2)+'h</b></td><td>'+ppl+'</td></tr>'; }).join('');
   }catch(e){ tbody.innerHTML='<tr><td colspan="5" class="es" style="color:#f87171;">Could not load.</td></tr>'; }
@@ -1264,6 +1268,23 @@ function renderByEmp(byEmp, incIdle){
   box.innerHTML=ids.map(function(id){
     var o=byEmp[id]; var pw=(o.prod/max)*100, iw=incIdle?((o.idle/max)*100):0; var tot=val(o);
     return '<div class="lbe-row" title="'+escAdmin(o.name)+' · '+Object.keys(o.days).length+' day(s)">'+
+      '<div class="lbe-name">'+escAdmin(o.name)+'</div>'+
+      '<div class="lbe-track"><div class="lbe-prod" style="width:'+pw.toFixed(1)+'%"></div>'+(iw>0?'<div class="lbe-idle" style="width:'+iw.toFixed(1)+'%"></div>':'')+'</div>'+
+      '<div class="lbe-val">'+tot.toFixed(1)+'h'+(incIdle&&o.idle>0?(' <small>('+o.prod.toFixed(1)+'+'+o.idle.toFixed(1)+')</small>'):'')+'</div>'+
+    '</div>';
+  }).join('');
+}
+function renderByProject(byProj, incIdle){
+  var box=document.getElementById('live-byproject'); if(!box) return;
+  var ids=Object.keys(byProj);
+  var val=function(o){ return o.prod+(incIdle?o.idle:0); };
+  ids.sort(function(a,b){ return val(byProj[b])-val(byProj[a]); });
+  var max=1; ids.forEach(function(id){ var v=val(byProj[id]); if(v>max)max=v; });
+  var grandP=0,grandI=0; ids.forEach(function(id){ grandP+=byProj[id].prod; grandI+=byProj[id].idle; });
+  var totEl=document.getElementById('live-byproject-tot'); if(totEl) totEl.textContent=ids.length+' projects · '+grandP.toFixed(1)+'h productive'+(incIdle?(' · '+grandI.toFixed(1)+'h idle'):'');
+  box.innerHTML=ids.map(function(id){
+    var o=byProj[id]; var pw=(o.prod/max)*100, iw=incIdle?((o.idle/max)*100):0; var tot=val(o); var ppl=Object.keys(o.people).length;
+    return '<div class="lbe-row" title="'+escAdmin(o.name)+' · '+ppl+' employee(s)">'+
       '<div class="lbe-name">'+escAdmin(o.name)+'</div>'+
       '<div class="lbe-track"><div class="lbe-prod" style="width:'+pw.toFixed(1)+'%"></div>'+(iw>0?'<div class="lbe-idle" style="width:'+iw.toFixed(1)+'%"></div>':'')+'</div>'+
       '<div class="lbe-val">'+tot.toFixed(1)+'h'+(incIdle&&o.idle>0?(' <small>('+o.prod.toFixed(1)+'+'+o.idle.toFixed(1)+')</small>'):'')+'</div>'+
