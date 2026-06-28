@@ -272,8 +272,19 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
   .live-card .lc-task{font-size:12px;color:var(--t2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .live-card .lc-proj{font-size:11px;color:var(--o3);margin-top:1px}
   .live-card .lc-time{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:var(--green);margin-top:9px;letter-spacing:.02em}
-  .live-card .lc-idle .lc-time{color:var(--amber)}
   .live-card .lc-since{font-size:11px;color:var(--t3);margin-top:2px}
+  /* status color-coding (timer + left accent bar) */
+  .live-card.lcs-work  .lc-time{color:#34d399}
+  .live-card.lcs-lunch .lc-time{color:#38bdf8}
+  .live-card.lcs-micro .lc-time{color:#fbbf24}
+  .live-card.lcs-none  .lc-time{color:#f87171}
+  .live-card.lcs-work::before{background:linear-gradient(180deg,#34d399,#059669)}
+  .live-card.lcs-lunch::before{background:linear-gradient(180deg,#38bdf8,#0284c7)}
+  .live-card.lcs-micro::before{background:linear-gradient(180deg,#fbbf24,#d97706)}
+  .live-card.lcs-none::before{background:linear-gradient(180deg,#f87171,#dc2626)}
+  .live-legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:2px 0 12px;font-size:12px;color:var(--t2)}
+  .live-legend .ll{display:flex;gap:6px;align-items:center}
+  .live-legend .lld{width:10px;height:10px;border-radius:3px}
   .live-range-bar{border-top:1px solid var(--border);padding-top:16px;margin-bottom:12px}
   .live-title2{font-family:'Sora','Inter',sans-serif;font-size:16px;font-weight:700;color:var(--t1);margin-bottom:10px}
   .live-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -300,6 +311,12 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
   .paygen-sub{font-size:12px;color:var(--t3);margin:3px 0 12px}
   .paygen-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .paygen-controls label{font-size:12px;color:var(--t2);display:flex;align-items:center;gap:6px}
+  /* sales lock */
+  .sales-lock{display:flex;align-items:center;justify-content:center;padding:40px 16px}
+  .sales-lock-card{background:var(--card2);border:1px solid var(--border);border-radius:16px;padding:28px 26px;max-width:420px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .sales-lock-card .sl-ic{font-size:34px}
+  .sales-lock-card h3{font-family:'Sora','Inter',sans-serif;font-size:18px;font-weight:800;color:var(--t1);margin:6px 0}
+  .sales-lock-card p{font-size:13px;color:var(--t2);margin-bottom:8px}
   /* discrepancy management */
   .disc-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
   .disc-stat{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
@@ -558,6 +575,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
       </button>
       <button class="tab" id="t-live" onclick="goTab('live')" title="Live &amp; Hours" style="display:none;"></button>
+      <button class="tab" id="t-sales" onclick="goTab('sales')" title="Sales" style="display:none;"></button>
       <button class="tab" id="t-emp" onclick="goTab('emp')" title="Employees">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       </button>
@@ -595,6 +613,38 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
       </button>
     </div>
 
+    <!-- COMPANY SALES (OTP-gated) -->
+    <div id="p-sales" style="display:none;">
+      <div id="sales-lock" class="sales-lock">
+        <div class="sales-lock-card">
+          <div class="sl-ic">🔒</div>
+          <h3>Company Sales — confidential</h3>
+          <p id="sales-lock-msg">This section is locked. We'll email a one-time code to the authorized address to unlock it.</p>
+          <input id="sales-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="display:none;width:200px;text-align:center;letter-spacing:8px;font-size:20px;font-weight:700;" class="sinp" />
+          <div id="sales-lock-err" style="display:none;color:#f87171;font-size:12.5px;margin-top:6px;"></div>
+          <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;flex-wrap:wrap;">
+            <button class="bsm" id="sales-send" onclick="salesRequestCode()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">Email me a code</button>
+            <button class="bsm" id="sales-verify" onclick="salesVerify()" style="display:none;color:#fff;background:var(--green,#22c55e);border-color:var(--green,#22c55e);font-weight:600;">Verify &amp; unlock</button>
+          </div>
+        </div>
+      </div>
+      <div id="sales-app" style="display:none;">
+        <div class="paygen">
+          <div class="paygen-title">＋ Record sales for a cutoff</div>
+          <div class="paygen-controls" style="margin-top:8px;">
+            <label>Period / cutoff <input class="sinp" id="sl-period" placeholder="e.g. Jun 16 – 30, 2026" style="width:200px;"></label>
+            <label>Revenue (₱) <input class="sinp" id="sl-amount" type="number" min="0" step="any" placeholder="0" style="width:140px;"></label>
+            <label>Client <input class="sinp" id="sl-client" placeholder="optional" style="width:150px;"></label>
+            <label>Note <input class="sinp" id="sl-note" placeholder="optional" style="width:180px;"></label>
+            <button class="bsm" onclick="salesAdd()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">Add record</button>
+          </div>
+        </div>
+        <div class="live-summary" id="sales-summary"></div>
+        <div class="tw"><table id="sales-table"><thead><tr><th>Period</th><th>Revenue</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="6" class="es">Loading…</td></tr></tbody></table></div>
+        <div style="margin-top:10px;text-align:right;"><button class="bsm" onclick="salesLock()" style="color:var(--t2)">🔒 Lock again</button> <button class="bsm" onclick="loadSalesData()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button></div>
+      </div>
+    </div>
+
     <!-- LIVE & HOURS DASHBOARD -->
     <div id="p-live" style="display:none;">
       <div class="live-head">
@@ -603,6 +653,12 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <div class="live-sub" id="live-updated">Real-time running timers · auto-refreshes</div>
         </div>
         <button class="bsm" onclick="loadLive()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+      </div>
+      <div class="live-legend">
+        <div class="ll"><span class="lld" style="background:#34d399"></span>Working</div>
+        <div class="ll"><span class="lld" style="background:#38bdf8"></span>Lunch</div>
+        <div class="ll"><span class="lld" style="background:#fbbf24"></span>Microbreak</div>
+        <div class="ll"><span class="lld" style="background:#f87171"></span>No task</div>
       </div>
       <div id="live-now" class="live-grid"><div class="es" style="grid-column:1/-1;">Loading…</div></div>
 
@@ -1210,11 +1266,83 @@ async function forceRefreshAll(){
     else { alert('Could not trigger refresh' + (d && d.error ? (': ' + d.error) : '.')); }
   }catch(e){ alert('Network error — could not trigger refresh.'); }
 }
+/* ════════ COMPANY SALES (OTP-gated) ════════ */
+function _salesToken(){ try{ return sessionStorage.getItem('sales_token')||''; }catch(e){ return ''; } }
+function loadSales(){
+  if(_salesToken()){ document.getElementById('sales-lock').style.display='none'; document.getElementById('sales-app').style.display='block'; loadSalesData(); }
+  else { document.getElementById('sales-app').style.display='none'; document.getElementById('sales-lock').style.display='flex';
+    document.getElementById('sales-code').style.display='none'; document.getElementById('sales-code').value='';
+    document.getElementById('sales-verify').style.display='none'; document.getElementById('sales-send').style.display='';
+    document.getElementById('sales-lock-err').style.display='none';
+    document.getElementById('sales-lock-msg').textContent="This section is locked. We'll email a one-time code to the authorized address to unlock it.";
+  }
+}
+function salesLock(){ try{ sessionStorage.removeItem('sales_token'); }catch(e){} loadSales(); }
+async function salesRequestCode(){
+  var btn=document.getElementById('sales-send'); btn.disabled=true; btn.textContent='Sending…';
+  try{
+    var r=await fetch(API+'?action=sales_otp_request&_='+Date.now()); var d=await r.json();
+    btn.disabled=false; btn.textContent='Resend code';
+    if(d&&d.ok&&d.emailed){
+      document.getElementById('sales-lock-msg').textContent='A 6-digit code was emailed to '+(d.to||'the authorized address')+' (expires in 10 min).';
+      var c=document.getElementById('sales-code'); c.style.display=''; c.focus();
+      document.getElementById('sales-verify').style.display='';
+    } else { var e=document.getElementById('sales-lock-err'); e.style.display='block'; e.textContent='Could not send'+(d&&d.error?(': '+d.error):' — is the backend deployed?'); }
+  }catch(e){ btn.disabled=false; btn.textContent='Email me a code'; var er=document.getElementById('sales-lock-err'); er.style.display='block'; er.textContent='Network error.'; }
+}
+async function salesVerify(){
+  var code=(document.getElementById('sales-code').value||'').trim(); var err=document.getElementById('sales-lock-err'); err.style.display='none';
+  if(!/^\d{6}$/.test(code)){ err.style.display='block'; err.textContent='Enter the 6-digit code.'; return; }
+  var btn=document.getElementById('sales-verify'); btn.disabled=true; btn.textContent='Verifying…';
+  try{
+    var r=await fetch(API+'?action=sales_otp_verify&code='+encodeURIComponent(code)+'&_='+Date.now()); var d=await r.json();
+    btn.disabled=false; btn.textContent='Verify & unlock';
+    if(d&&d.ok&&d.token){ try{ sessionStorage.setItem('sales_token', d.token); }catch(e){} loadSales(); }
+    else { err.style.display='block'; err.textContent=(d&&d.error==='EXPIRED')?'Code expired — resend a new one.':'Incorrect code.'; }
+  }catch(e){ btn.disabled=false; btn.textContent='Verify & unlock'; err.style.display='block'; err.textContent='Network error.'; }
+}
+async function loadSalesData(){
+  var tb=document.getElementById('sales-tbody'); tb.innerHTML='<tr><td colspan="6" class="es">Loading…</td></tr>';
+  try{
+    var r=await fetch(API+'?action=get_sales&token='+encodeURIComponent(_salesToken())+'&_='+Date.now()); var d=await r.json();
+    if(d&&d.error==='LOCKED'){ salesLock(); return; }
+    var rows=(d&&d.sales)||[];
+    if(!rows.length){ tb.innerHTML='<tr><td colspan="6" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
+    var tot=rows.reduce(function(s,x){ return s+(x.amount||0); },0);
+    document.getElementById('sales-summary').innerHTML='<div class="ls"><b>₱'+tot.toLocaleString(undefined,{maximumFractionDigits:2})+'</b><span>Total revenue</span></div><div class="ls"><b>'+rows.length+'</b><span>Records</span></div>';
+    tb.innerHTML=rows.map(function(x){
+      return '<tr><td>'+escAdmin(x.period)+'</td><td><b>₱'+(x.amount||0).toLocaleString(undefined,{maximumFractionDigits:2})+'</b></td><td>'+escAdmin(x.client||'—')+'</td><td>'+escAdmin(x.note||'—')+'</td><td style="color:var(--t3);font-size:12px">'+escAdmin(x.created_at||'')+(x.by?(' · '+escAdmin(x.by)):'')+'</td><td><button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')">✕</button></td></tr>';
+    }).join('');
+  }catch(e){ tb.innerHTML='<tr><td colspan="6" class="es" style="color:#f87171">Could not load.</td></tr>'; }
+}
+async function salesAdd(){
+  var period=document.getElementById('sl-period').value.trim(), amount=document.getElementById('sl-amount').value, client=document.getElementById('sl-client').value.trim(), note=document.getElementById('sl-note').value.trim();
+  if(!period){ alert('Enter a period / cutoff.'); return; }
+  if(amount===''||isNaN(parseFloat(amount))){ alert('Enter the revenue amount.'); return; }
+  try{
+    var u=API+'?action=save_sales&token='+encodeURIComponent(_salesToken())+'&period='+encodeURIComponent(period)+'&amount='+encodeURIComponent(amount)+'&client='+encodeURIComponent(client)+'&note='+encodeURIComponent(note)+'&by='+encodeURIComponent(PASS?'Admin':'')+'&_='+Date.now();
+    var r=await fetch(u); var d=await r.json();
+    if(d&&d.ok){ document.getElementById('sl-period').value=''; document.getElementById('sl-amount').value=''; document.getElementById('sl-client').value=''; document.getElementById('sl-note').value=''; loadSalesData(); }
+    else if(d&&d.error==='LOCKED'){ salesLock(); }
+    else alert('Could not save'+(d&&d.error?(': '+d.error):'.'));
+  }catch(e){ alert('Network error.'); }
+}
+async function salesDelete(id){
+  if(!confirm('Delete this sales record?')) return;
+  try{ var r=await fetch(API+'?action=delete_sales&token='+encodeURIComponent(_salesToken())+'&id='+encodeURIComponent(id)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) loadSalesData(); else if(d&&d.error==='LOCKED') salesLock(); else alert('Could not delete.'); }catch(e){ alert('Network error.'); }
+}
 /* ════════ LIVE & HOURS DASHBOARD ════════ */
 var _liveTimer=null, _liveTick=null, _liveRunning=[], _liveBaseNow=0;
 function fmtYMD(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function hms(s){ s=Math.max(0,Math.floor(s)); var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60; return (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(x<10?'0':'')+x; }
 function isIdleProj(p){ return String(p||'')==='Idle (Internal)'; }
+function liveStatus(rn){
+  if(!isIdleProj(rn.project)) return 'work';
+  var c=String(rn.category||'').toLowerCase();
+  if(c.indexOf('lunch')>=0||c.indexOf('dinner')>=0||c.indexOf('meal')>=0) return 'lunch';
+  if(c.indexOf('micro')>=0||c.indexOf('break')>=0) return 'micro';
+  return 'none'; // No task / other idle
+}
 async function loadLive(){
   var sel=document.getElementById('live-emp');
   if(sel && sel.options.length<=1){
@@ -1240,9 +1368,10 @@ function renderLiveRunning(){
   if(!_liveRunning.length){ box.innerHTML='<div class="es" style="grid-column:1/-1;">No one is tracking right now.</div>'; return; }
   box.innerHTML=_liveRunning.map(function(rn,i){
     var idle=isIdleProj(rn.project);
+    var st=liveStatus(rn);
     var label=idle?(rn.category||'Idle'):(rn.task||rn.description||'Working');
     var since=rn.start?new Date(rn.start).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true}):'';
-    return '<div class="live-card'+(idle?' lc-idle':'')+'">'+
+    return '<div class="live-card lcs-'+st+'">'+
       '<div class="lc-name">'+escAdmin(rn.full_name||rn.employee_id)+'</div>'+
       '<div class="lc-proj">'+escAdmin(rn.project||'')+(rn.category&&!idle?(' · '+escAdmin(rn.category)):'')+'</div>'+
       '<div class="lc-task">'+escAdmin(label)+'</div>'+
@@ -1420,7 +1549,7 @@ async function dashApproveMobile(empId, name){
 }
 
 function goTab(name){
-  ['dash','live','emp','att','leave','chat','coe','scorecard','worklog','discrepancy','projects','payslips','mobile','expected'].forEach(function(n){
+  ['dash','live','emp','att','leave','chat','coe','scorecard','worklog','discrepancy','projects','payslips','sales','mobile','expected'].forEach(function(n){
     var t=document.getElementById('t-'+n), p=document.getElementById('p-'+n);
     if(t) t.classList.toggle('active',n===name);
     if(p) p.style.display=n===name?'block':'none';
@@ -1438,6 +1567,7 @@ function goTab(name){
   if(name==='mobile') loadMobileRequests();
   if(name==='dash') loadDashboard();
   if(name==='live') loadLive();
+  if(name==='sales') loadSales();
   if(name==='expected') initExpected();
   syncAdminNav(name);
 }
@@ -1576,6 +1706,7 @@ var ADMIN_NAV = [
   { id:'requests', label:'Requests', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>', tabs:[{name:'leave',label:'Leave'},{name:'coe',label:'COE'}] },
   { id:'work', label:'Work', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>', tabs:[{name:'worklog',label:'Time Log'},{name:'discrepancy',label:'Discrepancy'},{name:'projects',label:'Projects'},{name:'scorecard',label:'Scorecard'}] },
   { id:'payslips', label:'Payslips', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>', tabs:[{name:'payslips',label:'Payslips'}] },
+  { id:'sales', label:'Sales', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', tabs:[{name:'sales',label:'Sales'}] },
   { id:'chat', label:'Chat', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>', tabs:[{name:'chat',label:'Chat'}] },
   { id:'settings', label:'Settings', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>', tabs:[{name:'mobile',label:'Mobile Access'}] }
 ];
