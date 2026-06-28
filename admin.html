@@ -2125,20 +2125,30 @@ async function pgPreview(){
       var shift = (att.night > att.morning) ? 'night' : 'morning';
       var rate=parseFloat(e.rate)||0, hourly=rate/240, basic=hours*hourly;
       var nightD = shift==='night' ? basic*0.05 : 0;
-      _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, gross:basic+nightD });
+      _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, incentive:0, gross:basic+nightD });
     });
     if(!_pgRows.length){ box.innerHTML='<div class="es" style="padding:10px 0">No hours found for anyone in this range.</div>'; return; }
     _pgPeriod=pgPeriodLabel(from,to);
     var totH=0,totG=0; _pgRows.forEach(function(x){ totH+=x.hours; totG+=x.gross; });
     var nightCount=_pgRows.filter(function(x){return x.shift==='night';}).length;
-    box.innerHTML='<div style="font-size:12px;color:var(--t2);margin:12px 0 6px">Period <b style="color:var(--t1)">'+payEsc(_pgPeriod)+'</b> · '+_pgRows.length+' employees ('+nightCount+' night +5%) · '+totH.toFixed(1)+'h · ₱'+totG.toLocaleString(undefined,{maximumFractionDigits:2})+' gross</div>'+
-      '<div class="tw"><table><thead><tr><th>Employee</th><th>Shift</th><th>Hours</th><th>Basic</th><th>Night +5%</th><th>Gross</th></tr></thead><tbody>'+
-      _pgRows.map(function(x){
+    box.innerHTML='<div style="font-size:12px;color:var(--t2);margin:12px 0 6px">Period <b style="color:var(--t1)">'+payEsc(_pgPeriod)+'</b> · '+_pgRows.length+' employees ('+nightCount+' night +5%) · '+totH.toFixed(1)+'h · <span id="pg-tot-gross">₱'+totG.toLocaleString(undefined,{maximumFractionDigits:2})+'</span> gross</div>'+
+      '<div class="tw"><table><thead><tr><th>Employee</th><th>Shift</th><th>Hours</th><th>Basic</th><th>Night +5%</th><th>Incentive/s</th><th>Gross</th></tr></thead><tbody>'+
+      _pgRows.map(function(x,i){
         var sh = x.shift==='night' ? '<span style="color:#a78bfa">🌙 Night</span>' : '<span style="color:var(--t2)">🌅 Morning</span>';
-        return '<tr><td>'+payEsc(x.name)+'</td><td>'+sh+'</td><td>'+x.hours.toFixed(2)+'h</td><td>₱'+x.basic.toLocaleString(undefined,{maximumFractionDigits:2})+'</td><td>'+(x.nightD>0?('₱'+x.nightD.toLocaleString(undefined,{maximumFractionDigits:2})):'—')+'</td><td><b>₱'+x.gross.toLocaleString(undefined,{maximumFractionDigits:2})+'</b></td></tr>';
+        return '<tr><td>'+payEsc(x.name)+'</td><td>'+sh+'</td><td>'+x.hours.toFixed(2)+'h</td><td>₱'+x.basic.toLocaleString(undefined,{maximumFractionDigits:2})+'</td><td>'+(x.nightD>0?('₱'+x.nightD.toLocaleString(undefined,{maximumFractionDigits:2})):'—')+'</td>'+
+          '<td><input class="sinp" type="number" min="0" step="any" placeholder="0" value="" style="width:104px" oninput="pgIncChange('+i+',this.value)"></td>'+
+          '<td id="pg-gross-'+i+'"><b>₱'+x.gross.toLocaleString(undefined,{maximumFractionDigits:2})+'</b></td></tr>';
       }).join('')+'</tbody></table></div>';
     document.getElementById('pg-save').style.display='';
   }catch(e){ box.innerHTML='<div class="es" style="padding:10px 0;color:#f87171">Could not compute — try again.</div>'; }
+}
+function pgIncChange(i, val){
+  var x=_pgRows[i]; if(!x) return;
+  x.incentive=Math.max(0, parseFloat(val)||0);
+  x.gross=x.basic + x.nightD + x.incentive;
+  var cell=document.getElementById('pg-gross-'+i); if(cell) cell.innerHTML='<b>₱'+x.gross.toLocaleString(undefined,{maximumFractionDigits:2})+'</b>';
+  var tot=_pgRows.reduce(function(s,r){ return s+r.gross; },0);
+  var te=document.getElementById('pg-tot-gross'); if(te) te.textContent='₱'+tot.toLocaleString(undefined,{maximumFractionDigits:2});
 }
 async function pgGenerate(){
   if(!_pgRows||!_pgRows.length) return;
@@ -2146,7 +2156,7 @@ async function pgGenerate(){
   var btn=document.getElementById('pg-save'); btn.disabled=true; btn.textContent='Saving…';
   var ok=0,fail=0;
   for(var i=0;i<_pgRows.length;i++){ var x=_pgRows[i];
-    try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) ok++; else fail++; }catch(e){ fail++; }
+    try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+'&incentives='+encodeURIComponent(x.incentive||0)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) ok++; else fail++; }catch(e){ fail++; }
   }
   btn.disabled=false; btn.textContent='✓ Generate & save all';
   alert('Payslips saved: '+ok+(fail?(' · failed: '+fail):'')+'.');
