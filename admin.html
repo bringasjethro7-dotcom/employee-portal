@@ -620,11 +620,11 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <div class="sl-ic">🔒</div>
           <h3>Company Sales — confidential</h3>
           <p id="sales-lock-msg">This section is locked. We'll email a one-time code to the authorized address to unlock it.</p>
-          <input id="sales-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="display:none;width:200px;text-align:center;letter-spacing:8px;font-size:20px;font-weight:700;" class="sinp" />
+          <input id="sales-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" onkeydown="if(event.key==='Enter')salesVerify()" style="width:200px;text-align:center;letter-spacing:8px;font-size:20px;font-weight:700;margin:4px auto 0;display:block;" class="sinp" />
           <div id="sales-lock-err" style="display:none;color:#f87171;font-size:12.5px;margin-top:6px;"></div>
           <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;flex-wrap:wrap;">
             <button class="bsm" id="sales-send" onclick="salesRequestCode()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">Email me a code</button>
-            <button class="bsm" id="sales-verify" onclick="salesVerify()" style="display:none;color:#fff;background:var(--green,#22c55e);border-color:var(--green,#22c55e);font-weight:600;">Verify &amp; unlock</button>
+            <button class="bsm" id="sales-verify" onclick="salesVerify()" style="color:#fff;background:var(--green,#22c55e);border-color:var(--green,#22c55e);font-weight:600;">Verify &amp; unlock</button>
           </div>
         </div>
       </div>
@@ -1271,24 +1271,27 @@ function _salesToken(){ try{ return sessionStorage.getItem('sales_token')||''; }
 function loadSales(){
   if(_salesToken()){ document.getElementById('sales-lock').style.display='none'; document.getElementById('sales-app').style.display='block'; loadSalesData(); }
   else { document.getElementById('sales-app').style.display='none'; document.getElementById('sales-lock').style.display='flex';
-    document.getElementById('sales-code').style.display='none'; document.getElementById('sales-code').value='';
-    document.getElementById('sales-verify').style.display='none'; document.getElementById('sales-send').style.display='';
+    var sc=document.getElementById('sales-code'); sc.value='';
+    var sb=document.getElementById('sales-send'); sb.disabled=false; sb.textContent='Email me a code';
+    var sv=document.getElementById('sales-verify'); sv.disabled=false; sv.textContent='Verify & unlock';
     document.getElementById('sales-lock-err').style.display='none';
-    document.getElementById('sales-lock-msg').textContent="This section is locked. We'll email a one-time code to the authorized address to unlock it.";
+    document.getElementById('sales-lock-msg').textContent="This section is locked. Enter the one-time code we email to the authorized address to unlock it.";
   }
 }
 function salesLock(){ try{ sessionStorage.removeItem('sales_token'); }catch(e){} loadSales(); }
 async function salesRequestCode(){
-  var btn=document.getElementById('sales-send'); btn.disabled=true; btn.textContent='Sending…';
+  var btn=document.getElementById('sales-send'); var err=document.getElementById('sales-lock-err'); err.style.display='none';
+  btn.disabled=true; btn.textContent='Sending…';
+  // never let the button get stuck: restore it no matter what after 12s
+  var done=false; var guard=setTimeout(function(){ if(!done){ btn.disabled=false; btn.textContent='Resend code'; document.getElementById('sales-lock-msg').textContent='Code request sent. If the email arrived, type it below and Verify.'; document.getElementById('sales-code').focus(); } }, 12000);
   try{
     var r=await fetch(API+'?action=sales_otp_request&_='+Date.now()); var d=await r.json();
-    btn.disabled=false; btn.textContent='Resend code';
+    done=true; clearTimeout(guard); btn.disabled=false; btn.textContent='Resend code';
     if(d&&d.ok&&d.emailed){
-      document.getElementById('sales-lock-msg').textContent='A 6-digit code was emailed to '+(d.to||'the authorized address')+' (expires in 10 min).';
-      var c=document.getElementById('sales-code'); c.style.display=''; c.focus();
-      document.getElementById('sales-verify').style.display='';
-    } else { var e=document.getElementById('sales-lock-err'); e.style.display='block'; e.textContent='Could not send'+(d&&d.error?(': '+d.error):' — is the backend deployed?'); }
-  }catch(e){ btn.disabled=false; btn.textContent='Email me a code'; var er=document.getElementById('sales-lock-err'); er.style.display='block'; er.textContent='Network error.'; }
+      document.getElementById('sales-lock-msg').textContent='A 6-digit code was emailed to '+(d.to||'the authorized address')+' (expires in 10 min). Enter it below.';
+      document.getElementById('sales-code').focus();
+    } else { err.style.display='block'; err.textContent='Could not send'+(d&&d.error?(': '+d.error):' — is the backend deployed?'); }
+  }catch(e){ done=true; clearTimeout(guard); btn.disabled=false; btn.textContent='Resend code'; document.getElementById('sales-lock-msg').textContent='If you received the code, enter it below and Verify.'; document.getElementById('sales-code').focus(); }
 }
 async function salesVerify(){
   var code=(document.getElementById('sales-code').value||'').trim(); var err=document.getElementById('sales-lock-err'); err.style.display='none';
