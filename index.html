@@ -3476,6 +3476,9 @@
   .cfy-entry-vol.miss { margin-top:5px; }
   .vol-backfill { font:600 11.5px/1 inherit; color:var(--orange-3,#FF6B1A); background:rgba(255,107,26,.10); border:1px solid rgba(255,107,26,.35); border-radius:8px; padding:5px 9px; cursor:pointer; transition:background .15s; }
   .vol-backfill:hover { background:rgba(255,107,26,.2); }
+  .vol-edit { font:600 11.5px/1 inherit; color:var(--text-2); background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:8px; padding:5px 9px; cursor:pointer; transition:background .15s, color .15s; }
+  .vol-edit:hover { background:rgba(255,107,26,.12); color:var(--text-1); }
+  .vol-edit .vol-pencil { color:var(--orange-3,#FF6B1A); margin-left:2px; }
   /* ── TEAM LIVE (CL7–CL9) ── */
   .emp-live-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px;flex-wrap:wrap}
   .emp-live-title{display:flex;align-items:center;gap:9px;font-family:'Sora','Inter',sans-serif;font-size:20px;font-weight:800;color:var(--text-1)}
@@ -7709,10 +7712,11 @@ function calcCfyDur(start, end) {
 // A productive entry is "missing volume" when its volume cell is blank.
 function _wHasVol(w){ return w && w.volume !== '' && w.volume != null && !isNaN(parseFloat(w.volume)); }
 // Backfill output/volume for a past entry (self-service so a missed EOD volume can be fixed).
-async function backfillVolume(encId, encLabel){
+async function backfillVolume(encId, encLabel, encCurrent){
   var entryId = decodeURIComponent(encId||''); var label = decodeURIComponent(encLabel||'');
+  var current = encCurrent ? decodeURIComponent(encCurrent) : '';
   if (!entryId) { showToast('This entry can\'t be edited.'); return; }
-  var cur = prompt('Enter your output / volume for:\n\n' + label, '');
+  var cur = prompt('Enter your output / volume for:\n\n' + label, current);
   if (cur === null) return;                       // cancelled
   cur = String(cur).trim();
   var v = parseFloat(cur);
@@ -7733,14 +7737,17 @@ async function backfillVolume(encId, encLabel){
     }).catch(function(){ if (n < 4) setTimeout(function(){ attempt(n+1); }, 700*n); else showToast('Network error — try again.'); });
   })(1);
 }
-// Build the volume cell for a worklog row (shows the value, or a tap-to-add prompt if missing).
+// Build the volume cell for a worklog row — the output is always tap-to-edit
+// (shows the current value with a pencil, or a "add missing output" prompt if blank).
 function _volCellHtml(w){
-  if (_wHasVol(w)) return '<div class="cfy-entry-vol">📦 ' + escapeHtml(String(w.volume)) + '</div>';
   if (w.status === 'rejected') return '';
   var id = String(w.clockify_id || w.entry_id || '');
-  if (!id) return '';
+  if (!id) return _wHasVol(w) ? '<div class="cfy-entry-vol">📦 ' + escapeHtml(String(w.volume)) + '</div>' : '';
   var label = w.task || w.category || w.description || 'Task';
-  return '<div class="cfy-entry-vol miss"><button class="vol-backfill" onclick="backfillVolume(\'' + encodeURIComponent(id) + '\',\'' + encodeURIComponent(label) + '\')">⚠ Add missing output</button></div>';
+  var cur = _wHasVol(w) ? String(w.volume) : '';
+  var onclk = 'onclick="backfillVolume(\'' + encodeURIComponent(id) + '\',\'' + encodeURIComponent(label) + '\',\'' + encodeURIComponent(cur) + '\')"';
+  if (_wHasVol(w)) return '<div class="cfy-entry-vol"><button class="vol-edit" ' + onclk + ' title="Edit output">📦 ' + escapeHtml(cur) + ' <span class="vol-pencil">✎</span></button></div>';
+  return '<div class="cfy-entry-vol miss"><button class="vol-backfill" ' + onclk + '>⚠ Add missing output</button></div>';
 }
 async function loadTrackerHistory() {
   var wrap = document.getElementById('cfy-history-wrap');
