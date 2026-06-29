@@ -3374,6 +3374,11 @@
     .msg-fab { bottom: 88px !important; }
     .bio-fab { bottom: 152px !important; }
   }
+  /* ── Recent-logs volume backfill ── */
+  .cfy-entry-vol { font-size:11.5px; color:var(--text-3); margin-top:3px; }
+  .cfy-entry-vol.miss { margin-top:5px; }
+  .vol-backfill { font:600 11.5px/1 inherit; color:var(--orange-3,#FF6B1A); background:rgba(255,107,26,.10); border:1px solid rgba(255,107,26,.35); border-radius:8px; padding:5px 9px; cursor:pointer; transition:background .15s; }
+  .vol-backfill:hover { background:rgba(255,107,26,.2); }
   /* ── TEAM LIVE (CL7–CL9) ── */
   .emp-live-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px;flex-wrap:wrap}
   .emp-live-title{display:flex;align-items:center;gap:9px;font-family:'Sora','Inter',sans-serif;font-size:20px;font-weight:800;color:var(--text-1)}
@@ -6781,6 +6786,11 @@ function buildEodReceipt() {
   if (sum) sum.innerHTML = '<span class="wl-vol-chip"><b>' + prodCount + '</b> productive</span>' +
     '<span class="wl-vol-chip">✅ <b>' + fmtMins(prodMins) + '</b></span>' +
     (idleMins > 0 ? '<span class="wl-vol-chip">💤 <b>' + fmtMins(idleMins) + '</b> idle</span>' : '');
+  // Always reset the footer buttons — a previous failed/hung submit may have left them
+  // disabled, which otherwise sticks across reopens (the "submit not clickable" bug).
+  var sb = document.querySelector('#eod-receipt .wl-vol-submit');
+  if (sb) { sb.disabled = false; sb.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> End day &amp; submit'; }
+  var lb = document.querySelector('#eod-receipt .wl-vol-later'); if (lb) lb.disabled = false;
   var o = document.getElementById('eod-receipt'); if (o) o.classList.add('show');
 }
 // ── Appeals: missing hours on a task, or untracked work → admin approval ──
@@ -6818,8 +6828,16 @@ function submitEOD() {
   });
   if (!ok) { showToast('Enter your output for every task.'); return; }
   var btns = document.querySelectorAll('#eod-receipt .wl-vol-actions button');
+  var sub  = document.querySelector('#eod-receipt .wl-vol-submit');
   btns.forEach(function(b){ b.disabled = true; });
+  if (sub) sub.textContent = 'Submitting…';
+  var settled = false;
+  function reenable(msg){ if (settled) return; settled = true; clearTimeout(_eodWatchdog); btns.forEach(function(b){ b.disabled = false; }); if (sub) sub.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> End day &amp; submit'; if (msg) showToast(msg); }
+  // Watchdog: if the request hangs (Apps Script cold start / flaky network) never leave the
+  // button stuck — re-enable it after 20s so the user can retry.
+  var _eodWatchdog = setTimeout(function(){ reenable('Submit is taking too long — tap End day again.'); }, 20000);
   function clockOutAndClose() {
+    settled = true; clearTimeout(_eodWatchdog);
     logTime('time_out');                 // record the clock-out
     closeEodReceipt();
     showToast('Day ended — work logs submitted. ✅');
@@ -6829,13 +6847,16 @@ function submitEOD() {
   var qs = encodeURIComponent(JSON.stringify(items));
   var url = APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(attEmpId) + '&pending=false&items=' + qs;
   (function attempt(n){
+    if (settled) return;
     fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+      if (settled) return;
       if (d && (d.success || d.ok)) { clockOutAndClose(); }
       else if (d && (d.error === 'BUSY' || d.error === 'LOCKED') && n < 5) { setTimeout(function(){ attempt(n+1); }, 600*n); }
-      else { btns.forEach(function(b){ b.disabled = false; }); showToast('Could not submit yet — tap End day again.'); }
+      else { reenable('Could not submit yet — tap End day again.'); }
     }).catch(function(){
+      if (settled) return;
       if (n < 5) { setTimeout(function(){ attempt(n+1); }, 700*n); }
-      else { btns.forEach(function(b){ b.disabled = false; }); showToast('Network error — not submitted. Tap End day again.'); }
+      else { reenable('Network error — not submitted. Tap End day again.'); }
     });
   })(1);
 }
@@ -6993,11 +7014,12 @@ function updateButtons() {
   // LUNCH IN — only when on lunch
   if (btnLI) btnLI.disabled = !hasActive || !hasLO || hasLI;
 
-  // EOD — only when clocked in AND no task is currently running (productive or idle).
-  // The employee must Stop the running task before they can end the day.
+  // EOD — enabled whenever clocked in. If a task is still running, the EOD receipt
+  // stops it automatically (openEodReceipt), so we no longer hard-disable the button —
+  // that was trapping users when a task got stuck in a "running" state.
   if (btnTO) {
-    btnTO.disabled = !hasActive || cfyRunning;
-    btnTO.title = cfyRunning ? 'Stop your running task before ending the day' : '';
+    btnTO.disabled = !hasActive;
+    btnTO.title = cfyRunning ? 'Your running task will be stopped and added to the end-of-day receipt' : '';
   }
 
   // IDLE — only when active
@@ -7554,6 +7576,42 @@ function calcCfyDur(start, end) {
 }
 
 // Past recorded time, grouped by day (so employees can track their history)
+// A productive entry is "missing volume" when its volume cell is blank.
+function _wHasVol(w){ return w && w.volume !== '' && w.volume != null && !isNaN(parseFloat(w.volume)); }
+// Backfill output/volume for a past entry (self-service so a missed EOD volume can be fixed).
+async function backfillVolume(encId, encLabel){
+  var entryId = decodeURIComponent(encId||''); var label = decodeURIComponent(encLabel||'');
+  if (!entryId) { showToast('This entry can\'t be edited.'); return; }
+  var cur = prompt('Enter your output / volume for:\n\n' + label, '');
+  if (cur === null) return;                       // cancelled
+  cur = String(cur).trim();
+  var v = parseFloat(cur);
+  if (cur === '' || isNaN(v) || v < 0) { showToast('Enter a valid number (0 or more).'); return; }
+  var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
+  var items = encodeURIComponent(JSON.stringify([{ entry_id: entryId, volume: v }]));
+  var url = APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(empId) + '&pending=false&items=' + items;
+  showToast('Saving output…');
+  (function attempt(n){
+    fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+      if (d && (d.success || d.ok) && (d.updated === undefined || d.updated > 0)) {
+        showToast('Output saved. ✅'); window._trkByDate = null; loadTrackerHistory();
+        var dm = document.getElementById('daylog-modal'); if (dm && dm.classList.contains('show')) closeDayLog();
+      } else if (d && d.error === 'LOCKED') { showToast('That month is locked — ask your admin to update it.'); }
+      else if (d && (d.error === 'BUSY') && n < 4) { setTimeout(function(){ attempt(n+1); }, 600*n); }
+      else if (d && d.updated === 0) { showToast('Entry not found — refresh and try again.'); }
+      else { showToast('Could not save — try again.'); }
+    }).catch(function(){ if (n < 4) setTimeout(function(){ attempt(n+1); }, 700*n); else showToast('Network error — try again.'); });
+  })(1);
+}
+// Build the volume cell for a worklog row (shows the value, or a tap-to-add prompt if missing).
+function _volCellHtml(w){
+  if (_wHasVol(w)) return '<div class="cfy-entry-vol">📦 ' + escapeHtml(String(w.volume)) + '</div>';
+  if (w.status === 'rejected') return '';
+  var id = String(w.clockify_id || w.entry_id || '');
+  if (!id) return '';
+  var label = w.task || w.category || w.description || 'Task';
+  return '<div class="cfy-entry-vol miss"><button class="vol-backfill" onclick="backfillVolume(\'' + encodeURIComponent(id) + '\',\'' + encodeURIComponent(label) + '\')">⚠ Add missing output</button></div>';
+}
 async function loadTrackerHistory() {
   var wrap = document.getElementById('cfy-history-wrap');
   if (!wrap) return;
@@ -7588,6 +7646,7 @@ async function loadTrackerHistory() {
                   : (w.status === 'rejected') ? ' <span style="color:#ef4444;font-size:11px;">✕ rejected</span>' : '';
         return '<div class="cfy-entry"><div class="cfy-entry-left"><div class="cfy-entry-desc">' + escapeHtml(label) + badge + '</div>' +
           (sub ? '<div class="cfy-entry-project">📁 ' + escapeHtml(sub) + '</div>' : '') +
+          _volCellHtml(w) +
           '</div><div class="cfy-entry-dur">' + hm(w.hours) + '</div></div>';
       }).join('') || '<div class="cfy-no-entries" style="padding:14px 0;font-size:12.5px;">No productive tasks this day.</div>';
       return '<div style="margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;color:var(--text-2);margin:0 2px 6px;gap:10px;"><span>' + dlabel + '</span><span style="text-align:right">' + totHtml + '</span></div><div class="cfy-entries-wrap">' + rowsH + '</div></div>';
@@ -7646,6 +7705,7 @@ function renderDayLog(items) {
               : (w.status === 'rejected') ? ' <span style="color:#ef4444;font-size:11px;">✕ rejected</span>' : '';
     return '<div class="cfy-entry"><div class="cfy-entry-left"><div class="cfy-entry-desc">' + escapeHtml(label) + badge + '</div>' +
       (subp ? '<div class="cfy-entry-project">📁 ' + escapeHtml(subp) + '</div>' : '') +
+      _volCellHtml(w) +
       '</div><div class="cfy-entry-dur">' + hm(w.hours) + '</div></div>';
   }).join('') + '</div>';
 }
@@ -11071,15 +11131,10 @@ setInterval(checkForcedRefresh, 60000);
 
 // ── WHAT'S NEW changelog (shows once per portal update) ──
 var CHANGELOG = {
-  ver: '2026-06-28b',
+  ver: '2026-06-28d',
   date: 'June 28, 2026',
   items: [
-    ['⏲️', 'Idle reminder is back — no demerit', 'If your running task sees no activity for 3 minutes, you\'ll get a 10-second "Are you still there?" warning. Move your mouse or press a key to keep going. If still inactive, the timer just stops — no demerit, no penalty.'],
-    ['🖥️', 'Work in other apps still counts', 'Click "Enable" on the activity banner in the Time Tracker (best on Chrome) so time you spend working in Vysor, Reddit and other apps keeps your timer running.'],
-    ['☕', 'Breaks won\'t auto-stop', 'Lunch, Microbreak and No-task are exempt from the idle stop — step away on a break without losing your tracking.'],
-    ['📡', 'Team Live view (team leads)', 'CL7–CL9 now have a "Team Live" tab showing everyone\'s running timers in real time, color-coded by status (working / lunch / microbreak / no task).'],
-    ['🏁', 'EOD replaces Time Out', 'End your day with the EOD button. It shows a receipt of all your tasks and times to verify before you submit.'],
-    ['🔒', 'Private salary rate', 'Viewing your rate sends a one-time code to your email — keeping it confidential.']
+    ['📦', 'Add missing output anytime', 'Forgot to enter your output at EOD? Open Recent logs — any task missing its output now shows a "⚠ Add missing output" button. Tap it, type the volume for that day, and it saves instantly. No need to message your admin.']
   ]
 };
 function maybeShowWhatsNew(){
