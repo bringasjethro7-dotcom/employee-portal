@@ -4969,10 +4969,44 @@ function renderRailOnline() {
   }).join('');
 }
 // Populate the Overview KPI row from this month's scorecard (one call returns score + attendance + hours)
+// Current semi-monthly payroll cutoff (1–15, or 16–end of month). Returns PHT date strings.
+function currentCutoff(){
+  var d = new Date(), y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+  var start, end;
+  if (day <= 15) { start = new Date(y, m, 1);  end = new Date(y, m, 15); }
+  else           { start = new Date(y, m, 16); end = new Date(y, m + 1, 0); }   // 0 = last day of month
+  var fmt = function(dt){ return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0'); };
+  var pretty = function(dt){ return dt.toLocaleDateString('en-US', { month:'short', day:'numeric' }); };
+  return { from: fmt(start), to: fmt(end), label: pretty(start) + ' – ' + pretty(end) };
+}
+// Productive tracked hours for the current cutoff (excludes Idle/Internal, running and rejected rows).
+async function renderCutoffHours(id){
+  var hEl = document.getElementById('kpi-hours'); if (!hEl) return;
+  var co = currentCutoff();
+  var tile = hEl.closest ? hEl.closest('.kpi') : null;
+  if (tile) tile.title = 'Productive tracked hours · cutoff ' + co.label;
+  var lEl = tile ? tile.querySelector('.kpi-l') : null; if (lEl) lEl.textContent = 'Tracked hours (cutoff)';
+  try {
+    var res = await fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now());
+    var j = await res.json();
+    var total = 0;
+    (j.worklog || []).forEach(function(w){
+      if (!w || !w.date) return;
+      var dk = String(w.date).slice(0,10);
+      if (dk < co.from || dk > co.to) return;
+      var st = String(w.status || '');
+      if (st === 'running' || st === 'rejected') return;
+      if ((typeof isIdleProject === 'function') && isIdleProject(w.project)) return;   // productive only
+      total += parseFloat(w.hours) || 0;
+    });
+    countUp(hEl, total, { dec: 1, suffix: 'h' });
+  } catch (e) { hEl.textContent = '—'; }
+}
 async function renderKPIs(data) {
   var id = (data && data.employee_id) || '';
   var set = function(elid, val){ var e = document.getElementById(elid); if (e) e.textContent = val; };
   if (!id) return;
+  renderCutoffHours(id);   // Hours tracked = productive tracked hours for the current cutoff
   var d = new Date(), mk = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
   try {
     var res = await fetch(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk));
@@ -4980,7 +5014,6 @@ async function renderKPIs(data) {
     var sc = j.scorecard || {}, ab = j.attendance_breakdown || {};
     if (sc.overall != null && sc.overall !== '') countUp(document.getElementById('kpi-score'), Math.round(parseFloat(sc.overall))); else set('kpi-score', '—');
     set('kpi-att', (ab.expected != null) ? ((ab.present != null ? ab.present : 0) + '/' + ab.expected) : '—');
-    if (ab.hours != null) countUp(document.getElementById('kpi-hours'), parseFloat(ab.hours), { dec: 1, suffix: 'h' }); else set('kpi-hours', '—');
     if (sc.assessment != null && sc.assessment !== '') countUp(document.getElementById('kpi-assess'), Math.round(parseFloat(sc.assessment)), { suffix: '%' }); else set('kpi-assess', '—');
   } catch (e) {}
 }
