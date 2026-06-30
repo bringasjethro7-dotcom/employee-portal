@@ -3483,6 +3483,17 @@
     .msg-fab { bottom: 88px !important; }
     .bio-fab { bottom: 152px !important; }
   }
+  /* ── 4th of July festive theme ── */
+  .j4-fw { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:3; }
+  .j4-fw span { position:absolute; opacity:0; animation:j4pop 3.4s ease-in-out infinite; filter:drop-shadow(0 0 8px rgba(255,255,255,.55)); }
+  @keyframes j4pop { 0%{transform:scale(.3);opacity:0} 14%{opacity:1} 55%{transform:scale(1.15);opacity:.95} 100%{transform:scale(1.4);opacity:0} }
+  .j4-badge { display:inline-flex; align-items:center; gap:8px; font-weight:800; font-size:12.5px; letter-spacing:.03em; padding:7px 14px; border-radius:999px; margin-bottom:14px; color:#fff; background:linear-gradient(90deg,#b22234,#3c3b6e); border:1px solid rgba(255,255,255,.35); box-shadow:0 6px 20px rgba(60,59,110,.45); }
+  .j4-ribbon { height:5px; border-radius:6px; margin:0 0 12px; background:repeating-linear-gradient(90deg,#b22234 0 34px,#ffffff 34px 68px,#3c3b6e 68px 102px); box-shadow:0 2px 10px rgba(0,0,0,.25); }
+  .j4-banner { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; font-weight:700; font-size:13px; color:#fff; padding:10px 14px; border-radius:12px; margin:0 0 16px; background:linear-gradient(90deg,rgba(178,34,52,.92),rgba(255,255,255,.12) 50%,rgba(60,59,110,.92)); border:1px solid rgba(255,255,255,.28); }
+  .j4-banner .j4-x { margin-left:auto; cursor:pointer; opacity:.8; font-weight:700; }
+  .j4-banner .j4-x:hover { opacity:1; }
+  body.july4 .login-brand-headline span { color:#ff5a6e; }
+  body.july4 .role-chip, body.july4 .hero-status.st-active { border-color:rgba(178,34,52,.4); }
   /* ── My productivity ── */
   .prod-open-btn { display:flex; align-items:center; gap:8px; width:100%; margin:12px 0 4px; padding:11px 14px; border-radius:12px; border:1px solid var(--border); background:linear-gradient(180deg,rgba(56,189,248,.10),rgba(56,189,248,.03)); color:var(--text-1); font:600 13.5px/1 inherit; cursor:pointer; transition:border-color .15s, background .15s; }
   .prod-open-btn:hover { border-color:var(--orange-1); background:rgba(255,107,26,.08); }
@@ -8672,6 +8683,41 @@ function maybeResetReminder(){
   try { if (localStorage.getItem(key)) return; localStorage.setItem(key,'1'); } catch(e) {}
   var m=document.getElementById('reset-reminder'); if(m) m.classList.add('show');
 }
+// ── 4th of July festive theme (auto-active July 1–7 PHT) ──
+function july4Active(){
+  var o={};
+  try { new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).forEach(function(p){o[p.type]=p.value;}); }
+  catch(e){ return false; }
+  var d=parseInt(o.day,10);
+  return o.year==='2026' && o.month==='07' && d>=1 && d<=7;
+}
+function closeJ4Banner(){ var b=document.getElementById('j4-banner'); if(b) b.remove(); }
+function applyJuly4(){
+  if(!july4Active()) return;
+  document.body.classList.add('july4');
+  var ICONS=['🎆','🎇','✨','🎆','🎇','⭐','🎆','✨','🎇'];
+  var POS=[[7,14],[24,38],[41,10],[57,48],[73,20],[86,40],[14,66],[64,70],[33,76]];
+  var login=document.getElementById('login-screen');
+  if(login && !document.getElementById('j4-fw')){
+    var fw=document.createElement('div'); fw.id='j4-fw'; fw.className='j4-fw'; fw.setAttribute('aria-hidden','true');
+    fw.innerHTML=POS.map(function(p,i){ return '<span style="left:'+p[0]+'%;top:'+p[1]+'%;animation-delay:'+(i*0.4).toFixed(2)+'s;font-size:'+(26+(i%3)*12)+'px">'+ICONS[i]+'</span>'; }).join('');
+    login.appendChild(fw);
+  }
+  var brand=document.querySelector('.login-brand-content');
+  if(brand && !document.getElementById('j4-badge')){
+    var bd=document.createElement('div'); bd.id='j4-badge'; bd.className='j4-badge'; bd.textContent='🎆 Happy 4th of July! 🇺🇸';
+    brand.insertBefore(bd, brand.firstChild);
+  }
+  var mc=document.querySelector('.main-content');
+  if(mc && !document.getElementById('j4-ribbon')){
+    var ban=document.createElement('div'); ban.id='j4-banner'; ban.className='j4-banner';
+    ban.innerHTML='🎆 Happy Independence Day! Wishing our US clients &amp; team a wonderful 4th of July. 🇺🇸 <span class="j4-x" onclick="closeJ4Banner()" title="Dismiss">✕</span>';
+    mc.insertBefore(ban, mc.firstChild);
+    var r=document.createElement('div'); r.id='j4-ribbon'; r.className='j4-ribbon';
+    mc.insertBefore(r, mc.firstChild);
+  }
+}
+try { if (document.readyState !== 'loading') applyJuly4(); else document.addEventListener('DOMContentLoaded', applyJuly4); } catch(e) {}
 function trkCheckInactivity() {
   if (!TRACK_INACTIVITY) { hideInactiveWarn(); return; }   // inactivity enforcement turned off
   if (!trkRunning || !trkOwns) { hideInactiveWarn(); return; }   // not running / not owner → no warning
