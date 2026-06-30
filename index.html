@@ -3427,9 +3427,9 @@
   .hm-legend { display:flex; gap:13px; flex-wrap:wrap; font-size:11px; color:var(--text-3); }
   .hm-legend span { display:inline-flex; align-items:center; gap:5px; }
   .hm-legend i { width:10px; height:10px; border-radius:3px; display:inline-block; border:1px solid rgba(255,255,255,.08); }
-  .hm-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:7px; }
-  .hm-dow { font-size:10px; color:var(--text-3); text-align:center; font-weight:600; letter-spacing:.04em; padding-bottom:2px; }
-  .hm-cell { aspect-ratio:1/1; border-radius:8px; background:var(--bg-deep); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; color:var(--text-3); border:1px solid rgba(255,255,255,.05); transition:transform .12s; position:relative; }
+  .hm-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:5px; max-width:300px; }
+  .hm-dow { font-size:9px; color:var(--text-3); text-align:center; font-weight:600; letter-spacing:.04em; padding-bottom:1px; }
+  .hm-cell { aspect-ratio:1/1; border-radius:6px; background:var(--bg-deep); display:flex; align-items:center; justify-content:center; font-size:9.5px; font-weight:600; color:var(--text-3); border:1px solid rgba(255,255,255,.05); transition:transform .12s; position:relative; }
   .hm-cell.has { color:#fff; }
   .hm-cell:hover { transform:scale(1.12); z-index:2; box-shadow:0 6px 18px rgba(0,0,0,.4); }
   .hm-cell.today { outline:2px solid var(--orange-1); outline-offset:1px; }
@@ -3483,6 +3483,9 @@
     .msg-fab { bottom: 88px !important; }
     .bio-fab { bottom: 152px !important; }
   }
+  /* ── Idle-stop pulsing notice ── */
+  @keyframes idleStopBeat { 0%,100% { transform:scale(1); box-shadow:0 0 0 0 rgba(248,113,113,.45); } 50% { transform:scale(1.02); box-shadow:0 0 0 14px rgba(248,113,113,0); } }
+  .idle-pulse { animation: idleStopBeat 1.1s ease-in-out infinite; border:1px solid rgba(248,113,113,.5) !important; }
   /* ── Appeal modal fields ── */
   .ap-l { display:block; font-size:11.5px; font-weight:600; color:var(--text-2); margin:8px 0 4px; text-transform:uppercase; letter-spacing:.03em; }
   .ap-in { width:100%; box-sizing:border-box; background:var(--bg-deep,var(--bg-card)); border:1px solid var(--border); border-radius:10px; color:var(--text-1); font-family:inherit; font-size:14px; padding:10px 12px; outline:none; }
@@ -3905,6 +3908,28 @@
           <button class="wl-vol-submit" onclick="submitEOD()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> End day &amp; submit</button>
           <button class="wl-vol-later" onclick="closeEodReceipt()">Back</button>
         </div>
+      </div>
+    </div>
+
+    <!-- IDLE AUTO-STOP NOTICE (pulses until dismissed) -->
+    <div id="idle-stopped" class="wl-warn-overlay">
+      <div class="wl-warn-box idle-pulse">
+        <div class="wl-warn-icon">⏹️</div>
+        <h3>Timer stopped — you were inactive</h3>
+        <p>Your task timer stopped after <b>3 minutes</b> with no activity. Your tracked time so far is saved.</p>
+        <p class="wl-warn-note">When you're ready to keep working, tap <b style="color:var(--orange-3,#FF6B1A)">Start</b> again to resume tracking.</p>
+        <button onclick="closeIdleStopped()">Got it — I'll start again</button>
+      </div>
+    </div>
+
+    <!-- MONTH RESET REMINDER (July 1, 8AM & 8PM PHT) -->
+    <div id="reset-reminder" class="wl-warn-overlay" onclick="if(event.target===this)closeResetReminder()">
+      <div class="wl-warn-box">
+        <div class="wl-warn-icon">📅</div>
+        <h3>New month — your portal has reset</h3>
+        <p>It's July! Your monthly cards — <b>Scorecard, Attendance and Assessment</b> — have reset for the new month.</p>
+        <p class="wl-warn-note">Last month's records are still available in your history and payslips.</p>
+        <button onclick="closeResetReminder()">Got it</button>
       </div>
     </div>
 
@@ -4659,7 +4684,7 @@
       </div>
 
       <!-- ATTENDANCE MONTH HEATMAP -->
-      <div class="card" id="att-heatmap-card" style="margin-top:1.25rem;padding:1.25rem 1.4rem;">
+      <div class="card" id="att-heatmap-card" style="margin-top:1.25rem;padding:0.9rem 1.1rem;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
           <p class="section-eyebrow" style="margin:0;">This month at a glance</p>
           <div class="hm-legend">
@@ -5133,6 +5158,21 @@ function renderRailOnline() {
 }
 // Populate the Overview KPI row from this month's scorecard (one call returns score + attendance + hours)
 // Current semi-monthly payroll cutoff (1–15, or 16–end of month). Returns PHT date strings.
+// Active monthly-card month key (YYYY-MM) in PHT. The new month only begins at
+// 8 AM PHT on the 1st — before that we still show the previous month's cards.
+function monthKeyPHT(){
+  var o = {};
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Manila', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', hour12:false })
+      .formatToParts(new Date()).forEach(function(p){ o[p.type] = p.value; });
+  } catch(e) {
+    var d = new Date(); o.year = d.getFullYear(); o.month = String(d.getMonth()+1); o.day = String(d.getDate()); o.hour = String(d.getHours());
+  }
+  var y = parseInt(o.year,10), m = parseInt(o.month,10), day = parseInt(o.day,10), h = parseInt(o.hour,10);
+  if (h >= 24) h = 0;   // some engines report '24' at midnight
+  if (day === 1 && h < 8) { m--; if (m < 1) { m = 12; y--; } }   // roll over at 8 AM PHT on the 1st
+  return y + '-' + String(m).padStart(2,'0');
+}
 function currentCutoff(){
   var d = new Date(), y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
   var start, end;
@@ -5170,7 +5210,7 @@ async function renderKPIs(data) {
   var set = function(elid, val){ var e = document.getElementById(elid); if (e) e.textContent = val; };
   if (!id) return;
   renderCutoffHours(id);   // Hours tracked = productive tracked hours for the current cutoff
-  var d = new Date(), mk = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  var mk = monthKeyPHT();   // monthly cards roll over to the new month at 8 AM PHT on the 1st
   try {
     var res = await fetch(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk));
     var j = await res.json();
@@ -5324,6 +5364,7 @@ function renderDashboard(data) {
   try { maybeShowTeamLive(data); } catch(e) {}   // CL7–CL9 get the read-only Team Live view
   try { applySavedBg(); } catch(e) {}   // restore the chosen background on every load (not only on Profile tab)
   try { setTimeout(maybeShowWhatsNew, 900); } catch(e) {}   // show the update changelog once per version
+  try { setTimeout(maybeResetReminder, 1400); } catch(e) {}   // July-1 month-reset reminder (8 AM & 8 PM PHT)
   renderPayslipList(data);
 
   // ── PROFILE ──
@@ -5616,8 +5657,9 @@ function renderCOEHistory(requests) {
 // SCORECARD
 // ══════════════════════════════════════════
 var scEmpId   = null;
-var scMonth   = new Date().getMonth();
-var scYear    = new Date().getFullYear();
+var _scMK     = monthKeyPHT().split('-');   // active month rolls over at 8 AM PHT on the 1st
+var scYear    = parseInt(_scMK[0], 10);
+var scMonth   = parseInt(_scMK[1], 10) - 1;
 var scPrevData = null;
 
 function initScorecard(data) {
@@ -5673,11 +5715,10 @@ async function loadScorecard() {
     var ab = data.attendance_breakdown || {};
     var seEl = document.getElementById('sum-expected'); if (seEl) seEl.textContent = (ab.expected !== undefined && ab.expected !== null) ? ab.expected : '—';
     var saEl = document.getElementById('sum-absent');   if (saEl) saEl.textContent   = (ab.absent   !== undefined && ab.absent   !== null) ? ab.absent   : '—';
-    // Total Hours = time tracked in the Time Tracker (from the backend)
-    var totH = (ab.hours !== undefined && ab.hours !== null) ? (parseFloat(ab.hours)||0) : null;
+    // Total Hours now comes from worklog productive hours (setMonthlyTrackedHours); only overtime here.
     var otH  = (ab.overtime !== undefined && ab.overtime !== null) ? (parseFloat(ab.overtime)||0) : null;
-    var shEl = document.getElementById('sum-hours');    if (shEl && totH !== null) shEl.textContent = totH.toFixed(1) + 'h';
     var ovEl = document.getElementById('sum-overtime'); if (ovEl && otH  !== null) ovEl.textContent = otH.toFixed(1) + 'h';
+    setMonthlyTrackedHours();
     var rgEl = document.getElementById('sum-regular');  if (rgEl && totH !== null) rgEl.textContent = Math.max(0, totH - (otH||0)).toFixed(1) + 'h';
 
     if (!data || !data.scorecard) {
@@ -7103,9 +7144,9 @@ function updateStatusBar() {
     if (active.lunch_out && !active.lunch_in) txt = 'On lunch break · since ' + fmtTime(active.lunch_out);
     bar.textContent = txt;
   } else {
-    var total = getTotalHoursToday();
+    var prodH = (typeof trackedMinsForDate === 'function' ? trackedMinsForDate(attToday) : 0) / 60;
     bar.classList.add('on-time');
-    bar.textContent = 'Done for the day · ' + total.toFixed(2) + 'h total · ' + sessions.length + ' session' + (sessions.length > 1 ? 's' : '');
+    bar.textContent = 'Done for the day · ' + prodH.toFixed(2) + 'h productive tracked';
   }
 }
 
@@ -7207,6 +7248,17 @@ function dateIdleInfo(date) {
   }
   return { idleMins: Math.round(idleMins), lunchRange: lunchRange };
 }
+// Productive tracked hours (from the worklog) for a date — shown in the attendance "Hours" column.
+function trackedMinsForDate(date) {
+  var rows = (window._trkByDate && window._trkByDate[date]) || [];
+  var mins = 0;
+  rows.forEach(function(w){
+    if (!w || w.status === 'running' || w.status === 'rejected') return;
+    if (typeof isIdleProject === 'function' && isIdleProject(w.project)) return;   // productive only
+    mins += (parseFloat(w.hours) || 0) * 60;
+  });
+  return Math.round(mins);
+}
 function renderAttTable() {
   var body = document.getElementById('att-body');
   if (!body) return;
@@ -7238,21 +7290,8 @@ function renderAttTable() {
     var mins = anyComplete ? Math.max(0, Math.round(clockMins - di.idleMins)) : null;   // worked hours exclude idle breaks
     var late     = isLate(rec);
     var shift    = rec.shift || 'morning';
-    var hasTO    = sessions.some(function(s){ return !!s.time_out; });
-    var st       = String(rec.status || '').toLowerCase();
-    var marked   = (st === 'present');
-    var needsLunchIn = !!(firstLO && !firstLI);
-    var incomplete   = (!hasTO || needsLunchIn) && st !== 'present' && st !== 'resolved';
-    var status;
-    if (incomplete) {
-      status = '<span class="att-badge-incomplete">Incomplete</span>' +
-               ' <button class="att-resolve-btn" onclick="openResolveAtt(\'' + rec.date + '\')">Resolve</button>';
-    } else if (hasTO) {
-      status = (late ? '<span class="att-badge-late">Late</span>' : '<span class="att-badge-ontime">On Time</span>') +
-               (st === 'resolved' ? ' <span class="att-badge-present" title="' + escapeHtml(rec.note || 'Resolved by employee') + '">✓ Resolved</span>' : '');
-    } else {
-      status = '<span class="att-badge-present">Present</span>';
-    }
+    // Status is strictly Late or On Time (no Incomplete / Resolve / Present).
+    var status   = late ? '<span class="att-badge-late">Late</span>' : '<span class="att-badge-ontime">On Time</span>';
     var lunchStr = di.lunchRange
       ? di.lunchRange
       : (firstLO ? fmtTime(firstLO) + (firstLI ? ' – ' + fmtTime(firstLI) : ' – …') : '—');
@@ -7267,7 +7306,7 @@ function renderAttTable() {
       '<span>' + fmtTime(firstIn) + '</span>' +
       '<span>' + lunchStr + '</span>' +
       '<span>' + fmtTime(lastOut) + '</span>' +
-      '<span>' + fmtHours(mins) + '</span>' +
+      '<span>' + fmtHours(trackedMinsForDate(rec.date)) + '</span>' +
       '<span>' + status + '</span>' +
     '</div>';
   }).join('');
@@ -8546,6 +8585,35 @@ function _beepCountdown(secLeft){
     o.connect(g); g.connect(_ac.destination); o.start(t); o.stop(t+0.26);
   }catch(e){}
 }
+// ── Idle auto-stop notice: pulses + beeps until the user acknowledges ──
+var _idleStopBeat = null;
+function showIdleStopped(){
+  var m = document.getElementById('idle-stopped'); if (!m) return;
+  if (m.classList.contains('show')) return;
+  m.classList.add('show');
+  try { _beepCountdown(5); } catch(e) {}
+  if (_idleStopBeat) clearInterval(_idleStopBeat);
+  _idleStopBeat = setInterval(function(){ try { _beepCountdown(5); } catch(e) {} }, 2500);   // keep beating until closed
+}
+function closeIdleStopped(){
+  var m = document.getElementById('idle-stopped'); if (m) m.classList.remove('show');
+  if (_idleStopBeat) { clearInterval(_idleStopBeat); _idleStopBeat = null; }
+  if (typeof showToast === 'function') showToast('Pick your task and tap Start to resume tracking.');
+}
+// ── July-1 month-reset reminder (8 AM & 8 PM PHT, once per window) ──
+function closeResetReminder(){ var m=document.getElementById('reset-reminder'); if(m) m.classList.remove('show'); }
+function maybeResetReminder(){
+  var o={};
+  try { new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hour12:false}).formatToParts(new Date()).forEach(function(p){o[p.type]=p.value;}); }
+  catch(e){ return; }
+  if (!(o.year==='2026' && o.month==='07' && o.day==='01')) return;   // only on July 1, 2026 (PHT)
+  var h=parseInt(o.hour,10); if(h>=24)h=0;
+  var win = h>=20 ? 'pm' : (h>=8 ? 'am' : null);
+  if (!win) return;
+  var key='reset_notice_2026-07-01_'+win;
+  try { if (localStorage.getItem(key)) return; localStorage.setItem(key,'1'); } catch(e) {}
+  var m=document.getElementById('reset-reminder'); if(m) m.classList.add('show');
+}
 function trkCheckInactivity() {
   if (!TRACK_INACTIVITY) { hideInactiveWarn(); return; }   // inactivity enforcement turned off
   if (!trkRunning || !trkOwns) { hideInactiveWarn(); return; }   // not running / not owner → no warning
@@ -8562,7 +8630,7 @@ function trkCheckInactivity() {
   if (idleMs >= INACTIVITY_MS) {
     hideInactiveWarn();
     try { stopTimer(); } catch(e) {}                       // still inactive → stop the timer (NO demerit)
-    if (typeof showToast === 'function') showToast('Timer stopped after 3 minutes of inactivity.');
+    showIdleStopped();                                     // pulsing notice; reminds them to Start again
     return;
   }
   if (idleMs >= WARN_MS) {                                        // last 10s → countdown + ring
@@ -9090,6 +9158,26 @@ function syncLeaveFromServer() {
 // ══════════════════════════════════════════
 // ATTENDANCE SUMMARY
 // ══════════════════════════════════════════
+// Total hours card = sum of productive worklog hours for the active month (8 AM-PHT rollover).
+function setMonthlyTrackedHours() {
+  var el = document.getElementById('sum-hours'); if (!el) return;
+  var id = attEmpId || (trkEmpData && trkEmpData.employee_id) || (window._currentEmpData && window._currentEmpData.employee_id) || '';
+  if (!id) return;
+  var mk = monthKeyPHT();
+  fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      var mins = 0;
+      (d.worklog || []).forEach(function(w){
+        if (!w || !w.date || String(w.date).slice(0,7) !== mk) return;
+        var st = String(w.status || ''); if (st === 'running' || st === 'rejected') return;
+        if (typeof isIdleProject === 'function' && isIdleProject(w.project)) return;   // productive only
+        mins += (parseFloat(w.hours) || 0) * 60;
+      });
+      var h = mins / 60;
+      el.textContent = h.toFixed(1) + 'h';
+      var rg = document.getElementById('sum-regular'); if (rg) rg.textContent = h.toFixed(1) + 'h';
+    }).catch(function(){});
+}
 function renderAttSummary() {
   var now   = new Date();
   var month = now.getMonth();
@@ -9129,7 +9217,7 @@ function renderAttSummary() {
     }).reduce(function(sum, r) { return sum + (parseInt(r.days) || 1); }, 0);
   } catch(e) {}
 
-  document.getElementById('sum-hours').textContent   = totalHours.toFixed(1) + 'h';
+  setMonthlyTrackedHours();   // Total hours = productive tracked hours from the worklog
   document.getElementById('sum-days').textContent    = daysPresent;
   document.getElementById('sum-late').textContent    = lateCount;
   document.getElementById('sum-ontime').textContent  = onTimeCount;
