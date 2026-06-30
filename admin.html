@@ -586,6 +586,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
       <button class="tab" id="t-att" onclick="goTab('att')" title="Attendance">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
       </button>
+      <button class="tab" id="t-demerits" onclick="goTab('demerits')" title="Demerits" style="display:none;"></button>
       <button class="tab" id="t-leave" onclick="goTab('leave')" title="Leave Requests">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="8" y2="18"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
       </button>
@@ -1078,6 +1079,32 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     </div>
 
 
+    <!-- DEMERITS -->
+    <div id="p-demerits" style="display:none;">
+      <div class="paygen">
+        <div class="paygen-title">＋ Log a demerit</div>
+        <div class="paygen-controls" style="margin-top:8px;">
+          <label>Employee <select class="sinp" id="dm-emp" style="width:200px;"></select></label>
+          <label>Category <select class="sinp" id="dm-cat" onchange="dmFillInfractions()" style="width:150px;"></select></label>
+          <label>Infraction <select class="sinp" id="dm-inf" onchange="dmSyncPoints()" style="width:230px;"></select></label>
+          <label>Points <input class="sinp" id="dm-pts" type="number" min="0" max="0.75" step="0.05" style="width:80px;"></label>
+          <label>Date <input class="sinp" id="dm-date" type="date" style="width:150px;"></label>
+          <label>Note <input class="sinp" id="dm-note" placeholder="optional details" style="width:200px;"></label>
+          <button class="bsm" onclick="logDemerit()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">Log demerit</button>
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:6px;">
+        <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Demerits</span></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="dm-filter" onchange="renderDemerits()" style="background:var(--card2);border:1px solid var(--border);border-radius:9px;color:var(--t1);font-family:inherit;font-size:13px;padding:8px 11px;cursor:pointer;"><option value="">Standings (all)</option></select>
+          <button class="bsm" id="dm-scan-btn" onclick="runDemeritScan()" style="color:#34d399;border-color:rgba(52,211,153,.35);" title="Scan attendance + worklog and auto-log any new demerits">⚡ Run auto-detect</button>
+          <button class="bsm" onclick="loadDemerits()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+        </div>
+      </div>
+      <div id="dm-tierlegend" style="font-size:11.5px;color:var(--t3);margin-bottom:10px;">Points: <b style="color:#34d399">0.15</b> minor · <b style="color:#fbbf24">0.30</b> moderate · <b style="color:#fb923c">0.50</b> major · <b style="color:#f87171">0.75</b> severe &nbsp;·&nbsp; <span style="color:var(--t2)">each month caps at 10 pts</span></div>
+      <div id="dm-body"><div class="es">Loading…</div></div>
+    </div>
+
     <!-- EXPECTED DAYS (admin-ticked calendar) -->
     <div id="p-expected" style="display:none;">
       <div class="toolbar">
@@ -1545,8 +1572,93 @@ async function dashAct(url, okMsg){
   try{ await fetch(API+url); if(okMsg&&typeof toast==='function') toast(okMsg); setTimeout(loadDashboard,700); }catch(e){ if(typeof toast==='function') toast('Action failed.'); }
 }
 
+/* ════════ DEMERITS ════════ */
+var DEM_CATALOG={
+  'Attendance':[['Late',0.15],['Absent (no approved leave)',0.50],['No-call-no-show',0.75]],
+  'Break':[['Short lunch (under 50 min)',0.30],['Over break (lunch over 70 min)',0.30],['No break — 6+ hrs without lunch',0.50],['Unauthorized break',0.30]],
+  'Time tracking':[['Super-early task (before 7:15 shift start)',0.15],['Forgot Time In/Out',0.15],['Idle auto-stop',0.15],['Untracked work / no volume',0.15],['Missed EOD submission',0.50],['Overwork — over 11 productive hrs (no approval)',0.30]],
+  'Conduct':[['Minor policy violation',0.30],['Unprofessional behavior',0.50],['Serious misconduct',0.75]]
+};
+var DEM_STATE={rows:[],standings:[]};
+function _demEmps(){ return (typeof emps!=='undefined'&&emps&&emps.length)?emps:[]; }
+function dmFillCategories(){ var c=document.getElementById('dm-cat'); if(!c) return; c.innerHTML=Object.keys(DEM_CATALOG).map(function(k){return '<option>'+k+'</option>';}).join(''); dmFillInfractions(); }
+function dmFillInfractions(){ var cat=document.getElementById('dm-cat').value; var inf=document.getElementById('dm-inf'); var list=DEM_CATALOG[cat]||[]; inf.innerHTML=list.map(function(x){return '<option data-pts="'+x[1]+'">'+escAdmin(x[0])+'</option>';}).join(''); dmSyncPoints(); }
+function dmSyncPoints(){ var inf=document.getElementById('dm-inf'); var opt=inf.options[inf.selectedIndex]; if(opt) document.getElementById('dm-pts').value=opt.getAttribute('data-pts')||'1'; }
+function dmFillEmployees(){
+  var list=_demEmps().filter(function(e){return e.employee_id;});
+  var optHtml=list.map(function(e){return '<option value="'+escAdmin(e.employee_id)+'" data-name="'+escAdmin(e.full_name||e.employee_id)+'">'+escAdmin((e.full_name||e.employee_id)+' ('+e.employee_id+')')+'</option>';}).join('');
+  var sel=document.getElementById('dm-emp'); if(sel) sel.innerHTML='<option value="">Select employee…</option>'+optHtml;
+  var f=document.getElementById('dm-filter'); if(f){ var cur=f.value; f.innerHTML='<option value="">Standings (all)</option>'+optHtml; f.value=cur; }
+}
+async function loadDemerits(){
+  if(!_demEmps().length){ try{ var er=await fetch(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  dmFillCategories(); dmFillEmployees();
+  var dEl=document.getElementById('dm-date'); if(dEl && !dEl.value){ var n=new Date(); dEl.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); }
+  var body=document.getElementById('dm-body'); body.innerHTML='<div class="es">Loading…</div>';
+  try{ var r=await fetch(API+'?action=get_demerits&_='+Date.now()); var d=await r.json(); DEM_STATE.rows=(d&&d.rows)||[]; DEM_STATE.standings=(d&&d.standings)||[]; renderDemerits(); }
+  catch(e){ body.innerHTML='<div class="es" style="color:#f87171">Could not load demerits.</div>'; }
+  // Auto-run the detector once per admin session (background; refreshes if anything new was logged).
+  if(!window._demScanned){ window._demScanned=true; autoScanDemerits(7,true); }
+}
+// Scan attendance + worklog and auto-log new demerits. silent=true skips the toast/button spinner.
+async function autoScanDemerits(days, silent){
+  try{
+    var r=await fetch(API+'?action=auto_demerits&days='+(days||7)+'&_='+Date.now()); var d=await r.json();
+    if(d&&d.ok){
+      if(d.added>0){
+        var r2=await fetch(API+'?action=get_demerits&_='+Date.now()); var d2=await r2.json();
+        DEM_STATE.rows=(d2&&d2.rows)||[]; DEM_STATE.standings=(d2&&d2.standings)||[]; renderDemerits();
+      }
+      if(!silent && typeof toast==='function') toast(d.added>0?('Auto-detect logged '+d.added+' new demerit'+(d.added>1?'s':'')+'.'):'Auto-detect ran — nothing new to flag.');
+    } else if(!silent && typeof toast==='function'){ toast('Auto-detect failed.'); }
+    return d;
+  }catch(e){ if(!silent && typeof toast==='function') toast('Auto-detect failed.'); }
+}
+async function runDemeritScan(){
+  var b=document.getElementById('dm-scan-btn'); var orig=b?b.innerHTML:''; if(b){ b.disabled=true; b.innerHTML='Scanning…'; }
+  await autoScanDemerits(14,false);
+  if(b){ b.disabled=false; b.innerHTML=orig; }
+}
+function renderDemerits(){
+  var body=document.getElementById('dm-body'); if(!body) return;
+  var f=(document.getElementById('dm-filter')||{}).value||'';
+  if(!f){
+    var st=DEM_STATE.standings||[];
+    if(!st.length){ body.innerHTML='<div class="es" style="padding:1.5rem;text-align:center;">No demerits logged yet.</div>'; return; }
+    body.innerHTML='<div class="tw"><table><thead><tr><th>Employee</th><th>This month</th><th>Rolling total</th></tr></thead><tbody>'+
+      st.map(function(s){ var mp=(s.month_points!=null?s.month_points:0), cap=(s.month_cap||10); var mc=mp>=cap?'#f87171':'var(--t1)';
+        return '<tr><td>'+escAdmin(s.full_name)+'</td><td><b style="color:'+mc+'">'+mp+'</b> <span style="color:var(--t3)">/ '+cap+'</span></td><td><b>'+s.total+'</b></td></tr>'; }).join('')+'</tbody></table></div>';
+    return;
+  }
+  var rows=(DEM_STATE.rows||[]).filter(function(x){return String(x.employee_id).toLowerCase()===f.toLowerCase();});
+  var s=(DEM_STATE.standings||[]).filter(function(x){return String(x.employee_id).toLowerCase()===f.toLowerCase();})[0];
+  var total=s?s.total:0; var mp=s?(s.month_points||0):0, cap=s?(s.month_cap||10):10;
+  var head='<div class="live-summary" style="margin-bottom:12px;"><div class="ls"><b style="color:'+(mp>=cap?'#f87171':'var(--t1)')+'">'+mp+' / '+cap+'</b><span>This month</span></div><div class="ls"><b>'+total+' pts</b><span>Rolling total</span></div><div class="ls"><b>'+rows.filter(function(x){return x.status!=='void';}).length+'</b><span>Active demerits</span></div></div>';
+  if(!rows.length){ body.innerHTML=head+'<div class="es">No demerits for this employee.</div>'; return; }
+  body.innerHTML=head+'<div class="tw"><table><thead><tr><th>Date</th><th>Category</th><th>Infraction</th><th>Pts</th><th>Note</th><th>By</th><th></th></tr></thead><tbody>'+
+    rows.map(function(x){ var v=x.status==='void'; var auto=(x.source==='auto');
+      var tag=auto?' <span style="font-size:9.5px;font-weight:700;color:#34d399;background:rgba(52,211,153,.14);padding:1px 6px;border-radius:10px;vertical-align:1px;">AUTO</span>':'';
+      return '<tr style="'+(v?'opacity:.5;':'')+'"><td>'+escAdmin(x.date)+'</td><td>'+escAdmin(x.category)+'</td><td>'+escAdmin(x.infraction)+tag+(v?' <span style="color:#f87171">(void)</span>':'')+'</td><td><b>'+x.points+'</b></td><td>'+escAdmin(x.note||'—')+'</td><td style="color:var(--t3);font-size:12px">'+escAdmin(x.by||'')+'</td><td>'+(v?'':'<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="voidDemerit(\''+escAdmin(x.id)+'\')">Void</button>')+'</td></tr>'; }).join('')+'</tbody></table></div>';
+}
+async function logDemerit(){
+  var emp=document.getElementById('dm-emp'); var eid=emp.value; if(!eid){ alert('Select an employee.'); return; }
+  var name=emp.options[emp.selectedIndex].getAttribute('data-name')||eid;
+  var cat=document.getElementById('dm-cat').value, inf=document.getElementById('dm-inf').value;
+  var pts=document.getElementById('dm-pts').value, date=document.getElementById('dm-date').value, note=document.getElementById('dm-note').value.trim();
+  if(pts===''||isNaN(parseFloat(pts))){ alert('Enter the points.'); return; }
+  try{
+    var u=API+'?action=log_demerit&employee_id='+encodeURIComponent(eid)+'&full_name='+encodeURIComponent(name)+'&category='+encodeURIComponent(cat)+'&infraction='+encodeURIComponent(inf)+'&points='+encodeURIComponent(pts)+'&date='+encodeURIComponent(date)+'&note='+encodeURIComponent(note)+'&by=Admin&_='+Date.now();
+    var r=await fetch(u); var d=await r.json();
+    if(d&&d.ok){ document.getElementById('dm-note').value=''; if(typeof toast==='function') toast('Demerit logged for '+name+'.'); loadDemerits(); }
+    else alert('Could not log demerit'+(d&&d.error?(': '+d.error):'.'));
+  }catch(e){ alert('Network error.'); }
+}
+async function voidDemerit(id){
+  if(!confirm('Void this demerit? It will no longer count toward the total.')) return;
+  try{ var r=await fetch(API+'?action=void_demerit&id='+encodeURIComponent(id)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) loadDemerits(); else alert('Could not void.'); }catch(e){ alert('Network error.'); }
+}
 function goTab(name){
-  ['dash','live','emp','att','leave','chat','coe','scorecard','worklog','projects','payslips','sales','expected'].forEach(function(n){
+  ['dash','live','emp','att','leave','chat','coe','scorecard','worklog','projects','payslips','sales','demerits','expected'].forEach(function(n){
     var t=document.getElementById('t-'+n), p=document.getElementById('p-'+n);
     if(t) t.classList.toggle('active',n===name);
     if(p) p.style.display=n===name?'block':'none';
@@ -1563,6 +1675,7 @@ function goTab(name){
   if(name==='dash') loadDashboard();
   if(name==='live') loadLive();
   if(name==='sales') loadSales();
+  if(name==='demerits') loadDemerits();
   if(name==='expected') initExpected();
   syncAdminNav(name);
 }
@@ -1697,7 +1810,7 @@ async function fixDiscrepancy(id,date){
 // ── GROUPED NAVIGATION (top-level groups + sub-tabs) ──
 var ADMIN_NAV = [
   { id:'dashboard', label:'Dashboard', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>', tabs:[{name:'dash',label:'Overview'},{name:'live',label:'Live & Hours'}] },
-  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Employees'},{name:'att',label:'Attendance'},{name:'expected',label:'Expected Days'}] },
+  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Employees'},{name:'att',label:'Attendance'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'}] },
   { id:'requests', label:'Requests', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>', tabs:[{name:'leave',label:'Leave'},{name:'coe',label:'COE'}] },
   { id:'work', label:'Work', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>', tabs:[{name:'worklog',label:'Time Log'},{name:'projects',label:'Projects'},{name:'scorecard',label:'Scorecard'}] },
   { id:'payslips', label:'Payslips', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>', tabs:[{name:'payslips',label:'Payslips'}] },
