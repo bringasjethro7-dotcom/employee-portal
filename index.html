@@ -2956,17 +2956,7 @@
   }
   .audit-empty { color: var(--text-3); font-size: 13px; padding: 8px 2px; }
   .audit-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
-  .audit-stat {
-    background: var(--bg-card2); border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px;
-  }
-  .audit-stat-l { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3); font-weight: 600; margin-bottom: 5px; }
-  .audit-stat-v { font-family: 'Sora','Inter',sans-serif; font-size: 19px; font-weight: 800; color: var(--text-1); line-height: 1; }
-  .audit-stat.audit-ok   { border-color: rgba(74,222,128,.35);  background: rgba(74,222,128,.08); }
-  .audit-stat.audit-warn { border-color: rgba(255,107,26,.40);  background: rgba(255,107,26,.08); }
-  .audit-stat.audit-bad  { border-color: rgba(248,113,113,.42); background: rgba(248,113,113,.09); }
-  .audit-stat.audit-ok   .audit-stat-v { color: #4ade80; }
-  .audit-stat.audit-warn .audit-stat-v { color: var(--orange-3); }
-  .audit-stat.audit-bad  .audit-stat-v { color: #f87171; }
+  
   .audit-note { font-size: 12.5px; line-height: 1.5; border-radius: 10px; padding: 9px 12px; }
   .audit-note.audit-ok   { color: #4ade80; background: rgba(74,222,128,.08); }
   .audit-note.audit-warn { color: var(--orange-3); background: rgba(255,107,26,.08); }
@@ -3995,19 +3985,6 @@
       </div>
     </div>
 
-    <!-- MOBILE ACCESS UNLOCK -->
-    <div id="mobile-unlock-modal" class="wl-warn-overlay">
-      <div class="wl-warn-box">
-        <div class="wl-warn-icon">📱</div>
-        <h3>Mobile access</h3>
-        <p>Attendance &amp; Time Tracker are desktop-only. Request a 6-hour mobile key — your admin approves it and emails you the key.</p>
-        <button onclick="requestMobileAccess()" style="width:100%;">Request access by email</button>
-        <div style="margin:14px 0 8px;color:var(--text-3,#888);font-size:12px;text-align:center;">— or enter the key from your email —</div>
-        <input id="mobile-key-input" type="text" inputmode="text" autocapitalize="characters" placeholder="Enter key" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:var(--text-1,#fff);text-align:center;letter-spacing:3px;font-size:16px;text-transform:uppercase;margin-bottom:10px;" />
-        <button onclick="submitMobileKey()" style="width:100%;background:linear-gradient(135deg,#FF8A3D,#FF6B1A);">Activate</button>
-        <button onclick="closeMobileUnlock()" style="width:100%;background:none;border:none;color:var(--text-3,#888);margin-top:6px;cursor:pointer;">Close</button>
-      </div>
-    </div>
 
     <!-- ASSESSMENT (quiz + typing test) -->
     <div id="assess-modal" class="wl-warn-overlay">
@@ -4169,9 +4146,6 @@
           <button class="time-action-btn" id="btn-time-in"     onclick="logTime('time_in')"     disabled>Time In</button>
           <button class="time-action-btn" id="btn-time-out"    onclick="askEOD()"    disabled>EOD</button>
           <!-- Lunch/Microbreak/No-task are now tracked via the Time Tracker under "Idle (Internal)" -->
-          <button class="time-action-btn" id="btn-lunch-out"   onclick="logTime('lunch_out')"   disabled style="display:none;">Lunch Out</button>
-          <button class="time-action-btn" id="btn-lunch-in"    onclick="logTime('lunch_in')"    disabled style="display:none;">Lunch In</button>
-          <button class="time-action-btn" id="btn-idle"        onclick="toggleIdle()"           disabled style="display:none;">Idle</button>
         </div>
 
         <div class="at-divider"></div>
@@ -4933,7 +4907,6 @@ document.addEventListener('DOMContentLoaded', () => {
   var _cardId = new URLSearchParams(location.search).get('card');
   if (_cardId) { showPublicIdCard(_cardId); return; }
 
-  lockMobileTabs();   // grey-out Attendance & Time Tracker on phones
   // Typewriter animation
   typewriterAnim(COMPANY_NAME, 'company-name-display');
   document.getElementById('header-company-name').textContent  = COMPANY_NAME;
@@ -5454,79 +5427,6 @@ function isMobileDevice() {
   var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   return !!(coarse && Math.min(window.screen.width, window.screen.height) < 768);
 }
-// A valid 6-hour mobile access key (entered by the employee) bypasses the lock
-function mobileAccessActive() {
-  var until = parseInt(localStorage.getItem('mobile_access_until') || '0', 10);
-  return !!(until && Date.now() < until);
-}
-function lockMobileTabs() {
-  if (!isMobileDevice()) return;
-  if (mobileAccessActive()) { unlockMobileTabs(); scheduleMobileRelock(); return; }
-  ['attendance'].forEach(function(n){
-    var b = document.getElementById('tabbtn-' + n);
-    if (b && b.dataset.locked !== '1') {
-      b.dataset.locked = '1';
-      b.style.opacity = '0.4';
-      b.style.cursor = 'not-allowed';
-      b.title = 'Available on desktop only (or activate a mobile key)';
-      if (!b.querySelector('.mob-lock')) b.insertAdjacentHTML('beforeend', ' <span class="mob-lock" style="font-size:11px;">🔒</span>');
-    }
-  });
-}
-function unlockMobileTabs() {
-  ['attendance'].forEach(function(n){
-    var b = document.getElementById('tabbtn-' + n);
-    if (b) { b.dataset.locked = ''; b.style.opacity = ''; b.style.cursor = ''; b.title = '';
-      var lk = b.querySelector('.mob-lock'); if (lk) lk.remove(); }
-  });
-}
-var _mobRelockT = null;
-function scheduleMobileRelock() {
-  if (_mobRelockT) clearTimeout(_mobRelockT);
-  var until = parseInt(localStorage.getItem('mobile_access_until') || '0', 10);
-  var ms = until - Date.now();
-  if (ms > 0) _mobRelockT = setTimeout(function(){
-    localStorage.removeItem('mobile_access_until');
-    lockMobileTabs();
-    showToast('Mobile access expired. Ask your admin for a new key.');
-  }, Math.min(ms, 2147483000));
-}
-function showMobileUnlock() {
-  var m = document.getElementById('mobile-unlock-modal'); if (m) m.classList.add('show');
-}
-function closeMobileUnlock() {
-  var m = document.getElementById('mobile-unlock-modal'); if (m) m.classList.remove('show');
-}
-function submitMobileKey() {
-  var inp = document.getElementById('mobile-key-input');
-  var key = inp ? (inp.value || '').trim() : '';
-  if (!key) { showToast('Enter the key from your email.'); return; }
-  activateMobileKey(key);
-}
-async function requestMobileAccess() {
-  var data = window._currentEmpData || {};
-  var empId = (typeof attEmpId !== 'undefined' && attEmpId) || data.employee_id || '';
-  if (!empId) { showToast('Please sign in first.'); return; }
-  try {
-    await fetch(APPS_SCRIPT_URL + '?action=request_mobile_key&employee_id=' + encodeURIComponent(empId) + '&full_name=' + encodeURIComponent(data.full_name || empId));
-    showToast('Request sent. Your admin will approve it and email you a key.');
-  } catch(e) { showToast('Could not send request. Try again.'); }
-}
-async function activateMobileKey(key) {
-  var empId = (typeof attEmpId !== 'undefined' && attEmpId) || (window._currentEmpData && window._currentEmpData.employee_id) || '';
-  if (!empId) { showToast('Please sign in first.'); return; }
-  try {
-    var res = await fetch(APPS_SCRIPT_URL + '?action=verify_mobile_key&employee_id=' + encodeURIComponent(empId) + '&key=' + encodeURIComponent(key));
-    var d = await res.json();
-    if (d && d.valid && d.access_until) {
-      localStorage.setItem('mobile_access_until', String(new Date(d.access_until).getTime()));
-      unlockMobileTabs(); scheduleMobileRelock(); closeMobileUnlock();
-      showToast('Mobile access activated for 6 hours. Attendance & Time Tracker are now available.');
-    } else {
-      showToast(d && d.expired ? 'That key has expired — request access again.' : 'Invalid key. Please check the key in your email.');
-    }
-  } catch(e) { showToast('Could not verify the key. Try again.'); }
-}
 
 // ─────────────────────────────────────────────
 // TEAM LIVE  — read-only running timers for CL7–CL9 leaders
@@ -5585,10 +5485,6 @@ function empRenderLive(){
 function empTickLive(){ var add=(Date.now()-_empLiveBase)/1000; _empLiveRows.forEach(function(rn,i){ var el=document.getElementById('elct-'+i); if(el) el.textContent=empHms((rn.elapsed_secs||0)+add); }); }
 
 function switchTab(name, btn) {
-  if ((name === 'attendance' || name === 'clockify') && isMobileDevice() && !mobileAccessActive()) {
-    showMobileUnlock();
-    return;
-  }
   try { if (name !== 'live') empLiveStop(); } catch(e) {}
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b   => b.classList.remove('active'));
@@ -6676,51 +6572,6 @@ function isLate(rec) {
 var isIdle = false;
 var idleStart = null;
 
-function toggleIdle() {
-  var btn = document.getElementById('btn-idle');
-  var shiftBadge = document.getElementById('shift-badge');
-  isIdle = !isIdle;
-
-  if (isIdle) {
-    idleStart = new Date();
-    btn.textContent = 'Resume';
-    btn.classList.add('idle-active');
-
-    // Add idle badge next to shift badge
-    var existing = document.getElementById('idle-badge');
-    if (!existing && shiftBadge) {
-      var badge = document.createElement('span');
-      badge.id = 'idle-badge';
-      badge.className = 'idle-badge';
-      badge.innerHTML = '<span class="idle-dot"></span> Idle';
-      shiftBadge.parentNode.insertBefore(badge, shiftBadge.nextSibling);
-    }
-
-    // Disable lunch while idle (Time Out stays available so they can clock out)
-    document.getElementById('btn-lunch-out') && (document.getElementById('btn-lunch-out').disabled = true);
-
-    // Pause the running timer while idle (no demerit — it's an intentional break)
-    if (typeof trkRunning !== 'undefined' && trkRunning) pauseTimer({ silent: true });
-
-    showToast('You are now idle. Click Resume when ready.');
-  } else {
-    var idleEnd = new Date();
-    var idleMins = Math.round((idleEnd - idleStart) / 60000);
-    btn.textContent = 'Idle';
-    btn.classList.remove('idle-active');
-
-    // Remove idle badge
-    var badge = document.getElementById('idle-badge');
-    if (badge) badge.remove();
-
-    // Re-enable buttons
-    updateButtons();
-
-    showToast('Resumed after ' + idleMins + ' min' + (idleMins !== 1 ? 's' : '') + ' idle.');
-    idleStart = null;
-  }
-}
-
 function checkPreviousSession() {
   if (!attRecords.length) return;
 
@@ -7302,10 +7153,7 @@ function updateButtons() {
   var cfyRunning = !!cfyRunningId;
 
   var btnTI   = document.getElementById('btn-time-in');
-  var btnLO   = document.getElementById('btn-lunch-out');
-  var btnLI   = document.getElementById('btn-lunch-in');
   var btnTO   = document.getElementById('btn-time-out');
-  var btnIdle = document.getElementById('btn-idle');
 
   // TIME IN — enabled only when no active session
   if (btnTI) {
@@ -7319,12 +7167,6 @@ function updateButtons() {
     }
   }
 
-  // LUNCH OUT — only when active, not yet on lunch, no clockify running
-  if (btnLO) btnLO.disabled = !hasActive || hasLO || cfyRunning;
-
-  // LUNCH IN — only when on lunch
-  if (btnLI) btnLI.disabled = !hasActive || !hasLO || hasLI;
-
   // EOD — enabled whenever clocked in. If a task is still running, the EOD receipt
   // stops it automatically (openEodReceipt), so we no longer hard-disable the button —
   // that was trapping users when a task got stuck in a "running" state.
@@ -7332,9 +7174,6 @@ function updateButtons() {
     btnTO.disabled = !hasActive;
     btnTO.title = cfyRunning ? 'Your running task will be stopped and added to the end-of-day receipt' : '';
   }
-
-  // IDLE — only when active
-  if (btnIdle) btnIdle.disabled = !hasActive;
 
   // Update Clockify Start button state
   if (typeof updateClockifyStartBtn === 'function') updateClockifyStartBtn();
@@ -8029,130 +7868,7 @@ function closeDayLog() {
   if (m) m.classList.remove('show');
 }
 
-// ── SELF-AUDIT: reconcile clocked hours vs tracked task hours ──
-// Discrepancy = hours worked (time-out − time-in − lunch) − hours tracked in the timer.
-// A positive gap = worked time that wasn't tracked against a task.
-var _auditRunning = false;
-async function ensureWorklogCache() {
-  if (window._trkByDate) return window._trkByDate;
-  try {
-    var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
-    var res  = await fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(empId));
-    var json = await res.json();
-    var byDate = {};
-    (json.worklog || []).forEach(function(w){ if (!w.date || w.status === 'running') return; (byDate[w.date] = byDate[w.date] || []).push(w); });
-    window._trkByDate = byDate;
-  } catch (e) { window._trkByDate = window._trkByDate || {}; }
-  return window._trkByDate;
-}
-function auditFmt(mins) { var a = Math.abs(mins); var h = Math.floor(a/60), m = a%60; return (h>0 ? h+'h ' : '') + m + 'm'; }
-function auditSeverity(mins) { var a = Math.abs(mins); return a <= 15 ? 'ok' : (a <= 45 ? 'warn' : 'bad'); }
-async function runSelfAudit() {
-  var box = document.getElementById('self-audit');
-  if (!box || _auditRunning) return;
-  _auditRunning = true;
-  box.innerHTML = '<div class="loading-state"><div class="spinner"></div> Analyzing…</div>';
-  try {
-    var byDate = await ensureWorklogCache();
-    var recs = (attRecords || []).filter(function(r){ return r.time_in && r.time_out; })
-      .slice().sort(function(a,b){ return b.date.localeCompare(a.date); }).slice(0, 14);
-    if (!recs.length) { box.innerHTML = '<div class="audit-empty">No completed days to audit yet.</div>'; return; }
 
-    var rows = [], totW = 0, totT = 0;
-    window._auditTargets = {};   // date -> worked minutes (the target tracked total)
-    recs.forEach(function(r) {
-      var w = minsWorked(r) || 0;
-      var items = byDate[r.date] || [];
-      var t = Math.round(items.reduce(function(s, x){ return s + (parseFloat(x.hours) || 0); }, 0) * 60);
-      totW += w; totT += t;
-      rows.push({ date: r.date, w: w, t: t, d: w - t });
-      if (items.length) window._auditTargets[r.date] = w;   // only days with tasks can be reconciled
-    });
-    var totD = totW - totT;
-    var sev  = auditSeverity(totD);
-    var sign = function(m){ return (m > 0 ? '+' : (m < 0 ? '−' : '')) + auditFmt(m); };
-
-    var notable = rows.filter(function(x){ return auditSeverity(x.d) !== 'ok'; });
-
-    var head =
-      '<div class="audit-summary">' +
-        '<div class="audit-stat"><div class="audit-stat-l">Hours worked</div><div class="audit-stat-v">' + auditFmt(totW) + '</div></div>' +
-        '<div class="audit-stat"><div class="audit-stat-l">Hours tracked</div><div class="audit-stat-v">' + auditFmt(totT) + '</div></div>' +
-        '<div class="audit-stat audit-' + sev + '"><div class="audit-stat-l">Discrepancy</div><div class="audit-stat-v">' + sign(totD) + '</div></div>' +
-      '</div>';
-
-    var verdict = (sev === 'ok')
-      ? '<div class="audit-note audit-ok">✓ Your tracked time reconciles with your clocked hours (within 15m over ' + rows.length + ' days).</div>'
-      : '<div class="audit-note audit-' + sev + '">' + (totD > 0
-          ? 'You worked about ' + auditFmt(totD) + ' more than you tracked across ' + rows.length + ' days — some clocked time isn\'t logged against a task.'
-          : 'You tracked about ' + auditFmt(totD) + ' more than your clocked hours — review the days below.') + '</div>';
-
-    var list = notable.length
-      ? '<div class="audit-days">' + notable.map(function(x) {
-          var s = auditSeverity(x.d);
-          var dl = new Date(x.date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
-          return '<button class="audit-day" onclick="openDayLog(event,&quot;' + x.date + '&quot;)">' +
-            '<span class="audit-day-date">' + dl + '</span>' +
-            '<span class="audit-day-meta">worked ' + auditFmt(x.w) + ' · tracked ' + auditFmt(x.t) + '</span>' +
-            '<span class="audit-day-gap audit-' + s + '">' + sign(x.d) + '</span>' +
-          '</button>';
-        }).join('') + '</div>'
-      : '';
-
-    var canFix = isAdminUser() && totD !== 0 && Object.keys(window._auditTargets).length;
-    var fixBar = canFix
-      ? '<div class="audit-actions"><button class="btn-sm audit-fix-btn" onclick="fixDiscrepancies()">⚖ Fix discrepancies</button>' +
-        '<span class="audit-fix-hint">Admin · scales each day\'s tasks so tracked = worked</span></div>'
-      : '';
-
-    box.innerHTML = head + fixBar + verdict + list;
-  } catch (e) {
-    box.innerHTML = '<div class="audit-empty">Could not run the audit.</div>';
-  } finally {
-    _auditRunning = false;
-  }
-}
-
-function isAdminUser() {
-  var d = window._currentEmpData || {};
-  return String(d.employee_id || '').toUpperCase() === 'ADMIN'
-      || d.is_admin === true
-      || /\badmin\b/i.test(String(d.role || d.position || ''));
-}
-
-// Admin: reconcile tracked hours to clocked hours (proportional, both directions)
-async function fixDiscrepancies() {
-  if (!isAdminUser()) return;
-  var targets = window._auditTargets || {};
-  var dates = Object.keys(targets);
-  if (!dates.length) { showToast('Nothing to reconcile.', 'info'); return; }
-  if (!confirm('Reconcile tracked hours to match clocked hours for ' + dates.length + ' day(s)?\n\n'
-    + 'Each day\'s tracked tasks are scaled proportionally so tracked = worked. This changes recorded productive hours.')) return;
-
-  var box = document.getElementById('self-audit');
-  var prev = box ? box.innerHTML : '';
-  if (box) box.innerHTML = '<div class="loading-state"><div class="spinner"></div> Applying fix…</div>';
-  try {
-    var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
-    var url = APPS_SCRIPT_URL + '?action=audit_fix&employee_id=' + encodeURIComponent(empId)
-            + '&targets=' + encodeURIComponent(JSON.stringify(targets));
-    var res = await fetch(url);
-    var j = await res.json();
-    if (j && j.ok) {
-      window._trkByDate = null;   // bust cache → audit re-pulls the corrected hours
-      var sk = (j.skipped && j.skipped.length) ? ' · ' + j.skipped.length + ' skipped' : '';
-      showToast('Reconciled ' + (j.fixed_days || 0) + ' day(s) · ' + (j.updated_rows || 0) + ' entries' + sk, 'success');
-      await runSelfAudit();
-      if (typeof loadAttendanceLogs === 'function') loadAttendanceLogs();
-    } else {
-      if (box) box.innerHTML = prev;
-      showToast((j && j.error) ? ('Fix failed: ' + j.error) : 'Fix failed.', 'error');
-    }
-  } catch (e) {
-    if (box) box.innerHTML = prev;
-    showToast('Could not reach the server.', 'error');
-  }
-}
 
 // ── FINALIZE TRACKER → WORKLOG ON TIME-OUT ──
 // On time-out, stop any running timer, then prompt for the volume/output of
