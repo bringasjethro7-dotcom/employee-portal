@@ -3484,9 +3484,7 @@
     .bio-fab { bottom: 152px !important; }
   }
   /* ── 4th of July festive theme ── */
-  .j4-fw { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:3; }
-  .j4-fw span { position:absolute; opacity:0; animation:j4pop 3.4s ease-in-out infinite; filter:drop-shadow(0 0 8px rgba(255,255,255,.55)); }
-  @keyframes j4pop { 0%{transform:scale(.3);opacity:0} 14%{opacity:1} 55%{transform:scale(1.15);opacity:.95} 100%{transform:scale(1.4);opacity:0} }
+  #j4-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:3; }
   .j4-badge { display:inline-flex; align-items:center; gap:8px; font-weight:800; font-size:12.5px; letter-spacing:.03em; padding:7px 14px; border-radius:999px; margin-bottom:14px; color:#fff; background:linear-gradient(90deg,#b22234,#3c3b6e); border:1px solid rgba(255,255,255,.35); box-shadow:0 6px 20px rgba(60,59,110,.45); }
   .j4-ribbon { height:5px; border-radius:6px; margin:0 0 12px; background:repeating-linear-gradient(90deg,#b22234 0 34px,#ffffff 34px 68px,#3c3b6e 68px 102px); box-shadow:0 2px 10px rgba(0,0,0,.25); }
   .j4-banner { display:flex; align-items:center; justify-content:center; gap:8px; text-align:center; font-weight:700; font-size:13px; color:#fff; padding:10px 14px; border-radius:12px; margin:0 0 16px; background:linear-gradient(90deg,rgba(178,34,52,.92),rgba(255,255,255,.12) 50%,rgba(60,59,110,.92)); border:1px solid rgba(255,255,255,.28); }
@@ -8692,16 +8690,51 @@ function july4Active(){
   return o.year==='2026' && o.month==='07' && d>=1 && d<=7;
 }
 function closeJ4Banner(){ var b=document.getElementById('j4-banner'); if(b) b.remove(); }
+// Real canvas fireworks: rockets launch and burst into red/white/blue sparks.
+function startFireworks(canvas, host){
+  var ctx=canvas.getContext('2d'); var W=0,H=0, dpr=Math.min(window.devicePixelRatio||1,2);
+  function size(){ var r=host.getBoundingClientRect(); W=r.width||window.innerWidth; H=r.height||window.innerHeight; canvas.width=Math.round(W*dpr); canvas.height=Math.round(H*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); }
+  size(); window.addEventListener('resize', size);
+  var COLORS=['#e23b4a','#ffffff','#5b7bff','#ff7a88','#9ec0ff','#ffd45b'];
+  var rockets=[], parts=[], lastLaunch=0, last=0;
+  function pick(){ return COLORS[(Math.random()*COLORS.length)|0]; }
+  function launch(){ rockets.push({ x:W*(0.12+Math.random()*0.76), y:H+8, vx:(Math.random()-0.5)*0.8, vy:-(Math.random()*2.0+6.2), tgt:H*(0.16+Math.random()*0.34), color:pick() }); }
+  function burst(x,y,color){
+    var n=46+(Math.random()*34|0), base=Math.random()*Math.PI*2;
+    for(var i=0;i<n;i++){ var a=base+(i/n)*Math.PI*2+(Math.random()-0.5)*0.3, sp=Math.random()*3.6+1.0;
+      parts.push({ x:x,y:y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life:1, decay:0.008+Math.random()*0.012, color:Math.random()<0.28?'#ffffff':color, size:Math.random()*1.7+0.9 }); }
+  }
+  function frame(t){
+    if(!document.body.contains(canvas)) return;                 // removed → stop
+    if(host && host.style.display==='none'){ requestAnimationFrame(frame); return; }  // paused on dashboard
+    var dt=last? Math.min((t-last)/16.67,3):1; last=t;
+    ctx.clearRect(0,0,W,H);                                      // transparent — login content stays visible
+    ctx.globalCompositeOperation='lighter';
+    if(t-lastLaunch > 600+Math.random()*800){ launch(); if(Math.random()<0.4) launch(); lastLaunch=t; }
+    var i;
+    for(i=rockets.length-1;i>=0;i--){ var r=rockets[i]; r.x+=r.vx*dt; r.y+=r.vy*dt; r.vy+=0.05*dt;
+      ctx.globalAlpha=1; ctx.fillStyle=r.color; ctx.shadowBlur=8; ctx.shadowColor=r.color;
+      ctx.beginPath(); ctx.arc(r.x,r.y,2,0,6.2832); ctx.fill();
+      if(r.vy>=-0.6 || r.y<=r.tgt){ burst(r.x,r.y,r.color); rockets.splice(i,1); } }
+    for(i=parts.length-1;i>=0;i--){ var p=parts[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=0.035*dt; p.vx*=0.986; p.vy*=0.986; p.life-=p.decay*dt;
+      if(p.life<=0){ parts.splice(i,1); continue; }
+      ctx.globalAlpha=Math.max(0,p.life); ctx.fillStyle=p.color; ctx.shadowBlur=10; ctx.shadowColor=p.color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,6.2832); ctx.fill(); }
+    ctx.globalAlpha=1; ctx.shadowBlur=0; ctx.globalCompositeOperation='source-over';
+    requestAnimationFrame(frame);
+  }
+  launch(); setTimeout(launch,350); setTimeout(launch,800);
+  requestAnimationFrame(frame);
+}
 function applyJuly4(){
   if(!july4Active()) return;
   document.body.classList.add('july4');
-  var ICONS=['🎆','🎇','✨','🎆','🎇','⭐','🎆','✨','🎇'];
-  var POS=[[7,14],[24,38],[41,10],[57,48],[73,20],[86,40],[14,66],[64,70],[33,76]];
   var login=document.getElementById('login-screen');
-  if(login && !document.getElementById('j4-fw')){
-    var fw=document.createElement('div'); fw.id='j4-fw'; fw.className='j4-fw'; fw.setAttribute('aria-hidden','true');
-    fw.innerHTML=POS.map(function(p,i){ return '<span style="left:'+p[0]+'%;top:'+p[1]+'%;animation-delay:'+(i*0.4).toFixed(2)+'s;font-size:'+(26+(i%3)*12)+'px">'+ICONS[i]+'</span>'; }).join('');
-    login.appendChild(fw);
+  var reduce=false; try{ reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  if(login && !document.getElementById('j4-canvas') && !reduce){
+    var cv=document.createElement('canvas'); cv.id='j4-canvas'; cv.setAttribute('aria-hidden','true');
+    login.appendChild(cv);
+    startFireworks(cv, login);
   }
   var brand=document.querySelector('.login-brand-content');
   if(brand && !document.getElementById('j4-badge')){
