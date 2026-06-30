@@ -3493,6 +3493,19 @@
     .msg-fab { bottom: 88px !important; }
     .bio-fab { bottom: 152px !important; }
   }
+  /* ── Appeal modal fields ── */
+  .ap-l { display:block; font-size:11.5px; font-weight:600; color:var(--text-2); margin:8px 0 4px; text-transform:uppercase; letter-spacing:.03em; }
+  .ap-in { width:100%; box-sizing:border-box; background:var(--bg-deep,var(--bg-card)); border:1px solid var(--border); border-radius:10px; color:var(--text-1); font-family:inherit; font-size:14px; padding:10px 12px; outline:none; }
+  .ap-in:focus { border-color:var(--orange-1); box-shadow:0 0 0 3px rgba(255,107,26,.16); }
+  .ap-mini { display:block; font-size:10.5px; color:var(--text-3); margin-bottom:3px; }
+  .myap-row { display:flex; align-items:flex-start; gap:10px; padding:11px 12px; border:1px solid var(--border); border-radius:11px; margin-bottom:8px; background:var(--bg-deep,var(--bg-card)); }
+  .myap-row .myap-main { flex:1; min-width:0; }
+  .myap-row .myap-task { font-weight:600; font-size:13.5px; color:var(--text-1); }
+  .myap-row .myap-meta { font-size:11.5px; color:var(--text-2); margin-top:2px; }
+  .myap-badge { flex-shrink:0; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px; white-space:nowrap; }
+  .myap-badge.pending { background:rgba(245,158,11,.15); color:#fbbf24; border:1px solid rgba(245,158,11,.35); }
+  .myap-badge.approved { background:rgba(34,197,94,.15); color:#34d399; border:1px solid rgba(34,197,94,.35); }
+  .myap-badge.rejected { background:rgba(248,113,113,.14); color:#f87171; border:1px solid rgba(248,113,113,.35); }
   /* ── Recent-logs volume backfill ── */
   .cfy-entry-vol { font-size:11.5px; color:var(--text-3); margin-top:3px; }
   .cfy-entry-vol.miss { margin-top:5px; }
@@ -3901,6 +3914,61 @@
         <div class="wl-vol-actions">
           <button class="wl-vol-submit" onclick="submitEOD()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> End day &amp; submit</button>
           <button class="wl-vol-later" onclick="closeEodReceipt()">Back</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- APPEAL MODAL (untracked / missing hours) -->
+    <div id="appeal-modal" class="wl-vol-overlay" onclick="if(event.target===this)closeAppeal()">
+      <div class="wl-vol-box" style="max-width:480px;">
+        <div class="wl-vol-head">
+          <div class="wl-vol-icon">⚑</div>
+          <h3 id="ap-title">Appeal untracked work</h3>
+          <p id="ap-sub">Tell your admin about work that wasn't tracked. It goes for approval and only counts once approved.</p>
+        </div>
+        <div style="padding:4px 2px 0;">
+          <div id="ap-untracked-fields">
+            <label class="ap-l">What did you work on?</label>
+            <input id="ap-desc" class="ap-in" placeholder="e.g. Client onboarding call, manual report">
+            <label class="ap-l">Project</label>
+            <select id="ap-project" class="ap-in" onchange="apLoadCats()"></select>
+            <div style="display:flex;gap:10px;">
+              <div style="flex:1;"><label class="ap-l">Category</label><select id="ap-category" class="ap-in" onchange="apLoadTasks()" disabled></select></div>
+              <div style="flex:1;"><label class="ap-l">Task</label><select id="ap-task" class="ap-in" disabled></select></div>
+            </div>
+          </div>
+          <div id="ap-entry-label" style="display:none;background:var(--bg-deep);border:1px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:8px;font-size:13px;color:var(--text-1);"></div>
+          <label class="ap-l">Date</label>
+          <input id="ap-date" class="ap-in" type="date">
+          <label class="ap-l">Time worked</label>
+          <div style="display:flex;gap:10px;align-items:flex-end;">
+            <div style="flex:1;"><span class="ap-mini">Start</span><input id="ap-start" class="ap-in" type="time" oninput="apCalcHours()"></div>
+            <div style="flex:1;"><span class="ap-mini">End</span><input id="ap-end" class="ap-in" type="time" oninput="apCalcHours()"></div>
+            <div style="width:96px;"><span class="ap-mini">Hours</span><input id="ap-hours" class="ap-in" type="number" min="0" step="0.25" placeholder="0.0"></div>
+          </div>
+          <div id="ap-hours-hint" class="ap-mini" style="margin:-2px 0 6px;color:var(--orange-3);"></div>
+          <label class="ap-l">Reason / details</label>
+          <textarea id="ap-reason" class="ap-in" style="min-height:60px;resize:vertical;" placeholder="Why wasn't this tracked? Anything your admin should know."></textarea>
+          <div id="ap-err" style="display:none;color:#ef4444;font-size:12.5px;margin:2px 0 6px;"></div>
+        </div>
+        <div class="wl-vol-actions">
+          <button class="wl-vol-submit" id="ap-submit" onclick="submitAppeal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22 11 13 2 9z"/></svg> Send for approval</button>
+          <button class="wl-vol-later" onclick="closeAppeal()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MY APPEALS (status) -->
+    <div id="myappeals-modal" class="wl-vol-overlay" onclick="if(event.target===this)closeMyAppeals()">
+      <div class="wl-vol-box" style="max-width:480px;">
+        <div class="wl-vol-head">
+          <div class="wl-vol-icon">📋</div>
+          <h3>My appeals</h3>
+          <p>Track the status of hours you've appealed. Approved hours are added to your records.</p>
+        </div>
+        <div id="myappeals-list" style="padding:4px 2px;"><div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div></div>
+        <div class="wl-vol-actions">
+          <button class="wl-vol-later" onclick="closeMyAppeals()">Close</button>
         </div>
       </div>
     </div>
@@ -6935,7 +7003,7 @@ function buildEodReceipt() {
       '<div class="eod-right">' + right + '</div></div>';
   }).join('');
   if (!ents.length) rows = '<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">No tracked tasks today.</div>';
-  rows += '<div class="eod-untracked"><a onclick="appealUntracked()">＋ Appeal missing / untracked work</a></div>';
+  rows += '<div class="eod-untracked"><a onclick="appealUntracked()">＋ Appeal missing / untracked work</a> &nbsp;·&nbsp; <a onclick="openMyAppeals()">📋 My appeals</a></div>';
   document.getElementById('eod-list').innerHTML = rows;
   var sum = document.getElementById('eod-summary');
   if (sum) sum.innerHTML = '<span class="wl-vol-chip"><b>' + prodCount + '</b> productive</span>' +
@@ -6949,29 +7017,117 @@ function buildEodReceipt() {
   var o = document.getElementById('eod-receipt'); if (o) o.classList.add('show');
 }
 // ── Appeals: missing hours on a task, or untracked work → admin approval ──
-function _postAppeal(p) {
+function _postAppeal(p, cb) {
   var base = APPS_SCRIPT_URL + '?action=worklog_appeal&employee_id=' + encodeURIComponent(attEmpId) +
     '&full_name=' + encodeURIComponent((trkEmpData && trkEmpData.full_name) || attEmpId);
   var qs = Object.keys(p).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(p[k] == null ? '' : p[k]); }).join('&');
   fetch(base + '&' + qs + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
-    showToast(d && d.ok ? 'Appeal sent to admin for approval. ✅' : 'Could not send appeal.');
-  }).catch(function(){ showToast('Network error — appeal not sent.'); });
+    var ok = !!(d && d.ok);
+    showToast(ok ? 'Appeal sent to admin for approval. ✅' : 'Could not send appeal.');
+    if (cb) cb(ok);
+  }).catch(function(){ showToast('Network error — appeal not sent.'); if (cb) cb(false); });
 }
-function appealEntry(entryIdEnc, labelEnc) {
-  var entryId = decodeURIComponent(entryIdEnc), label = decodeURIComponent(labelEnc);
-  var hrs = prompt('Appeal "' + label + '" — enter the corrected TOTAL hours for this task (e.g. 1.5):');
-  if (hrs === null) return;
-  var h = parseFloat(hrs); if (isNaN(h) || h < 0) { showToast('Enter valid hours.'); return; }
-  var reason = prompt('Reason (what time was missing / untracked?):', ''); if (reason === null) return;
-  _postAppeal({ entry_id: entryId, claim_hours: h, reason: reason });
+// ── Appeal modal (replaces the old prompt chain) ──
+var _apMode = 'untracked', _apEntryId = '';
+function _apToday(){ return (typeof shiftDate === 'function' ? shiftDate() : new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'})); }
+async function openAppeal(mode, opts){
+  _apMode = mode || 'untracked'; opts = opts || {};
+  document.getElementById('ap-err').style.display = 'none';
+  document.getElementById('ap-hours-hint').textContent = '';
+  document.getElementById('ap-date').value = _apToday();
+  document.getElementById('ap-start').value = ''; document.getElementById('ap-end').value = ''; document.getElementById('ap-hours').value = '';
+  document.getElementById('ap-reason').value = '';
+  if (_apMode === 'entry') {
+    _apEntryId = opts.entryId || '';
+    document.getElementById('ap-title').textContent = 'Appeal missing hours';
+    document.getElementById('ap-sub').textContent = 'Correct the tracked time for this task. Goes to your admin for approval.';
+    document.getElementById('ap-untracked-fields').style.display = 'none';
+    var lbl = document.getElementById('ap-entry-label'); lbl.style.display = 'block';
+    lbl.innerHTML = '🔖 ' + escapeHtml(opts.label || 'Task');
+  } else {
+    _apEntryId = '';
+    document.getElementById('ap-title').textContent = 'Appeal untracked work';
+    document.getElementById('ap-sub').textContent = 'Tell your admin about work that wasn\'t tracked. It goes for approval and only counts once approved.';
+    document.getElementById('ap-untracked-fields').style.display = 'block';
+    document.getElementById('ap-entry-label').style.display = 'none';
+    document.getElementById('ap-desc').value = '';
+    if (!Array.isArray(nativeProjects) || !nativeProjects.length) { try { await loadProjects(); } catch(e) {} }
+    apFillProjects();
+  }
+  document.getElementById('appeal-modal').classList.add('show');
 }
-function appealUntracked() {
-  var task = prompt('Untracked work — task or description:'); if (!task) return;
-  var proj = prompt('Project (optional):', '') || '';
-  var hrs = prompt('Hours worked (e.g. 1.5):'); if (hrs === null) return;
-  var h = parseFloat(hrs); if (isNaN(h) || h <= 0) { showToast('Enter valid hours.'); return; }
-  var reason = prompt('Reason / details:', '') || '';
-  _postAppeal({ task: task, project: proj, claim_hours: h, reason: reason, date: (typeof shiftDate === 'function' ? shiftDate() : '') });
+function appealEntry(entryIdEnc, labelEnc){ openAppeal('entry', { entryId: decodeURIComponent(entryIdEnc), label: decodeURIComponent(labelEnc) }); }
+function appealUntracked(){ openAppeal('untracked'); }
+function closeAppeal(){ var m=document.getElementById('appeal-modal'); if(m) m.classList.remove('show'); }
+function apFillProjects(){
+  var sel=document.getElementById('ap-project'); if(!sel) return;
+  var seen={}, opts='<option value="">Select project…</option>';
+  (nativeProjects||[]).forEach(function(p){ if(p.project && !seen[p.project]){ seen[p.project]=true; opts+='<option value="'+escapeHtml(p.project)+'">'+escapeHtml(p.project)+'</option>'; } });
+  sel.innerHTML=opts;
+  document.getElementById('ap-category').innerHTML='<option value="">—</option>'; document.getElementById('ap-category').disabled=true;
+  document.getElementById('ap-task').innerHTML='<option value="">—</option>'; document.getElementById('ap-task').disabled=true;
+}
+function apLoadCats(){
+  var proj=document.getElementById('ap-project').value, cat=document.getElementById('ap-category'), tsk=document.getElementById('ap-task');
+  tsk.innerHTML='<option value="">—</option>'; tsk.disabled=true;
+  if(!proj){ cat.innerHTML='<option value="">—</option>'; cat.disabled=true; return; }
+  var seen={}, cats=[]; (nativeProjects||[]).forEach(function(p){ if(p.project===proj && p.category && !seen[p.category]){ seen[p.category]=true; cats.push(p.category); } });
+  if(!cats.length){ cat.innerHTML='<option value="">No categories</option>'; cat.disabled=true; apLoadTasks(); return; }
+  cat.innerHTML='<option value="">Select category…</option>'+cats.map(function(c){ return '<option value="'+escapeHtml(c)+'">'+escapeHtml(c)+'</option>'; }).join(''); cat.disabled=false;
+}
+function apLoadTasks(){
+  var proj=document.getElementById('ap-project').value, cat=document.getElementById('ap-category').value, tsk=document.getElementById('ap-task');
+  if(!proj){ tsk.innerHTML='<option value="">—</option>'; tsk.disabled=true; return; }
+  var tasks=(nativeProjects||[]).filter(function(p){ return p.project===proj && (p.category||'')===(cat||'') && p.task; });
+  if(!tasks.length){ tsk.innerHTML='<option value="">No tasks</option>'; tsk.disabled=true; return; }
+  tsk.innerHTML='<option value="">Select task…</option>'+tasks.map(function(p){ return '<option value="'+escapeHtml(p.task)+'">'+escapeHtml(p.task)+'</option>'; }).join(''); tsk.disabled=false;
+}
+function apCalcHours(){
+  var s=document.getElementById('ap-start').value, e=document.getElementById('ap-end').value, hint=document.getElementById('ap-hours-hint');
+  if(!s||!e){ hint.textContent=''; return; }
+  var sm=s.split(':'), em=e.split(':');
+  var mins=(parseInt(em[0],10)*60+parseInt(em[1],10))-(parseInt(sm[0],10)*60+parseInt(sm[1],10));
+  if(mins<0) mins+=1440;   // crossed midnight
+  var h=Math.round(mins/60*100)/100;
+  document.getElementById('ap-hours').value=h;
+  hint.textContent='= '+h+' hour'+(h===1?'':'s')+' (auto-calculated — edit Hours to override)';
+}
+function submitAppeal(){
+  var err=document.getElementById('ap-err'); err.style.display='none';
+  var hours=parseFloat(document.getElementById('ap-hours').value);
+  var reason=document.getElementById('ap-reason').value.trim();
+  var date=document.getElementById('ap-date').value || _apToday();
+  if(isNaN(hours)||hours<=0){ err.style.display='block'; err.textContent='Enter the hours (or a start and end time).'; return; }
+  var payload;
+  if(_apMode==='entry'){
+    payload={ entry_id:_apEntryId, claim_hours:hours, reason:reason };
+  } else {
+    var desc=document.getElementById('ap-desc').value.trim();
+    var proj=document.getElementById('ap-project').value, cat=document.getElementById('ap-category').value, task=document.getElementById('ap-task').value;
+    if(!desc && !task){ err.style.display='block'; err.textContent='Describe the work or pick a task.'; return; }
+    payload={ task:(task||desc), project:(proj||'Untracked'), category:cat, claim_hours:hours, reason:reason, date:date };
+  }
+  var btn=document.getElementById('ap-submit'); btn.disabled=true; var old=btn.innerHTML; btn.textContent='Sending…';
+  _postAppeal(payload, function(ok){ btn.disabled=false; btn.innerHTML=old; if(ok){ closeAppeal(); } else { err.style.display='block'; err.textContent='Could not send — try again.'; } });
+}
+// ── My appeals (status list) ──
+function openMyAppeals(){ document.getElementById('myappeals-modal').classList.add('show'); loadMyAppeals(); }
+function closeMyAppeals(){ var m=document.getElementById('myappeals-modal'); if(m) m.classList.remove('show'); }
+function loadMyAppeals(){
+  var box=document.getElementById('myappeals-list'); box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div>';
+  fetch(APPS_SCRIPT_URL+'?action=my_appeals&employee_id='+encodeURIComponent(attEmpId)+'&_='+Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      var rows=(d&&d.appeals)||[];
+      if(!rows.length){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">No appeals yet. Use “Appeal missing / untracked work” on the EOD receipt.</div>'; return; }
+      box.innerHTML=rows.map(function(a){
+        var st=(a.appeal_status||'pending').toLowerCase();
+        var label=a.task||a.project||'Untracked work';
+        var sub=(a.date?escapeHtml(a.date):'')+(a.project?(' · '+escapeHtml(a.project)):'')+(a.claim_hours?(' · '+escapeHtml(a.claim_hours)+'h claimed'):'');
+        var note=a.note?'<div class="myap-meta" style="color:var(--text-3)">“'+escapeHtml(a.note)+'”</div>':'';
+        return '<div class="myap-row"><div class="myap-main"><div class="myap-task">'+escapeHtml(label)+'</div><div class="myap-meta">'+sub+'</div>'+note+'</div>'+
+          '<span class="myap-badge '+st+'">'+(st==='approved'?'Approved':st==='rejected'?'Rejected':'Pending')+'</span></div>';
+      }).join('');
+    }).catch(function(){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;color:#f87171;">Could not load.</div>'; });
 }
 function submitEOD() {
   var inputs = document.querySelectorAll('#eod-list .eod-vol');
