@@ -642,6 +642,16 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           </div>
           <div id="sales-calc" class="sales-calc">Enter an invoice amount to see the computed net revenue.</div>
         </div>
+        <div class="paygen" style="margin-top:10px;">
+          <div class="paygen-title">📥 Book cutoff salary → Sales (per project)</div>
+          <div class="paygen-sub">After generating payslips for a cutoff, pull each project's salary cost into Sales. Revenue fills in later when you record that project's invoice.</div>
+          <div class="paygen-controls" style="margin-top:8px;">
+            <label>From <input class="sinp" id="bc-from" type="date" style="width:150px;"></label>
+            <label>To <input class="sinp" id="bc-to" type="date" style="width:150px;"></label>
+            <button class="bsm" id="bc-btn" onclick="bookCutoff()" style="color:#fff;background:#15803d;border-color:#15803d;font-weight:600;">Book salary to Sales</button>
+          </div>
+          <div id="bc-result" style="font-size:12px;color:var(--t3);margin-top:6px;"></div>
+        </div>
         <div class="live-summary" id="sales-summary"></div>
         <div class="tw"><table id="sales-table"><thead><tr><th>Invoice #</th><th>Project</th><th>Period</th><th>Invoice (USD)</th><th>Rate</th><th>Revenue (₱)</th><th>Salary (₱)</th><th>Net (₱)</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="12" class="es">Loading…</td></tr></tbody></table></div>
         <div style="margin-top:10px;text-align:right;"><button class="bsm" onclick="salesLock()" style="color:var(--t2)">🔒 Lock again</button> <button class="bsm" onclick="loadSalesData()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button></div>
@@ -1354,6 +1364,22 @@ async function loadSalesData(){
         '<td><button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')">✕</button></td></tr>';
     }).join('');
   }catch(e){ tb.innerHTML='<tr><td colspan="12" class="es" style="color:#f87171">Could not load.</td></tr>'; }
+}
+async function bookCutoff(){
+  var from=document.getElementById('bc-from').value, to=document.getElementById('bc-to').value;
+  var res=document.getElementById('bc-result'), btn=document.getElementById('bc-btn');
+  if(!from||!to){ if(res){ res.style.color='#f87171'; res.textContent='Pick a From and To date.'; } return; }
+  btn.disabled=true; var orig=btn.textContent; btn.textContent='Booking…';
+  try{
+    var r=await fetch(API+'?action=book_cutoff&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+'&by=Admin&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){
+      res.style.color='#34d399';
+      res.textContent='Booked '+d.count+' project'+(d.count===1?'':'s')+' for '+d.period+'. '+(d.projects||[]).map(function(p){return p.project+' ₱'+Number(p.salary||0).toLocaleString(undefined,{maximumFractionDigits:0});}).join(' · ');
+      loadSalesData();
+    } else { res.style.color='#f87171'; res.textContent='Failed: '+((d&&d.error)||'error'); }
+  }catch(e){ res.style.color='#f87171'; res.textContent='Failed (network).'; }
+  btn.disabled=false; btn.textContent=orig;
 }
 async function salesAdd(){
   var period=document.getElementById('sl-period').value.trim(), usd=document.getElementById('sl-usd').value, fx=document.getElementById('sl-fx').value, client=document.getElementById('sl-client').value.trim(), note=document.getElementById('sl-note').value.trim();
@@ -2398,8 +2424,14 @@ async function pgGenerate(){
   for(var i=0;i<_pgRows.length;i++){ var x=_pgRows[i];
     try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+'&incentives='+encodeURIComponent(x.incentive||0)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) ok++; else fail++; }catch(e){ fail++; }
   }
+  // Auto-book each project's salary cost for this cutoff into Sales (revenue fills in on invoice record).
+  var booked='';
+  try{ var fromD=document.getElementById('pg-from').value, toD=document.getElementById('pg-to').value;
+    var br=await fetch(API+'?action=book_cutoff&from='+encodeURIComponent(fromD)+'&to='+encodeURIComponent(toD)+'&by=Auto (payslip)&_='+Date.now());
+    var bd=await br.json(); if(bd&&bd.ok) booked='\n\nSalary booked to Sales for '+bd.count+' project(s) this cutoff.';
+  }catch(e){}
   btn.disabled=false; btn.textContent='✓ Generate & save all';
-  alert('Payslips saved: '+ok+(fail?(' · failed: '+fail):'')+'.');
+  alert('Payslips saved: '+ok+(fail?(' · failed: '+fail):'')+'.'+booked);
   loadPayslipsAdmin();
 }
 async function loadPayslipsAdmin(){
