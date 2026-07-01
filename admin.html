@@ -663,7 +663,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         </div>
         <div class="live-summary" id="sales-summary"></div>
         <div class="tw"><table id="sales-table"><thead><tr><th>Invoice #</th><th>Project</th><th>Period</th><th>Invoice (USD)</th><th>Rate</th><th>Via</th><th>Revenue (₱)</th><th>Salary (₱)</th><th>Net (₱)</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="13" class="es">Loading…</td></tr></tbody></table></div>
-        <div style="margin-top:10px;text-align:right;"><button class="bsm" onclick="salesLock()" style="color:var(--t2)">🔒 Lock again</button> <button class="bsm" onclick="loadSalesData()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button></div>
+        <div style="margin-top:10px;text-align:right;"><button class="bsm" id="sales-recompute" onclick="recomputeSalesFx()" style="color:#34d399;border-color:rgba(52,211,153,.35)" title="Fill rate + revenue for rows that have a method + invoice but no rate yet">⚡ Compute FX for method rows</button> <button class="bsm" onclick="salesLock()" style="color:var(--t2)">🔒 Lock again</button> <button class="bsm" onclick="loadSalesData()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button></div>
       </div>
     </div>
 
@@ -1335,6 +1335,16 @@ async function loadFxMargins(){
     if(d&&d.ok){ var b=document.getElementById('fm-binance'),w=document.getElementById('fm-wise'),p=document.getElementById('fm-paypal');
       if(b&&b.value==='') b.value=d.binance; if(w&&w.value==='') w.value=d.wise; if(p&&p.value==='') p.value=d.paypal; }
   }catch(e){}
+}
+async function recomputeSalesFx(){
+  var btn=document.getElementById('sales-recompute'); var orig=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML='Computing…'; }
+  try{
+    var r=await fetch(API+'?action=recompute_sales_fx&_='+Date.now()); var d=await r.json();
+    if(d&&d.ok){ if(typeof toast==='function') toast(d.updated>0?('Rates computed for '+d.updated+' row'+(d.updated>1?'s':'')+' (market '+d.raw_rate+').'):'No rows needed a rate.'); loadSalesData(); }
+    else if(typeof toast==='function') toast('Compute failed: '+((d&&d.error)||'error'));
+  }catch(e){ if(typeof toast==='function') toast('Compute failed (network).'); }
+  if(btn){ btn.disabled=false; btn.innerHTML=orig; }
 }
 async function saveFxMargins(){
   var b=document.getElementById('fm-binance').value, w=document.getElementById('fm-wise').value, p=document.getElementById('fm-paypal').value;
