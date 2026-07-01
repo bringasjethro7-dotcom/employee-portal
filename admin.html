@@ -716,7 +716,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
       </div>
       <div class="toolbar" style="margin-top:1.5rem;">
         <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Needs your attention</span> <span id="dash-total" style="font-size:12px;color:var(--t3);margin-left:6px;"></span></div>
-        <div><button class="bsm" onclick="loadDashboard()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button></div>
+        <div style="display:flex;gap:8px;"><button class="bsm" onclick="openNotify()" style="color:#60a5fa;border-color:rgba(96,165,250,.4);">🔔 Send notification</button><button class="bsm" onclick="loadDashboard()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button></div>
       </div>
       <div id="dash-list"><div class="es">Loading…</div></div>
       <div class="toolbar" style="margin-top:1.5rem;">
@@ -3715,7 +3715,73 @@ function renderJmbCal(){
   var box=document.getElementById('jcal-body');
   if(box) box.innerHTML='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;">'+cells+'</div>';
 }
+/* ════════ NOTIFICATIONS — admin composer ════════ */
+var NOTIF_PRESETS={
+  payslip:{ type:'payslip', title:'Payslip available', body:'Your payslip is now available to view in the portal.' },
+  client_paid:{ type:'client_paid', title:'Client payment received', body:'Client [Client X] has paid. Thank you for your great work!' },
+  payout:{ type:'payout', title:'Payout released', body:'The payout for [Project] has been released.' },
+  custom:{ type:'custom', title:'', body:'' }
+};
+function openNotify(){ document.getElementById('notify-modal').style.display='block'; notifFillEmps(); ntPreset(); }
+function closeNotify(){ document.getElementById('notify-modal').style.display='none'; }
+function notifFillEmps(){
+  var sel=document.getElementById('nt-emp'); if(!sel||sel.options.length>1) return;
+  var list=(typeof emps!=='undefined'&&emps&&emps.length)?emps:[];
+  sel.innerHTML='<option value="">Select employee…</option>'+list.filter(function(e){return e.employee_id;}).map(function(e){ return '<option value="'+escAdmin(e.employee_id)+'">'+escAdmin((e.full_name||e.employee_id)+' ('+e.employee_id+')')+'</option>'; }).join('');
+}
+function ntPreset(){
+  var p=NOTIF_PRESETS[document.getElementById('nt-type').value]||NOTIF_PRESETS.custom;
+  document.getElementById('nt-title').value=p.title; document.getElementById('nt-body').value=p.body;
+}
+function ntAudience(){
+  var a=document.getElementById('nt-aud').value;
+  document.getElementById('nt-emp-wrap').style.display=(a==='employee')?'':'none';
+  document.getElementById('nt-proj-wrap').style.display=(a==='project')?'':'none';
+}
+async function sendNotify(){
+  var type=document.getElementById('nt-type').value, title=document.getElementById('nt-title').value.trim(), body=document.getElementById('nt-body').value.trim();
+  var aud=document.getElementById('nt-aud').value; var st=document.getElementById('nt-status');
+  if(!title){ st.style.color='#f87171'; st.textContent='Enter a title.'; return; }
+  var params='action=send_notification&type='+encodeURIComponent(type)+'&title='+encodeURIComponent(title)+'&body='+encodeURIComponent(body)+'&audience='+encodeURIComponent(aud)+'&by=Admin';
+  if(aud==='employee'){ var eid=document.getElementById('nt-emp').value; if(!eid){ st.style.color='#f87171'; st.textContent='Pick an employee.'; return; } params+='&recipients='+encodeURIComponent(eid); }
+  else if(aud==='project'){ var pj=document.getElementById('nt-proj').value.trim(); if(!pj){ st.style.color='#f87171'; st.textContent='Enter the project.'; return; } params+='&project='+encodeURIComponent(pj)+'&audience_label='+encodeURIComponent(pj); }
+  var btn=document.getElementById('nt-send'); btn.disabled=true; var o=btn.textContent; btn.textContent='Sending…'; st.textContent='';
+  try{
+    var r=await fetch(API+'?'+params+'&_='+Date.now()); var d=await r.json();
+    if(d&&d.ok){ st.style.color='#34d399'; st.textContent='Sent'+(d.count==='all'?' to everyone.':(' to '+d.count+' recipient(s).')); if(typeof toast==='function') toast('Notification sent.'); }
+    else { st.style.color='#f87171'; st.textContent='Failed: '+((d&&d.error)||'error'); }
+  }catch(e){ st.style.color='#f87171'; st.textContent='Failed (network).'; }
+  btn.disabled=false; btn.textContent=o;
+}
 </script>
+<div id="notify-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;padding:20px;overflow:auto;">
+  <div style="max-width:560px;margin:40px auto;background:var(--card,#12161d);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;padding:20px 22px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <div style="font-size:16px;font-weight:800;color:var(--t1);">🔔 Send notification</div><span style="flex:1"></span>
+      <button class="bsm" onclick="closeNotify()">✕ Close</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <label style="font-size:12px;color:var(--t3);">Template
+        <select class="sinp" id="nt-type" onchange="ntPreset()" style="width:100%;">
+          <option value="payslip">Payslip available</option><option value="client_paid">Client X has been paid</option><option value="payout">Payout released for project</option><option value="custom">Custom</option>
+        </select>
+      </label>
+      <label style="font-size:12px;color:var(--t3);">Title <input class="sinp" id="nt-title" style="width:100%;"></label>
+      <label style="font-size:12px;color:var(--t3);">Message <textarea class="sinp" id="nt-body" rows="3" style="width:100%;resize:vertical;"></textarea></label>
+      <label style="font-size:12px;color:var(--t3);">Send to
+        <select class="sinp" id="nt-aud" onchange="ntAudience()" style="width:100%;">
+          <option value="all">Everyone</option><option value="employee">Specific employee</option><option value="project">Project team</option>
+        </select>
+      </label>
+      <div id="nt-emp-wrap" style="display:none;"><label style="font-size:12px;color:var(--t3);">Employee <select class="sinp" id="nt-emp" style="width:100%;"><option value="">Select employee…</option></select></label></div>
+      <div id="nt-proj-wrap" style="display:none;"><label style="font-size:12px;color:var(--t3);">Project (name as in Work Log) <input class="sinp" id="nt-proj" placeholder="e.g. ALTR Media" style="width:100%;"></label></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
+        <button class="bsm" id="nt-send" onclick="sendNotify()" style="color:#fff;background:#2563eb;border-color:#2563eb;font-weight:600;">Send notification</button>
+        <span id="nt-status" style="font-size:12px;"></span>
+      </div>
+    </div>
+  </div>
+</div>
 <div id="jcal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;padding:20px;overflow:auto;">
   <div style="max-width:940px;margin:24px auto;background:var(--card,#12161d);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;padding:20px 22px;">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
