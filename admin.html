@@ -643,7 +643,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <div id="sales-calc" class="sales-calc">Enter an invoice amount to see the computed net revenue.</div>
         </div>
         <div class="live-summary" id="sales-summary"></div>
-        <div class="tw"><table id="sales-table"><thead><tr><th>Period</th><th>Invoice (USD)</th><th>Rate</th><th>Revenue (₱)</th><th>Payroll (₱)</th><th>Net (₱)</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="10" class="es">Loading…</td></tr></tbody></table></div>
+        <div class="tw"><table id="sales-table"><thead><tr><th>Invoice #</th><th>Project</th><th>Period</th><th>Invoice (USD)</th><th>Rate</th><th>Revenue (₱)</th><th>Salary (₱)</th><th>Net (₱)</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="12" class="es">Loading…</td></tr></tbody></table></div>
         <div style="margin-top:10px;text-align:right;"><button class="bsm" onclick="salesLock()" style="color:var(--t2)">🔒 Lock again</button> <button class="bsm" onclick="loadSalesData()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button></div>
       </div>
     </div>
@@ -1333,7 +1333,7 @@ async function loadSalesData(){
     var r=await fetch(API+'?action=get_sales&token='+encodeURIComponent(_salesToken())+'&_='+Date.now()); var d=await r.json();
     if(d&&d.error==='LOCKED'){ salesLock(); return; }
     var rows=(d&&d.sales)||[];
-    if(!rows.length){ tb.innerHTML='<tr><td colspan="10" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
+    if(!rows.length){ tb.innerHTML='<tr><td colspan="12" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
     var tRev=0,tPay=0,tNet=0; rows.forEach(function(x){ tRev+=x.revenue_php||0; tPay+=x.payroll_php||0; tNet+=x.net_php||0; });
     document.getElementById('sales-summary').innerHTML=
       '<div class="ls"><b>'+_peso(tRev)+'</b><span>Gross revenue</span></div>'+
@@ -1341,7 +1341,9 @@ async function loadSalesData(){
       '<div class="ls"><b style="color:'+(tNet<0?'#f87171':'#34d399')+'">'+_peso(tNet)+'</b><span>Net revenue</span></div>'+
       '<div class="ls"><b>'+rows.length+'</b><span>Records</span></div>';
     tb.innerHTML=rows.map(function(x){
-      return '<tr><td>'+escAdmin(x.period)+'</td>'+
+      return '<tr><td style="font-weight:600;color:var(--o3)">'+escAdmin(x.invoice_no||'—')+'</td>'+
+        '<td>'+escAdmin(x.project||'—')+'</td>'+
+        '<td>'+escAdmin(x.period)+'</td>'+
         '<td>$'+(x.invoice_usd||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
         '<td>'+(x.fx_rate||0)+'</td>'+
         '<td>'+_peso(x.revenue_php)+'</td>'+
@@ -1351,7 +1353,7 @@ async function loadSalesData(){
         '<td style="color:var(--t3);font-size:12px">'+escAdmin(x.created_at||'')+(x.by?(' · '+escAdmin(x.by)):'')+'</td>'+
         '<td><button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')">✕</button></td></tr>';
     }).join('');
-  }catch(e){ tb.innerHTML='<tr><td colspan="10" class="es" style="color:#f87171">Could not load.</td></tr>'; }
+  }catch(e){ tb.innerHTML='<tr><td colspan="12" class="es" style="color:#f87171">Could not load.</td></tr>'; }
 }
 async function salesAdd(){
   var period=document.getElementById('sl-period').value.trim(), usd=document.getElementById('sl-usd').value, fx=document.getElementById('sl-fx').value, client=document.getElementById('sl-client').value.trim(), note=document.getElementById('sl-note').value.trim();
@@ -2524,8 +2526,7 @@ async function generateInvoice(){
   openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100);
 }
 function openInvoiceWindow(project, from, to, lines, subtotal){
-  var seq=parseInt(localStorage.getItem('jmb_inv_seq')||'758',10);
-  var invNo='INV'+seq; localStorage.setItem('jmb_inv_seq', String(seq+1));
+  var invNo='';   // no number until the invoice is RECORDED (assigned server-side, starts at 762)
   var today=new Date(); var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
   var logo='<svg width="58" height="58" viewBox="76 82 360 360" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="ilM" x1="0" y1="0.05" x2="0" y2="0.95"><stop offset="0%" stop-color="#FFE0BE"/><stop offset="16%" stop-color="#FFB16A"/><stop offset="46%" stop-color="#FF7A29"/><stop offset="78%" stop-color="#F1560F"/><stop offset="100%" stop-color="#C3380A"/></linearGradient><linearGradient id="ilB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF8E45"/><stop offset="55%" stop-color="#E64C10"/><stop offset="100%" stop-color="#A52E08"/></linearGradient></defs><rect x="241" y="110" width="30" height="304" rx="15" fill="url(#ilM)"/><path d="M256 226 Q341 264 398 320 Q341 376 256 414 Q171 376 114 320 Q171 264 256 226 Z" fill="none" stroke="url(#ilB)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/><path d="M256 110 Q341 148 398 204 Q341 260 256 298 Q171 260 114 204 Q171 148 256 110 Z" fill="none" stroke="url(#ilM)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   var rowsHtml=lines.map(function(l){
@@ -2540,6 +2541,8 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
     '.sheet{max-width:900px;margin:0 auto;background:#fff;padding:46px 54px;box-shadow:0 10px 40px rgba(0,0,0,.12);border-radius:6px;}'+
     '.topbar{display:flex;gap:10px;align-items:center;margin:-12px 0 24px;flex-wrap:wrap;}'+
     '.pbtn{background:#FF6B1A;color:#fff;border:none;padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;}'+
+    '.rbtn{background:#15803d;color:#fff;border:none;padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;}.rbtn:disabled{opacity:.7;cursor:default;}'+
+    '.recstat{font-size:12px;font-weight:600;flex-basis:100%;}'+
     '.cbtn{background:#fff;border:1px solid #d1d5db;padding:9px 14px;border-radius:8px;cursor:pointer;font-size:13px;}'+
     '.hint{font-size:12px;color:#9ca3af;}'+
     '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #FF6B1A;padding-bottom:18px;}'+
@@ -2568,12 +2571,12 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
     '[contenteditable]:hover{outline:1px dashed #FF6B1A;border-radius:3px;}.val:empty:before{content:"Client name";color:#cbd5e1;}'+
     '@media print{body{background:#fff;padding:0;}.sheet{box-shadow:none;max-width:none;padding:20px 28px;}.no-print{display:none!important;}[contenteditable]:hover{outline:none;}}';
   var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+invNo+' - '+escAdmin(project)+'</title><style>'+css+'</style></head><body><div class="sheet">'+
-    '<div class="topbar no-print"><button class="pbtn" onclick="window.print()">Print / Save as PDF</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Click Bill&nbsp;To, Invoice&nbsp;#, Notes, dates, or footer to edit before printing.</span></div>'+
+    '<div class="topbar no-print"><button class="rbtn" id="rec-btn" onclick="recordInvoice()">Record &amp; assign #</button><button class="pbtn" onclick="window.print()">Print / Save as PDF</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Preview only — no invoice # until you Record. Recording books it to Sales (revenue − project salary).</span><span id="rec-status" class="recstat"></span></div>'+
     '<div class="sendbar no-print"><span class="slbl">Send to client:</span><input id="inv-contact" class="sinp" placeholder="Phone incl. country code, e.g. 447911123456" /><button class="wabtn" onclick="sendWA()">WhatsApp</button><button class="tgbtn" onclick="sendTG()">Telegram</button><span class="shint">Tip: Save the PDF first (Print &rarr; Save as PDF), then attach it in the chat. The greeting message is filled in for you.</span></div>'+
     '<div class="head"><div class="brand">'+logo+'<div><div class="cname">JMB Virtuals</div><div class="caddr">Philippines</div><div class="cweb">jmbvirtuals.com</div></div></div><div class="invtitle">INVOICE</div></div>'+
     '<div class="meta"><div class="billto"><div class="lbl">BILL TO</div><div class="val" contenteditable="true"></div>'+
       '<div class="period">Payout for period from <b contenteditable="true">'+invDate(from)+'</b> to <b contenteditable="true">'+invDate(to)+'</b></div></div>'+
-      '<div class="metaright"><div class="mrow"><span>INVOICE</span><b contenteditable="true">'+invNo+'</b></div><div class="mrow"><span>DATE</span><b contenteditable="true">'+invDate(todayStr)+'</b></div><div class="mrow"><span>TERMS</span><b contenteditable="true">DUE IN 48 HRS</b></div></div></div>'+
+      '<div class="metaright"><div class="mrow"><span>INVOICE</span><b id="inv-no" contenteditable="true">'+(invNo||'PREVIEW — not recorded')+'</b></div><div class="mrow"><span>DATE</span><b contenteditable="true">'+invDate(todayStr)+'</b></div><div class="mrow"><span>TERMS</span><b contenteditable="true">DUE IN 48 HRS</b></div></div></div>'+
     '<table class="items"><thead><tr><th>SERVICE</th><th class="num">TOTAL HOURS</th><th class="num">RATE/HR</th><th class="num">AMOUNT</th></tr></thead><tbody>'+
       '<tr class="grp"><td colspan="4">'+escAdmin(project)+'</td></tr>'+rowsHtml+'</tbody></table>'+
     '<div class="totals"><div class="trow"><span>SUBTOTAL</span><b>'+invMoney(subtotal)+'</b></div></div>'+
@@ -2586,6 +2589,18 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
     '</div>'+
     '<script>(function(){'+
       'var PROJ='+JSON.stringify(project)+';'+
+      'var API='+JSON.stringify(API)+';var PFROM='+JSON.stringify(from)+';var PTO='+JSON.stringify(to)+';var PSUB='+(Number(subtotal)||0)+';'+
+      'window.recordInvoice=function(){'+
+        'var btn=document.getElementById("rec-btn"),st=document.getElementById("rec-status");'+
+        'var bt=document.querySelector(".billto .val");var client=bt?bt.textContent.trim():"";'+
+        'btn.disabled=true;btn.textContent="Recording…";if(st){st.textContent="";}'+
+        'fetch(API+"?action=record_invoice&project="+encodeURIComponent(PROJ)+"&from="+encodeURIComponent(PFROM)+"&to="+encodeURIComponent(PTO)+"&invoice_usd="+encodeURIComponent(PSUB)+"&client="+encodeURIComponent(client)+"&by=Admin&_="+Date.now())'+
+        '.then(function(r){return r.json();}).then(function(d){'+
+          'if(d&&d.ok){var b=document.getElementById("inv-no");if(b)b.textContent=d.invoice_no;btn.textContent="Recorded \\u2713 "+d.invoice_no;'+
+            'if(st){st.style.color="#15803d";st.textContent="Booked to Sales \\u2014 Net \\u20b1"+Number(d.net_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+"  (Revenue \\u20b1"+Number(d.revenue_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+" \\u2212 Salary \\u20b1"+Number(d.payroll_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+" @ FX "+d.fx_rate+")";}'+
+          '}else{btn.disabled=false;btn.textContent="Record & assign #";if(st){st.style.color="#dc2626";st.textContent="Record failed: "+((d&&d.error)||"error");}}'+
+        '}).catch(function(){btn.disabled=false;btn.textContent="Record & assign #";if(st){st.style.color="#dc2626";st.textContent="Record failed (network).";}});'+
+      '};'+
       'var key="inv_contact_"+PROJ;var inp=document.getElementById("inv-contact");'+
       'try{var s=localStorage.getItem(key);if(s)inp.value=s;}catch(e){}'+
       'function txt(sel){var el=document.querySelector(sel);return el?el.textContent.trim():"";}'+
