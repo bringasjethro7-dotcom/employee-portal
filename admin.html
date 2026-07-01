@@ -712,6 +712,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         <div class="dash-card" onclick="goTab('leave')"><div class="dc-top"><span class="dc-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span><span class="dc-count" id="dc-leave">—</span></div><div class="dc-label">Leave requests</div></div>
         <div class="dash-card" onclick="goTab('coe')"><div class="dc-top"><span class="dc-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span><span class="dc-count" id="dc-coe">—</span></div><div class="dc-label">COE requests</div></div>
         <div class="dash-card" onclick="goTab('worklog')"><div class="dc-top"><span class="dc-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span><span class="dc-count" id="dc-appeals">—</span></div><div class="dc-label">Hour appeals</div></div>
+        <div class="dash-card" onclick="openJmbCal()"><div class="dc-top"><span class="dc-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span><span class="dc-count" id="dc-oncal">—</span></div><div class="dc-label">JMB Calendar</div></div>
       </div>
       <div class="toolbar" style="margin-top:1.5rem;">
         <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Needs your attention</span> <span id="dash-total" style="font-size:12px;color:var(--t3);margin-left:6px;"></span></div>
@@ -1625,6 +1626,12 @@ async function loadDashboard(opts){
   var list=document.getElementById('dash-list');
   if(!list) return;
   if(!opts.silent) list.innerHTML='<div class="es">Loading…</div>';
+  // JMB Calendar card: how many are on approved leave today
+  fetch(API+'?action=approved_leaves&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+    JCAL_LEAVES=(d&&d.leaves)||[]; var t=(new Date()); var tk=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+    var n=JCAL_LEAVES.filter(function(lv){ return tk>=lv.start && tk<=(lv.end||lv.start); }).length;
+    var el=document.getElementById('dc-oncal'); if(el) el.textContent=n;
+  }).catch(function(){});
   try{
     var R=await Promise.all([
       fetch(API+'?action=get_leave_requests').then(function(r){return r.json();}).catch(function(){return {};}),
@@ -3672,6 +3679,57 @@ async function submitScorecard() {
   }
 }
 
+/* ════════ JMB CALENDAR — approved leaves on a month grid ════════ */
+var JCAL_LEAVES=null, JCAL_M=null;   // JCAL_M = Date for the shown month
+function openJmbCal(){ document.getElementById('jcal-modal').style.display='block'; if(!JCAL_M){ var n=new Date(); JCAL_M=new Date(n.getFullYear(),n.getMonth(),1); } if(!JCAL_LEAVES) loadJmbCal(); else renderJmbCal(); }
+function closeJmbCal(){ document.getElementById('jcal-modal').style.display='none'; }
+function jcalShift(d){ JCAL_M=new Date(JCAL_M.getFullYear(), JCAL_M.getMonth()+d, 1); renderJmbCal(); }
+async function loadJmbCal(){
+  var body=document.getElementById('jcal-body'); if(body) body.innerHTML='<div class="es" style="padding:16px">Loading…</div>';
+  try{ var r=await fetch(API+'?action=approved_leaves&_='+Date.now()); var d=await r.json(); JCAL_LEAVES=(d&&d.leaves)||[]; renderJmbCal(); }
+  catch(e){ if(body) body.innerHTML='<div class="es" style="padding:16px;color:#f87171">Could not load leaves.</div>'; }
+}
+function _jcalYMD(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+function _jcalType(t){ t=String(t||'').toLowerCase(); if(t.indexOf('sick')>=0) return {c:'#f87171',b:'rgba(248,113,113,.16)'}; if(t.indexOf('vac')>=0||t.indexOf('vl')>=0) return {c:'#34d399',b:'rgba(52,211,153,.16)'}; if(t.indexOf('emerg')>=0) return {c:'#fb923c',b:'rgba(251,146,60,.16)'}; return {c:'#60a5fa',b:'rgba(96,165,250,.16)'}; }
+function renderJmbCal(){
+  var lab=document.getElementById('jcal-label'); if(lab) lab.textContent=JCAL_M.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  // map date -> [leaves]
+  var byDay={}; (JCAL_LEAVES||[]).forEach(function(lv){
+    var s=new Date(lv.start+'T00:00:00'), e=new Date((lv.end||lv.start)+'T00:00:00');
+    for(var dt=new Date(s); dt<=e; dt.setDate(dt.getDate()+1)){ var k=_jcalYMD(dt); (byDay[k]=byDay[k]||[]).push(lv); }
+  });
+  var y=JCAL_M.getFullYear(), m=JCAL_M.getMonth();
+  var first=new Date(y,m,1), startDow=first.getDay(), days=new Date(y,m+1,0).getDate();
+  var todayK=_jcalYMD(new Date());
+  var cells='';
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(function(d){ cells+='<div style="text-align:center;font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;padding:4px 0;">'+d+'</div>'; });
+  for(var i=0;i<startDow;i++) cells+='<div></div>';
+  for(var day=1;day<=days;day++){
+    var k=_jcalYMD(new Date(y,m,day)); var list=byDay[k]||[];
+    var isToday=(k===todayK);
+    var chips=list.slice(0,4).map(function(lv){ var c=_jcalType(lv.type); return '<div title="'+escAdmin((lv.full_name||lv.employee_id)+' — '+(lv.type||'Leave')+(lv.reason?(' · '+lv.reason):''))+'" style="font-size:10.5px;font-weight:600;color:'+c.c+';background:'+c.b+';border-radius:6px;padding:1px 5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escAdmin((lv.full_name||lv.employee_id).split(',')[0])+'</div>'; }).join('');
+    if(list.length>4) chips+='<div style="font-size:10px;color:var(--t3);margin-top:2px;">+'+(list.length-4)+' more</div>';
+    cells+='<div style="min-height:74px;border:1px solid '+(isToday?'var(--o3)':'var(--border)')+';border-radius:9px;padding:5px 6px;background:'+(list.length?'rgba(255,255,255,.02)':'transparent')+';">'+
+      '<div style="font-size:11px;color:'+(isToday?'var(--o3)':'var(--t2)')+';font-weight:'+(isToday?'700':'500')+';">'+day+'</div>'+chips+'</div>';
+  }
+  var box=document.getElementById('jcal-body');
+  if(box) box.innerHTML='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;">'+cells+'</div>';
+}
 </script>
+<div id="jcal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;padding:20px;overflow:auto;">
+  <div style="max-width:940px;margin:24px auto;background:var(--card,#12161d);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;padding:20px 22px;">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+      <div style="font-size:16px;font-weight:800;color:var(--t1);">📅 JMB Calendar</div>
+      <span style="font-size:12px;color:var(--t3);">Approved leaves</span>
+      <span style="flex:1"></span>
+      <button class="bsm" onclick="jcalShift(-1)">←</button>
+      <b id="jcal-label" style="min-width:150px;text-align:center;color:var(--t1);"></b>
+      <button class="bsm" onclick="jcalShift(1)">→</button>
+      <button class="bsm" onclick="loadJmbCal()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻</button>
+      <button class="bsm" onclick="closeJmbCal()">✕ Close</button>
+    </div>
+    <div id="jcal-body"><div class="es" style="padding:16px">Loading…</div></div>
+  </div>
+</div>
 </body>
 </html>

@@ -4659,7 +4659,10 @@
           <div class="emp-live-title"><span class="emp-live-dot"></span> Live now <span id="emp-live-count" class="emp-live-badge">0</span></div>
           <div class="emp-live-sub" id="emp-live-updated">Real-time running timers · auto-refreshes</div>
         </div>
-        <button class="emp-live-refresh" onclick="empFetchRunning()">↻ Refresh</button>
+        <div style="display:flex;gap:8px;">
+          <button class="emp-live-refresh" onclick="toggleEmpCal()">📅 JMB Calendar</button>
+          <button class="emp-live-refresh" onclick="empFetchRunning()">↻ Refresh</button>
+        </div>
       </div>
       <div class="emp-live-legend">
         <div class="ell"><span class="elld" style="background:#34d399"></span>Working</div>
@@ -4668,6 +4671,19 @@
         <div class="ell"><span class="elld" style="background:#f87171"></span>No task</div>
       </div>
       <div id="emp-live-now" class="emp-live-grid"><div class="emp-live-empty">Loading…</div></div>
+
+      <!-- JMB CALENDAR (approved leaves) -->
+      <div id="emp-cal-wrap" style="display:none;margin-top:1.25rem;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+          <div style="font-size:15px;font-weight:700;color:var(--text-1);">📅 JMB Calendar</div>
+          <span style="font-size:12px;color:var(--text-3);">Approved leaves</span>
+          <span style="flex:1"></span>
+          <button class="emp-live-refresh" onclick="empCalShift(-1)">←</button>
+          <b id="emp-cal-label" style="min-width:140px;text-align:center;color:var(--text-1);"></b>
+          <button class="emp-live-refresh" onclick="empCalShift(1)">→</button>
+        </div>
+        <div id="emp-cal-body"><div class="emp-live-empty">Loading…</div></div>
+      </div>
     </div>
 
 <!-- PROFILE -->
@@ -5547,6 +5563,37 @@ async function empFetchRunning(){
     _empLiveRows=(d&&d.running)||[]; _empLiveBase=Date.now(); empRenderLive();
     var u=document.getElementById('emp-live-updated'); if(u) u.textContent='Updated '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' · auto-refreshes';
   }catch(e){ var box=document.getElementById('emp-live-now'); if(box) box.innerHTML='<div class="emp-live-empty" style="color:#f87171">Could not load live data.</div>'; }
+}
+/* ── JMB CALENDAR (approved leaves) — Team Live, CL7–CL9 ── */
+var _empCalLeaves=null, _empCalM=null;
+function toggleEmpCal(){
+  var w=document.getElementById('emp-cal-wrap'); if(!w) return;
+  if(w.style.display==='none'){ w.style.display='block'; if(!_empCalM){ var n=new Date(); _empCalM=new Date(n.getFullYear(),n.getMonth(),1); } if(!_empCalLeaves) loadEmpCal(); else renderEmpCal(); }
+  else w.style.display='none';
+}
+function empCalShift(d){ _empCalM=new Date(_empCalM.getFullYear(), _empCalM.getMonth()+d, 1); renderEmpCal(); }
+async function loadEmpCal(){
+  var box=document.getElementById('emp-cal-body'); if(box) box.innerHTML='<div class="emp-live-empty">Loading…</div>';
+  try{ var r=await fetch(APPS_SCRIPT_URL+'?action=approved_leaves&_='+Date.now()); var d=await r.json(); _empCalLeaves=(d&&d.leaves)||[]; renderEmpCal(); }
+  catch(e){ if(box) box.innerHTML='<div class="emp-live-empty" style="color:#f87171">Could not load leaves.</div>'; }
+}
+function _ecYMD(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+function _ecType(t){ t=String(t||'').toLowerCase(); if(t.indexOf('sick')>=0) return {c:'#f87171',b:'rgba(248,113,113,.16)'}; if(t.indexOf('vac')>=0||t.indexOf('vl')>=0) return {c:'#34d399',b:'rgba(52,211,153,.16)'}; if(t.indexOf('emerg')>=0) return {c:'#fb923c',b:'rgba(251,146,60,.16)'}; return {c:'#60a5fa',b:'rgba(96,165,250,.16)'}; }
+function renderEmpCal(){
+  var lab=document.getElementById('emp-cal-label'); if(lab) lab.textContent=_empCalM.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  var byDay={}; (_empCalLeaves||[]).forEach(function(lv){ var s=new Date(lv.start+'T00:00:00'), e=new Date((lv.end||lv.start)+'T00:00:00'); for(var dt=new Date(s); dt<=e; dt.setDate(dt.getDate()+1)){ var k=_ecYMD(dt); (byDay[k]=byDay[k]||[]).push(lv); } });
+  var y=_empCalM.getFullYear(), m=_empCalM.getMonth(), first=new Date(y,m,1), startDow=first.getDay(), days=new Date(y,m+1,0).getDate(), todayK=_ecYMD(new Date());
+  var cells='';
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(function(d){ cells+='<div style="text-align:center;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;padding:4px 0;">'+d+'</div>'; });
+  for(var i=0;i<startDow;i++) cells+='<div></div>';
+  for(var day=1;day<=days;day++){
+    var k=_ecYMD(new Date(y,m,day)), list=byDay[k]||[], isToday=(k===todayK);
+    var chips=list.slice(0,4).map(function(lv){ var c=_ecType(lv.type); var nm=String(lv.full_name||lv.employee_id).split(',')[0]; return '<div title="'+escapeHtml((lv.full_name||lv.employee_id)+' — '+(lv.type||'Leave'))+'" style="font-size:10.5px;font-weight:600;color:'+c.c+';background:'+c.b+';border-radius:6px;padding:1px 5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(nm)+'</div>'; }).join('');
+    if(list.length>4) chips+='<div style="font-size:10px;color:var(--text-3);margin-top:2px;">+'+(list.length-4)+' more</div>';
+    cells+='<div style="min-height:70px;border:1px solid '+(isToday?'var(--orange-3,#FF6B1A)':'var(--border)')+';border-radius:9px;padding:5px 6px;">'+
+      '<div style="font-size:11px;color:'+(isToday?'var(--orange-3,#FF6B1A)':'var(--text-2)')+';font-weight:'+(isToday?'700':'500')+';">'+day+'</div>'+chips+'</div>';
+  }
+  var box=document.getElementById('emp-cal-body'); if(box) box.innerHTML='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;">'+cells+'</div>';
 }
 function empRenderLive(){
   var box=document.getElementById('emp-live-now'); if(!box) return;
