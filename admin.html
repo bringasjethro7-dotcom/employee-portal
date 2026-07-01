@@ -1336,12 +1336,19 @@ async function loadFxMargins(){
       if(b&&b.value==='') b.value=d.binance; if(w&&w.value==='') w.value=d.wise; if(p&&p.value==='') p.value=d.paypal; }
   }catch(e){}
 }
-async function recomputeSalesFx(){
+async function recomputeSalesFx(manualRate){
   var btn=document.getElementById('sales-recompute'); var orig=btn?btn.innerHTML:'';
   if(btn){ btn.disabled=true; btn.innerHTML='Computing…'; }
   try{
-    var r=await fetch(API+'?action=recompute_sales_fx&_='+Date.now()); var d=await r.json();
+    var url=API+'?action=recompute_sales_fx'+(manualRate?('&market='+encodeURIComponent(manualRate)):'')+'&_='+Date.now();
+    var r=await fetch(url); var d=await r.json();
     if(d&&d.ok){ if(typeof toast==='function') toast(d.updated>0?('Rates computed for '+d.updated+' row'+(d.updated>1?'s':'')+' (market '+d.raw_rate+').'):'No rows needed a rate.'); loadSalesData(); }
+    else if(d&&d.error==='NO_RATE'){
+      if(btn){ btn.disabled=false; btn.innerHTML=orig; }
+      var m=prompt('Auto FX is unavailable right now. Enter today\'s market USD→PHP rate (per-method margins will be applied):');
+      if(m&&!isNaN(parseFloat(m))&&parseFloat(m)>0){ return recomputeSalesFx(parseFloat(m)); }
+      return;
+    }
     else if(typeof toast==='function') toast('Compute failed: '+((d&&d.error)||'error'));
   }catch(e){ if(typeof toast==='function') toast('Compute failed (network).'); }
   if(btn){ btn.disabled=false; btn.innerHTML=orig; }
