@@ -1080,8 +1080,10 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pg-idle"> include idle hours</label>
           <button class="bsm" onclick="pgPreview()" style="color:var(--o3);border-color:rgba(255,107,26,.35);">Preview</button>
           <button class="bsm" id="pg-save" onclick="pgGenerate()" style="display:none;color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">✓ Generate &amp; save all</button>
+          <button class="bsm" id="pg-disb" onclick="pgDisburse()" style="display:none;color:#34d399;border-color:rgba(52,211,153,.4);font-weight:600;">💸 Disbursement list</button>
         </div>
         <div id="pg-preview"></div>
+        <div id="pg-disburse"></div>
       </div>
       <div class="tw">
         <table id="pay-table">
@@ -2472,6 +2474,7 @@ async function pgPreview(){
           '<td id="pg-gross-'+i+'"><b>₱'+x.gross.toLocaleString(undefined,{maximumFractionDigits:2})+'</b></td></tr>';
       }).join('')+'</tbody></table></div>';
     document.getElementById('pg-save').style.display='';
+    document.getElementById('pg-disb').style.display='';
   }catch(e){ box.innerHTML='<div class="es" style="padding:10px 0;color:#f87171">Could not compute — try again.</div>'; }
 }
 function pgIncChange(i, val){
@@ -2498,6 +2501,55 @@ async function pgGenerate(){
   }catch(e){}
   btn.disabled=false; btn.textContent='✓ Generate & save all';
   alert('Payslips saved: '+ok+(fail?(' · failed: '+fail):'')+'.'+booked);
+  loadPayslipsAdmin();
+}
+/* ── PAYROLL DISBURSEMENT (GoTyme InstaPay, one-by-one) ── */
+var _pgBanks={};
+async function pgDisburse(){
+  if(!_pgRows||!_pgRows.length){ alert('Preview a cutoff first.'); return; }
+  var box=document.getElementById('pg-disburse'); box.innerHTML='<div class="es" style="padding:10px 0">Loading GoTyme accounts…</div>';
+  try{ var r=await fetch(API+'?action=get_banks&_='+Date.now()); var d=await r.json(); _pgBanks=(d&&d.banks)||{}; }catch(e){ _pgBanks={}; }
+  var ref='JMB Payroll '+_pgPeriod;
+  var rows=_pgRows.map(function(x,i){
+    var acct=_pgBanks[x.id]||'';
+    var amt=(Math.round(x.gross*100)/100).toFixed(2);
+    return '<tr>'+
+      '<td>'+payEsc(x.name)+'</td>'+
+      '<td><input class="sinp" style="width:150px" value="'+payEsc(acct)+'" placeholder="GoTyme no." oninput="pgBankChange(\''+payEsc(x.id)+'\',this.value)"></td>'+
+      '<td style="white-space:nowrap"><b>₱'+amt+'</b> <button class="bsm" title="Copy amount" onclick="pgCopy(\''+amt+'\')">⧉</button></td>'+
+      '<td style="white-space:nowrap"><button class="bsm" title="Copy GoTyme no." onclick="pgCopyAcct('+i+')">Copy no.</button></td>'+
+    '</tr>';
+  }).join('');
+  var totG=_pgRows.reduce(function(s,x){return s+x.gross;},0);
+  box.innerHTML='<div class="paygen" style="margin-top:12px;">'+
+    '<div class="paygen-title">💸 Disbursement — GoTyme InstaPay ('+payEsc(_pgPeriod)+')</div>'+
+    '<div class="paygen-sub">Send each person via GoTyme, using the number + amount below (reference: <b>'+payEsc(ref)+'</b>). Fill in a GoTyme number once and it’s saved for next time.</div>'+
+    '<div class="tw" style="margin-top:8px;"><table><thead><tr><th>Employee</th><th>GoTyme number</th><th>Amount</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;">'+
+      '<div style="font-size:13px;color:var(--t2)">Total: <b style="color:var(--t1)">₱'+totG.toLocaleString(undefined,{maximumFractionDigits:2})+'</b> · '+_pgRows.length+' employees</div>'+
+      '<span style="flex:1"></span>'+
+      '<button class="bsm" onclick="pgCopyAll()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">⧉ Copy all (name · no. · amount)</button>'+
+      '<button class="bsm" onclick="pgMarkPaidNotify()" style="color:#fff;background:#16a34a;border-color:#16a34a;font-weight:600;">✓ Mark all paid &amp; notify</button>'+
+    '</div>'+
+    '<div id="pg-disb-status" style="font-size:12px;color:var(--t3);margin-top:6px;"></div>'+
+  '</div>';
+}
+function pgBankChange(id,val){ _pgBanks[id]=val; clearTimeout(window._pgBankT); window._pgBankT=setTimeout(function(){ fetch(API+'?action=set_bank&employee_id='+encodeURIComponent(id)+'&account='+encodeURIComponent(val)+'&_='+Date.now()); }, 500); }
+function pgCopy(t){ try{ navigator.clipboard.writeText(String(t)); if(typeof toast==='function') toast('Copied'); }catch(e){} }
+function pgCopyAcct(i){ var x=_pgRows[i]; var a=_pgBanks[x.id]||''; if(!a){ if(typeof toast==='function') toast('No GoTyme number set.'); return; } pgCopy(a); }
+function pgCopyAll(){
+  var lines=_pgRows.map(function(x){ return (x.name)+'\t'+(_pgBanks[x.id]||'')+'\t'+(Math.round(x.gross*100)/100).toFixed(2); }).join('\n');
+  pgCopy(lines);
+}
+async function pgMarkPaidNotify(){
+  if(!confirm('Only do this AFTER you have sent the GoTyme transfers.\n\nMark all '+_pgRows.length+' payslip(s) for '+_pgPeriod+' as PAID, email each employee, and post a "payout released" notification?')) return;
+  var st=document.getElementById('pg-disb-status'); st.style.color='var(--t3)'; st.textContent='Marking paid…';
+  var ok=0,fail=0,ids=[];
+  for(var i=0;i<_pgRows.length;i++){ var x=_pgRows[i]; ids.push(x.id);
+    try{ var r=await fetch(API+'?action=mark_payslip_paid&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&_='+Date.now()); var d=await r.json(); if(d&&d.success) ok++; else fail++; }catch(e){ fail++; }
+  }
+  try{ await fetch(API+'?action=send_notification&type=payout&title='+encodeURIComponent('Payout released')+'&body='+encodeURIComponent('Your payroll for '+_pgPeriod+' has been released to your GoTyme account. 🎉')+'&audience=employee&recipients='+encodeURIComponent(ids.join(','))+'&by=Admin&_='+Date.now()); }catch(e){}
+  st.style.color='#34d399'; st.textContent='Done — '+ok+' marked paid'+(fail?(' · '+fail+' failed'):'')+', employees emailed + notified.';
   loadPayslipsAdmin();
 }
 // Parse a payslip period label ("Jun 16 – Jun 30, 2026") to a sortable time (uses the END date).
