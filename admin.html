@@ -971,6 +971,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
             <option value="20">Markup +20%</option>
           </select>
           <button class="bsm" onclick="generateInvoice()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Generate Invoice</button>
+          <button class="bsm" onclick="openVolReview()" style="color:#34d399;border-color:rgba(52,211,153,.4);">✔ Review volumes</button>
           <button class="bsm" onclick="exportWorkLogCSV()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
           <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
@@ -3672,6 +3673,72 @@ async function submitScorecard() {
   }
 }
 
+/* ════════ VOLUME REVIEW (admin) — approve/reject/edit worklog volumes before they count in QPH ════════ */
+var VREV=[];
+function openVolReview(){ document.getElementById('vol-modal').style.display='block'; loadVolReview(); }
+function closeVolReview(){ document.getElementById('vol-modal').style.display='none'; }
+async function loadVolReview(){
+  var from=(document.getElementById('wl-from')||{}).value||'', to=(document.getElementById('wl-to')||{}).value||'';
+  var status=(document.getElementById('vr-status')||{}).value||'pending';
+  var box=document.getElementById('vr-body'); box.innerHTML='<div class="es" style="padding:14px">Loading…</div>';
+  try{
+    var r=await fetch(API+'?action=vol_review&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+'&status='+encodeURIComponent(status)+'&_='+Date.now());
+    var d=await r.json();
+    if(!d||!d.ok){ box.innerHTML='<div class="es" style="padding:14px">Could not load entries.</div>'; return; }
+    VREV=d.rows||[]; var c=d.counts||{};
+    document.getElementById('vr-counts').textContent=(c.pending||0)+' pending · '+(c.approved||0)+' approved · '+(c.rejected||0)+' rejected';
+    renderVolReview();
+  }catch(e){ box.innerHTML='<div class="es" style="padding:14px;color:#f87171">Network error.</div>'; }
+}
+function renderVolReview(){
+  var box=document.getElementById('vr-body');
+  if(!VREV.length){ box.innerHTML='<div class="es" style="padding:14px">No entries for this filter.</div>'; return; }
+  box.innerHTML='<div class="tw"><table><thead><tr><th>Employee</th><th>Date</th><th>Task</th><th>Hours</th><th>Volume</th><th>Status</th><th>Action</th></tr></thead><tbody>'+
+    VREV.map(function(x,i){
+      var col={pending:'#fbbf24',approved:'#34d399',rejected:'#f87171'}[x.vol_status]||'#fbbf24'; var noId=!x.id;
+      return '<tr><td>'+escAdmin(x.full_name)+'</td><td style="white-space:nowrap">'+escAdmin(x.date)+'</td><td>'+escAdmin(x.task||'—')+'</td><td style="white-space:nowrap">'+(Math.round(x.hours*100)/100)+'h</td>'+
+        '<td><input id="vr-v-'+i+'" type="number" step="any" value="'+(x.volume===''?'':x.volume)+'" placeholder="—" style="width:82px" class="sinp"'+(noId?' disabled':'')+'></td>'+
+        '<td style="color:'+col+';font-weight:700;text-transform:capitalize">'+x.vol_status+(x.vol_by?('<div style="font-size:10px;color:var(--t3);font-weight:400">'+escAdmin(x.vol_by)+'</div>'):'')+'</td>'+
+        '<td style="white-space:nowrap">'+(noId?'<span style="color:var(--t3);font-size:11px">no id</span>':(
+          '<button class="bsm" style="color:#34d399;border-color:rgba(52,211,153,.4)" onclick="vrAct('+i+',\'approved\')">Approve</button> '+
+          '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="vrAct('+i+',\'rejected\')">Reject</button>'))+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+async function vrAct(i,status){
+  var x=VREV[i]; if(!x||!x.id) return;
+  var vEl=document.getElementById('vr-v-'+i); var vol=vEl?vEl.value:'';
+  var url=API+'?action=set_vol_status&id='+encodeURIComponent(x.id)+'&status='+status+'&by_id=ADMIN&by_name=Admin'+(vol!==''?('&volume='+encodeURIComponent(vol)):'')+'&_='+Date.now();
+  try{ var r=await fetch(url); var d=await r.json(); if(d&&d.ok) loadVolReview(); else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error')); }catch(e){ if(typeof toast==='function') toast('Network error.'); }
+}
+async function vrApproveAll(){
+  var ids=VREV.filter(function(x){ return x.id && x.vol_status!=='approved'; }).map(function(x){ return x.id; });
+  if(!ids.length){ if(typeof toast==='function') toast('Nothing to approve in this view.'); return; }
+  if(!confirm('Approve all '+ids.length+' shown entries as logged?')) return;
+  try{ var r=await fetch(API+'?action=set_vol_status&ids='+encodeURIComponent(ids.join(','))+'&status=approved&by_id=ADMIN&by_name=Admin&_='+Date.now()); var d=await r.json();
+    if(d&&d.ok) loadVolReview(); else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error')); }catch(e){ if(typeof toast==='function') toast('Network error.'); }
+}
 </script>
+<div id="vol-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;padding:20px;overflow:auto;">
+  <div style="max-width:1040px;margin:24px auto;background:var(--card,#12161d);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;padding:20px 22px;">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px;">
+      <div style="font-size:16px;font-weight:800;color:var(--t1);">Volume review</div>
+      <span style="flex:1"></span>
+      <span id="vr-counts" style="font-size:12px;color:var(--t3);"></span>
+      <button class="bsm" onclick="closeVolReview()">✕ Close</button>
+    </div>
+    <div style="font-size:12px;color:var(--t3);margin-bottom:12px;">Only <b style="color:#34d399">approved</b> volumes count toward QPH. Uses the Time Log date range (From / To).</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+      <label style="font-size:12px;color:var(--t3);">Show
+        <select class="sinp" id="vr-status" onchange="loadVolReview()" style="width:130px;">
+          <option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="all">All</option>
+        </select>
+      </label>
+      <button class="bsm" onclick="loadVolReview()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button>
+      <span style="flex:1"></span>
+      <button class="bsm" onclick="vrApproveAll()" style="color:#34d399;border-color:rgba(52,211,153,.4)">✔ Approve all shown</button>
+    </div>
+    <div id="vr-body"><div class="es" style="padding:14px">Loading…</div></div>
+  </div>
+</div>
 </body>
 </html>
