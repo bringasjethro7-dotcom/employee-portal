@@ -662,7 +662,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <div id="bc-result" style="font-size:12px;color:var(--t3);margin-top:6px;"></div>
         </div>
         <div class="live-summary" id="sales-summary"></div>
-        <div class="tw"><table id="sales-table"><thead><tr><th>Invoice #</th><th>Project</th><th>Period</th><th>Invoice (USD)</th><th>Rate</th><th>Via</th><th>Revenue (₱)</th><th>Salary (₱)</th><th>Net (₱)</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="13" class="es">Loading…</td></tr></tbody></table></div>
+        <div class="tw"><table id="sales-table"><thead><tr><th>Invoice #</th><th>Project</th><th>Period</th><th>Invoice (USD)</th><th>Rate</th><th>Via</th><th>Revenue (₱)</th><th>Salary (₱)</th><th>Net (₱)</th><th>Status</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="14" class="es">Loading…</td></tr></tbody></table></div>
         <div style="margin-top:10px;text-align:right;"><button class="bsm" id="sales-recompute" onclick="recomputeSalesFx()" style="color:#34d399;border-color:rgba(52,211,153,.35)" title="Fill rate + revenue for rows that have a method + invoice but no rate yet">⚡ Compute FX for method rows</button> <button class="bsm" onclick="salesLock()" style="color:var(--t2)">🔒 Lock again</button> <button class="bsm" onclick="loadSalesData()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button></div>
       </div>
     </div>
@@ -1336,13 +1336,28 @@ async function loadFxMargins(){
       if(b&&b.value==='') b.value=d.binance; if(w&&w.value==='') w.value=d.wise; if(p&&p.value==='') p.value=d.paypal; }
   }catch(e){}
 }
+function _salesStatusSel(id,st){
+  st=String(st||'pending').toLowerCase();
+  var c={pending:'#fbbf24',sent:'#60a5fa',paid:'#34d399'}[st]||'#fbbf24';
+  function opt(v,l){ return '<option value="'+v+'"'+(st===v?' selected':'')+'>'+l+'</option>'; }
+  return '<select onchange="setSalesStatus(\''+escAdmin(id)+'\',this.value)" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;color:'+c+';font-family:inherit;font-size:12px;font-weight:700;padding:4px 8px;cursor:pointer;">'+
+    opt('pending','● Pending')+opt('sent','● Sent')+opt('paid','● Paid')+'</select>';
+}
+async function setSalesStatus(id,status){
+  try{
+    var r=await fetch(API+'?action=set_sales_status&id='+encodeURIComponent(id)+'&status='+encodeURIComponent(status)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ if(typeof toast==='function') toast('Invoice marked '+status+((status==='sent'||status==='paid')?' — rate locked.':'.')); loadSalesData(); }
+    else if(typeof toast==='function') toast('Status update failed: '+((d&&d.error)||'error'));
+  }catch(e){ if(typeof toast==='function') toast('Status update failed (network).'); }
+}
 async function recomputeSalesFx(manualRate){
   var btn=document.getElementById('sales-recompute'); var orig=btn?btn.innerHTML:'';
   if(btn){ btn.disabled=true; btn.innerHTML='Computing…'; }
   try{
     var url=API+'?action=recompute_sales_fx'+(manualRate?('&market='+encodeURIComponent(manualRate)):'')+'&_='+Date.now();
     var r=await fetch(url); var d=await r.json();
-    if(d&&d.ok){ if(typeof toast==='function') toast(d.updated>0?('Rates computed for '+d.updated+' row'+(d.updated>1?'s':'')+' (market '+d.raw_rate+').'):'No rows needed a rate.'); loadSalesData(); }
+    if(d&&d.ok){ if(typeof toast==='function'){ var msg=d.updated>0?('Rates computed for '+d.updated+' row'+(d.updated>1?'s':'')+' (market '+d.raw_rate+').'):'No rows needed a rate.'; if(d.locked>0) msg+=' '+d.locked+' sent/paid row'+(d.locked>1?'s':'')+' left locked.'; toast(msg); } loadSalesData(); }
     else if(d&&d.error==='NO_RATE'){
       if(btn){ btn.disabled=false; btn.innerHTML=orig; }
       var m=prompt('Auto FX is unavailable right now. Enter today\'s market USD→PHP rate (per-method margins will be applied):');
@@ -1384,7 +1399,7 @@ async function loadSalesData(){
     var r=await fetch(API+'?action=get_sales&token='+encodeURIComponent(_salesToken())+'&_='+Date.now()); var d=await r.json();
     if(d&&d.error==='LOCKED'){ salesLock(); return; }
     var rows=(d&&d.sales)||[];
-    if(!rows.length){ tb.innerHTML='<tr><td colspan="13" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
+    if(!rows.length){ tb.innerHTML='<tr><td colspan="14" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
     var tRev=0,tPay=0,tNet=0; rows.forEach(function(x){ tRev+=x.revenue_php||0; tPay+=x.payroll_php||0; tNet+=x.net_php||0; });
     document.getElementById('sales-summary').innerHTML=
       '<div class="ls"><b>'+_peso(tRev)+'</b><span>Gross revenue</span></div>'+
@@ -1401,11 +1416,12 @@ async function loadSalesData(){
         '<td>'+_peso(x.revenue_php)+'</td>'+
         '<td style="color:var(--t2)">'+_peso(x.payroll_php)+'</td>'+
         '<td><b style="color:'+((x.net_php||0)<0?'#f87171':'#34d399')+'">'+_peso(x.net_php)+'</b></td>'+
+        '<td>'+_salesStatusSel(x.id, x.status||'pending')+'</td>'+
         '<td>'+escAdmin(x.client||'—')+'</td><td>'+escAdmin(x.note||'—')+'</td>'+
         '<td style="color:var(--t3);font-size:12px">'+escAdmin(x.created_at||'')+(x.by?(' · '+escAdmin(x.by)):'')+'</td>'+
         '<td><button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')">✕</button></td></tr>';
     }).join('');
-  }catch(e){ tb.innerHTML='<tr><td colspan="13" class="es" style="color:#f87171">Could not load.</td></tr>'; }
+  }catch(e){ tb.innerHTML='<tr><td colspan="14" class="es" style="color:#f87171">Could not load.</td></tr>'; }
 }
 async function bookCutoff(){
   var from=document.getElementById('bc-from').value, to=document.getElementById('bc-to').value;
