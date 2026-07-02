@@ -5260,14 +5260,35 @@ function openDemeritDispute(id, label){
   _openDispModal(label||'Demerit');
 }
 function closeQaDispute(){ document.getElementById('qadisp-modal').style.display='none'; }
+var _qaDispPending=0;
+function _dispCompress(file, cb){
+  // Downscale + JPEG-encode screenshots so the upload stays small (raw base64 was stalling the POST).
+  if(!/^image\//.test(file.type)){ if(file.size>4*1024*1024){ cb(null); return; } var r0=new FileReader(); r0.onload=function(){cb(r0.result);}; r0.onerror=function(){cb(null);}; r0.readAsDataURL(file); return; }
+  var r=new FileReader();
+  r.onload=function(){
+    var img=new Image();
+    img.onload=function(){
+      var maxDim=1600, w=img.width, h=img.height, s=Math.min(1, maxDim/Math.max(w,h));
+      var cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
+      try{ var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch; cv.getContext('2d').drawImage(img,0,0,cw,ch); cb(cv.toDataURL('image/jpeg',0.8)); }
+      catch(e){ cb(r.result); }
+    };
+    img.onerror=function(){ cb(r.result); };
+    img.src=r.result;
+  };
+  r.onerror=function(){ cb(null); };
+  r.readAsDataURL(file);
+}
 function qaDispPick(inp){
   var files=Array.prototype.slice.call(inp.files||[]).slice(0,6);
-  _qaDispFiles=[]; var list=document.getElementById('qadisp-filelist'); list.innerHTML='';
+  _qaDispFiles=[]; _qaDispPending=files.length; var list=document.getElementById('qadisp-filelist'); list.innerHTML='';
   files.forEach(function(f){
-    if(f.size>8*1024*1024){ if(typeof toast==='function') toast(f.name+' is too large (max 8MB)'); return; }
-    var rd=new FileReader(); rd.onload=function(){ _qaDispFiles.push({name:f.name, data:rd.result}); };
-    rd.readAsDataURL(f);
-    var chip=document.createElement('div'); chip.style.cssText='font-size:11px;color:var(--text-2);background:var(--card2,rgba(255,255,255,.05));border:1px solid var(--border);border-radius:8px;padding:3px 8px;margin:3px 4px 0 0;display:inline-block;'; chip.textContent='📎 '+f.name; list.appendChild(chip);
+    var chip=document.createElement('div'); chip.style.cssText='font-size:11px;color:var(--text-2);background:var(--card2,rgba(255,255,255,.05));border:1px solid var(--border);border-radius:8px;padding:3px 8px;margin:3px 4px 0 0;display:inline-block;'; chip.textContent='📎 '+f.name+' …'; list.appendChild(chip);
+    _dispCompress(f, function(dataUrl){
+      _qaDispPending--;
+      if(dataUrl){ _qaDispFiles.push({name:(f.name||'proof').replace(/\.[^.]+$/,'')+'.jpg', data:dataUrl}); chip.textContent='📎 '+f.name; }
+      else { chip.textContent='⚠ '+f.name+' (skipped)'; }
+    });
   });
 }
 async function submitQaDispute(){
@@ -5275,6 +5296,7 @@ async function submitQaDispute(){
   var expl=document.getElementById('qadisp-expl').value.trim();
   var st=document.getElementById('qadisp-status');
   if(!expl){ st.style.color='#f87171'; st.textContent='Please explain your dispute.'; return; }
+  if(_qaDispPending>0){ st.style.color='var(--text-3)'; st.textContent='Still preparing images — tap Submit again in a moment.'; return; }
   var btn=document.getElementById('qadisp-send'); btn.disabled=true; var o=btn.textContent; btn.textContent='Sending…'; st.style.color='var(--text-3)'; st.textContent='Uploading…';
   var id=_myQaEmpId(); var name=(window._currentEmpData&&window._currentEmpData.full_name)||id;
   var payload;
