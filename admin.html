@@ -539,7 +539,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage employee records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-02 · features-quiz</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-02 · project-templates</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -3909,7 +3909,9 @@ var NOTIF_PRESETS={
   payout:{ type:'payout', title:'Payout released', body:'The payout for [Project] has been released.' },
   custom:{ type:'custom', title:'', body:'' }
 };
-function openNotify(){ document.getElementById('notify-modal').style.display='block'; notifFillEmps(); loadNotifProjects(); ntPreset(); }
+var NT_TEMPLATES={};
+function openNotify(){ document.getElementById('notify-modal').style.display='block'; notifFillEmps(); loadNotifProjects(); loadNotifTemplates(); ntPreset(); }
+async function loadNotifTemplates(){ try{ var r=await fetch(API+'?action=get_notif_templates&_='+Date.now()); var d=await r.json(); NT_TEMPLATES=(d&&d.templates)||{}; }catch(e){ NT_TEMPLATES={}; } }
 function closeNotify(){ document.getElementById('notify-modal').style.display='none'; }
 function notifFillEmps(){
   var sel=document.getElementById('nt-emp'); if(!sel||sel.options.length>1) return;
@@ -3925,9 +3927,25 @@ async function loadNotifProjects(){
   }catch(e){}
 }
 function _ntFillPayment(project){
-  document.getElementById('nt-title').value='Payment received — '+project;
-  document.getElementById('nt-body').value='Payment for '+project+' has been received. Thank you for the great work, team! 🎉';
+  var saved=NT_TEMPLATES[String(project).toLowerCase()];
+  if(saved && (saved.title||saved.body)){
+    document.getElementById('nt-title').value=saved.title||('Payment received — '+project);
+    document.getElementById('nt-body').value=saved.body||'';
+  } else {
+    document.getElementById('nt-title').value='Payment received — '+project;
+    document.getElementById('nt-body').value='Payment for '+project+' has been received. Thank you for the great work, team! 🎉';
+  }
   var t=document.getElementById('nt-proj'); if(t) t.value=project;
+  var sv=document.getElementById('nt-save-tpl'); if(sv){ sv.style.display=''; sv.textContent='💾 Save as '+project+'’s template'; }
+  var badge=document.getElementById('nt-tpl-badge'); if(badge) badge.textContent=(saved&&(saved.title||saved.body))?'using saved template':'default template';
+}
+async function saveNotifTemplate(){
+  var pj=(document.getElementById('nt-proj')||{}).value.trim(); if(!pj){ if(typeof toast==='function') toast('Pick a project first.'); return; }
+  var title=document.getElementById('nt-title').value.trim(), body=document.getElementById('nt-body').value.trim();
+  try{ var r=await fetch(API+'?action=set_notif_template&project='+encodeURIComponent(pj)+'&title='+encodeURIComponent(title)+'&body='+encodeURIComponent(body)+'&_='+Date.now()); var d=await r.json();
+    if(d&&d.ok){ NT_TEMPLATES[pj.toLowerCase()]={title:title,body:body}; var b=document.getElementById('nt-tpl-badge'); if(b) b.textContent='saved ✓'; if(typeof toast==='function') toast(pj+' template saved.'); }
+    else if(typeof toast==='function') toast('Save failed.');
+  }catch(e){ if(typeof toast==='function') toast('Save failed (network).'); }
 }
 function ntProjChange(){
   var pj=(document.getElementById('nt-proj-list')||{}).value||''; var t=document.getElementById('nt-proj'); if(t&&pj) t.value=pj;
@@ -3991,6 +4009,10 @@ async function sendNotify(){
       <div id="nt-proj-wrap" style="display:none;">
         <label style="font-size:12px;color:var(--t3);">Project <select class="sinp" id="nt-proj-list" onchange="ntProjChange()" style="width:100%;"><option value="">Select project…</option></select></label>
         <label style="font-size:11px;color:var(--t3);display:block;margin-top:6px;">…or type one <input class="sinp" id="nt-proj" placeholder="e.g. ALTR Media" style="width:100%;" onblur="if(document.getElementById('nt-type').value==='payment_project'&&this.value.trim())_ntFillPayment(this.value.trim());"></label>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:7px;">
+          <button class="bsm" id="nt-save-tpl" onclick="saveNotifTemplate()" style="display:none;color:#34d399;border-color:rgba(52,211,153,.4);">💾 Save as this project’s template</button>
+          <span id="nt-tpl-badge" style="font-size:11px;color:var(--t3);"></span>
+        </div>
       </div>
       <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
         <button class="bsm" id="nt-send" onclick="sendNotify()" style="color:#fff;background:#2563eb;border-color:#2563eb;font-weight:600;">Send notification</button>
