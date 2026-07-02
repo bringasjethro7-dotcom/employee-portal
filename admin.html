@@ -3903,21 +3903,42 @@ function renderJmbCal(){
 }
 /* ════════ NOTIFICATIONS — admin composer ════════ */
 var NOTIF_PRESETS={
+  payment_project:{ type:'payment_project', title:'Payment received', body:'Payment for {PROJECT} has been received. Thank you for the great work, team! 🎉', audience:'project' },
   payslip:{ type:'payslip', title:'Payslip available', body:'Your payslip is now available to view in the portal.' },
   client_paid:{ type:'client_paid', title:'Client payment received', body:'Client [Client X] has paid. Thank you for your great work!' },
   payout:{ type:'payout', title:'Payout released', body:'The payout for [Project] has been released.' },
   custom:{ type:'custom', title:'', body:'' }
 };
-function openNotify(){ document.getElementById('notify-modal').style.display='block'; notifFillEmps(); ntPreset(); }
+function openNotify(){ document.getElementById('notify-modal').style.display='block'; notifFillEmps(); loadNotifProjects(); ntPreset(); }
 function closeNotify(){ document.getElementById('notify-modal').style.display='none'; }
 function notifFillEmps(){
   var sel=document.getElementById('nt-emp'); if(!sel||sel.options.length>1) return;
   var list=(typeof emps!=='undefined'&&emps&&emps.length)?emps:[];
   sel.innerHTML='<option value="">Select employee…</option>'+list.filter(function(e){return e.employee_id;}).map(function(e){ return '<option value="'+escAdmin(e.employee_id)+'">'+escAdmin((e.full_name||e.employee_id)+' ('+e.employee_id+')')+'</option>'; }).join('');
 }
+async function loadNotifProjects(){
+  var sel=document.getElementById('nt-proj-list'); if(!sel||sel.options.length>1) return;
+  try{ var r=await fetch(API+'?action=get_tracker_projects&_='+Date.now()); var d=await r.json();
+    var set={}; (d.projects||[]).forEach(function(p){ var n=String(p.project||'').trim(); if(n) set[n.toLowerCase()]=n; });
+    var names=Object.keys(set).map(function(k){return set[k];}).sort(function(a,b){return a.localeCompare(b);});
+    sel.innerHTML='<option value="">Select project…</option>'+names.map(function(n){ return '<option value="'+escAdmin(n)+'">'+escAdmin(n)+'</option>'; }).join('');
+  }catch(e){}
+}
+function _ntFillPayment(project){
+  document.getElementById('nt-title').value='Payment received — '+project;
+  document.getElementById('nt-body').value='Payment for '+project+' has been received. Thank you for the great work, team! 🎉';
+  var t=document.getElementById('nt-proj'); if(t) t.value=project;
+}
+function ntProjChange(){
+  var pj=(document.getElementById('nt-proj-list')||{}).value||''; var t=document.getElementById('nt-proj'); if(t&&pj) t.value=pj;
+  if(pj && document.getElementById('nt-type').value==='payment_project') _ntFillPayment(pj);
+}
 function ntPreset(){
-  var p=NOTIF_PRESETS[document.getElementById('nt-type').value]||NOTIF_PRESETS.custom;
+  var ty=document.getElementById('nt-type').value; var p=NOTIF_PRESETS[ty]||NOTIF_PRESETS.custom;
   document.getElementById('nt-title').value=p.title; document.getElementById('nt-body').value=p.body;
+  if(p.audience){ document.getElementById('nt-aud').value=p.audience; }
+  ntAudience();
+  if(ty==='payment_project'){ var pj=(document.getElementById('nt-proj-list')||{}).value||''; if(pj) _ntFillPayment(pj); }
 }
 function ntAudience(){
   var a=document.getElementById('nt-aud').value;
@@ -3956,7 +3977,7 @@ async function sendNotify(){
     <div style="display:flex;flex-direction:column;gap:10px;">
       <label style="font-size:12px;color:var(--t3);">Template
         <select class="sinp" id="nt-type" onchange="ntPreset()" style="width:100%;">
-          <option value="payslip">Payslip available</option><option value="client_paid">Client X has been paid</option><option value="payout">Payout released for project</option><option value="custom">Custom</option>
+          <option value="payment_project">💰 Payment received (per project)</option><option value="payslip">Payslip available</option><option value="client_paid">Client X has been paid</option><option value="payout">Payout released for project</option><option value="custom">Custom</option>
         </select>
       </label>
       <label style="font-size:12px;color:var(--t3);">Title <input class="sinp" id="nt-title" style="width:100%;"></label>
@@ -3967,7 +3988,10 @@ async function sendNotify(){
         </select>
       </label>
       <div id="nt-emp-wrap" style="display:none;"><label style="font-size:12px;color:var(--t3);">Employee <select class="sinp" id="nt-emp" style="width:100%;"><option value="">Select employee…</option></select></label></div>
-      <div id="nt-proj-wrap" style="display:none;"><label style="font-size:12px;color:var(--t3);">Project (name as in Work Log) <input class="sinp" id="nt-proj" placeholder="e.g. ALTR Media" style="width:100%;"></label></div>
+      <div id="nt-proj-wrap" style="display:none;">
+        <label style="font-size:12px;color:var(--t3);">Project <select class="sinp" id="nt-proj-list" onchange="ntProjChange()" style="width:100%;"><option value="">Select project…</option></select></label>
+        <label style="font-size:11px;color:var(--t3);display:block;margin-top:6px;">…or type one <input class="sinp" id="nt-proj" placeholder="e.g. ALTR Media" style="width:100%;" onblur="if(document.getElementById('nt-type').value==='payment_project'&&this.value.trim())_ntFillPayment(this.value.trim());"></label>
+      </div>
       <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
         <button class="bsm" id="nt-send" onclick="sendNotify()" style="color:#fff;background:#2563eb;border-color:#2563eb;font-weight:600;">Send notification</button>
         <span id="nt-status" style="font-size:12px;"></span>
