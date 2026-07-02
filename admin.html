@@ -539,7 +539,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage employee records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-02 · demerit-disputes</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-02 · dispute-thumbs</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -1713,6 +1713,18 @@ async function loadDemerits(){
   // (Auto-detect no longer runs on tab open — it held the script lock and made disputes/actions time out.
   //  Use the "⚡ Run auto-detect" button, or the daily trigger, instead.)
 }
+/* Inline proof thumbnails + lightbox (no new tab) */
+function _driveId(u){ u=String(u||''); var m=u.match(/\/d\/([-\w]{20,})/)||u.match(/[?&]id=([-\w]{20,})/); return m?m[1]:''; }
+function _dispFilesHtml(files){
+  if(!files||!files.length) return '<span style="color:var(--t3);font-size:12px;">no attachments</span>';
+  return files.map(function(u){ var id=_driveId(u);
+    if(!id) return '<a href="'+escAdmin(u)+'" target="_blank" rel="noopener" style="color:var(--o3);font-size:12px;margin-right:8px;">📎 proof</a>';
+    var thumb='https://drive.google.com/thumbnail?id='+id+'&sz=w400', full='https://drive.google.com/thumbnail?id='+id+'&sz=w1600';
+    return '<img src="'+thumb+'" loading="lazy" onclick="openLightbox(\''+full+'\',\''+escAdmin(u)+'\')" title="Click to enlarge" style="height:66px;width:auto;border:1px solid var(--border);border-radius:8px;margin:4px 6px 0 0;cursor:zoom-in;object-fit:cover;vertical-align:middle;background:var(--card2,rgba(255,255,255,.04));">';
+  }).join('');
+}
+function openLightbox(full, orig){ var lb=document.getElementById('img-lightbox'); if(!lb) return; document.getElementById('img-lightbox-img').src=full; var o=document.getElementById('img-lightbox-open'); if(o) o.href=orig||full; lb.style.display='flex'; }
+function closeLightbox(){ var lb=document.getElementById('img-lightbox'); if(lb){ lb.style.display='none'; document.getElementById('img-lightbox-img').src=''; } }
 async function loadDemeritDisputes(){
   var box=document.getElementById('dm-disputes'); if(!box) return; box.innerHTML='';
   try{ var r=await fetch(API+'?action=get_all_demerit_disputes&status=pending&_='+Date.now()); var d=await r.json();
@@ -1720,11 +1732,11 @@ async function loadDemeritDisputes(){
     box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
       '<div style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">⚑ Demerit disputes to review ('+list.length+')</div>'+
       list.map(function(x){
-        var files=(x.files||[]).map(function(u,i){ return '<a href="'+escAdmin(u)+'" target="_blank" rel="noopener" style="color:var(--o3);text-decoration:underline;margin-right:8px;font-size:12px;">📎 proof '+(i+1)+'</a>'; }).join('');
+        var files=_dispFilesHtml(x.files);
         return '<div style="border-top:1px solid rgba(255,255,255,.08);padding:9px 0;">'+
           '<div style="font-size:13px;color:var(--t1);"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.label||'')+'</div>'+
           '<div style="font-size:12.5px;color:var(--t2);margin:3px 0;white-space:pre-wrap;">'+escAdmin(x.explanation||'')+'</div>'+
-          '<div style="margin:4px 0;">'+(files||'<span style="color:var(--t3);font-size:12px;">no attachments</span>')+'</div>'+
+          '<div style="margin:4px 0;">'+files+'</div>'+
           '<div style="display:flex;gap:8px;margin-top:4px;">'+
             '<button class="bsm" style="color:#34d399;border-color:rgba(52,211,153,.4)" onclick="demResolveDispute(\''+escAdmin(x.id)+'\',\'approved\')" title="Approve = void the demerit">Approve (void demerit)</button>'+
             '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="demResolveDispute(\''+escAdmin(x.id)+'\',\'rejected\')">Reject</button>'+
@@ -1779,11 +1791,11 @@ async function loadQaDisputes(){
     box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
       '<div style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">⚑ QA disputes to review ('+list.length+')</div>'+
       list.map(function(x){
-        var files=(x.files||[]).map(function(u,i){ return '<a href="'+escAdmin(u)+'" target="_blank" rel="noopener" style="color:var(--o3);text-decoration:underline;margin-right:8px;font-size:12px;">📎 proof '+(i+1)+'</a>'; }).join('');
+        var files=_dispFilesHtml(x.files);
         return '<div style="border-top:1px solid rgba(255,255,255,.08);padding:9px 0;">'+
           '<div style="font-size:13px;color:var(--t1);"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.month)+' · Week '+x.week+' · score '+escAdmin(x.score||'—')+'</div>'+
           '<div style="font-size:12.5px;color:var(--t2);margin:3px 0;white-space:pre-wrap;">'+escAdmin(x.explanation||'')+'</div>'+
-          '<div style="margin:4px 0;">'+(files||'<span style="color:var(--t3);font-size:12px;">no attachments</span>')+'</div>'+
+          '<div style="margin:4px 0;">'+files+'</div>'+
           '<div style="display:flex;gap:8px;margin-top:4px;">'+
             '<button class="bsm" style="color:#34d399;border-color:rgba(52,211,153,.4)" onclick="qaResolveDispute(\''+escAdmin(x.id)+'\',\'approved\')">Approve</button>'+
             '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="qaResolveDispute(\''+escAdmin(x.id)+'\',\'rejected\')">Reject</button>'+
@@ -3905,6 +3917,13 @@ async function sendNotify(){
   btn.disabled=false; btn.textContent=o;
 }
 </script>
+<div id="img-lightbox" onclick="closeLightbox()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:900;align-items:center;justify-content:center;flex-direction:column;padding:24px;">
+  <img id="img-lightbox-img" src="" onclick="event.stopPropagation()" style="max-width:92vw;max-height:82vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.6);">
+  <div style="margin-top:12px;display:flex;gap:12px;align-items:center;">
+    <a id="img-lightbox-open" href="#" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:#fff;font-size:12.5px;text-decoration:underline;opacity:.8;">Open original</a>
+    <button onclick="closeLightbox()" style="background:#fff;border:none;border-radius:8px;padding:6px 16px;cursor:pointer;font-size:13px;font-weight:600;">Close</button>
+  </div>
+</div>
 <div id="notify-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;padding:20px;overflow:auto;">
   <div style="max-width:560px;margin:40px auto;background:var(--card,#12161d);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;padding:20px 22px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
