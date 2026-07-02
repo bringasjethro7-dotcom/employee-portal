@@ -539,7 +539,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage employee records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-02 · payroll-disburse + notifications</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-02 · weekly-QA</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -598,6 +598,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
       <button class="tab" id="t-scorecard" onclick="goTab('scorecard')" title="Scorecard">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
       </button>
+      <button class="tab" id="t-qa" onclick="goTab('qa')" title="QA" style="display:none;"></button>
       <button class="tab" id="t-coe" onclick="goTab('coe')" title="COE Requests">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
       </button>
@@ -878,6 +879,17 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     </div>
 
     <!-- SCORECARD ADMIN -->
+    <div id="p-qa" style="display:none;">
+      <div class="toolbar">
+        <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Weekly QA</span> <span style="font-size:12px;color:var(--t3);margin-left:6px;">4 scores/month · scorecard QA = the month's average</span></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:12px;color:var(--t3);">Month <input class="sinp" id="qa-month" type="month" style="width:150px;" onchange="loadQaGrid()"></label>
+          <button class="bsm" onclick="loadQaGrid()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+        </div>
+      </div>
+      <div id="qa-body"><div class="es">Loading…</div></div>
+    </div>
+
     <div id="p-scorecard" style="display:none;">
       <div class="toolbar">
         <div class="tl">
@@ -1711,6 +1723,35 @@ async function autoScanDemerits(days, silent){
     return d;
   }catch(e){ if(!silent && typeof toast==='function') toast('Auto-detect failed.'); }
 }
+/* ════════ WEEKLY QA GRID ════════ */
+function _qaMonthVal(){ var el=document.getElementById('qa-month'); if(el&&!el.value){ var n=new Date(); el.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); } return el?el.value:''; }
+function _qaAvgOf(w){ var v=[]; for(var k=1;k<=4;k++){ var x=w&&w[k]; if(x!==''&&x!=null&&!isNaN(x)) v.push(Number(x)); } return v.length?Math.round(v.reduce(function(a,b){return a+b;},0)/v.length*100)/100:null; }
+async function loadQaGrid(){
+  var month=_qaMonthVal(); var box=document.getElementById('qa-body'); if(!box) return;
+  box.innerHTML='<div class="es">Loading…</div>';
+  if(!_demEmps().length){ try{ var er=await fetch(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  var map={}; try{ var r=await fetch(API+'?action=get_all_qa_weekly&month='+encodeURIComponent(month)+'&_='+Date.now()); var d=await r.json(); map=(d&&d.map)||{}; }catch(e){}
+  var list=_demEmps().filter(function(e){return e.employee_id && String(e.status||'active').toLowerCase()!=='inactive';})
+    .sort(function(a,b){ return String(a.full_name||a.employee_id).localeCompare(String(b.full_name||b.employee_id)); });
+  if(!list.length){ box.innerHTML='<div class="es">No employees.</div>'; return; }
+  box.innerHTML='<div class="tw"><table><thead><tr><th>Employee</th><th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th><th>Avg (QA)</th></tr></thead><tbody>'+
+    list.map(function(e){ var w=map[String(e.employee_id).toLowerCase()]||{};
+      var cells=''; for(var k=1;k<=4;k++){ var v=(w[k]!==''&&w[k]!=null)?w[k]:''; cells+='<td><input class="sinp qa-in" data-emp="'+escAdmin(e.employee_id)+'" data-week="'+k+'" type="number" min="0" max="100" step="0.5" value="'+v+'" placeholder="—" style="width:74px" onchange="qaSave(this)"></td>'; }
+      var avg=_qaAvgOf(w);
+      return '<tr><td>'+escAdmin(e.full_name||e.employee_id)+'</td>'+cells+'<td id="qa-avg-'+escAdmin(e.employee_id)+'"><b>'+(avg==null?'—':avg)+'</b></td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+async function qaSave(inp){
+  var emp=inp.getAttribute('data-emp'), week=inp.getAttribute('data-week'), month=_qaMonthVal(), score=inp.value;
+  try{ var r=await fetch(API+'?action=save_qa_weekly&employee_id='+encodeURIComponent(emp)+'&month='+encodeURIComponent(month)+'&week='+encodeURIComponent(week)+'&score='+encodeURIComponent(score)+'&by=Admin&_='+Date.now()); var d=await r.json();
+    if(d&&d.ok){
+      // recompute this row's avg
+      var w={}; document.querySelectorAll('.qa-in[data-emp="'+emp.replace(/"/g,'')+'"]').forEach(function(x){ w[x.getAttribute('data-week')]=x.value; });
+      var avgEl=document.getElementById('qa-avg-'+emp); if(avgEl){ var a=_qaAvgOf(w); avgEl.innerHTML='<b>'+(a==null?'—':a)+'</b>'; }
+      inp.style.borderColor='rgba(52,211,153,.6)'; setTimeout(function(){ inp.style.borderColor=''; },800);
+    } else if(typeof toast==='function') toast('QA save failed: '+((d&&d.error)||'error'));
+  }catch(e){ if(typeof toast==='function') toast('QA save failed (network).'); }
+}
 async function runDemeritScan(){
   var b=document.getElementById('dm-scan-btn'); var orig=b?b.innerHTML:''; if(b){ b.disabled=true; b.innerHTML='Scanning…'; }
   await autoScanDemerits(14,false);
@@ -1755,7 +1796,7 @@ async function voidDemerit(id){
   try{ var r=await fetch(API+'?action=void_demerit&id='+encodeURIComponent(id)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) loadDemerits(); else alert('Could not void.'); }catch(e){ alert('Network error.'); }
 }
 function goTab(name){
-  ['dash','live','emp','att','leave','chat','coe','scorecard','worklog','projects','payslips','sales','demerits','expected'].forEach(function(n){
+  ['dash','live','emp','att','leave','chat','coe','scorecard','qa','worklog','projects','payslips','sales','demerits','expected'].forEach(function(n){
     var t=document.getElementById('t-'+n), p=document.getElementById('p-'+n);
     if(t) t.classList.toggle('active',n===name);
     if(p) p.style.display=n===name?'block':'none';
@@ -1773,6 +1814,7 @@ function goTab(name){
   if(name==='live') loadLive();
   if(name==='sales') loadSales();
   if(name==='demerits') loadDemerits();
+  if(name==='qa') loadQaGrid();
   if(name==='expected') initExpected();
   syncAdminNav(name);
 }
@@ -1907,7 +1949,7 @@ async function fixDiscrepancy(id,date){
 // ── GROUPED NAVIGATION (top-level groups + sub-tabs) ──
 var ADMIN_NAV = [
   { id:'dashboard', label:'Dashboard', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>', tabs:[{name:'dash',label:'Overview'},{name:'live',label:'Live & Hours'}] },
-  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Employees'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'}] },
+  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Employees'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'qa',label:'QA'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'}] },
   { id:'requests', label:'Requests', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>', tabs:[{name:'leave',label:'Leave'},{name:'coe',label:'COE'}] },
   { id:'work', label:'Work', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>', tabs:[{name:'worklog',label:'Time Log'},{name:'projects',label:'Projects'}] },
   { id:'payslips', label:'Payslips', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>', tabs:[{name:'payslips',label:'Payslips'}] },

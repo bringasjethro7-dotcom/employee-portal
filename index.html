@@ -4123,6 +4123,16 @@
           <div class="kpi"><div class="kpi-ic" style="color:#38bdf8;">⏱</div><div class="kpi-v" id="kpi-hours">—</div><div class="kpi-l">Hours tracked</div></div>
           <div class="kpi"><div class="kpi-ic" style="color:#a855f7;">★</div><div class="kpi-v" id="kpi-assess">—</div><div class="kpi-l">Assessment</div></div>
         </div>
+        <div class="card" id="myqa-card" style="padding:1rem 1.15rem;margin-bottom:1rem;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My QA — this month</p>
+            <span style="font-size:11px;color:var(--text-3);" id="myqa-sub">weekly · 4×/month</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:8px;">
+            <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
+            <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+        </div>
         <button class="prod-open-btn" onclick="openMyProductivity()"><span style="font-size:15px;">📊</span> My productivity — quantity per hour vs team</button>
         <div class="overview-layout">
           <!-- LEFT: stat cards -->
@@ -5179,6 +5189,28 @@ function renderOverview(data) {
   overviewContent.style.display = 'block';
   renderKPIs(data);
   try { renderRailOnline(); } catch(e) {}
+  try { loadMyQA(); } catch(e) {}
+}
+// ── MY QA (weekly, this month) ──
+function loadMyQA(){
+  var id=(window._currentEmpData&&window._currentEmpData.employee_id)||(typeof scEmpId!=='undefined'&&scEmpId)||(typeof attEmpId!=='undefined'&&attEmpId)||'';
+  if(!id) return;
+  var mk=(typeof monthKeyPHT==='function')?monthKeyPHT():(function(){var n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0');})();
+  fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok) return; var w=d.weeks||{};
+      var avgEl=document.getElementById('myqa-avg'); if(avgEl) avgEl.textContent=(d.avg==null?'—':d.avg);
+      var box=document.getElementById('myqa-weeks'); if(box){
+        var html=''; for(var k=1;k<=4;k++){ var v=(w[k]!==''&&w[k]!=null&&!isNaN(w[k]))?Number(w[k]):null;
+          var col=v==null?'var(--text-3)':(v>=90?'#34d399':(v>=75?'#fbbf24':'#f87171'));
+          html+='<div style="text-align:center;min-width:44px;background:var(--card2,rgba(255,255,255,.04));border:1px solid var(--border);border-radius:9px;padding:5px 8px;">'+
+            '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;">W'+k+'</div>'+
+            '<div style="font-size:14px;font-weight:700;color:'+col+';">'+(v==null?'—':v)+'</div></div>';
+        }
+        box.innerHTML=html;
+      }
+      var sub=document.getElementById('myqa-sub'); if(sub){ var n=0; for(var j=1;j<=4;j++){ if(w[j]!==''&&w[j]!=null&&!isNaN(w[j])) n++; } sub.textContent=n+' of 4 weeks scored'; }
+    }).catch(function(){});
 }
 
 // ── RIGHT INFO RAIL ──
