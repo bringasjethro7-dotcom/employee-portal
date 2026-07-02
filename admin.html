@@ -539,7 +539,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage employee records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-02 · QA-disputes</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-02 · demerit-disputes</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -1138,6 +1138,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         </div>
       </div>
       <div id="dm-tierlegend" style="font-size:11.5px;color:var(--t3);margin-bottom:10px;">Points: <b style="color:#34d399">0.15</b> minor · <b style="color:#fbbf24">0.30</b> moderate · <b style="color:#fb923c">0.50</b> major · <b style="color:#f87171">0.75</b> severe &nbsp;·&nbsp; <span style="color:var(--t2)">each month caps at 10 pts</span></div>
+      <div id="dm-disputes"></div>
       <div id="dm-body"><div class="es">Loading…</div></div>
     </div>
 
@@ -1705,10 +1706,37 @@ async function loadDemerits(){
   dmFillCategories(); dmFillEmployees();
   var dEl=document.getElementById('dm-date'); if(dEl && !dEl.value){ var n=new Date(); dEl.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); }
   var body=document.getElementById('dm-body'); body.innerHTML='<div class="es">Loading…</div>';
+  loadDemeritDisputes();
   try{ var r=await fetch(API+'?action=get_demerits&_='+Date.now()); var d=await r.json(); DEM_STATE.rows=(d&&d.rows)||[]; DEM_STATE.standings=(d&&d.standings)||[]; renderDemerits(); }
   catch(e){ body.innerHTML='<div class="es" style="color:#f87171">Could not load demerits.</div>'; }
   // Auto-run the detector once per admin session (background; refreshes if anything new was logged).
   if(!window._demScanned){ window._demScanned=true; autoScanDemerits(7,true); }
+}
+async function loadDemeritDisputes(){
+  var box=document.getElementById('dm-disputes'); if(!box) return; box.innerHTML='';
+  try{ var r=await fetch(API+'?action=get_all_demerit_disputes&status=pending&_='+Date.now()); var d=await r.json();
+    var list=(d&&d.disputes)||[]; if(!list.length){ box.innerHTML=''; return; }
+    box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
+      '<div style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">⚑ Demerit disputes to review ('+list.length+')</div>'+
+      list.map(function(x){
+        var files=(x.files||[]).map(function(u,i){ return '<a href="'+escAdmin(u)+'" target="_blank" rel="noopener" style="color:var(--o3);text-decoration:underline;margin-right:8px;font-size:12px;">📎 proof '+(i+1)+'</a>'; }).join('');
+        return '<div style="border-top:1px solid rgba(255,255,255,.08);padding:9px 0;">'+
+          '<div style="font-size:13px;color:var(--t1);"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.label||'')+'</div>'+
+          '<div style="font-size:12.5px;color:var(--t2);margin:3px 0;white-space:pre-wrap;">'+escAdmin(x.explanation||'')+'</div>'+
+          '<div style="margin:4px 0;">'+(files||'<span style="color:var(--t3);font-size:12px;">no attachments</span>')+'</div>'+
+          '<div style="display:flex;gap:8px;margin-top:4px;">'+
+            '<button class="bsm" style="color:#34d399;border-color:rgba(52,211,153,.4)" onclick="demResolveDispute(\''+escAdmin(x.id)+'\',\'approved\')" title="Approve = void the demerit">Approve (void demerit)</button>'+
+            '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="demResolveDispute(\''+escAdmin(x.id)+'\',\'rejected\')">Reject</button>'+
+          '</div></div>';
+      }).join('')+'</div>';
+  }catch(e){ box.innerHTML=''; }
+}
+async function demResolveDispute(id,status){
+  var note=''; if(status==='rejected'){ note=prompt('Optional note to the employee (reason for rejecting):')||''; }
+  if(status==='approved' && !confirm('Approve this dispute? This will VOID the demerit (removes it from their score).')) return;
+  try{ var r=await fetch(API+'?action=resolve_demerit_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note)+'&_='+Date.now()); var d=await r.json();
+    if(d&&d.ok){ if(typeof toast==='function') toast('Dispute '+status+'.'); loadDemeritDisputes(); loadDemerits(); } else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error'));
+  }catch(e){ if(typeof toast==='function') toast('Failed (network).'); }
 }
 // Scan attendance + worklog and auto-log new demerits. silent=true skips the toast/button spinner.
 async function autoScanDemerits(days, silent){

@@ -4155,7 +4155,7 @@
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-02 · qa-disputes</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-02 · demerit-disputes</div>
         </div>
         <button class="prod-open-btn" onclick="openMyProductivity()"><span style="font-size:15px;">📊</span> My productivity — quantity per hour vs team</button>
         <div class="overview-layout">
@@ -5222,44 +5222,42 @@ function loadMyQA(){
   var id=_myQaEmpId(); if(!id) return;
   var mk=(typeof monthKeyPHT==='function')?monthKeyPHT():(function(){var n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0');})();
   _myQaMonth=mk;
-  Promise.all([
-    fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now()).then(function(r){return r.json();}).catch(function(){return null;}),
-    fetch(APPS_SCRIPT_URL+'?action=get_qa_disputes&employee_id='+encodeURIComponent(id)+'&_='+Date.now()).then(function(r){return r.json();}).catch(function(){return null;})
-  ]).then(function(res){
-    var d=res[0]; var dd=res[1];
-    _myQaDisp={}; if(dd&&dd.ok){ (dd.disputes||[]).forEach(function(x){ if(x.month===mk) _myQaDisp[x.week]=x.status; }); }
-    if(!d||!d.ok) return; var w=d.weeks||{}; _myQaWeeks=w;
-    var avgEl=document.getElementById('myqa-avg'); if(avgEl) avgEl.textContent=(d.avg==null?'—':d.avg);
-    var box=document.getElementById('myqa-weeks'); if(box){
-      var html=''; for(var k=1;k<=4;k++){ var v=(w[k]!==''&&w[k]!=null&&!isNaN(w[k]))?Number(w[k]):null;
-        var col=v==null?'var(--text-3)':(v>=90?'#34d399':(v>=75?'#fbbf24':'#f87171'));
-        var disp=_myQaDisp[k];
-        var tag=disp?('<div style="font-size:8.5px;margin-top:2px;color:'+(disp==='approved'?'#34d399':(disp==='rejected'?'#f87171':'#fbbf24'))+';">⚑ '+disp+'</div>'):(v!=null?'<div style="font-size:8.5px;margin-top:2px;color:var(--text-3);text-decoration:underline;">dispute</div>':'');
-        var clickable=(v!=null&&!disp);
-        html+='<div '+(clickable?('onclick="openQaDispute('+k+','+v+')" style="cursor:pointer;"'):'style=""')+' title="'+(clickable?'Click to dispute this week':'')+'" data-qaw="'+k+'" '+
-          'class="myqa-box" data-c="text-align:center;min-width:46px;background:var(--card2,rgba(255,255,255,.04));border:1px solid var(--border);border-radius:9px;padding:5px 8px;">'+
-          '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;">W'+k+'</div>'+
-          '<div style="font-size:14px;font-weight:700;color:'+col+';">'+(v==null?'—':v)+'</div>'+tag+'</div>';
+  fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok) return; var w=d.weeks||{}; _myQaWeeks=w;
+      var avgEl=document.getElementById('myqa-avg'); if(avgEl) avgEl.textContent=(d.avg==null?'—':d.avg);
+      var box=document.getElementById('myqa-weeks'); if(box){
+        var html=''; for(var k=1;k<=4;k++){ var v=(w[k]!==''&&w[k]!=null&&!isNaN(w[k]))?Number(w[k]):null;
+          var col=v==null?'var(--text-3)':(v>=90?'#34d399':(v>=75?'#fbbf24':'#f87171'));
+          html+='<div style="text-align:center;min-width:46px;background:var(--card2,rgba(255,255,255,.04));border:1px solid var(--border);border-radius:9px;padding:5px 8px;">'+
+            '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;">W'+k+'</div>'+
+            '<div style="font-size:14px;font-weight:700;color:'+col+';">'+(v==null?'—':v)+'</div></div>';
+        }
+        box.innerHTML=html;
       }
-      box.innerHTML=html;
-      // apply the inline styles (data-c) — avoids quote-escaping issues in onclick
-      box.querySelectorAll('.myqa-box').forEach(function(el){ el.setAttribute('style', (el.getAttribute('style')||'')+';'+el.getAttribute('data-c')); });
-    }
-    var sub=document.getElementById('myqa-sub'); if(sub){ var n=0; for(var j=1;j<=4;j++){ if(w[j]!==''&&w[j]!=null&&!isNaN(w[j])) n++; } sub.textContent=n+' of 4 weeks scored · tap a week to dispute'; }
-  });
+      var sub=document.getElementById('myqa-sub'); if(sub){ var n=0; for(var j=1;j<=4;j++){ if(w[j]!==''&&w[j]!=null&&!isNaN(w[j])) n++; } sub.textContent=n+' of 4 weeks scored'; }
+    }).catch(function(){});
 }
-// ── QA DISPUTE modal ──
-var _qaDispFiles=[];
-function openQaDispute(week, score){
+// ── DISPUTE modal (shared: QA week + demerit) ──
+var _qaDispFiles=[], _dispMode='qa', _dispDemId='';
+function _openDispModal(label){
   _qaDispFiles=[];
-  document.getElementById('qadisp-week').textContent='Week '+week+' · score '+score;
-  document.getElementById('qadisp-modal').setAttribute('data-week', week);
-  document.getElementById('qadisp-modal').setAttribute('data-score', score);
+  document.getElementById('qadisp-week').textContent=label;
   document.getElementById('qadisp-expl').value='';
   document.getElementById('qadisp-files').value='';
   document.getElementById('qadisp-filelist').innerHTML='';
   document.getElementById('qadisp-status').textContent='';
   document.getElementById('qadisp-modal').style.display='flex';
+}
+function openQaDispute(week, score){
+  _dispMode='qa';
+  document.getElementById('qadisp-modal').setAttribute('data-week', week);
+  document.getElementById('qadisp-modal').setAttribute('data-score', score);
+  _openDispModal('Week '+week+' · score '+score);
+}
+function openDemeritDispute(id, label){
+  _dispMode='demerit'; _dispDemId=id;
+  _openDispModal(label||'Demerit');
 }
 function closeQaDispute(){ document.getElementById('qadisp-modal').style.display='none'; }
 function qaDispPick(inp){
@@ -5274,16 +5272,21 @@ function qaDispPick(inp){
 }
 async function submitQaDispute(){
   var modal=document.getElementById('qadisp-modal');
-  var week=parseInt(modal.getAttribute('data-week'),10), score=modal.getAttribute('data-score');
   var expl=document.getElementById('qadisp-expl').value.trim();
   var st=document.getElementById('qadisp-status');
   if(!expl){ st.style.color='#f87171'; st.textContent='Please explain your dispute.'; return; }
   var btn=document.getElementById('qadisp-send'); btn.disabled=true; var o=btn.textContent; btn.textContent='Sending…'; st.style.color='var(--text-3)'; st.textContent='Uploading…';
   var id=_myQaEmpId(); var name=(window._currentEmpData&&window._currentEmpData.full_name)||id;
+  var payload;
+  if(_dispMode==='demerit'){
+    payload={ action:'submit_demerit_dispute', employee_id:id, full_name:name, demerit_id:_dispDemId, label:document.getElementById('qadisp-week').textContent, explanation:expl, files:_qaDispFiles };
+  } else {
+    payload={ action:'submit_qa_dispute', employee_id:id, full_name:name, month:_myQaMonth, week:parseInt(modal.getAttribute('data-week'),10), score:modal.getAttribute('data-score'), explanation:expl, files:_qaDispFiles };
+  }
   try{
-    var r=await fetch(APPS_SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'submit_qa_dispute', employee_id:id, full_name:name, month:_myQaMonth, week:week, score:score, explanation:expl, files:_qaDispFiles }) });
+    var r=await fetch(APPS_SCRIPT_URL, { method:'POST', body: JSON.stringify(payload) });
     var d=await r.json();
-    if(d&&d.ok){ st.style.color='#34d399'; st.textContent='Dispute submitted'+(d.files?(' with '+d.files+' attachment'+(d.files>1?'s':'')):'')+'. Your lead will review it.'; setTimeout(function(){ closeQaDispute(); loadMyQA(); }, 1200); }
+    if(d&&d.ok){ st.style.color='#34d399'; st.textContent='Dispute submitted'+(d.files?(' with '+d.files+' attachment'+(d.files>1?'s':'')):'')+'. Your lead will review it.'; setTimeout(function(){ closeQaDispute(); if(_dispMode==='demerit') loadMyDemerits(); else loadMyQA(); }, 1200); }
     else { st.style.color='#f87171'; st.textContent='Failed: '+((d&&d.error)||'error'); }
   }catch(e){ st.style.color='#f87171'; st.textContent='Failed (network / files too large).'; }
   btn.disabled=false; btn.textContent=o;
@@ -5969,19 +5972,29 @@ function loadMyDemerits() {
   var totEl=document.getElementById('mydem-total'), tierEl=document.getElementById('mydem-tier'), listEl=document.getElementById('mydem-list');
   if (!listEl) return;
   listEl.innerHTML='<div class="cfy-no-entries" style="padding:10px 0;font-size:12.5px;">Loading…</div>';
-  fetch(APPS_SCRIPT_URL + '?action=get_demerits&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now())
-    .then(function(r){ return r.json(); }).then(function(d){
+  Promise.all([
+    fetch(APPS_SCRIPT_URL + '?action=get_demerits&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;}),
+    fetch(APPS_SCRIPT_URL + '?action=get_demerit_disputes&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;})
+  ]).then(function(res){
+      var d=res[0], dd=res[1];
       if (!d || !d.ok) { listEl.innerHTML=''; return; }
+      var dispBy={}; if(dd&&dd.ok){ (dd.disputes||[]).forEach(function(x){ dispBy[x.demerit_id]=x.status; }); }
       var mEl=document.getElementById('mydem-month'), mcEl=document.getElementById('mydem-monthcap');
       if(mEl){ var mp=d.month_points||0, cap=d.month_cap||10; mEl.textContent=mp; mEl.style.color=mp>=cap?'#f87171':'var(--text-1)'; if(mcEl) mcEl.textContent=' / '+cap+' this month'; }
       if(totEl) totEl.textContent = d.total||0;
       var rows=(d.rows||[]).filter(function(x){ return x.status!=='void'; });
       if(!rows.length){ listEl.innerHTML='<div class="cfy-no-entries" style="padding:10px 0;font-size:12.5px;">No demerits — keep it up! 🎉</div>'; return; }
       listEl.innerHTML=rows.map(function(x){
-        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border);">'+
-          '<div><div style="font-size:13px;color:var(--text-1);">'+escapeHtml(x.infraction||x.category)+'</div>'+
+        var disp=dispBy[x.id];
+        var label=(x.infraction||x.category)+' · '+x.date+' · +'+x.points;
+        var action = disp
+          ? '<span style="font-size:10.5px;font-weight:700;color:'+(disp==='approved'?'#34d399':(disp==='rejected'?'#f87171':'#fbbf24'))+';white-space:nowrap;">⚑ '+escapeHtml(disp)+'</span>'
+          : '<button onclick="openDemeritDispute(\''+escapeHtml(x.id)+'\',\''+escapeHtml(label).replace(/\\'/g,"")+'\')" style="background:none;border:1px solid var(--border);color:var(--text-2);font-size:11px;border-radius:8px;padding:3px 9px;cursor:pointer;white-space:nowrap;">Dispute</button>';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);">'+
+          '<div style="flex:1;min-width:0;"><div style="font-size:13px;color:var(--text-1);">'+escapeHtml(x.infraction||x.category)+'</div>'+
           '<div style="font-size:11px;color:var(--text-3);">'+escapeHtml(x.date)+' · '+escapeHtml(x.category)+(x.note?(' · '+escapeHtml(x.note)):'')+'</div></div>'+
-          '<div style="font-weight:700;color:#f87171;white-space:nowrap;">+'+x.points+'</div></div>';
+          '<div style="font-weight:700;color:#f87171;white-space:nowrap;">+'+x.points+'</div>'+
+          '<div>'+action+'</div></div>';
       }).join('');
     }).catch(function(){ listEl.innerHTML=''; });
 }
