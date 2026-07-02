@@ -3824,6 +3824,29 @@
     <div id="notif-list"><div style="padding:16px;color:var(--text-3);font-size:13px;">Loading…</div></div>
   </div>
 
+  <!-- QA dispute modal -->
+  <div id="qadisp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:600;align-items:center;justify-content:center;padding:18px;">
+    <div style="width:440px;max-width:94vw;max-height:88vh;overflow:auto;background:var(--card-1,#12161d);border:1px solid var(--border);border-radius:16px;padding:20px 22px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-size:16px;font-weight:800;color:var(--text-1);">Dispute QA score</div>
+        <button onclick="closeQaDispute()" style="background:none;border:none;color:var(--text-3);font-size:18px;cursor:pointer;">✕</button>
+      </div>
+      <div id="qadisp-week" style="font-size:12px;color:var(--text-3);margin-bottom:12px;"></div>
+      <label style="font-size:12px;color:var(--text-3);">Explanation
+        <textarea id="qadisp-expl" rows="4" placeholder="Explain why you're disputing this QA score…" style="width:100%;margin-top:4px;background:var(--card2,rgba(255,255,255,.04));border:1px solid var(--border);border-radius:10px;color:var(--text-1);padding:9px 11px;font-family:inherit;font-size:13px;resize:vertical;"></textarea>
+      </label>
+      <div style="margin-top:12px;">
+        <label style="font-size:12px;color:var(--text-3);display:block;margin-bottom:5px;">Proof (screenshots — up to 6)</label>
+        <input type="file" id="qadisp-files" accept="image/*" multiple onchange="qaDispPick(this)" style="font-size:12px;color:var(--text-2);">
+        <div id="qadisp-filelist"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:16px;">
+        <button id="qadisp-send" onclick="submitQaDispute()" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:10px;padding:9px 18px;font:600 13px/1 inherit;cursor:pointer;">Submit dispute</button>
+        <span id="qadisp-status" style="font-size:12px;"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- Glass-water presence wall in the left gutter (top-left) -->
   <aside id="presence-wall" aria-label="Who's online">
     <div class="pw-head">Who's online <span class="pw-count" id="pw-count"></span></div>
@@ -5191,26 +5214,78 @@ function renderOverview(data) {
   try { renderRailOnline(); } catch(e) {}
   try { loadMyQA(); } catch(e) {}
 }
-// ── MY QA (weekly, this month) ──
+// ── MY QA (weekly, this month) — with dispute ──
+var _myQaMonth='', _myQaWeeks={}, _myQaDisp={};
+function _myQaEmpId(){ return (window._currentEmpData&&window._currentEmpData.employee_id)||(typeof scEmpId!=='undefined'&&scEmpId)||(typeof attEmpId!=='undefined'&&attEmpId)||''; }
 function loadMyQA(){
-  var id=(window._currentEmpData&&window._currentEmpData.employee_id)||(typeof scEmpId!=='undefined'&&scEmpId)||(typeof attEmpId!=='undefined'&&attEmpId)||'';
-  if(!id) return;
+  var id=_myQaEmpId(); if(!id) return;
   var mk=(typeof monthKeyPHT==='function')?monthKeyPHT():(function(){var n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0');})();
-  fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
-    .then(function(r){return r.json();}).then(function(d){
-      if(!d||!d.ok) return; var w=d.weeks||{};
-      var avgEl=document.getElementById('myqa-avg'); if(avgEl) avgEl.textContent=(d.avg==null?'—':d.avg);
-      var box=document.getElementById('myqa-weeks'); if(box){
-        var html=''; for(var k=1;k<=4;k++){ var v=(w[k]!==''&&w[k]!=null&&!isNaN(w[k]))?Number(w[k]):null;
-          var col=v==null?'var(--text-3)':(v>=90?'#34d399':(v>=75?'#fbbf24':'#f87171'));
-          html+='<div style="text-align:center;min-width:44px;background:var(--card2,rgba(255,255,255,.04));border:1px solid var(--border);border-radius:9px;padding:5px 8px;">'+
-            '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;">W'+k+'</div>'+
-            '<div style="font-size:14px;font-weight:700;color:'+col+';">'+(v==null?'—':v)+'</div></div>';
-        }
-        box.innerHTML=html;
+  _myQaMonth=mk;
+  Promise.all([
+    fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now()).then(function(r){return r.json();}).catch(function(){return null;}),
+    fetch(APPS_SCRIPT_URL+'?action=get_qa_disputes&employee_id='+encodeURIComponent(id)+'&_='+Date.now()).then(function(r){return r.json();}).catch(function(){return null;})
+  ]).then(function(res){
+    var d=res[0]; var dd=res[1];
+    _myQaDisp={}; if(dd&&dd.ok){ (dd.disputes||[]).forEach(function(x){ if(x.month===mk) _myQaDisp[x.week]=x.status; }); }
+    if(!d||!d.ok) return; var w=d.weeks||{}; _myQaWeeks=w;
+    var avgEl=document.getElementById('myqa-avg'); if(avgEl) avgEl.textContent=(d.avg==null?'—':d.avg);
+    var box=document.getElementById('myqa-weeks'); if(box){
+      var html=''; for(var k=1;k<=4;k++){ var v=(w[k]!==''&&w[k]!=null&&!isNaN(w[k]))?Number(w[k]):null;
+        var col=v==null?'var(--text-3)':(v>=90?'#34d399':(v>=75?'#fbbf24':'#f87171'));
+        var disp=_myQaDisp[k];
+        var tag=disp?('<div style="font-size:8.5px;margin-top:2px;color:'+(disp==='approved'?'#34d399':(disp==='rejected'?'#f87171':'#fbbf24'))+';">⚑ '+disp+'</div>'):(v!=null?'<div style="font-size:8.5px;margin-top:2px;color:var(--text-3);text-decoration:underline;">dispute</div>':'');
+        var clickable=(v!=null&&!disp);
+        html+='<div '+(clickable?('onclick="openQaDispute('+k+','+v+')" style="cursor:pointer;"'):'style=""')+' title="'+(clickable?'Click to dispute this week':'')+'" data-qaw="'+k+'" '+
+          'class="myqa-box" data-c="text-align:center;min-width:46px;background:var(--card2,rgba(255,255,255,.04));border:1px solid var(--border);border-radius:9px;padding:5px 8px;">'+
+          '<div style="font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;">W'+k+'</div>'+
+          '<div style="font-size:14px;font-weight:700;color:'+col+';">'+(v==null?'—':v)+'</div>'+tag+'</div>';
       }
-      var sub=document.getElementById('myqa-sub'); if(sub){ var n=0; for(var j=1;j<=4;j++){ if(w[j]!==''&&w[j]!=null&&!isNaN(w[j])) n++; } sub.textContent=n+' of 4 weeks scored'; }
-    }).catch(function(){});
+      box.innerHTML=html;
+      // apply the inline styles (data-c) — avoids quote-escaping issues in onclick
+      box.querySelectorAll('.myqa-box').forEach(function(el){ el.setAttribute('style', (el.getAttribute('style')||'')+';'+el.getAttribute('data-c')); });
+    }
+    var sub=document.getElementById('myqa-sub'); if(sub){ var n=0; for(var j=1;j<=4;j++){ if(w[j]!==''&&w[j]!=null&&!isNaN(w[j])) n++; } sub.textContent=n+' of 4 weeks scored · tap a week to dispute'; }
+  });
+}
+// ── QA DISPUTE modal ──
+var _qaDispFiles=[];
+function openQaDispute(week, score){
+  _qaDispFiles=[];
+  document.getElementById('qadisp-week').textContent='Week '+week+' · score '+score;
+  document.getElementById('qadisp-modal').setAttribute('data-week', week);
+  document.getElementById('qadisp-modal').setAttribute('data-score', score);
+  document.getElementById('qadisp-expl').value='';
+  document.getElementById('qadisp-files').value='';
+  document.getElementById('qadisp-filelist').innerHTML='';
+  document.getElementById('qadisp-status').textContent='';
+  document.getElementById('qadisp-modal').style.display='flex';
+}
+function closeQaDispute(){ document.getElementById('qadisp-modal').style.display='none'; }
+function qaDispPick(inp){
+  var files=Array.prototype.slice.call(inp.files||[]).slice(0,6);
+  _qaDispFiles=[]; var list=document.getElementById('qadisp-filelist'); list.innerHTML='';
+  files.forEach(function(f){
+    if(f.size>8*1024*1024){ if(typeof toast==='function') toast(f.name+' is too large (max 8MB)'); return; }
+    var rd=new FileReader(); rd.onload=function(){ _qaDispFiles.push({name:f.name, data:rd.result}); };
+    rd.readAsDataURL(f);
+    var chip=document.createElement('div'); chip.style.cssText='font-size:11px;color:var(--text-2);background:var(--card2,rgba(255,255,255,.05));border:1px solid var(--border);border-radius:8px;padding:3px 8px;margin:3px 4px 0 0;display:inline-block;'; chip.textContent='📎 '+f.name; list.appendChild(chip);
+  });
+}
+async function submitQaDispute(){
+  var modal=document.getElementById('qadisp-modal');
+  var week=parseInt(modal.getAttribute('data-week'),10), score=modal.getAttribute('data-score');
+  var expl=document.getElementById('qadisp-expl').value.trim();
+  var st=document.getElementById('qadisp-status');
+  if(!expl){ st.style.color='#f87171'; st.textContent='Please explain your dispute.'; return; }
+  var btn=document.getElementById('qadisp-send'); btn.disabled=true; var o=btn.textContent; btn.textContent='Sending…'; st.style.color='var(--text-3)'; st.textContent='Uploading…';
+  var id=_myQaEmpId(); var name=(window._currentEmpData&&window._currentEmpData.full_name)||id;
+  try{
+    var r=await fetch(APPS_SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'submit_qa_dispute', employee_id:id, full_name:name, month:_myQaMonth, week:week, score:score, explanation:expl, files:_qaDispFiles }) });
+    var d=await r.json();
+    if(d&&d.ok){ st.style.color='#34d399'; st.textContent='Dispute submitted'+(d.files?(' with '+d.files+' attachment'+(d.files>1?'s':'')):'')+'. Your lead will review it.'; setTimeout(function(){ closeQaDispute(); loadMyQA(); }, 1200); }
+    else { st.style.color='#f87171'; st.textContent='Failed: '+((d&&d.error)||'error'); }
+  }catch(e){ st.style.color='#f87171'; st.textContent='Failed (network / files too large).'; }
+  btn.disabled=false; btn.textContent=o;
 }
 
 // ── RIGHT INFO RAIL ──
