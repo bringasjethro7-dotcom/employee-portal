@@ -3847,6 +3847,22 @@
     </div>
   </div>
 
+  <!-- Features quiz modal -->
+  <div id="quiz-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.66);z-index:650;align-items:center;justify-content:center;padding:18px;">
+    <div style="width:640px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;background:var(--card-1,#12161d);border:1px solid var(--border);border-radius:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);">
+        <div><div style="font-size:16px;font-weight:800;color:var(--text-1);">New Features Quiz</div>
+        <div style="font-size:12px;color:var(--text-3);">Answer all questions · one attempt · scored automatically</div></div>
+        <button onclick="closeQuiz()" style="background:none;border:none;color:var(--text-3);font-size:18px;cursor:pointer;">✕</button>
+      </div>
+      <div id="quiz-scroll" style="overflow:auto;padding:6px 20px 4px;"><div id="quiz-body"></div></div>
+      <div id="quiz-actions" style="display:flex;align-items:center;gap:12px;padding:14px 20px;border-top:1px solid var(--border);">
+        <button id="quiz-send" onclick="submitQuiz()" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:10px;padding:10px 20px;font:700 13px/1 inherit;cursor:pointer;">Submit quiz</button>
+        <span id="quiz-status" style="font-size:12.5px;"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- Glass-water presence wall in the left gutter (top-left) -->
   <aside id="presence-wall" aria-label="Who's online">
     <div class="pw-head">Who's online <span class="pw-count" id="pw-count"></span></div>
@@ -4146,6 +4162,7 @@
           <div class="kpi"><div class="kpi-ic" style="color:#38bdf8;">⏱</div><div class="kpi-v" id="kpi-hours">—</div><div class="kpi-l">Hours tracked</div></div>
           <div class="kpi"><div class="kpi-ic" style="color:#a855f7;">★</div><div class="kpi-v" id="kpi-assess">—</div><div class="kpi-l">Assessment</div></div>
         </div>
+        <div id="quiz-prompt" style="display:none;margin-bottom:1rem;"></div>
         <div class="card" id="myqa-card" style="padding:1rem 1.15rem;margin-bottom:1rem;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
             <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My QA — this month</p>
@@ -5214,6 +5231,59 @@ function renderOverview(data) {
   renderKPIs(data);
   try { renderRailOnline(); } catch(e) {}
   try { loadMyQA(); } catch(e) {}
+  try { loadQuiz(); } catch(e) {}
+}
+// ── FEATURES QUIZ ──
+var _quiz=null;
+function loadQuiz(){
+  var id=(window._currentEmpData&&window._currentEmpData.employee_id)||(typeof scEmpId!=='undefined'&&scEmpId)||'';
+  if(!id) return;
+  fetch(APPS_SCRIPT_URL+'?action=get_quiz&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok) return; _quiz=d; var box=document.getElementById('quiz-prompt'); if(!box) return;
+      box.style.display='block';
+      if(d.taken){
+        box.innerHTML='<div class="card" style="padding:0.9rem 1.1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'+
+          '<div style="font-size:22px;">✅</div><div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:700;color:var(--text-1);">New Features Quiz — completed</div>'+
+          '<div style="font-size:12.5px;color:var(--text-3);">Your score: <b style="color:#34d399;">'+d.score+' / '+d.total+'</b></div></div></div>';
+      } else {
+        box.innerHTML='<div class="card" style="padding:0.95rem 1.15rem;display:flex;align-items:center;gap:14px;flex-wrap:wrap;border:1px solid rgba(255,107,26,.4);">'+
+          '<div style="font-size:24px;">📝</div><div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:800;color:var(--text-1);">New Features Quiz</div>'+
+          '<div style="font-size:12.5px;color:var(--text-2);">'+d.total+' quick questions on the latest tools & portal changes. One attempt.</div></div>'+
+          '<button onclick="openQuiz()" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:10px;padding:9px 20px;font:700 13px/1 inherit;cursor:pointer;">Take the quiz</button></div>';
+      }
+    }).catch(function(){});
+}
+function openQuiz(){
+  if(!_quiz||!_quiz.questions) return;
+  var body=document.getElementById('quiz-body');
+  body.innerHTML=_quiz.questions.map(function(q,i){
+    return '<div style="padding:12px 0;border-top:1px solid var(--border);">'+
+      '<div style="font-size:13.5px;font-weight:700;color:var(--text-1);margin-bottom:8px;">'+(i+1)+'. '+escapeHtml(q.q)+'</div>'+
+      q.o.map(function(opt,j){ return '<label style="display:flex;gap:9px;align-items:flex-start;padding:5px 0;cursor:pointer;font-size:13px;color:var(--text-2);">'+
+        '<input type="radio" name="qz'+i+'" value="'+j+'" style="margin-top:2px;">'+escapeHtml(opt)+'</label>'; }).join('')+
+      '</div>';
+  }).join('');
+  document.getElementById('quiz-status').textContent='';
+  document.getElementById('quiz-modal').style.display='flex';
+  document.getElementById('quiz-scroll').scrollTop=0;
+}
+function closeQuiz(){ document.getElementById('quiz-modal').style.display='none'; }
+async function submitQuiz(){
+  var st=document.getElementById('quiz-status'); var ans=[];
+  for(var i=0;i<_quiz.total;i++){ var sel=document.querySelector('input[name="qz'+i+'"]:checked'); ans.push(sel?sel.value:''); }
+  if(ans.some(function(a){return a==='';})){ st.style.color='#f87171'; st.textContent='Please answer all '+_quiz.total+' questions.'; return; }
+  var id=(window._currentEmpData&&window._currentEmpData.employee_id)||scEmpId||''; var name=(window._currentEmpData&&window._currentEmpData.full_name)||id;
+  var btn=document.getElementById('quiz-send'); btn.disabled=true; var o=btn.textContent; btn.textContent='Submitting…';
+  try{
+    var r=await fetch(APPS_SCRIPT_URL+'?action=submit_quiz&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(name)+'&answers='+encodeURIComponent(ans.join(','))+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ document.getElementById('quiz-body').innerHTML='<div style="text-align:center;padding:30px 10px;"><div style="font-size:44px;">🎉</div><div style="font-size:22px;font-weight:800;color:var(--text-1);margin-top:8px;">You scored '+d.score+' / '+d.total+'</div><div style="font-size:13px;color:var(--text-3);margin-top:6px;">Recorded — thanks for reviewing the new features!</div></div>';
+      document.getElementById('quiz-actions').style.display='none'; loadQuiz(); }
+    else if(d&&d.error==='ALREADY_TAKEN'){ st.style.color='#fbbf24'; st.textContent='You already took this quiz ('+d.score+'/'+d.total+').'; }
+    else { st.style.color='#f87171'; st.textContent='Failed: '+((d&&d.error)||'error'); }
+  }catch(e){ st.style.color='#f87171'; st.textContent='Failed (network).'; }
+  btn.disabled=false; btn.textContent=o;
 }
 // ── MY QA (weekly, this month) — with dispute ──
 var _myQaMonth='', _myQaWeeks={}, _myQaDisp={};
