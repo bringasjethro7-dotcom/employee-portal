@@ -4164,7 +4164,7 @@
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-03 · quiz-removed</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-03 · perf</div>
         </div>
         <button class="prod-open-btn" onclick="openMyProductivity()"><span style="font-size:15px;">📊</span> My productivity — quantity per hour vs team</button>
         <div class="overview-layout">
@@ -5746,7 +5746,7 @@ function empHms(s){ s=Math.max(0,Math.floor(s||0)); var h=Math.floor(s/3600),m=M
 function empLiveStart(){
   empFetchRunning();
   if(_empLiveTimer) clearInterval(_empLiveTimer);
-  _empLiveTimer=setInterval(empFetchRunning, 12000);
+  _empLiveTimer=setInterval(function(){ if(document.hidden) return; empFetchRunning(); }, 25000);   // pause polling in background tabs; local tick keeps the display live
   if(_empLiveTick) clearInterval(_empLiveTick);
   _empLiveTick=setInterval(empTickLive, 1000);
 }
@@ -5793,7 +5793,13 @@ async function markAllNotifRead(silent){
     _notifs=_notifs.map(function(n){ n.read=true; return n; }); if(!silent) renderNotifs();
   }catch(e){}
 }
-function startNotifs(){ if(_notifStarted) return; _notifStarted=true; loadNotifs(false); setInterval(function(){ loadNotifs(false); }, 60000); }
+function startNotifs(){ if(_notifStarted) return; _notifStarted=true; loadNotifs(false); setInterval(function(){ if(document.hidden) return; loadNotifs(false); }, 90000); }
+// When the user returns to the tab, refresh live data immediately instead of waiting for the next interval.
+document.addEventListener('visibilitychange', function(){
+  if(document.hidden) return;
+  try{ if(_empLiveTimer) empFetchRunning(); }catch(e){}
+  try{ if(_notifStarted) loadNotifs(false); }catch(e){}
+});
 document.addEventListener('click', function(ev){ var p=document.getElementById('notif-panel'), bell=document.getElementById('notif-bell'); if(!p||p.style.display==='none') return; if(p.contains(ev.target)||(bell&&bell.contains(ev.target))) return; p.style.display='none'; });
 /* ── JMB CALENDAR (approved leaves) — Team Live, CL7–CL9 ── */
 var _empCalLeaves=null, _empCalM=null;
@@ -7289,10 +7295,14 @@ function buildEodReceipt() {
   var ents = (window._trkTodayEntries || []).filter(function(e){ return e && e.status !== 'running' && e.status !== 'paused' && e.end; });
   ents.sort(function(a,b){ return parseTrkTime(a.start) - parseTrkTime(b.start); });
   var prodCount = 0, prodMins = 0, idleMins = 0;
+  var seenTasks = {};
   var rows = ents.map(function(e) {
     var idle = (typeof isIdleProject === 'function') && isIdleProject(e.project);
     var mins = entryMins(e);
     if (idle) idleMins += mins; else { prodMins += mins; prodCount++; }
+    var tkey = ((e.project||'') + '||' + (e.task||e.description||'')).toLowerCase().trim();
+    var isDup = false;
+    if (!idle) { if (seenTasks[tkey]) isDup = true; else seenTasks[tkey] = true; }
     var st = new Date(parseTrkTime(e.start)).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
     var et = new Date(parseTrkTime(e.end)).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
     var label = e.task || e.description || e.project || 'Task';
@@ -7300,7 +7310,9 @@ function buildEodReceipt() {
     var hasVol = e.volume !== '' && e.volume != null && !isNaN(parseFloat(e.volume));
     var right = idle
       ? '<span class="eod-idle">unproductive</span>'
-      : '<input class="eod-vol" data-eid="' + encodeURIComponent(e.entry_id) + '" type="number" min="0" step="any" inputmode="decimal" value="' + (hasVol ? escapeHtml(String(e.volume)) : '') + '" placeholder="output qty">';
+      : (isDup
+        ? '<input class="eod-vol" data-eid="' + encodeURIComponent(e.entry_id) + '" type="number" disabled value="" placeholder="↳ counted on 1st entry" title="Enter this task&#39;s total output on its first entry above" style="opacity:.5;cursor:not-allowed;">'
+        : '<input class="eod-vol" data-eid="' + encodeURIComponent(e.entry_id) + '" type="number" min="0" step="any" inputmode="decimal" value="' + (hasVol ? escapeHtml(String(e.volume)) : '') + '" placeholder="output qty">');
     return '<div class="eod-row' + (idle ? ' idle' : '') + '">' +
       '<div class="eod-main"><div class="eod-task">' + escapeHtml(label) + '</div>' +
       '<div class="eod-meta">' + escapeHtml(sub) + '</div>' +
@@ -7442,6 +7454,7 @@ function submitEOD() {
   var inputs = document.querySelectorAll('#eod-list .eod-vol');
   var ok = true, items = [];
   inputs.forEach(function(inp){
+    if (inp.disabled) { items.push({ entry_id: decodeURIComponent(inp.getAttribute('data-eid')), volume: 0 }); return; }   // same-task duplicate — output counted on the first entry
     var v = inp.value;
     if (v === '' || isNaN(parseFloat(v)) || parseFloat(v) < 0) { inp.style.borderColor = '#ef4444'; ok = false; }
     else { inp.style.borderColor = ''; items.push({ entry_id: decodeURIComponent(inp.getAttribute('data-eid')), volume: parseFloat(v) }); }
@@ -8386,15 +8399,21 @@ function showVolumePrompt(rows, required) {
   var list = document.getElementById('wl-vol-list');
   if (!list) return;
   var totalMin = 0;
+  var seenV = {};
   list.innerHTML = rows.map(function(r, i) {
     var m = Math.round((r.hours || 0) * 60); totalMin += m;
     var hrLabel = Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
     var label = r.task || r.description || 'Task';
     var sub = (r.project ? r.project + ' · ' : '') + hrLabel;
+    var vkey = ((r.project||'') + '||' + (r.task||r.description||'')).toLowerCase().trim();
+    var vdup = false; if (seenV[vkey]) vdup = true; else seenV[vkey] = true;
+    var vinput = vdup
+      ? '<input class="wl-vol-input" type="number" data-i="' + i + '" disabled placeholder="↳ 1st" title="Enter this task&#39;s total output on its first entry" style="opacity:.5;cursor:not-allowed;" />'
+      : '<input class="wl-vol-input" type="number" min="0" step="any" inputmode="numeric" data-i="' + i + '" placeholder="0" />';
     return '<div class="wl-vol-item">' +
       '<div class="wl-vol-info"><div class="wl-vol-task">' + escapeHtml(label) + '</div>' +
       '<div class="wl-vol-sub">' + escapeHtml(sub) + '</div></div>' +
-      '<div class="wl-vol-qty"><input class="wl-vol-input" type="number" min="0" step="any" inputmode="numeric" data-i="' + i + '" placeholder="0" /><span class="wl-vol-unit">qty</span></div>' +
+      '<div class="wl-vol-qty">' + vinput + '<span class="wl-vol-unit">qty</span></div>' +
     '</div>';
   }).join('');
   var sumEl = document.getElementById('wl-vol-summary');
@@ -8418,12 +8437,13 @@ function submitWorklogVolumes() {
   var inputs = document.querySelectorAll('#wl-vol-list .wl-vol-input');
   var ok = true;
   inputs.forEach(function(inp) {
+    if (inp.disabled) { inp.style.borderColor = ''; return; }
     if (inp.value === '' || isNaN(parseFloat(inp.value))) { inp.style.borderColor = '#ef4444'; ok = false; }
     else inp.style.borderColor = '';
   });
   if (!ok) { showToast('Please enter the volume for every task.'); return; }
   var rows = _pendingWorklog.rows;
-  inputs.forEach(function(inp) { var i = parseInt(inp.dataset.i, 10); if (rows[i]) rows[i].volume = parseFloat(inp.value); });
+  inputs.forEach(function(inp) { var i = parseInt(inp.dataset.i, 10); if (rows[i]) rows[i].volume = inp.disabled ? 0 : parseFloat(inp.value); });
   var trackedTotal = _pendingWorklog.clockifyTotal;
   var attendanceTotal = _pendingWorklog.attendanceTotal;
   // Always record (no "pending" limbo). Overtime is shown as a non-blocking notice only.
@@ -8875,7 +8895,7 @@ function _barEntries() {
 function refreshTimeBar() { try { renderTimeBar(_barEntries()); } catch(e) {} }
 // Self-heal: re-render the bar from the durable union every 15s, so it can never
 // be left blank by a transient empty render.
-setInterval(function(){ if (document.getElementById('time-bar-wrap')) { try { refreshTimeBar(); } catch(e) {} } }, 15000);
+setInterval(function(){ if (document.hidden) return; if (document.getElementById('time-bar-wrap')) { try { refreshTimeBar(); } catch(e) {} } }, 30000);
 function updateTimerDisplay() {
   if (!trkRunning) return;
   var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
