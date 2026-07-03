@@ -1065,6 +1065,20 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
 
     <!-- PAYSLIPS -->
     <div id="p-payslips" style="display:none;">
+      <div id="pay-lock" class="sales-lock" style="display:none;">
+        <div class="sales-lock-card">
+          <div class="sl-ic">🔒</div>
+          <h3>Payslips — confidential</h3>
+          <p id="pay-lock-msg">This section is locked. We'll email a one-time code to the authorized address to unlock it.</p>
+          <input id="pay-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" onkeydown="if(event.key==='Enter')payVerify()" style="width:200px;text-align:center;letter-spacing:8px;font-size:20px;font-weight:700;margin:4px auto 0;display:block;" class="sinp" />
+          <div id="pay-lock-err" style="display:none;color:#f87171;font-size:12.5px;margin-top:6px;"></div>
+          <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;flex-wrap:wrap;">
+            <button class="bsm" id="pay-send" onclick="payRequestCode()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">Email me a code</button>
+            <button class="bsm" id="pay-verify" onclick="payVerify()" style="color:#fff;background:var(--green,#22c55e);border-color:var(--green,#22c55e);font-weight:600;">Verify &amp; unlock</button>
+          </div>
+        </div>
+      </div>
+      <div id="pay-app">
       <div class="toolbar">
         <div class="tl" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <select class="sinp" id="pay-emp-filter" onchange="loadPayslipsAdmin()" style="width:200px;">
@@ -1079,6 +1093,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <span id="pay-summary" style="font-size:12px;color:var(--t2);"></span>
           <button class="bsm" onclick="loadPayslipsAdmin()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+          <button class="bsm" onclick="payslipsLock()" style="color:var(--t2);">🔒 Lock again</button>
         </div>
       </div>
       <!-- AUTO-GENERATE PAYSLIPS FROM CUTOFF HOURS -->
@@ -1115,6 +1130,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <tbody id="pay-body"><tr><td colspan="6" class="es">Loading…</td></tr></tbody>
         </table>
       </div>
+      </div><!-- /pay-app -->
     </div>
 
 
@@ -1336,6 +1352,42 @@ async function salesVerify(){
     var r=await fetch(API+'?action=sales_otp_verify&code='+encodeURIComponent(code)+'&_='+Date.now()); var d=await r.json();
     btn.disabled=false; btn.textContent='Verify & unlock';
     if(d&&d.ok&&d.token){ try{ sessionStorage.setItem('sales_token', d.token); }catch(e){} loadSales(); }
+    else { err.style.display='block'; err.textContent=(d&&d.error==='EXPIRED')?'Code expired — resend a new one.':'Incorrect code.'; }
+  }catch(e){ btn.disabled=false; btn.textContent='Verify & unlock'; err.style.display='block'; err.textContent='Network error.'; }
+}
+/* ════════ PAYSLIPS (OTP-gated — reuses the Sales OTP email flow) ════════ */
+function payslipsEnter(){
+  if(_salesToken()){ document.getElementById('pay-lock').style.display='none'; document.getElementById('pay-app').style.display='block'; loadPayslipsAdmin(); }
+  else {
+    document.getElementById('pay-app').style.display='none';
+    document.getElementById('pay-lock').style.display='flex';
+    var c=document.getElementById('pay-code'); if(c) c.value='';
+    var sb=document.getElementById('pay-send'); if(sb){ sb.disabled=false; sb.textContent='Email me a code'; }
+    var sv=document.getElementById('pay-verify'); if(sv){ sv.disabled=false; sv.textContent='Verify & unlock'; }
+    var er=document.getElementById('pay-lock-err'); if(er) er.style.display='none';
+    document.getElementById('pay-lock-msg').textContent="This section is locked. Enter the one-time code we email to the authorized address to unlock it.";
+  }
+}
+function payslipsLock(){ try{ sessionStorage.removeItem('sales_token'); }catch(e){} payslipsEnter(); }
+async function payRequestCode(){
+  var btn=document.getElementById('pay-send'); var err=document.getElementById('pay-lock-err'); err.style.display='none';
+  btn.disabled=true; btn.textContent='Sending…';
+  var done=false; var guard=setTimeout(function(){ if(!done){ btn.disabled=false; btn.textContent='Resend code'; document.getElementById('pay-lock-msg').textContent='Code request sent. If the email arrived, type it below and Verify.'; document.getElementById('pay-code').focus(); } }, 12000);
+  try{
+    var r=await fetch(API+'?action=sales_otp_request&_='+Date.now()); var d=await r.json();
+    done=true; clearTimeout(guard); btn.disabled=false; btn.textContent='Resend code';
+    if(d&&d.ok&&d.emailed){ document.getElementById('pay-lock-msg').textContent='A 6-digit code was emailed to '+(d.to||'the authorized address')+' (expires in 10 min). Enter it below.'; document.getElementById('pay-code').focus(); }
+    else { err.style.display='block'; err.textContent='Could not send'+(d&&d.error?(': '+d.error):' — is the backend deployed?'); }
+  }catch(e){ done=true; clearTimeout(guard); btn.disabled=false; btn.textContent='Resend code'; document.getElementById('pay-lock-msg').textContent='If you received the code, enter it below and Verify.'; document.getElementById('pay-code').focus(); }
+}
+async function payVerify(){
+  var code=(document.getElementById('pay-code').value||'').trim(); var err=document.getElementById('pay-lock-err'); err.style.display='none';
+  if(!/^\d{6}$/.test(code)){ err.style.display='block'; err.textContent='Enter the 6-digit code.'; return; }
+  var btn=document.getElementById('pay-verify'); btn.disabled=true; btn.textContent='Verifying…';
+  try{
+    var r=await fetch(API+'?action=sales_otp_verify&code='+encodeURIComponent(code)+'&_='+Date.now()); var d=await r.json();
+    btn.disabled=false; btn.textContent='Verify & unlock';
+    if(d&&d.ok&&d.token){ try{ sessionStorage.setItem('sales_token', d.token); }catch(e){} payslipsEnter(); }
     else { err.style.display='block'; err.textContent=(d&&d.error==='EXPIRED')?'Code expired — resend a new one.':'Incorrect code.'; }
   }catch(e){ btn.disabled=false; btn.textContent='Verify & unlock'; err.style.display='block'; err.textContent='Network error.'; }
 }
@@ -1877,7 +1929,7 @@ function goTab(name){
   if(name==='scorecard') loadAdminScorecard();
   if(name==='worklog') loadWorkLog();
   if(name==='projects') { loadProjectsAdmin(); loadPauses(); }
-  if(name==='payslips') loadPayslipsAdmin();
+  if(name==='payslips') payslipsEnter();
   if(name==='dash') loadDashboard();
   if(name==='live') loadLive();
   if(name==='sales') loadSales();
