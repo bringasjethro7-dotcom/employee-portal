@@ -539,7 +539,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage employee records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-03 · quiz-removed</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-03 · appeal-crosscheck</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -1065,20 +1065,6 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
 
     <!-- PAYSLIPS -->
     <div id="p-payslips" style="display:none;">
-      <div id="pay-lock" class="sales-lock" style="display:none;">
-        <div class="sales-lock-card">
-          <div class="sl-ic">🔒</div>
-          <h3>Payslips — confidential</h3>
-          <p id="pay-lock-msg">This section is locked. We'll email a one-time code to the authorized address to unlock it.</p>
-          <input id="pay-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" onkeydown="if(event.key==='Enter')payVerify()" style="width:200px;text-align:center;letter-spacing:8px;font-size:20px;font-weight:700;margin:4px auto 0;display:block;" class="sinp" />
-          <div id="pay-lock-err" style="display:none;color:#f87171;font-size:12.5px;margin-top:6px;"></div>
-          <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;flex-wrap:wrap;">
-            <button class="bsm" id="pay-send" onclick="payRequestCode()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">Email me a code</button>
-            <button class="bsm" id="pay-verify" onclick="payVerify()" style="color:#fff;background:var(--green,#22c55e);border-color:var(--green,#22c55e);font-weight:600;">Verify &amp; unlock</button>
-          </div>
-        </div>
-      </div>
-      <div id="pay-app">
       <div class="toolbar">
         <div class="tl" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <select class="sinp" id="pay-emp-filter" onchange="loadPayslipsAdmin()" style="width:200px;">
@@ -1093,7 +1079,6 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <span id="pay-summary" style="font-size:12px;color:var(--t2);"></span>
           <button class="bsm" onclick="loadPayslipsAdmin()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
-          <button class="bsm" onclick="payslipsLock()" style="color:var(--t2);">🔒 Lock again</button>
         </div>
       </div>
       <!-- AUTO-GENERATE PAYSLIPS FROM CUTOFF HOURS -->
@@ -1130,7 +1115,6 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <tbody id="pay-body"><tr><td colspan="6" class="es">Loading…</td></tr></tbody>
         </table>
       </div>
-      </div><!-- /pay-app -->
     </div>
 
 
@@ -1352,42 +1336,6 @@ async function salesVerify(){
     var r=await fetch(API+'?action=sales_otp_verify&code='+encodeURIComponent(code)+'&_='+Date.now()); var d=await r.json();
     btn.disabled=false; btn.textContent='Verify & unlock';
     if(d&&d.ok&&d.token){ try{ sessionStorage.setItem('sales_token', d.token); }catch(e){} loadSales(); }
-    else { err.style.display='block'; err.textContent=(d&&d.error==='EXPIRED')?'Code expired — resend a new one.':'Incorrect code.'; }
-  }catch(e){ btn.disabled=false; btn.textContent='Verify & unlock'; err.style.display='block'; err.textContent='Network error.'; }
-}
-/* ════════ PAYSLIPS (OTP-gated — reuses the Sales OTP email flow) ════════ */
-function payslipsEnter(){
-  if(_salesToken()){ document.getElementById('pay-lock').style.display='none'; document.getElementById('pay-app').style.display='block'; loadPayslipsAdmin(); }
-  else {
-    document.getElementById('pay-app').style.display='none';
-    document.getElementById('pay-lock').style.display='flex';
-    var c=document.getElementById('pay-code'); if(c) c.value='';
-    var sb=document.getElementById('pay-send'); if(sb){ sb.disabled=false; sb.textContent='Email me a code'; }
-    var sv=document.getElementById('pay-verify'); if(sv){ sv.disabled=false; sv.textContent='Verify & unlock'; }
-    var er=document.getElementById('pay-lock-err'); if(er) er.style.display='none';
-    document.getElementById('pay-lock-msg').textContent="This section is locked. Enter the one-time code we email to the authorized address to unlock it.";
-  }
-}
-function payslipsLock(){ try{ sessionStorage.removeItem('sales_token'); }catch(e){} payslipsEnter(); }
-async function payRequestCode(){
-  var btn=document.getElementById('pay-send'); var err=document.getElementById('pay-lock-err'); err.style.display='none';
-  btn.disabled=true; btn.textContent='Sending…';
-  var done=false; var guard=setTimeout(function(){ if(!done){ btn.disabled=false; btn.textContent='Resend code'; document.getElementById('pay-lock-msg').textContent='Code request sent. If the email arrived, type it below and Verify.'; document.getElementById('pay-code').focus(); } }, 12000);
-  try{
-    var r=await fetch(API+'?action=sales_otp_request&_='+Date.now()); var d=await r.json();
-    done=true; clearTimeout(guard); btn.disabled=false; btn.textContent='Resend code';
-    if(d&&d.ok&&d.emailed){ document.getElementById('pay-lock-msg').textContent='A 6-digit code was emailed to '+(d.to||'the authorized address')+' (expires in 10 min). Enter it below.'; document.getElementById('pay-code').focus(); }
-    else { err.style.display='block'; err.textContent='Could not send'+(d&&d.error?(': '+d.error):' — is the backend deployed?'); }
-  }catch(e){ done=true; clearTimeout(guard); btn.disabled=false; btn.textContent='Resend code'; document.getElementById('pay-lock-msg').textContent='If you received the code, enter it below and Verify.'; document.getElementById('pay-code').focus(); }
-}
-async function payVerify(){
-  var code=(document.getElementById('pay-code').value||'').trim(); var err=document.getElementById('pay-lock-err'); err.style.display='none';
-  if(!/^\d{6}$/.test(code)){ err.style.display='block'; err.textContent='Enter the 6-digit code.'; return; }
-  var btn=document.getElementById('pay-verify'); btn.disabled=true; btn.textContent='Verifying…';
-  try{
-    var r=await fetch(API+'?action=sales_otp_verify&code='+encodeURIComponent(code)+'&_='+Date.now()); var d=await r.json();
-    btn.disabled=false; btn.textContent='Verify & unlock';
-    if(d&&d.ok&&d.token){ try{ sessionStorage.setItem('sales_token', d.token); }catch(e){} payslipsEnter(); }
     else { err.style.display='block'; err.textContent=(d&&d.error==='EXPIRED')?'Code expired — resend a new one.':'Incorrect code.'; }
   }catch(e){ btn.disabled=false; btn.textContent='Verify & unlock'; err.style.display='block'; err.textContent='Network error.'; }
 }
@@ -1929,7 +1877,7 @@ function goTab(name){
   if(name==='scorecard') loadAdminScorecard();
   if(name==='worklog') loadWorkLog();
   if(name==='projects') { loadProjectsAdmin(); loadPauses(); }
-  if(name==='payslips') payslipsEnter();
+  if(name==='payslips') loadPayslipsAdmin();
   if(name==='dash') loadDashboard();
   if(name==='live') loadLive();
   if(name==='sales') loadSales();
@@ -2950,6 +2898,21 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
   w.document.open(); w.document.write(html); w.document.close();
 }
 
+function _apFmtT(s){
+  if(!s) return '—';
+  var d=new Date(String(s).replace(' ','T'));
+  if(isNaN(d.getTime())) return escAdmin(String(s));
+  return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Manila'});
+}
+// Cross-check panel: the employee's actual tracked hours + time frames for the appeal's date.
+function _appealDayHtml(x){
+  var day=x.day_entries||[]; var tot=(x.day_total!=null?Number(x.day_total):0); var cnt=(x.day_count!=null?x.day_count:day.length);
+  if(!day.length) return '<div style="margin-top:6px;font-size:11.5px;color:#f87171;">⚠ No tracked entries on '+escAdmin(x.date||'that day')+' — verify carefully before approving.</div>';
+  var rows=day.map(function(e){ return '<div style="font-size:11.5px;color:var(--t3);">🕒 '+_apFmtT(e.start)+' – '+_apFmtT(e.end)+' · '+(Number(e.hours)||0).toFixed(2)+'h · '+escAdmin(e.task||e.project||'—')+'</div>'; }).join('');
+  return '<div style="margin-top:6px;padding:7px 9px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;">'+
+    '<div style="font-size:11.5px;color:var(--t2);margin-bottom:3px;"><b>Tracked on '+escAdmin(x.date||'')+':</b> <b style="color:#e6edf3">'+tot.toFixed(2)+'h</b> · '+cnt+' entr'+(cnt===1?'y':'ies')+'</div>'+
+    rows+'</div>';
+}
 async function loadAppeals(){
   var box=document.getElementById('appeals-panel'); if(!box) return;
   try{
@@ -2965,7 +2928,7 @@ async function loadAppeals(){
         return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(255,255,255,.06);">'+
           '<div style="flex:1;min-width:200px;"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.date)+'<br>'+
           '<span style="color:var(--t2);font-size:12px;">'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' <span style="color:#fbbf24">(untracked)</span>':'')+' — current '+cur+' → claim <b style="color:#4ade80">'+claim+'</b></span>'+
-          (x.note?('<br><span style="color:var(--t3);font-size:12px;">“'+escAdmin(x.note)+'”</span>'):'')+'</div>'+
+          (x.note?('<br><span style="color:var(--t3);font-size:12px;">“'+escAdmin(x.note)+'”</span>'):'')+_appealDayHtml(x)+'</div>'+
           '<button class="bsm" style="color:#4ade80;border-color:rgba(74,222,128,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button>'+
           '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'reject\')">Reject</button>'+
         '</div>';
@@ -2995,7 +2958,7 @@ async function loadDashAppeals(){
       var untracked=String(x.status).toLowerCase()==='appeal';
       return '<div class="dash-item"><span class="dash-chip chip-worklog">Appeal</span>'+
         '<div class="dash-item-main"><strong>'+escAdmin(x.full_name||x.employee_id)+'</strong> <small style="color:var(--t3)">'+escAdmin(x.date)+'</small><br>'+
-        '<small>'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' (untracked)':'')+' — '+cur+' → claim <b style="color:#4ade80">'+claim+'</b>'+(x.note?(' · “'+escAdmin(x.note)+'”'):'')+'</small></div>'+
+        '<small>'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' (untracked)':'')+' — '+cur+' → claim <b style="color:#4ade80">'+claim+'</b>'+(x.note?(' · “'+escAdmin(x.note)+'”'):'')+'</small>'+_appealDayHtml(x)+'</div>'+
         '<div class="dash-item-actions"><button class="bsm edit" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button><button class="bsm danger" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'reject\')">Reject</button></div></div>';
     }).join('');
   }catch(e){ box.innerHTML='<div class="es">Could not load appeals.</div>'; }
