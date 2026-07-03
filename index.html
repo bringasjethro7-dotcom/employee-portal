@@ -4228,6 +4228,18 @@
     <!-- PAYSLIPS -->
     <div class="tab-panel" id="tab-payslips">
       <p class="section-eyebrow">Payslips</p>
+      <div id="psgate" style="display:none;max-width:420px;margin:8px auto;text-align:center;padding:26px 22px;background:var(--card-1,#12161d);border:1px solid var(--border);border-radius:16px;">
+        <div style="font-size:30px;">🔒</div>
+        <div style="font-size:16px;font-weight:800;color:var(--text-1);margin-top:6px;">Payslips — confidential</div>
+        <p id="psgate-msg" style="font-size:12.5px;color:var(--text-3);margin:8px 0 12px;line-height:1.5;">For your privacy, we'll email a one-time code to your registered address. Enter it to view your payslips.</p>
+        <input id="psgate-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="display:none;width:180px;text-align:center;letter-spacing:8px;font-size:20px;font-weight:700;margin:0 auto 6px;padding:8px;background:var(--bg-2,#0b0e14);border:1px solid var(--border);border-radius:10px;color:var(--text-1);" onkeydown="if(event.key==='Enter')verifyPayslipCode()">
+        <div id="psgate-err" style="display:none;color:#f87171;font-size:12px;margin-bottom:6px;"></div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button id="psgate-send" onclick="sendPayslipCode()" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:10px;padding:9px 18px;font:700 13px/1 inherit;cursor:pointer;">Email me a code</button>
+          <button id="psgate-verify" onclick="verifyPayslipCode()" style="display:none;background:#22c55e;color:#fff;border:none;border-radius:10px;padding:9px 18px;font:700 13px/1 inherit;cursor:pointer;">Verify &amp; view</button>
+        </div>
+      </div>
+      <div id="payslip-app">
       <div class="payslip-table">
         <div class="payslip-head">
           <span>Period</span>
@@ -4239,6 +4251,7 @@
         <div id="payslip-list">
           <!-- injected by JS -->
         </div>
+      </div>
       </div>
     </div>
 
@@ -5837,6 +5850,12 @@ function switchTab(name, btn) {
   var _fab = document.getElementById('msg-fab');
   if (_fab) { if (name === 'messages') _fab.classList.add('active'); else _fab.classList.remove('active'); }
 
+  // Payslips are OTP-gated — require a one-time code (emailed to the employee) before showing them.
+  if (name === 'payslips') {
+    if (!_payslipUnlocked) { openPayslipGate(); return; }
+    var _pa = document.getElementById('payslip-app'); if (_pa) _pa.style.display = '';
+    var _pg = document.getElementById('psgate');      if (_pg) _pg.style.display = 'none';
+  }
   // Tabs that need fresh data from server on every open
   if (name === 'overview' || name === 'payslips' || name === 'profile') {
     // show skeletons immediately while data fetches
@@ -6595,6 +6614,56 @@ function toggleRate() {
   }
 }
 
+// ══════════════════════════════════════════
+// PAYSLIP OTP GATE — reuses the rate one-time-code flow (emailed to the employee)
+// ══════════════════════════════════════════
+var _payslipUnlocked = false;
+function _psEmpId() { return attEmpId || (window._currentEmpData && window._currentEmpData.employee_id) || ''; }
+function openPayslipGate() {
+  var pa = document.getElementById('payslip-app'); if (pa) pa.style.display = 'none';
+  var g = document.getElementById('psgate'); if (!g) return;
+  document.getElementById('psgate-code').style.display = 'none';
+  document.getElementById('psgate-code').value = '';
+  document.getElementById('psgate-err').style.display = 'none';
+  var sb = document.getElementById('psgate-send'); sb.style.display = ''; sb.disabled = false; sb.textContent = 'Email me a code';
+  document.getElementById('psgate-verify').style.display = 'none';
+  document.getElementById('psgate-msg').textContent = "For your privacy, we'll email a one-time code to your registered address. Enter it to view your payslips.";
+  g.style.display = 'block';
+}
+function sendPayslipCode() {
+  var btn = document.getElementById('psgate-send'); btn.disabled = true; btn.textContent = 'Sending…';
+  fetch(APPS_SCRIPT_URL + '?action=rate_code_request&employee_id=' + encodeURIComponent(_psEmpId()) + '&_=' + Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      btn.disabled = false; btn.textContent = 'Resend code';
+      if (d && d.ok && d.emailed) {
+        document.getElementById('psgate-msg').textContent = 'We emailed a 6-digit code to ' + (d.to || 'your registered email') + '. Enter it below (expires in 10 min).';
+        var c = document.getElementById('psgate-code'); c.style.display = ''; c.focus();
+        document.getElementById('psgate-verify').style.display = '';
+      } else {
+        var err = document.getElementById('psgate-err'); err.style.display = 'block';
+        err.textContent = (d && d.error === 'NO_EMAIL') ? 'No email on file — contact your admin.'
+          : (d && d.error) ? ('Could not send: ' + d.error) : 'Could not send the code.';
+      }
+    }).catch(function(){ btn.disabled = false; btn.textContent = 'Email me a code'; var err = document.getElementById('psgate-err'); err.style.display = 'block'; err.textContent = 'Network error. Try again.'; });
+}
+function verifyPayslipCode() {
+  var code = (document.getElementById('psgate-code').value || '').trim();
+  var err = document.getElementById('psgate-err'); err.style.display = 'none';
+  if (!/^\d{6}$/.test(code)) { err.style.display = 'block'; err.textContent = 'Enter the 6-digit code.'; return; }
+  var btn = document.getElementById('psgate-verify'); btn.disabled = true; btn.textContent = 'Verifying…';
+  fetch(APPS_SCRIPT_URL + '?action=rate_code_verify&employee_id=' + encodeURIComponent(_psEmpId()) + '&code=' + encodeURIComponent(code) + '&_=' + Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      btn.disabled = false; btn.textContent = 'Verify & view';
+      if (d && d.ok) {
+        _payslipUnlocked = true;
+        document.getElementById('psgate').style.display = 'none';
+        var pa = document.getElementById('payslip-app'); if (pa) pa.style.display = '';
+        if (typeof skelInto === 'function') skelInto('payslip-list', 4, 'row');
+        refreshEmployeeData(function(data){ renderPayslipList(data); renderIDCard(data); });
+        if (typeof showToast === 'function') showToast('Payslips unlocked for this session.');
+      } else { err.style.display = 'block'; err.textContent = (d && d.error === 'EXPIRED') ? 'Code expired — resend a new one.' : 'Incorrect code.'; }
+    }).catch(function(){ btn.disabled = false; btn.textContent = 'Verify & view'; err.style.display = 'block'; err.textContent = 'Network error. Try again.'; });
+}
 // ══════════════════════════════════════════
 // PAYSLIP SYSTEM
 // ══════════════════════════════════════════
