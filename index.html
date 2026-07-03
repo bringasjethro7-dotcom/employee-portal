@@ -4038,6 +4038,7 @@
           <div id="ap-entry-label" style="display:none;background:var(--bg-deep);border:1px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:8px;font-size:13px;color:var(--text-1);"></div>
           <label class="ap-l">Date</label>
           <input id="ap-date" class="ap-in" type="date">
+          <div class="ap-mini" style="margin:-2px 0 6px;color:var(--text-3);">You can appeal for today or the past 2 days (48 hours).</div>
           <label class="ap-l">Time worked</label>
           <div style="display:flex;gap:10px;align-items:flex-end;">
             <div style="flex:1;"><span class="ap-mini">Start</span><input id="ap-start" class="ap-in" type="time" oninput="apCalcHours()"></div>
@@ -7335,11 +7336,13 @@ function _postAppeal(p, cb) {
 // ── Appeal modal (replaces the old prompt chain) ──
 var _apMode = 'untracked', _apEntryId = '';
 function _apToday(){ return (typeof shiftDate === 'function' ? shiftDate() : new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'})); }
+// Earliest date an appeal may be filed for: today minus 2 days (a rolling 48-hour / 2-day window).
+function _apMinDate(){ var d=new Date(_apToday()+'T00:00:00'); d.setDate(d.getDate()-2); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 async function openAppeal(mode, opts){
   _apMode = mode || 'untracked'; opts = opts || {};
   document.getElementById('ap-err').style.display = 'none';
   document.getElementById('ap-hours-hint').textContent = '';
-  document.getElementById('ap-date').value = _apToday();
+  var _apDEl = document.getElementById('ap-date'); _apDEl.value = _apToday(); _apDEl.min = _apMinDate(); _apDEl.max = _apToday();
   document.getElementById('ap-start').value = ''; document.getElementById('ap-end').value = ''; document.getElementById('ap-hours').value = '';
   document.getElementById('ap-reason').value = '';
   if (_apMode === 'entry') {
@@ -7403,6 +7406,7 @@ function submitAppeal(){
   var reason=document.getElementById('ap-reason').value.trim();
   var date=document.getElementById('ap-date').value || _apToday();
   if(isNaN(hours)||hours<=0){ err.style.display='block'; err.textContent='Enter the hours (or a start and end time).'; return; }
+  if(_apMode!=='entry' && (date < _apMinDate() || date > _apToday())){ err.style.display='block'; err.textContent='Appeals are only allowed for today or the past 2 days.'; return; }
   var payload;
   if(_apMode==='entry'){
     payload={ entry_id:_apEntryId, claim_hours:hours, reason:reason };
