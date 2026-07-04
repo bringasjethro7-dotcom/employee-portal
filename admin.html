@@ -539,7 +539,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage employee records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-05 · pay-qr</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-05 · qr-manager</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -1079,6 +1079,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <span id="pay-summary" style="font-size:12px;color:var(--t2);"></span>
+          <button class="bsm" onclick="openQrMgr()" style="color:#38bdf8;border-color:rgba(56,189,248,.4);">🏦 Bank QRs</button>
           <button class="bsm" onclick="loadPayslipsAdmin()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
       </div>
@@ -1216,6 +1217,24 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
 </div>
 
 <div id="toast"></div>
+
+<!-- BANK QR MANAGER — bulk upload / per-employee -->
+<div id="qrmgr-modal" style="display:none;position:fixed;inset:0;z-index:9600;align-items:flex-start;justify-content:center;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);padding:32px 16px;overflow:auto;">
+  <div style="width:520px;max-width:100%;background:#111417;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:20px;box-shadow:0 30px 90px rgba(0,0,0,.6);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <div style="font-size:16px;font-weight:800;color:var(--t1);">🏦 Bank QR manager</div>
+      <button class="bsm" onclick="closeQrMgr()">✕ Close</button>
+    </div>
+    <div style="font-size:12px;color:var(--t3);margin-bottom:12px;" id="qrmgr-count"></div>
+    <div style="border:1px dashed rgba(255,107,26,.4);border-radius:12px;padding:12px;margin-bottom:12px;background:rgba(255,107,26,.05);">
+      <div style="font-size:12.5px;color:var(--t2);margin-bottom:8px;line-height:1.5;">⚡ <b>Bulk:</b> name each QR image with the employee's ID (e.g. <b>JMB001.png</b>) and select them all at once — they auto-assign by ID. Or upload per person in the list below.</div>
+      <input type="file" accept="image/*" multiple id="qrmgr-bulk" style="display:none;" onchange="qrMgrBulk(this)">
+      <button class="bsm" onclick="document.getElementById('qrmgr-bulk').click()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">⬆ Select QR images (bulk)</button>
+      <span id="qrmgr-bulk-status" style="font-size:11.5px;color:var(--t3);margin-left:8px;"></span>
+    </div>
+    <div id="qrmgr-list" style="max-height:52vh;overflow:auto;"></div>
+  </div>
+</div>
 
 <!-- PAY MODAL — amount + bank QR for fast manual payslip payments -->
 <div id="pay-modal" style="display:none;position:fixed;inset:0;z-index:9600;align-items:center;justify-content:center;background:rgba(0,0,0,.68);backdrop-filter:blur(4px);padding:16px;">
@@ -2842,6 +2861,67 @@ async function doPayModal(next){
     closePayModal(); if(typeof toast==='function') toast('All ready payslips are paid. 🎉'); return;
   }
   closePayModal();
+}
+
+/* ── Bank QR manager: bulk + per-employee upload ── */
+var _qrMgrEmps=[];
+async function openQrMgr(){
+  document.getElementById('qrmgr-modal').style.display='flex';
+  var box=document.getElementById('qrmgr-list'); box.innerHTML='<div class="es" style="padding:12px;">Loading…</div>';
+  var bs=document.getElementById('qrmgr-bulk-status'); if(bs) bs.textContent='';
+  try{ var r=await fetch(API+'?action=get_all_employees&_='+Date.now()); var d=await r.json(); _qrMgrEmps=(d.employees||[]).filter(function(e){return e.employee_id;}); renderQrMgr(); }
+  catch(e){ box.innerHTML='<div class="es" style="padding:12px;color:#f87171;">Could not load employees.</div>'; }
+}
+function closeQrMgr(){ document.getElementById('qrmgr-modal').style.display='none'; }
+function renderQrMgr(){
+  var box=document.getElementById('qrmgr-list');
+  _qrMgrEmps.sort(function(a,b){ var qa=a.bank_qr?1:0, qb=b.bank_qr?1:0; if(qa!==qb) return qa-qb; return String(a.full_name||a.employee_id).localeCompare(String(b.full_name||b.employee_id)); });
+  var withQ=_qrMgrEmps.filter(function(e){return e.bank_qr;}).length;
+  var cnt=document.getElementById('qrmgr-count'); if(cnt) cnt.textContent=withQ+' of '+_qrMgrEmps.length+' employees have a QR on file';
+  box.innerHTML=_qrMgrEmps.map(function(e){
+    var id=payEsc(e.employee_id);
+    var img=e.bank_qr?('<img src="'+convertDrive(e.bank_qr)+'" style="width:44px;height:44px;object-fit:contain;background:#fff;border-radius:6px;padding:2px;">'):'<div style="width:44px;height:44px;border:1px dashed var(--line);border-radius:6px;"></div>';
+    return '<div style="display:flex;align-items:center;gap:12px;padding:8px 4px;border-top:1px solid rgba(255,255,255,.06);">'+
+      img+
+      '<div style="flex:1;min-width:0;"><div style="font-size:13px;color:var(--t1);font-weight:600;">'+payEsc(e.full_name||e.employee_id)+'</div><div style="font-size:11px;color:var(--t3);font-family:monospace;">'+id+'</div></div>'+
+      '<div style="font-size:11px;white-space:nowrap;color:'+(e.bank_qr?'#34d399':'var(--t3)')+';" id="qrst-'+id+'">'+(e.bank_qr?'✓ QR set':'no QR')+'</div>'+
+      '<input type="file" accept="image/*" style="display:none;" id="qrf-'+id+'" onchange="qrMgrUpload(\''+id+'\',this)">'+
+      '<button class="bsm" onclick="document.getElementById(\'qrf-'+id+'\').click()" style="color:var(--o3);border-color:rgba(255,107,26,.35);">Upload</button>'+
+    '</div>';
+  }).join('');
+}
+function _qrUpload(id, dataURL, cb){
+  fetch(API,{method:'POST',body:JSON.stringify({action:'save_emp_qr',employee_id:id,image:dataURL})})
+    .then(function(r){return r.json();}).then(function(d){ cb(d&&d.ok?d.url:null); }).catch(function(){ cb(null); });
+}
+function _qrReflect(id,url){
+  var em=_qrMgrEmps.filter(function(x){return x.employee_id===id;})[0]; if(em) em.bank_qr=url;
+  try{ var e2=emps.filter(function(x){return x.employee_id===id;})[0]; if(e2) e2.bank_qr=url; }catch(e){}
+}
+function qrMgrUpload(id, input){
+  var f=input.files&&input.files[0]; if(!f) return;
+  var st=document.getElementById('qrst-'+id); if(st){st.style.color='var(--t3)';st.textContent='Uploading…';}
+  var rd=new FileReader();
+  rd.onload=function(){ _qrUpload(id, rd.result, function(url){ if(url){ _qrReflect(id,url); renderQrMgr(); } else if(st){ st.style.color='#f87171'; st.textContent='failed'; } }); };
+  rd.readAsDataURL(f); input.value='';
+}
+async function qrMgrBulk(input){
+  var files=input.files; if(!files||!files.length) return;
+  var status=document.getElementById('qrmgr-bulk-status'); if(status){ status.style.color='var(--t3)'; status.textContent='Matching…'; }
+  var matched=0, unmatched=[];
+  for(var i=0;i<files.length;i++){
+    var f=files[i]; var base=f.name.replace(/\.[^.]+$/,'').trim().toLowerCase();
+    var e=_qrMgrEmps.filter(function(x){ return String(x.employee_id).toLowerCase()===base; })[0]
+       || _qrMgrEmps.filter(function(x){ var id=String(x.employee_id).toLowerCase(); return id && base.indexOf(id)>=0; })[0];
+    if(!e){ unmatched.push(f.name); continue; }
+    var dataURL=await new Promise(function(res){ var rd=new FileReader(); rd.onload=function(){res(rd.result);}; rd.readAsDataURL(f); });
+    var okd=await new Promise(function(res){ _qrUpload(e.employee_id, dataURL, function(url){ if(url){ _qrReflect(e.employee_id,url); res(true);} else res(false); }); });
+    if(okd) matched++;
+    if(status) status.textContent='Uploaded '+matched+'…';
+  }
+  renderQrMgr();
+  if(status){ status.style.color=matched?'#34d399':'#f87171'; status.textContent='Matched & uploaded '+matched+' QR'+(matched!==1?'s':'')+(unmatched.length?(' · '+unmatched.length+' unmatched ('+unmatched.slice(0,3).join(', ')+(unmatched.length>3?'…':'')+')'):''); }
+  input.value='';
 }
 
 // ── WORK LOG (consolidated Clockify time) ──
