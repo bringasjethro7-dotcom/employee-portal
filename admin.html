@@ -539,7 +539,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage employee records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-04 · cachefix</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-04 · att-productive</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -770,7 +770,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
         <div class="sc"><div class="sl">Total</div><div class="sv" id="s-total">—</div></div>
         <div class="sc"><div class="sl">On Time</div><div class="sv" style="color:#4ade80;" id="s-ontime">—</div></div>
         <div class="sc"><div class="sl">Late</div><div class="sv" style="color:#f87171;" id="s-late">—</div></div>
-        <div class="sc"><div class="sl">Incomplete</div><div class="sv" style="color:var(--o3);" id="s-inc">—</div></div>
+        <div class="sc"><div class="sl">Productive hrs</div><div class="sv" style="color:#60a5fa;" id="s-prod">—</div></div>
       </div>
       <div class="tw">
         <table>
@@ -3231,14 +3231,22 @@ function filterAtt(){
   document.getElementById('s-total').textContent=f.length;
   document.getElementById('s-ontime').textContent=f.filter(function(r){return r.time_in&&!isLate(r);}).length;
   document.getElementById('s-late').textContent=f.filter(function(r){return r.time_in&&isLate(r);}).length;
-  document.getElementById('s-inc').textContent=f.filter(function(r){return r.time_in&&!r.time_out;}).length;
+  var _prodTot=f.reduce(function(s,r){return s+(parseInt(r.productive_mins,10)||0);},0);
+  document.getElementById('s-prod').textContent=(_prodTot/60).toFixed(1)+'h';
   var tb=document.getElementById('atbody');
   if(!f.length){tb.innerHTML='<tr><td colspan="9" class="es">No records found.</td></tr>';return;}
   tb.innerHTML=f.map(function(r){
-    var late=isLate(r),hrs=calcHrs(r),inc=r.time_in&&!r.time_out;
-    var badge=inc?'<span class="binc">Incomplete</span>':late?'<span class="blate">Late</span>':r.time_in?'<span class="bon">On Time</span>':'—';
-    var lunch=r.lunch_out?fmtT(r.lunch_out)+(r.lunch_in?' – '+fmtT(r.lunch_in):' – …'):'—';
-    return'<tr><td><strong style="color:var(--t1);">'+(r.full_name||r.employee_id)+'</strong><br/><span style="font-size:11px;color:var(--t3);font-family:monospace;">'+r.employee_id+'</span></td><td>'+fmtD(r.date)+'</td><td>'+((r.shift||'morning')==='night'?'Night':'Morning')+'</td><td>'+fmtT(r.time_in)+'</td><td>'+fmtT(r.lunch_out)+'</td><td>'+fmtT(r.lunch_in)+'</td><td>'+fmtT(r.time_out)+'</td><td>'+(hrs!==null?hrs+'h':'—')+'</td><td>'+badge+'</td></tr>';
+    // Status: strictly On Time / Late (matches the employee portal — no Incomplete).
+    var late=isLate(r);
+    var badge=r.time_in?(late?'<span class="blate">Late</span>':'<span class="bon">On Time</span>'):'—';
+    // Hours = productive tracked minutes only (idle/lunch excluded), same as the portal.
+    var pm=parseInt(r.productive_mins,10)||0;
+    var hrsCell=(r.time_in||pm)?(pm/60).toFixed(2)+'h':'—';
+    // Lunch determined by idle "Lunch Break" tracking: split the range into out/in.
+    var lo='—', li='—';
+    if(r.lunch_range){ var pr=String(r.lunch_range).split(' – '); lo=pr[0]||'—'; li=pr[1]||'…'; }
+    else { lo=fmtT(r.lunch_out); li=fmtT(r.lunch_in); }
+    return'<tr><td><strong style="color:var(--t1);">'+(r.full_name||r.employee_id)+'</strong><br/><span style="font-size:11px;color:var(--t3);font-family:monospace;">'+r.employee_id+'</span></td><td>'+fmtD(r.date)+'</td><td>'+((r.shift||'morning')==='night'?'Night':'Morning')+'</td><td>'+fmtT(r.time_in)+'</td><td>'+lo+'</td><td>'+li+'</td><td>'+fmtT(r.time_out)+'</td><td>'+hrsCell+'</td><td>'+badge+'</td></tr>';
   }).join('');
 }
 
