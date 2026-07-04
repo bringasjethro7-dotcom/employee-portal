@@ -539,7 +539,7 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage employee records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-05 · daily-trivia</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-07-05 · pay-qr</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -1108,12 +1108,13 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
           <thead><tr>
             <th>Employee</th>
             <th>Period</th>
+            <th>Project / Invoice</th>
             <th>Hours</th>
             <th>Paid date</th>
             <th>Status</th>
             <th style="width:120px;">Action</th>
           </tr></thead>
-          <tbody id="pay-body"><tr><td colspan="6" class="es">Loading…</td></tr></tbody>
+          <tbody id="pay-body"><tr><td colspan="7" class="es">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1189,6 +1190,16 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
       <div class="fg"><label class="lbl">Start date</label><input class="inp" type="date" id="m-start" /></div>
       <div class="fg"><label class="lbl">Birthday</label><input class="inp" type="date" id="m-bday" /></div>
       <div class="fg"><label class="lbl">Photo (Drive link)</label><input class="inp" type="text" id="m-photo" placeholder="https://drive.google.com/..." /></div>
+      <div class="fg" style="grid-column:1/-1;"><label class="lbl">Bank QR (for fast payslip payments)</label>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <img id="m-qr-prev" src="" alt="QR" style="width:60px;height:60px;object-fit:contain;border-radius:8px;background:#fff;padding:3px;display:none;">
+          <span id="m-qr-none" style="font-size:12px;color:var(--t3);">No QR on file.</span>
+          <input type="file" id="m-qr-file" accept="image/*" style="display:none;" onchange="uploadEmpQr(this)">
+          <button type="button" class="bsm" onclick="document.getElementById('m-qr-file').click()" style="color:var(--o3);border-color:rgba(255,107,26,.35);">⬆ Upload QR image</button>
+          <button type="button" class="bsm" id="m-qr-rm" onclick="removeEmpQr()" style="display:none;color:#f87171;border-color:rgba(248,113,113,.4);">Remove</button>
+          <span id="m-qr-status" style="font-size:11.5px;color:var(--t3);"></span>
+        </div>
+      </div>
       <div class="fg"><label class="lbl">Custom field label</label><input class="inp" type="text" id="m-cf1l" placeholder="e.g. Team" /></div>
       <div class="fg"><label class="lbl">Custom field value</label><input class="inp" type="text" id="m-cf1v" placeholder="e.g. Alpha" /></div>
     </div>
@@ -1205,6 +1216,17 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
 </div>
 
 <div id="toast"></div>
+
+<!-- PAY MODAL — amount + bank QR for fast manual payslip payments -->
+<div id="pay-modal" style="display:none;position:fixed;inset:0;z-index:9600;align-items:center;justify-content:center;background:rgba(0,0,0,.68);backdrop-filter:blur(4px);padding:16px;">
+  <div style="width:340px;max-width:100%;background:#111417;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:18px;box-shadow:0 30px 90px rgba(0,0,0,.6);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div style="font-size:15px;font-weight:800;color:var(--t1);">💸 Pay payslip</div>
+      <button class="bsm" onclick="closePayModal()">✕</button>
+    </div>
+    <div id="pay-modal-body"></div>
+  </div>
+</div>
 
 <!-- VOICE: active-call join banner (for late logins) -->
 <div id="voice-join">
@@ -2603,7 +2625,7 @@ async function pgGenerate(){
   var btn=document.getElementById('pg-save'); btn.disabled=true; btn.textContent='Saving…';
   var ok=0,fail=0;
   for(var i=0;i<_pgRows.length;i++){ var x=_pgRows[i];
-    try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+'&incentives='+encodeURIComponent(x.incentive||0)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) ok++; else fail++; }catch(e){ fail++; }
+    try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+'&incentives='+encodeURIComponent(x.incentive||0)+'&amount='+encodeURIComponent(Math.round((x.gross||0)*100)/100)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) ok++; else fail++; }catch(e){ fail++; }
   }
   // Auto-book each project's salary cost for this cutoff into Sales (revenue fills in on invoice record).
   var booked='';
@@ -2674,11 +2696,18 @@ function _payPeriodTime(period){
 async function loadPayslipsAdmin(){
   var body=document.getElementById('pay-body');
   var empSel=document.getElementById('pay-emp-filter');
-  body.innerHTML='<tr><td colspan="6" class="es">Loading…</td></tr>';
+  body.innerHTML='<tr><td colspan="7" class="es">Loading…</td></tr>';
   try{
     var res=await fetch(API+'?action=get_all_employees');
     var d=await res.json();
     payEmps=d.employees||[];
+    // Funding: each employee's main project + which (period → project) invoices are paid.
+    var fund={main_project:{},paid:{}};
+    try{ var fr=await fetch(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.ok) fund=fd; }catch(_e){}
+    var payBanks={};
+    try{ var bkr=await fetch(API+'?action=get_banks&_='+Date.now()); var bkd=await bkr.json(); payBanks=(bkd&&bkd.banks)||{}; }catch(_b){}
+    var mpOf=function(id){ return fund.main_project[id]||''; };
+    var isFunded=function(period,proj){ return !!(proj && fund.paid[period||''] && fund.paid[period||''][String(proj).toLowerCase()]); };
     if(empSel && empSel.options.length<=1){
       payEmps.forEach(function(e){ empSel.innerHTML+='<option value="'+payEsc(e.employee_id)+'">'+payEsc(e.full_name||e.employee_id)+'</option>'; });
     }
@@ -2687,27 +2716,41 @@ async function loadPayslipsAdmin(){
     var rows=[];
     payEmps.forEach(function(e){
       if(fEmp && e.employee_id!==fEmp) return;
+      var proj=mpOf(e.employee_id);
       (e.payslips||[]).forEach(function(p){
         var paid=!!p.paid;
         if(fStatus==='paid'&&!paid) return;
         if(fStatus==='pending'&&paid) return;
-        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||''});
+        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||''});
       });
     });
-    // Pending first, then newest → oldest by cutoff period.
-    rows.sort(function(a,b){ if(a.paid!==b.paid) return a.paid?1:-1; return _payPeriodTime(b.period)-_payPeriodTime(a.period); });
+    // Ready-to-pay (invoice paid) pending first, then other pending, then paid — newest period within each.
+    rows.sort(function(a,b){
+      if(a.paid!==b.paid) return a.paid?1:-1;
+      if(!a.paid && !b.paid && a.funded!==b.funded) return a.funded?-1:1;
+      return _payPeriodTime(b.period)-_payPeriodTime(a.period);
+    });
     var sumEl=document.getElementById('pay-summary');
-    if(!rows.length){ body.innerHTML='<tr><td colspan="6" class="es">No payslips found. Add payslips in the Employees tab.</td></tr>'; if(sumEl) sumEl.textContent=''; return; }
+    if(!rows.length){ body.innerHTML='<tr><td colspan="7" class="es">No payslips found. Add payslips in the Employees tab.</td></tr>'; if(sumEl) sumEl.textContent=''; return; }
     var paidN=rows.filter(function(r){return r.paid;}).length;
-    if(sumEl) sumEl.textContent=rows.length+' payslip'+(rows.length>1?'s':'')+' · '+paidN+' paid · '+(rows.length-paidN)+' pending';
-    body.innerHTML=rows.map(function(r){
+    var readyN=rows.filter(function(r){return !r.paid && r.funded;}).length;
+    if(sumEl) sumEl.innerHTML=rows.length+' payslip'+(rows.length>1?'s':'')+' · '+paidN+' paid · '+(rows.length-paidN)+' pending'+(readyN?' · <b style="color:#16a34a;">'+readyN+' ready to pay</b>':'');
+    window._payRows=rows;
+    body.innerHTML=rows.map(function(r,ri){
       var status=r.paid?'<span style="color:#16a34a;font-weight:600;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><polyline points="20 6 9 17 4 12"/></svg>Paid</span>':'<span style="color:#f59e0b;font-weight:600;">● Pending</span>';
+      // Project / Invoice funding cell
+      var projCell;
+      if(!r.project){ projCell='<span style="color:var(--t3);font-size:11.5px;">no tracked project</span>'; }
+      else if(r.paid){ projCell='<span style="color:var(--t3);font-size:12px;">'+payEsc(r.project)+'</span>'; }
+      else if(r.funded){ projCell='<div style="font-size:12px;color:var(--t1);">'+payEsc(r.project)+'</div><span style="display:inline-block;margin-top:3px;font-size:10.5px;font-weight:700;color:#16a34a;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);border-radius:20px;padding:1px 8px;white-space:nowrap;">💰 Invoice paid — ready</span>'; }
+      else{ projCell='<div style="font-size:12px;color:var(--t2);">'+payEsc(r.project)+'</div><span style="display:inline-block;margin-top:3px;font-size:10.5px;color:var(--t3);background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:20px;padding:1px 8px;white-space:nowrap;">Awaiting invoice</span>'; }
       var action=r.paid
         ? '<span style="color:var(--t3);font-size:12px;">—</span>'
-        : '<button class="bsm" onclick="markPaidPay(this,&quot;'+payEsc(r.empId)+'&quot;,&quot;'+payEsc(r.period)+'&quot;,&quot;'+payEsc(r.name)+'&quot;,&quot;'+payEsc(String(r.hours))+'&quot;)" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><polyline points="20 6 9 17 4 12"/></svg>Mark Paid</button>';
-      return '<tr><td><strong>'+payEsc(r.name)+'</strong></td><td>'+payEsc(r.period||'—')+'</td><td>'+(r.hours?payEsc(String(r.hours))+' hrs':'—')+'</td><td style="color:var(--t3);font-size:12px;white-space:nowrap;">'+(r.paid_date?payEsc(r.paid_date):'—')+'</td><td style="white-space:nowrap;">'+status+'</td><td>'+action+'</td></tr>';
+        : '<button class="bsm" onclick="openPayModal('+ri+')" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;white-space:nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M2 10h20M6 15h4"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>Pay</button>';
+      var trStyle=(!r.paid && r.funded)?' style="background:rgba(34,197,94,.07);"':'';
+      return '<tr'+trStyle+'><td><strong>'+payEsc(r.name)+'</strong></td><td>'+payEsc(r.period||'—')+'</td><td>'+projCell+'</td><td>'+(r.hours?payEsc(String(r.hours))+' hrs':'—')+'</td><td style="color:var(--t3);font-size:12px;white-space:nowrap;">'+(r.paid_date?payEsc(r.paid_date):'—')+'</td><td style="white-space:nowrap;">'+status+'</td><td>'+action+'</td></tr>';
     }).join('');
-  }catch(e){ body.innerHTML='<tr><td colspan="6" class="es">Could not load payslips.</td></tr>'; }
+  }catch(e){ body.innerHTML='<tr><td colspan="7" class="es">Could not load payslips.</td></tr>'; }
 }
 async function markPaidPay(btn, empId, period, name, hours){
   var msg='Mark this payslip as PAID?\n\n  Employee:  '+name+'\n  Period:    '+period+'\n  Hours:     '+(hours||'—')+'\n\nThe employee will be emailed that their payroll for this cutoff has been paid. This cannot be undone here.\n\nAre you sure?';
@@ -2721,6 +2764,84 @@ async function markPaidPay(btn, empId, period, name, hours){
       setTimeout(loadPayslipsAdmin,700);
     } else { if(typeof toast==='function') toast('Could not mark paid: '+((d&&d.error)||'error')); btn.disabled=false; btn.textContent='Mark Paid'; }
   }catch(e){ if(typeof toast==='function') toast('Could not mark paid.'); btn.disabled=false; btn.textContent='Mark Paid'; }
+}
+
+/* ── Bank QR uploader (employee modal) ── */
+function setQrPreview(url){
+  var img=document.getElementById('m-qr-prev'), none=document.getElementById('m-qr-none'), rm=document.getElementById('m-qr-rm'), st=document.getElementById('m-qr-status');
+  if(st) st.textContent='';
+  if(url){ if(img){ img.src=convertDrive(url); img.style.display=''; } if(none) none.style.display='none'; if(rm) rm.style.display=''; }
+  else { if(img){ img.src=''; img.style.display='none'; } if(none) none.style.display=''; if(rm) rm.style.display='none'; }
+}
+function uploadEmpQr(input){
+  var f=input.files&&input.files[0]; if(!f) return;
+  var id=window._qrEmpId; var st=document.getElementById('m-qr-status');
+  if(!id){ if(st){st.style.color='#f87171';st.textContent='Save the employee first, then add a QR.';} input.value=''; return; }
+  if(st){ st.style.color='var(--t3)'; st.textContent='Uploading…'; }
+  var reader=new FileReader();
+  reader.onload=function(){
+    fetch(API,{method:'POST',body:JSON.stringify({action:'save_emp_qr',employee_id:id,image:reader.result})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d&&d.ok){ setQrPreview(d.url); if(st){st.style.color='#34d399';st.textContent='QR saved.';}
+          try{ var em=emps.filter(function(x){return x.employee_id===id;})[0]; if(em) em.bank_qr=d.url; }catch(e){}
+        } else { if(st){st.style.color='#f87171';st.textContent='Upload failed: '+((d&&d.error)||'error');} }
+      }).catch(function(){ if(st){st.style.color='#f87171';st.textContent='Network error.';} });
+  };
+  reader.readAsDataURL(f); input.value='';
+}
+function removeEmpQr(){
+  var id=window._qrEmpId; if(!id) return; if(!confirm('Remove this QR?')) return;
+  fetch(API,{method:'POST',body:JSON.stringify({action:'save_emp_qr',employee_id:id,image:''})})
+    .then(function(r){return r.json();}).then(function(d){ if(d&&d.ok){ setQrPreview(''); try{ var em=emps.filter(function(x){return x.employee_id===id;})[0]; if(em) em.bank_qr=''; }catch(e){} } });
+}
+
+/* ── Pay modal: amount + bank QR for fast manual payment ── */
+function payAmt(r){ var a=parseFloat(r.amount); if(!isNaN(a)&&a>0) return a; var rate=parseFloat(r.rate)||0,hours=parseFloat(r.hours)||0,basic=hours*rate/240,night=(String(r.shift).toLowerCase()==='night')?basic*0.05:0,inc=parseFloat(r.incentives)||0; return basic+night+inc; }
+function openPayModal(idx){
+  var r=(window._payRows||[])[idx]; if(!r) return; window._payCur=r;
+  var amt=payAmt(r); var amtStr='₱'+amt.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  var qrImg = r.qr
+    ? '<img src="'+convertDrive(r.qr)+'" alt="QR" style="width:230px;height:230px;object-fit:contain;border-radius:12px;background:#fff;padding:8px;">'
+    : '<div style="width:230px;height:230px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--t3);font-size:12.5px;border:1px dashed var(--line);border-radius:12px;padding:16px;margin:auto;">No bank QR on file.<br><br>Add one via Employees → Edit → Bank QR.</div>';
+  var gotyme = r.gotyme
+    ? '<div style="margin-top:4px;font-size:13px;">GoTyme: <b style="font-family:monospace;">'+payEsc(r.gotyme)+'</b> <button class="bsm" onclick="pgCopy(\''+payEsc(r.gotyme)+'\')">⧉</button></div>'
+    : '<div style="margin-top:4px;color:var(--t3);font-size:12px;">No GoTyme number on file.</div>';
+  document.getElementById('pay-modal-body').innerHTML=
+    '<div style="text-align:center;">'+qrImg+'</div>'+
+    '<div style="margin-top:14px;text-align:center;">'+
+      '<div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;">Amount to pay</div>'+
+      '<div style="font-size:32px;font-weight:800;color:#16a34a;line-height:1.15;">'+amtStr+' <button class="bsm" style="vertical-align:middle;font-size:11px;" onclick="pgCopy(\''+amt.toFixed(2)+'\')">⧉ Copy</button></div>'+
+      '<div style="font-size:13px;color:var(--t1);margin-top:6px;"><b>'+payEsc(r.name)+'</b> · '+payEsc(r.period)+'</div>'+
+      '<div style="font-size:12px;color:var(--t2);">'+(r.hours?payEsc(String(r.hours))+' hrs':'')+(r.project?(' · '+payEsc(r.project)):'')+'</div>'+
+      gotyme+
+    '</div>'+
+    '<div style="display:flex;gap:8px;margin-top:16px;">'+
+      '<button class="bsm" onclick="closePayModal()" style="flex:1;">Cancel</button>'+
+      '<button class="bsm" id="pay-do" onclick="doPayModal(false)" style="flex:1.2;color:#fff;background:#16a34a;border-color:#16a34a;font-weight:700;">✓ Mark Paid</button>'+
+      '<button class="bsm" id="pay-do-next" onclick="doPayModal(true)" style="flex:1.3;color:#16a34a;border-color:rgba(34,197,94,.5);font-weight:700;">✓ Paid &amp; next</button>'+
+    '</div>';
+  document.getElementById('pay-modal').style.display='flex';
+}
+function closePayModal(){ var m=document.getElementById('pay-modal'); if(m) m.style.display='none'; }
+async function doPayModal(next){
+  var r=window._payCur; if(!r) return;
+  var b1=document.getElementById('pay-do'), b2=document.getElementById('pay-do-next');
+  if(b1) b1.disabled=true; if(b2) b2.disabled=true;
+  try{
+    var res=await fetch(API+'?action=mark_payslip_paid&employee_id='+encodeURIComponent(r.empId)+'&period='+encodeURIComponent(r.period)+'&_='+Date.now());
+    var d=await res.json();
+    if(!(d&&d.success)){ if(typeof toast==='function') toast('Could not mark paid: '+((d&&d.error)||'error')); if(b1)b1.disabled=false; if(b2)b2.disabled=false; return; }
+    if(typeof toast==='function') toast(d.emailed?('Paid — '+r.name+' emailed.'):('Marked paid ('+r.name+' has no email).'));
+  }catch(e){ if(typeof toast==='function') toast('Could not mark paid.'); if(b1)b1.disabled=false; if(b2)b2.disabled=false; return; }
+  await loadPayslipsAdmin();
+  if(next){
+    var nrows=window._payRows||[], ni=-1;
+    for(var i=0;i<nrows.length;i++){ if(!nrows[i].paid && nrows[i].funded){ ni=i; break; } }
+    if(ni<0) for(var j=0;j<nrows.length;j++){ if(!nrows[j].paid){ ni=j; break; } }
+    if(ni>=0){ openPayModal(ni); return; }
+    closePayModal(); if(typeof toast==='function') toast('All ready payslips are paid. 🎉'); return;
+  }
+  closePayModal();
 }
 
 // ── WORK LOG (consolidated Clockify time) ──
@@ -3116,7 +3237,8 @@ function openModal(idx){
   document.getElementById('m-start').value=e.start_date||'';
   document.getElementById('m-bday').value=e.birthday||'';
   document.getElementById('m-photo').value=e.photo||'';
-  var res=['full_name','employee_id','pin','position','department','rate','start_date','birthday','payslips','photo','clockify_api_key','career_level','cl','work_schedule','client','status'];
+  window._qrEmpId=e.employee_id||''; setQrPreview(e.bank_qr||'');
+  var res=['full_name','employee_id','pin','position','department','rate','start_date','birthday','payslips','photo','clockify_api_key','career_level','cl','work_schedule','client','status','bank_qr'];
   var cv=Object.entries(e).filter(function(kv){return!res.includes(kv[0]);});
   document.getElementById('m-cf1l').value=cv[0]?cv[0][0]:'';
   document.getElementById('m-cf1v').value=cv[0]?cv[0][1]:'';
