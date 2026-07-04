@@ -4164,7 +4164,7 @@
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-04 · fast-boot</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-04 · july4-game</div>
         </div>
         <button class="prod-open-btn" onclick="openMyProductivity()"><span style="font-size:15px;">📊</span> My productivity — quantity per hour vs team</button>
         <div class="overview-layout">
@@ -12685,6 +12685,246 @@ window._slingRelease=function(id,el){
   }
   return false;
 };
+</script>
+
+<!-- ═══════════ JULY 4TH TRIVIA GAME (self-contained) ═══════════ -->
+<style>
+#jul4-fab{position:fixed;left:18px;bottom:22px;z-index:9000;display:none;align-items:center;gap:8px;
+  background:linear-gradient(135deg,#b22234,#3c3b6e);color:#fff;border:2px solid #fff;border-radius:40px;
+  padding:11px 18px;font:700 13px/1 'Inter',sans-serif;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.4);
+  animation:jul4Pulse 2s ease-in-out infinite}
+#jul4-fab:hover{filter:brightness(1.08)}
+@keyframes jul4Pulse{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+#jul4-modal{position:fixed;inset:0;z-index:9001;display:none;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 0%,rgba(60,59,110,.55),rgba(5,8,20,.92));backdrop-filter:blur(6px);padding:16px}
+#jul4-modal.on{display:flex}
+.jul4-card{position:relative;width:520px;max-width:100%;background:linear-gradient(180deg,#101830,#0b1122);
+  border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:26px 24px;color:#eef2ff;
+  box-shadow:0 30px 90px rgba(0,0,0,.6);overflow:hidden}
+.jul4-card::before{content:'';position:absolute;top:0;left:0;right:0;height:5px;
+  background:linear-gradient(90deg,#b22234 0 33%,#fff 33% 66%,#3c3b6e 66%)}
+.jul4-flag{font-size:34px;text-align:center;margin-bottom:4px}
+.jul4-h{font:800 22px/1.15 'Inter',sans-serif;text-align:center;margin:4px 0 6px}
+.jul4-sub{text-align:center;color:#9fb0d6;font-size:13px;margin-bottom:18px;line-height:1.5}
+.jul4-btn{display:block;width:100%;background:linear-gradient(135deg,#b22234,#8f1b29);color:#fff;border:none;
+  border-radius:12px;padding:13px;font:700 15px 'Inter',sans-serif;cursor:pointer;margin-top:6px}
+.jul4-btn.blue{background:linear-gradient(135deg,#3c3b6e,#26264d)}
+.jul4-btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.2);color:#cdd6f5;font-weight:600}
+.jul4-btn:hover{filter:brightness(1.1)}
+.jul4-top{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#9fb0d6;margin-bottom:10px}
+.jul4-top b{color:#fff}
+.jul4-timerwrap{height:9px;border-radius:6px;background:rgba(255,255,255,.1);overflow:hidden;margin-bottom:4px}
+#jul4-timerbar{height:100%;width:100%;background:linear-gradient(90deg,#22c55e,#b22234);transition:width 1s linear}
+.jul4-count{text-align:right;font:800 13px 'Inter';color:#fbbf24;margin-bottom:14px}
+.jul4-q{font:700 18px/1.35 'Inter';margin:6px 0 16px;min-height:52px}
+.jul4-opt{display:block;width:100%;text-align:left;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
+  color:#eef2ff;border-radius:12px;padding:12px 15px;font:600 14px 'Inter';cursor:pointer;margin-bottom:9px;transition:.12s}
+.jul4-opt:hover{background:rgba(255,255,255,.1)}
+.jul4-opt.correct{background:rgba(34,197,94,.25);border-color:#22c55e;color:#dcffe6}
+.jul4-opt.wrong{background:rgba(248,113,113,.22);border-color:#f87171;color:#ffe1e1}
+.jul4-opt:disabled{cursor:default}
+.jul4-scoreBig{font:800 46px 'Inter';text-align:center;color:#fbbf24;line-height:1;margin:6px 0}
+.jul4-x{position:absolute;top:12px;right:14px;background:none;border:none;color:#9fb0d6;font-size:20px;cursor:pointer;z-index:3}
+.jul4-spark{position:absolute;pointer-events:none;font-size:26px;animation:jul4Float 2.6s ease-in infinite;opacity:0}
+@keyframes jul4Float{0%{transform:translateY(20px) scale(.6);opacity:0}20%{opacity:1}100%{transform:translateY(-140px) scale(1.2);opacity:0}}
+#jul4-alarm{position:fixed;inset:0;z-index:9100;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 40%,rgba(178,34,52,.5),rgba(5,8,20,.96));backdrop-filter:blur(4px);
+  animation:jul4Flash 1s ease-in-out infinite}
+@keyframes jul4Flash{0%,100%{background-color:rgba(5,8,20,.9)}50%{background-color:rgba(60,59,110,.55)}}
+.jul4-alarm-inner{text-align:center;color:#fff;padding:20px}
+.jul4-alarm-flag{font-size:44px;animation:jul4Shake .5s ease-in-out infinite}
+@keyframes jul4Shake{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+.jul4-alarm-h{font:800 26px/1.2 'Inter',sans-serif;margin:8px 0}
+.jul4-alarm-sub{color:#cdd6f5;font-size:14px;margin:4px 0}
+.jul4-alarm-num{font:900 90px/1 'Inter',sans-serif;color:#fbbf24;margin:10px 0;text-shadow:0 6px 30px rgba(251,191,36,.5)}
+@keyframes jul4Zoom{0%{transform:scale(.4);opacity:.3}100%{transform:scale(1);opacity:1}}
+</style>
+
+<button id="jul4-fab" onclick="jul4Open()">🎆 July 4th Trivia</button>
+<div id="jul4-modal">
+  <div class="jul4-card">
+    <button class="jul4-x" onclick="jul4Close()" aria-label="Close">✕</button>
+    <div id="jul4-body"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var Q=[
+    ['What is the capital of the United States?',['Washington, D.C.','New York City','Los Angeles','Boston'],0],
+    ['How many stars are on the U.S. flag?',['50','13','52','48'],0],
+    ['What is the national bird of the USA?',['Bald Eagle','Turkey','Hawk','Robin'],0],
+    ['What holiday is celebrated on July 4th?',['Independence Day','Thanksgiving','Labor Day','Memorial Day'],0],
+    ['In what year did the U.S. declare independence?',['1776','1492','1812','1900'],0],
+    ['Who was the first U.S. President?',['George Washington','Abraham Lincoln','Thomas Jefferson','John Adams'],0],
+    ['How many stripes are on the U.S. flag?',['13','50','7','15'],0],
+    ["Which document begins with 'We the People'?",['The Constitution','Declaration of Independence','Bill of Rights','Gettysburg Address'],0],
+    ['Which city is home to the Statue of Liberty?',['New York City','Washington, D.C.','Philadelphia','Chicago'],0],
+    ['What are the colors of the U.S. flag?',['Red, White & Blue','Red & Gold','Blue & White','Green & Red'],0],
+    ['Which ocean borders the U.S. West Coast?',['Pacific','Atlantic','Indian','Arctic'],0],
+    ['What is the U.S. national anthem?',['The Star-Spangled Banner','America the Beautiful','God Bless America','Yankee Doodle'],0],
+    ['How many states are in the USA?',['50','48','52','51'],0],
+    ['Which monument has four presidents carved in rock?',['Mount Rushmore','Statue of Liberty','Lincoln Memorial','Washington Monument'],0],
+    ['Independence Day marks freedom from which country?',['Great Britain','France','Spain','Mexico'],0]
+  ];
+  var order=[], idx=0, score=0, timer=null, left=10, answered=false, AC=null;
+
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function shuffle(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+
+  /* ---- WebAudio sound effects ---- */
+  function beep(freq,dur,type,vol,when){
+    if(!AC) return;
+    var o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime+(when||0);
+    o.type=type||'sine';o.frequency.value=freq;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+(dur||0.15));
+    o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+(dur||0.15)+0.03);
+  }
+  function sfxTick(){beep(1180,0.03,'square',0.06);}
+  function sfxCorrect(){beep(660,0.12,'triangle',0.25);beep(990,0.18,'triangle',0.25,0.1);}
+  function sfxWrong(){beep(200,0.28,'sawtooth',0.2);beep(150,0.32,'sawtooth',0.18,0.12);}
+  function sfxStart(){[523,659,784,1046].forEach(function(f,i){beep(f,0.14,'triangle',0.2,i*0.1);});}
+  function sfxWin(){[523,659,784,1046,1318,1046,1318].forEach(function(f,i){beep(f,0.18,'triangle',0.22,i*0.13);});}
+
+  /* ---- screens ---- */
+  window.jul4Open=function(){
+    document.getElementById('jul4-modal').classList.add('on');
+    renderStart();
+  };
+  window.jul4Close=function(){
+    if(timer){clearInterval(timer);timer=null;}
+    document.getElementById('jul4-modal').classList.remove('on');
+  };
+  function renderStart(){
+    document.getElementById('jul4-body').innerHTML=
+      '<div class="jul4-flag">🎆 🦅 🎇</div>'+
+      '<div class="jul4-h">July 4th Trivia Challenge</div>'+
+      '<div class="jul4-sub">15 quick USA questions · <b style="color:#fbbf24">10 seconds each</b>.<br>No answer in time = incorrect. Ready?</div>'+
+      '<button class="jul4-btn" onclick="jul4Start()">🎇 Start game</button>'+
+      '<button class="jul4-btn ghost" onclick="jul4Close()" style="margin-top:8px">Maybe later</button>';
+  }
+  window.jul4Start=function(){
+    try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){ AC=null; }
+    order=shuffle(Q); idx=0; score=0; sfxStart(); showQ();
+  };
+  function showQ(){
+    answered=false; left=10;
+    var item=order[idx];
+    var opts=shuffle(item[1].map(function(t,i){return {t:t,ok:i===item[2]};}));
+    var html='<div class="jul4-top"><span>Question <b>'+(idx+1)+'</b> / 15</span><span>Score <b>'+score+'</b></span></div>'+
+      '<div class="jul4-timerwrap"><div id="jul4-timerbar"></div></div>'+
+      '<div class="jul4-count" id="jul4-count">10s</div>'+
+      '<div class="jul4-q">'+esc(item[0])+'</div>'+
+      '<div id="jul4-opts">'+opts.map(function(o,i){
+        return '<button class="jul4-opt" data-ok="'+(o.ok?1:0)+'" onclick="jul4Pick(this)">'+esc(o.t)+'</button>';
+      }).join('')+'</div>';
+    document.getElementById('jul4-body').innerHTML=html;
+    var bar=document.getElementById('jul4-timerbar');
+    bar.style.width='100%'; void bar.offsetWidth; bar.style.width='0%';
+    if(timer) clearInterval(timer);
+    timer=setInterval(function(){
+      left--;
+      var c=document.getElementById('jul4-count'); if(c) c.textContent=left+'s';
+      if(left>0 && left<=5) sfxTick();
+      if(left<=0){ clearInterval(timer); timer=null; if(!answered) resolve(null); }
+    },1000);
+  }
+  window.jul4Pick=function(el){
+    if(answered) return;
+    resolve(el);
+  };
+  function resolve(picked){
+    answered=true; if(timer){clearInterval(timer);timer=null;}
+    var btns=document.querySelectorAll('.jul4-opt');
+    var wasRight=picked && picked.getAttribute('data-ok')==='1';
+    btns.forEach(function(b){
+      b.disabled=true;
+      if(b.getAttribute('data-ok')==='1') b.classList.add('correct');
+      else if(b===picked) b.classList.add('wrong');
+    });
+    if(wasRight){ score++; sfxCorrect(); } else { sfxWrong(); }
+    setTimeout(function(){ idx++; if(idx<order.length) showQ(); else renderEnd(); }, 1250);
+  }
+  function renderEnd(){
+    sfxWin();
+    // Save the result so admin can see the leaderboard.
+    try{ var ed=window._currentEmpData||{}; if(ed.employee_id){
+      fetch(APPS_SCRIPT_URL+'?action=game_save_result&employee_id='+encodeURIComponent(ed.employee_id)+'&full_name='+encodeURIComponent(ed.full_name||'')+'&game=july4&score='+score+'&total='+order.length+'&_='+Date.now());
+    } }catch(e){}
+    var pct=Math.round(score/order.length*100);
+    var msg = pct===100?'Perfect! A true patriot! 🇺🇸' : pct>=80?'Excellent work! 🎆' : pct>=50?'Nice job! 🎇' : 'Keep celebrating — try again! 🎉';
+    var sparks=''; for(var i=0;i<9;i++){ sparks+='<span class="jul4-spark" style="left:'+(6+i*11)+'%;bottom:10px;animation-delay:'+(i*0.22)+'s">'+['🎆','🎇','⭐','🦅','🗽'][i%5]+'</span>'; }
+    document.getElementById('jul4-body').innerHTML=
+      sparks+
+      '<div class="jul4-flag">🏆</div>'+
+      '<div class="jul4-h">Happy 4th of July!</div>'+
+      '<div class="jul4-scoreBig">'+score+' / '+order.length+'</div>'+
+      '<div class="jul4-sub">'+msg+'</div>'+
+      '<button class="jul4-btn" onclick="jul4Start()">🔄 Play again</button>'+
+      '<button class="jul4-btn blue" onclick="jul4Close()" style="margin-top:8px">Done</button>';
+  }
+
+  /* Pre-create the audio context on the first user interaction so the admin-triggered
+     alarm can actually play sound (browsers block audio until a gesture happens). */
+  function jul4InitAC(){ try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC&&AC.state==='suspended') AC.resume(); }catch(e){} }
+  ['click','keydown','touchstart'].forEach(function(ev){ document.addEventListener(ev, jul4InitAC, {passive:true}); });
+
+  /* ── Admin-triggered launch: 10-second alarm countdown, then the game starts ── */
+  var alarmTimer=null;
+  window.jul4Alarm=function(){
+    if(document.getElementById('jul4-alarm')) return;   // already counting down
+    jul4InitAC();
+    var ov=document.createElement('div'); ov.id='jul4-alarm';
+    ov.innerHTML='<div class="jul4-alarm-inner"><div class="jul4-alarm-flag">🎆🦅🎆</div>'+
+      '<div class="jul4-alarm-h">July 4th Trivia is starting!</div>'+
+      '<div class="jul4-alarm-sub">Get ready — the game begins in</div>'+
+      '<div class="jul4-alarm-num" id="jul4-alarm-num">10</div>'+
+      '<div class="jul4-alarm-sub">Answer fast — 10 seconds per question!</div></div>';
+    document.body.appendChild(ov);
+    var n=10; var numEl=document.getElementById('jul4-alarm-num');
+    alarmBeep();
+    if(alarmTimer) clearInterval(alarmTimer);
+    alarmTimer=setInterval(function(){
+      n--;
+      if(numEl){ numEl.textContent=n>0?n:'GO!'; numEl.style.animation='none'; void numEl.offsetWidth; numEl.style.animation='jul4Zoom .5s ease'; }
+      if(n>0){ alarmBeep(); }
+      else{
+        clearInterval(alarmTimer); alarmTimer=null;
+        setTimeout(function(){ var e=document.getElementById('jul4-alarm'); if(e) e.remove(); jul4Open(); jul4Start(); }, 700);
+      }
+    },1000);
+  };
+  function alarmBeep(){ beep(880,0.16,'square',0.28); beep(988,0.16,'square',0.28,0.22); }
+
+  /* Show the launcher only on the dashboard; auto-invite once on July 4;
+     poll for an admin launch and fire the alarm countdown. */
+  var trigBase=null;
+  setInterval(function(){
+    var d=document.getElementById('dashboard-screen'), f=document.getElementById('jul4-fab');
+    if(!d||!f) return;
+    var on=getComputedStyle(d).display!=='none';
+    f.style.display=on?'inline-flex':'none';
+    if(on && !window._jul4Auto){
+      window._jul4Auto=true;
+      var now=new Date(), isJul4=(now.getMonth()===6 && now.getDate()===4);
+      var seen=false; try{ seen=sessionStorage.getItem('jul4_seen'); }catch(e){}
+      if(isJul4 && !seen){ try{ sessionStorage.setItem('jul4_seen','1'); }catch(e){} setTimeout(jul4Open, 2600); }
+    }
+  }, 1200);
+  setInterval(function(){
+    var d=document.getElementById('dashboard-screen');
+    if(!d || getComputedStyle(d).display==='none' || document.hidden) return;
+    fetch(APPS_SCRIPT_URL+'?action=get_game_trigger&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
+      var ver=(x&&x.ver)||'';
+      if(trigBase===null){ trigBase=ver; return; }               // baseline on first poll (don't fire for old triggers)
+      if(ver && ver!==trigBase){ trigBase=ver;
+        if(!document.getElementById('jul4-alarm') && !document.getElementById('jul4-modal').classList.contains('on')) jul4Alarm();
+      }
+    }).catch(function(){});
+  }, 20000);
+})();
 </script>
 </body>
 </html>
