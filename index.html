@@ -4237,7 +4237,7 @@
               <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;display:flex;align-items:center;gap:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="#fbbf24" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17l-6.2 3.7 1.6-6.8L2.2 8.9l6.9-.6z"/></svg> JMB Points</p>
               <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px;">
                 <span id="points-bal" style="font-size:30px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:#fbbf24;">—</span>
-                <span style="font-size:12px;color:var(--text-3);">points · redeemable for cash or gifts</span>
+                <span style="font-size:12px;color:var(--text-3);">points <b id="points-peso" style="color:var(--text-2);"></b>· 300 pts = ₱100 · min 1,000 to redeem</span>
               </div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -12712,9 +12712,11 @@ window._slingRelease=function(id,el){
       <div style="font-size:18px;font-weight:800;">🎁 Redeem JMB Points</div>
       <button onclick="closeRedeem()" style="background:none;border:none;color:#9fb0d6;font-size:20px;cursor:pointer;">✕</button>
     </div>
-    <div style="margin:8px 0 14px;color:#9fb0d6;font-size:13px;">Balance: <b id="rd-bal" style="color:#fbbf24;font-size:16px;">—</b> points</div>
+    <div style="margin:8px 0 4px;color:#9fb0d6;font-size:13px;">Balance: <b id="rd-bal" style="color:#fbbf24;font-size:16px;">—</b> points <b id="rd-bal-peso" style="color:#cdd6f5;"></b></div>
+    <div style="margin:0 0 14px;font-size:11.5px;color:#6b7d90;">Rate: <b style="color:#9fb0d6;">300 points = ₱100</b> · minimum <b style="color:#9fb0d6;">1,000 points</b> to redeem</div>
     <label style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.04em;">Points to redeem</label>
-    <input id="rd-points" type="number" min="1" placeholder="e.g. 300" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 12px;outline:none;">
+    <input id="rd-points" type="number" min="1000" step="1" placeholder="e.g. 1000" oninput="rdCalc()" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 4px;outline:none;">
+    <div id="rd-peso" style="font-size:12.5px;color:#fbbf24;font-weight:700;margin:0 0 12px;">= ₱0.00</div>
     <label style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.04em;">Redeem for</label>
     <select id="rd-type" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 12px;outline:none;">
       <option value="cash">💵 Cash</option><option value="gift">🎁 Gift</option>
@@ -12734,12 +12736,20 @@ window._slingRelease=function(id,el){
 function _pEmp(){ try{ return (window._currentEmpData&&window._currentEmpData.employee_id)||''; }catch(e){ return ''; } }
 function _pName(){ try{ return (window._currentEmpData&&window._currentEmpData.full_name)||''; }catch(e){ return ''; } }
 var _pBal=0;
+var PTS_PER_PESO=3;   // 300 points = ₱100 → 3 points = ₱1
+function ptsToPeso(p){ return (Number(p)||0)/PTS_PER_PESO; }
+function fmtPeso(v){ return '₱'+Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function rdCalc(){
+  var pts=parseInt((document.getElementById('rd-points')||{}).value,10)||0;
+  var el=document.getElementById('rd-peso'); if(el) el.textContent='= '+fmtPeso(ptsToPeso(pts))+(pts&&pts<1000?' · below 1,000 minimum':'');
+}
 function loadPoints(){
   var id=_pEmp(); if(!id) return;
   fetch(APPS_SCRIPT_URL+'?action=points_balance&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok) return; _pBal=d.balance||0;
       var b=document.getElementById('points-bal'); if(b) b.textContent=Number(_pBal).toLocaleString();
+      var pe=document.getElementById('points-peso'); if(pe) pe.textContent='(≈ '+fmtPeso(ptsToPeso(_pBal))+') ';
       var h=document.getElementById('points-hist');
       if(h){ var led=d.ledger||[];
         h.innerHTML = led.length ? ('Recent: '+led.slice(0,3).map(function(x){ return (x.delta>0?'+':'')+x.delta+' '+String(x.reason||'').replace(/ —.*$/,''); }).join(' · ')) : 'Play Daily Trivia (3PM & 3AM) — top 3 win points!';
@@ -12748,8 +12758,10 @@ function loadPoints(){
 }
 function openRedeem(){
   document.getElementById('rd-bal').textContent=Number(_pBal).toLocaleString();
+  var bp=document.getElementById('rd-bal-peso'); if(bp) bp.textContent='(≈ '+fmtPeso(ptsToPeso(_pBal))+')';
   document.getElementById('rd-msg').textContent='';
   document.getElementById('rd-points').value='';
+  rdCalc();
   document.getElementById('redeem-modal').style.display='flex';
   loadMyRedemptions();
 }
@@ -12760,12 +12772,14 @@ function submitRedeem(){
   var msg=document.getElementById('rd-msg');
   if(!id){ msg.style.color='#f87171'; msg.textContent='Not signed in.'; return; }
   if(!pts||pts<=0){ msg.style.color='#f87171'; msg.textContent='Enter a valid number of points.'; return; }
+  if(pts<1000){ msg.style.color='#f87171'; msg.textContent='Minimum redemption is 1,000 points.'; return; }
   if(pts>_pBal){ msg.style.color='#f87171'; msg.textContent='You only have '+_pBal+' points.'; return; }
   var b=document.getElementById('rd-submit'); b.disabled=true; b.textContent='Submitting…';
   fetch(APPS_SCRIPT_URL+'?action=redeem_request&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(_pName())+'&points='+pts+'&type='+encodeURIComponent(type)+'&detail='+encodeURIComponent(detail)+'&_='+Date.now())
     .then(function(r){return r.json();}).then(function(d){
       b.disabled=false; b.textContent='Request redemption';
-      if(d&&d.ok){ msg.style.color='#34d399'; msg.textContent='✓ Request submitted — pending admin approval.'; document.getElementById('rd-points').value=''; loadMyRedemptions(); }
+      if(d&&d.ok){ msg.style.color='#34d399'; msg.textContent='✓ Requested '+pts+' pts ('+fmtPeso(ptsToPeso(pts))+') — pending admin approval.'; document.getElementById('rd-points').value=''; rdCalc(); loadMyRedemptions(); }
+      else if(d&&d.error==='MIN_1000'){ msg.style.color='#f87171'; msg.textContent='Minimum redemption is 1,000 points.'; }
       else if(d&&d.error==='INSUFFICIENT'){ msg.style.color='#f87171'; msg.textContent='Not enough available points ('+d.available+' available).'; }
       else { msg.style.color='#f87171'; msg.textContent='Could not submit'+((d&&d.error)?(': '+d.error):'.'); }
     }).catch(function(){ b.disabled=false; b.textContent='Request redemption'; msg.style.color='#f87171'; msg.textContent='Network error.'; });
