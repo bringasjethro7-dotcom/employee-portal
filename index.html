@@ -4164,7 +4164,7 @@
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-04 · trk-dedupe</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-04 · fast-boot</div>
         </div>
         <button class="prod-open-btn" onclick="openMyProductivity()"><span style="font-size:15px;">📊</span> My productivity — quantity per hour vs team</button>
         <div class="overview-layout">
@@ -5119,6 +5119,22 @@ document.addEventListener('DOMContentLoaded', () => {
 // ─────────────────────────────────────────────
 // LOGIN
 // ─────────────────────────────────────────────
+// ── One-shot bootstrap cache ──────────────────────────────────────────────
+// doLogin hits the `bootstrap` action, which returns the whole page's init data
+// (employee + scorecard + notifications + qa + demerits + leaves + tracker …) in a
+// SINGLE request instead of ~9. Each loader consumes its slice once (instant, no
+// network) and then falls back to a live fetch on any later refresh. If the backend
+// hasn't been updated yet, `bootstrap` is treated as an unknown action and returns the
+// plain employee record — so this is fully backward-compatible.
+var _boot = { at: 0, data: null };
+function _bootTake(key){
+  if (!_boot.data || (Date.now() - _boot.at) > 30000) return null;   // only fresh, only right after login
+  var v = _boot.data[key];
+  if (v === undefined || v === null) return null;
+  _boot.data[key] = undefined;   // one-time use — manual refreshes always re-fetch live
+  return v;
+}
+
 async function doLogin() {
   const id  = document.getElementById('emp-id').value.trim();
   const pin = document.getElementById('emp-pin').value.trim();
@@ -5133,9 +5149,15 @@ async function doLogin() {
   err.style.display = 'none';
 
   try {
-    const url = `${APPS_SCRIPT_URL}?id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}`;
+    const url = `${APPS_SCRIPT_URL}?action=bootstrap&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}`;
     const res  = await fetch(url);
-    const data = await res.json();
+    const raw  = await res.json();
+
+    // New backend → { employee, scorecard, notifications, ... }. Old backend → the plain
+    // employee object (bootstrap is an unknown action there). Handle both.
+    let data;
+    if (raw && raw.employee) { data = raw.employee; _boot = { at: Date.now(), data: raw }; }
+    else                     { data = raw;          _boot = { at: 0, data: null }; }
 
     if (data.error) {
       showError(
@@ -5244,8 +5266,7 @@ function loadMyQA(){
   var id=_myQaEmpId(); if(!id) return;
   var mk=(typeof monthKeyPHT==='function')?monthKeyPHT():(function(){var n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0');})();
   _myQaMonth=mk;
-  fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
-    .then(function(r){return r.json();}).then(function(d){
+  var _done=function(d){
       if(!d||!d.ok) return; var w=d.weeks||{}; _myQaWeeks=w;
       var avgEl=document.getElementById('myqa-avg'); if(avgEl) avgEl.textContent=(d.avg==null?'—':d.avg);
       var box=document.getElementById('myqa-weeks'); if(box){
@@ -5258,7 +5279,11 @@ function loadMyQA(){
         box.innerHTML=html;
       }
       var sub=document.getElementById('myqa-sub'); if(sub){ var n=0; for(var j=1;j<=4;j++){ if(w[j]!==''&&w[j]!=null&&!isNaN(w[j])) n++; } sub.textContent=n+' of 4 weeks scored'; }
-    }).catch(function(){});
+  };
+  var _cq=_bootTake('qa');
+  if(_cq){ _done(_cq); return; }
+  fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(_done).catch(function(){});
 }
 // ── DISPUTE modal (shared: QA week + demerit) ──
 var _qaDispFiles=[], _dispMode='qa', _dispDemId='';
@@ -5768,7 +5793,8 @@ function toggleNotif(ev){ if(ev) ev.stopPropagation(); var p=document.getElement
 async function loadNotifs(openRender){
   var id=_notifEmpId(); if(!id) return;
   try{
-    var r=await fetch(APPS_SCRIPT_URL+'?action=get_notifications&employee_id='+encodeURIComponent(id)+'&_='+Date.now()); var d=await r.json();
+    var d=_bootTake('notifications');
+    if(!d){ var r=await fetch(APPS_SCRIPT_URL+'?action=get_notifications&employee_id='+encodeURIComponent(id)+'&_='+Date.now()); d=await r.json(); }
     if(!d||!d.ok) return; _notifs=d.notifications||[];
     var b=document.getElementById('notif-badge'); if(b){ if(d.unread>0){ b.style.display=''; b.textContent=d.unread>99?'99+':d.unread; } else b.style.display='none'; }
     var panel=document.getElementById('notif-panel');
@@ -6028,8 +6054,11 @@ function loadMyDemerits() {
   var totEl=document.getElementById('mydem-total'), tierEl=document.getElementById('mydem-tier'), listEl=document.getElementById('mydem-list');
   if (!listEl) return;
   listEl.innerHTML='<div class="cfy-no-entries" style="padding:10px 0;font-size:12.5px;">Loading…</div>';
+  var _cd=_bootTake('demerits');
+  var _demP = _cd ? Promise.resolve(_cd)
+                  : fetch(APPS_SCRIPT_URL + '?action=get_demerits&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;});
   Promise.all([
-    fetch(APPS_SCRIPT_URL + '?action=get_demerits&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;}),
+    _demP,
     fetch(APPS_SCRIPT_URL + '?action=get_demerit_disputes&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;})
   ]).then(function(res){
       var d=res[0], dd=res[1];
@@ -6073,9 +6102,12 @@ async function loadScorecard() {
   document.getElementById('sc-vp-badge').textContent = '0/5 max';
 
   try {
-    var url = APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(scEmpId) + '&month=' + encodeURIComponent(key);
-    var res  = await fetch(url);
-    var data = await res.json();
+    var data = _bootTake('scorecard');   // first (current-month) load only; nulls out after
+    if (!data) {
+      var url = APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(scEmpId) + '&month=' + encodeURIComponent(key);
+      var res  = await fetch(url);
+      data = await res.json();
+    }
 
     // Expected / Absent come from the schedule + client-pause aware breakdown
     var ab = data.attendance_breakdown || {};
