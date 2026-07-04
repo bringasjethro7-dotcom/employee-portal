@@ -4155,6 +4155,22 @@
           <div class="kpi"><div class="kpi-ic" style="color:#38bdf8;">⏱</div><div class="kpi-v" id="kpi-hours">—</div><div class="kpi-l">Hours tracked</div></div>
           <div class="kpi"><div class="kpi-ic" style="color:#a855f7;">★</div><div class="kpi-v" id="kpi-assess">—</div><div class="kpi-l">Assessment</div></div>
         </div>
+        <div class="card" id="points-card" style="padding:1rem 1.15rem;margin-bottom:1rem;background:linear-gradient(135deg,rgba(251,191,36,.12),transparent);border:1px solid rgba(251,191,36,.25);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div>
+              <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">🎯 JMB Points</p>
+              <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px;">
+                <span id="points-bal" style="font-size:30px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:#fbbf24;">—</span>
+                <span style="font-size:12px;color:var(--text-3);">points · redeemable for cash or gifts</span>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="prod-open-btn" style="margin:0;" onclick="if(window.jul4Open)jul4Open();"><span style="font-size:15px;">🎯</span> Play Daily Trivia</button>
+              <button class="prod-open-btn" style="margin:0;" onclick="openRedeem()"><span style="font-size:15px;">🎁</span> Redeem</button>
+            </div>
+          </div>
+          <div id="points-hist" style="margin-top:8px;font-size:11.5px;color:var(--text-3);"></div>
+        </div>
         <div class="card" id="myqa-card" style="padding:1rem 1.15rem;margin-bottom:1rem;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
             <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My QA — this month</p>
@@ -4164,7 +4180,7 @@
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-04 · july4-v2</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-05 · daily-trivia</div>
         </div>
         <button class="prod-open-btn" onclick="openMyProductivity()"><span style="font-size:15px;">📊</span> My productivity — quantity per hour vs team</button>
         <div class="overview-layout">
@@ -5636,6 +5652,7 @@ function renderDashboard(data) {
 
   // ── OVERVIEW stats ──
   renderOverview(data);
+  try { loadPoints(); } catch(e) {}   // JMB Points balance
 
   // ── NOTIFICATIONS (bell) ──
   try { startNotifs(); } catch(e) {}
@@ -12687,6 +12704,85 @@ window._slingRelease=function(id,el){
 };
 </script>
 
+<!-- ═══════════ JMB POINTS — redemption modal ═══════════ -->
+<div id="redeem-modal" style="display:none;position:fixed;inset:0;z-index:9002;align-items:center;justify-content:center;background:rgba(5,8,20,.75);backdrop-filter:blur(5px);padding:16px;">
+  <div style="width:460px;max-width:100%;background:linear-gradient(180deg,#111827,#0b1120);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:22px;color:#eef2ff;box-shadow:0 30px 90px rgba(0,0,0,.6);max-height:88vh;overflow:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div style="font-size:18px;font-weight:800;">🎁 Redeem JMB Points</div>
+      <button onclick="closeRedeem()" style="background:none;border:none;color:#9fb0d6;font-size:20px;cursor:pointer;">✕</button>
+    </div>
+    <div style="margin:8px 0 14px;color:#9fb0d6;font-size:13px;">Balance: <b id="rd-bal" style="color:#fbbf24;font-size:16px;">—</b> points</div>
+    <label style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.04em;">Points to redeem</label>
+    <input id="rd-points" type="number" min="1" placeholder="e.g. 300" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 12px;outline:none;">
+    <label style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.04em;">Redeem for</label>
+    <select id="rd-type" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 12px;outline:none;">
+      <option value="cash">💵 Cash</option><option value="gift">🎁 Gift</option>
+    </select>
+    <label style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.04em;">Details (optional)</label>
+    <input id="rd-detail" placeholder="e.g. GCash number, gift preference…" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 14px;outline:none;">
+    <button onclick="submitRedeem()" id="rd-submit" style="width:100%;background:linear-gradient(135deg,#fbbf24,#d97706);color:#111;border:none;border-radius:11px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">Request redemption</button>
+    <div id="rd-msg" style="font-size:12.5px;margin-top:8px;text-align:center;"></div>
+    <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,.1);padding-top:12px;">
+      <div style="font-size:12px;font-weight:700;color:#9fb0d6;margin-bottom:6px;">My requests</div>
+      <div id="rd-history"><div style="color:#6b7d90;font-size:12px;">—</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function _pEmp(){ try{ return (window._currentEmpData&&window._currentEmpData.employee_id)||''; }catch(e){ return ''; } }
+function _pName(){ try{ return (window._currentEmpData&&window._currentEmpData.full_name)||''; }catch(e){ return ''; } }
+var _pBal=0;
+function loadPoints(){
+  var id=_pEmp(); if(!id) return;
+  fetch(APPS_SCRIPT_URL+'?action=points_balance&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok) return; _pBal=d.balance||0;
+      var b=document.getElementById('points-bal'); if(b) b.textContent=Number(_pBal).toLocaleString();
+      var h=document.getElementById('points-hist');
+      if(h){ var led=d.ledger||[];
+        h.innerHTML = led.length ? ('Recent: '+led.slice(0,3).map(function(x){ return (x.delta>0?'+':'')+x.delta+' '+String(x.reason||'').replace(/ —.*$/,''); }).join(' · ')) : 'Play Daily Trivia (3PM & 3AM) — top 3 win points!';
+      }
+    }).catch(function(){});
+}
+function openRedeem(){
+  document.getElementById('rd-bal').textContent=Number(_pBal).toLocaleString();
+  document.getElementById('rd-msg').textContent='';
+  document.getElementById('rd-points').value='';
+  document.getElementById('redeem-modal').style.display='flex';
+  loadMyRedemptions();
+}
+function closeRedeem(){ document.getElementById('redeem-modal').style.display='none'; }
+function submitRedeem(){
+  var id=_pEmp(); var pts=parseInt(document.getElementById('rd-points').value,10);
+  var type=document.getElementById('rd-type').value, detail=document.getElementById('rd-detail').value||'';
+  var msg=document.getElementById('rd-msg');
+  if(!id){ msg.style.color='#f87171'; msg.textContent='Not signed in.'; return; }
+  if(!pts||pts<=0){ msg.style.color='#f87171'; msg.textContent='Enter a valid number of points.'; return; }
+  if(pts>_pBal){ msg.style.color='#f87171'; msg.textContent='You only have '+_pBal+' points.'; return; }
+  var b=document.getElementById('rd-submit'); b.disabled=true; b.textContent='Submitting…';
+  fetch(APPS_SCRIPT_URL+'?action=redeem_request&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(_pName())+'&points='+pts+'&type='+encodeURIComponent(type)+'&detail='+encodeURIComponent(detail)+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(d){
+      b.disabled=false; b.textContent='Request redemption';
+      if(d&&d.ok){ msg.style.color='#34d399'; msg.textContent='✓ Request submitted — pending admin approval.'; document.getElementById('rd-points').value=''; loadMyRedemptions(); }
+      else if(d&&d.error==='INSUFFICIENT'){ msg.style.color='#f87171'; msg.textContent='Not enough available points ('+d.available+' available).'; }
+      else { msg.style.color='#f87171'; msg.textContent='Could not submit'+((d&&d.error)?(': '+d.error):'.'); }
+    }).catch(function(){ b.disabled=false; b.textContent='Request redemption'; msg.style.color='#f87171'; msg.textContent='Network error.'; });
+}
+function loadMyRedemptions(){
+  var id=_pEmp(); var box=document.getElementById('rd-history'); if(!box) return;
+  fetch(APPS_SCRIPT_URL+'?action=redeem_list&status=all&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(d){
+      var rq=(d&&d.requests)||[];
+      if(!rq.length){ box.innerHTML='<div style="color:#6b7d90;font-size:12px;">No requests yet.</div>'; return; }
+      box.innerHTML=rq.slice(0,8).map(function(x){
+        var col=x.status==='approved'?'#34d399':(x.status==='rejected'?'#f87171':'#fbbf24');
+        return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:5px 0;border-top:1px solid rgba(255,255,255,.07);"><span>'+x.points+' pts · '+x.type+'</span><span style="color:'+col+';font-weight:700;text-transform:capitalize;">'+x.status+'</span></div>';
+      }).join('');
+    }).catch(function(){});
+}
+</script>
+
 <!-- ═══════════ JULY 4TH TRIVIA GAME (self-contained) ═══════════ -->
 <style>
 #jul4-fab{position:fixed;left:18px;bottom:22px;z-index:9000;display:none;align-items:center;gap:8px;
@@ -12740,7 +12836,7 @@ window._slingRelease=function(id,el){
 @keyframes jul4Zoom{0%{transform:scale(.4);opacity:.3}100%{transform:scale(1);opacity:1}}
 </style>
 
-<button id="jul4-fab" onclick="jul4Open()">🎆 July 4th Trivia</button>
+<button id="jul4-fab" onclick="jul4Open()">🎯 Daily Trivia</button>
 <div id="jul4-modal">
   <div class="jul4-card">
     <button class="jul4-x" onclick="jul4Close()" aria-label="Close">✕</button>
@@ -12772,7 +12868,7 @@ window._slingRelease=function(id,el){
     ['The Statue of Liberty was a gift from which country?',['France','England','Spain','Italy'],0],
     ['On what date is U.S. Independence Day celebrated?',['July 4th','July 1st','June 4th','August 4th'],0]
   ];
-  var order=[], idx=0, score=0, timer=null, left=12, answered=false, AC=null, jul4Played=null;
+  var SESSION=null, qs=[], idx=0, chosen=[], t0=0, timer=null, left=12, answered=false, AC=null, lbTimer=null;
   var QTIME=12;
 
   function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
@@ -12799,59 +12895,66 @@ window._slingRelease=function(id,el){
   function startMusic(){ stopMusic(); musicStep=0; musicTimer=setInterval(function(){ if(!AC) return; beep(MELODY[musicStep%MELODY.length],0.30,'triangle',0.045); musicStep++; }, 340); }
   function stopMusic(){ if(musicTimer){ clearInterval(musicTimer); musicTimer=null; } }
 
-  /* ---- screens ---- */
-  function jul4EmpId(){ try{ return (window._currentEmpData&&window._currentEmpData.employee_id)||''; }catch(e){ return ''; } }
-  function checkPlayed(cb){
-    var id=jul4EmpId();
-    if(!id){ cb(false); return; }
-    fetch(APPS_SCRIPT_URL+'?action=game_status&game=july4&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
-      .then(function(r){return r.json();}).then(function(x){ jul4Played=!!(x&&x.played); cb(jul4Played, x); })
-      .catch(function(){ cb(false); });
+  /* ---- helpers ---- */
+  function empId(){ try{ return (window._currentEmpData&&window._currentEmpData.employee_id)||''; }catch(e){ return ''; } }
+  function empName(){ try{ return (window._currentEmpData&&window._currentEmpData.full_name)||''; }catch(e){ return ''; } }
+  function fmtLeft(sec){ sec=Math.max(0,sec||0); var m=Math.floor(sec/60), s=sec%60; return m+'m '+(s<10?'0':'')+s+'s'; }
+  function body(){ return document.getElementById('jul4-body'); }
+  function loadSession(cb){
+    fetch(APPS_SCRIPT_URL+'?action=trivia_session&employee_id='+encodeURIComponent(empId())+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(x){ cb(x); }).catch(function(){ cb(null); });
   }
+
   window.jul4Open=function(){
-    var m=document.getElementById('jul4-modal'); m.classList.add('on');
-    document.getElementById('jul4-body').innerHTML='<div class="jul4-flag">🎆</div><div class="jul4-sub">Loading…</div>';
-    checkPlayed(function(played, x){ if(played) renderAlready(x); else renderStart(); });
+    document.getElementById('jul4-modal').classList.add('on');
+    body().innerHTML='<div class="jul4-flag">🎯</div><div class="jul4-sub">Loading…</div>';
+    loadSession(function(s){
+      if(!s || !s.open){ renderNext(s); return; }
+      SESSION=s;
+      if(s.already_played){ showLeaderboard(); return; }
+      renderStart(s);
+    });
   };
-  function renderAlready(x){
-    var s=(x&&x.score!=null)?x.score:'—', t=(x&&x.total!=null)?x.total:'—';
-    document.getElementById('jul4-body').innerHTML=
-      '<div class="jul4-flag">🎇 🦅 🎇</div>'+
-      '<div class="jul4-h">You\'ve already played!</div>'+
-      '<div class="jul4-scoreBig">'+s+' / '+t+'</div>'+
-      '<div class="jul4-sub">This game can only be played <b>once</b>. Thanks for celebrating the 4th! 🇺🇸</div>'+
-      '<button class="jul4-btn blue" onclick="jul4Close()">Close</button>';
-  }
   window.jul4Close=function(){
     if(timer){clearInterval(timer);timer=null;}
+    if(lbTimer){clearInterval(lbTimer);lbTimer=null;}
     stopMusic();
     document.getElementById('jul4-modal').classList.remove('on');
   };
-  function renderStart(){
-    document.getElementById('jul4-body').innerHTML=
-      '<div class="jul4-flag">🎆 🦅 🎇</div>'+
-      '<div class="jul4-h">July 4th Trivia Challenge</div>'+
-      '<div class="jul4-sub">15 quick USA questions · <b style="color:#fbbf24">10 seconds each</b>.<br>No answer in time = incorrect. Ready?</div>'+
-      '<button class="jul4-btn" onclick="jul4Start()">🎇 Start game</button>'+
+  function renderNext(s){
+    var next=(s&&s.next_at)?s.next_at:'later today';
+    body().innerHTML=
+      '<div class="jul4-flag">🕒</div>'+
+      '<div class="jul4-h">No trivia running right now</div>'+
+      '<div class="jul4-sub">The next <b>Daily Trivia</b> starts at<br><b style="color:#fbbf24">'+esc(next)+'</b>.<br>Games run every day at <b>3:00 PM</b> and <b>3:00 AM</b>.</div>'+
+      '<button class="jul4-btn blue" onclick="showLeaderboard()">🏆 View latest results</button>'+
+      '<button class="jul4-btn ghost" onclick="jul4Close()" style="margin-top:8px">Close</button>';
+  }
+  function renderStart(s){
+    body().innerHTML=
+      '<div class="jul4-flag">🎯 🧠 🎯</div>'+
+      '<div class="jul4-h">Daily Trivia</div>'+
+      '<div class="jul4-sub">'+(s.count||15)+' questions · <b style="color:#fbbf24">'+(s.seconds||12)+' seconds each</b>.<br>Top 3 win <b>JMB Points</b> — 🥇300 · 🥈200 · 🥉100.<br>Ranked by score, then speed. Closes in <b>'+fmtLeft(s.closes_in)+'</b>.</div>'+
+      '<button class="jul4-btn" onclick="jul4Start()">▶️ Start</button>'+
       '<button class="jul4-btn ghost" onclick="jul4Close()" style="margin-top:8px">Maybe later</button>';
   }
   window.jul4Start=function(){
-    if(jul4Played){ renderAlready({score:null,total:null}); return; }   // single play only
+    if(!SESSION || !SESSION.questions || !SESSION.questions.length){ jul4Open(); return; }
+    if(SESSION.already_played){ showLeaderboard(); return; }
     try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){ AC=null; }
-    order=shuffle(Q); idx=0; score=0; sfxStart(); startMusic(); showQ();
+    qs=SESSION.questions; idx=0; chosen=[]; t0=Date.now(); sfxStart(); startMusic(); showQ();
   };
   function showQ(){
     answered=false; left=QTIME;
-    var item=order[idx];
-    var opts=shuffle(item[1].map(function(t,i){return {t:t,ok:i===item[2]};}));
-    var html='<div class="jul4-top"><span>Question <b>'+(idx+1)+'</b> / '+order.length+'</span><span>Score <b>'+score+'</b></span></div>'+
+    var item=qs[idx];
+    var html='<div class="jul4-top"><span>Question <b>'+(idx+1)+'</b> / '+qs.length+'</span><span>⏱ speed counts</span></div>'+
       '<div class="jul4-timerwrap"><div id="jul4-timerbar"></div></div>'+
       '<div class="jul4-count" id="jul4-count">'+QTIME+'s</div>'+
-      '<div class="jul4-q">'+esc(item[0])+'</div>'+
-      '<div id="jul4-opts">'+opts.map(function(o,i){
-        return '<button class="jul4-opt" data-ok="'+(o.ok?1:0)+'" onclick="jul4Pick(this)">'+esc(o.t)+'</button>';
+      '<div class="jul4-q">'+esc(item.q)+'</div>'+
+      '<div id="jul4-opts">'+item.options.map(function(o){
+        return '<button class="jul4-opt" data-opt="'+esc(o)+'" onclick="jul4Pick(this)">'+esc(o)+'</button>';
       }).join('')+'</div>';
-    document.getElementById('jul4-body').innerHTML=html;
+    body().innerHTML=html;
     var bar=document.getElementById('jul4-timerbar');
     bar.style.transition='none'; bar.style.width='100%'; void bar.offsetWidth;
     bar.style.transition='width '+QTIME+'s linear'; bar.style.width='0%';
@@ -12860,42 +12963,70 @@ window._slingRelease=function(id,el){
       left--;
       var c=document.getElementById('jul4-count'); if(c) c.textContent=(left>0?left:0)+'s';
       if(left>0 && left<=5) sfxTick();
-      if(left<=0){ clearInterval(timer); timer=null; if(!answered) resolve(null); }
+      if(left<=0){ clearInterval(timer); timer=null; if(!answered) pick(null); }
     },1000);
   }
-  window.jul4Pick=function(el){
-    if(answered) return;
-    resolve(el);
-  };
-  function resolve(picked){
+  window.jul4Pick=function(el){ if(answered) return; pick(el); };
+  function pick(el){
     answered=true; if(timer){clearInterval(timer);timer=null;}
-    var btns=document.querySelectorAll('.jul4-opt');
-    var wasRight=picked && picked.getAttribute('data-ok')==='1';
-    btns.forEach(function(b){
-      b.disabled=true;
-      if(b.getAttribute('data-ok')==='1') b.classList.add('correct');
-      else if(b===picked) b.classList.add('wrong');
-    });
-    if(wasRight){ score++; sfxCorrect(); } else { sfxWrong(); }
-    setTimeout(function(){ idx++; if(idx<order.length) showQ(); else renderEnd(); }, 1250);
+    chosen[idx] = el ? el.getAttribute('data-opt') : '';
+    document.querySelectorAll('.jul4-opt').forEach(function(b){ b.disabled=true; if(b===el) b.classList.add('correct'); });
+    beep(720,0.08,'triangle',0.16);
+    setTimeout(function(){ idx++; if(idx<qs.length) showQ(); else finish(); }, 450);
   }
-  function renderEnd(){
-    stopMusic(); sfxWin(); jul4Played=true;
-    // Save the result so admin can see the leaderboard (single play — backend keeps the first).
-    try{ var ed=window._currentEmpData||{}; if(ed.employee_id){
-      fetch(APPS_SCRIPT_URL+'?action=game_save_result&employee_id='+encodeURIComponent(ed.employee_id)+'&full_name='+encodeURIComponent(ed.full_name||'')+'&game=july4&score='+score+'&total='+order.length+'&_='+Date.now());
-    } }catch(e){}
-    var pct=Math.round(score/order.length*100);
-    var msg = pct===100?'Perfect! A true patriot! 🇺🇸' : pct>=80?'Excellent work! 🎆' : pct>=50?'Nice job! 🎇' : 'Keep celebrating — try again! 🎉';
-    var sparks=''; for(var i=0;i<9;i++){ sparks+='<span class="jul4-spark" style="left:'+(6+i*11)+'%;bottom:10px;animation-delay:'+(i*0.22)+'s">'+['🎆','🎇','⭐','🦅','🗽'][i%5]+'</span>'; }
-    document.getElementById('jul4-body').innerHTML=
-      sparks+
-      '<div class="jul4-flag">🏆</div>'+
-      '<div class="jul4-h">Happy 4th of July!</div>'+
-      '<div class="jul4-scoreBig">'+score+' / '+order.length+'</div>'+
-      '<div class="jul4-sub">'+msg+'</div>'+
-      '<div class="jul4-sub" style="color:#8aa0b6;font-size:12px">This game can only be played once. 🎆</div>'+
-      '<button class="jul4-btn blue" onclick="jul4Close()">Done</button>';
+  function finish(){
+    stopMusic();
+    var timeMs=Date.now()-t0;
+    body().innerHTML='<div class="jul4-flag">🧮</div><div class="jul4-sub">Scoring your answers…</div>';
+    fetch(APPS_SCRIPT_URL+'?action=trivia_submit&employee_id='+encodeURIComponent(empId())+'&full_name='+encodeURIComponent(empName())+'&session_id='+encodeURIComponent(SESSION.session_id)+'&answers='+encodeURIComponent(JSON.stringify(chosen))+'&time_ms='+timeMs+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(d){
+        if(SESSION) SESSION.already_played=true;
+        sfxWin();
+        showLeaderboard(d&&d.score, d&&d.total);
+      }).catch(function(){ body().innerHTML='<div class="jul4-flag">⚠️</div><div class="jul4-sub">Could not submit. Check your connection and reopen the game.</div><button class="jul4-btn blue" onclick="jul4Close()">Close</button>'; });
+  }
+  window.showLeaderboard=function(myScore, myTotal){
+    if(lbTimer){ clearInterval(lbTimer); lbTimer=null; }
+    var fetchLb=function(){
+      fetch(APPS_SCRIPT_URL+'?action=trivia_leaderboard&employee_id='+encodeURIComponent(empId())+'&_='+Date.now())
+        .then(function(r){return r.json();}).then(function(d){
+          renderLeaderboard(d, myScore, myTotal);
+          if(d && d.exists && !d.finalized){ if(!lbTimer) lbTimer=setInterval(fetchLb, 8000); }
+          else if(lbTimer){ clearInterval(lbTimer); lbTimer=null; }
+        }).catch(function(){});
+    };
+    body().innerHTML='<div class="jul4-flag">🏆</div><div class="jul4-sub">Loading leaderboard…</div>';
+    fetchLb();
+  };
+  function renderLeaderboard(d, myScore, myTotal){
+    if(!d || !d.exists){ renderNext(d); return; }
+    var me=empId().toLowerCase();
+    var head = (myScore!=null)
+      ? '<div class="jul4-flag">🎉</div><div class="jul4-h">You scored '+myScore+' / '+(myTotal||15)+'</div>'
+      : '<div class="jul4-flag">🏆</div><div class="jul4-h">Daily Trivia</div>';
+    var status = d.finalized
+      ? '<div class="jul4-sub">Final results · winners below 🎆</div>'
+      : '<div class="jul4-sub">Live ranking · closes in <b>'+fmtLeft(d.closes_in)+'</b><br>Top 3 win points when it closes.</div>';
+    var top3html='';
+    if(d.finalized && d.top3 && d.top3.length){
+      top3html='<div style="display:flex;gap:8px;justify-content:center;margin:10px 0 4px;flex-wrap:wrap;">'+
+        d.top3.map(function(t){ var m=['🥇','🥈','🥉'][t.rank-1]||'';
+          return '<div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:8px 12px;min-width:92px;">'+
+            '<div style="font-size:22px">'+m+'</div><div style="font-size:12px;font-weight:700;color:#eef2ff;">'+esc(t.full_name)+'</div>'+
+            '<div style="font-size:11px;color:#fbbf24;font-weight:700;">+'+t.points+' pts · '+t.score+'/15</div></div>'; }).join('')+'</div>';
+    }
+    var rows=(d.ranking||[]).map(function(r){
+      var mine=String(r.employee_id).toLowerCase()===me;
+      var medal=r.rank<=3?['🥇','🥈','🥉'][r.rank-1]:r.rank+'.';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:9px;margin-bottom:4px;'+(mine?'background:rgba(251,191,36,.14);border:1px solid rgba(251,191,36,.4);':'background:rgba(255,255,255,.04);')+'">'+
+        '<div style="width:26px;text-align:center;font-weight:800;">'+medal+'</div>'+
+        '<div style="flex:1;min-width:0;font-size:13px;font-weight:600;color:#eef2ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(r.full_name)+(mine?' <span style="color:#fbbf24;font-size:11px">(you)</span>':'')+'</div>'+
+        '<div style="font-weight:800;color:#9fe7c0;">'+r.score+'<span style="color:#6b7d90;font-size:11px">/'+(r.total||15)+'</span></div></div>';
+    }).join('') || '<div class="jul4-sub">No one has played yet — be the first!</div>';
+    var myLine = (!d.finalized && d.my_rank) ? '<div class="jul4-sub" style="margin-top:6px">Your current rank: <b style="color:#fbbf24">#'+d.my_rank+'</b> of '+d.players+'</div>' : '';
+    body().innerHTML= head + status + top3html +
+      '<div style="max-height:280px;overflow:auto;margin:10px 0 4px;">'+rows+'</div>'+ myLine +
+      '<button class="jul4-btn blue" onclick="jul4Close()" style="margin-top:8px">Close</button>';
   }
 
   /* Pre-create the audio context on the first user interaction so the admin-triggered
@@ -12909,11 +13040,11 @@ window._slingRelease=function(id,el){
     if(document.getElementById('jul4-alarm')) return;   // already counting down
     jul4InitAC();
     var ov=document.createElement('div'); ov.id='jul4-alarm';
-    ov.innerHTML='<div class="jul4-alarm-inner"><div class="jul4-alarm-flag">🎆🦅🎆</div>'+
-      '<div class="jul4-alarm-h">July 4th Trivia is starting!</div>'+
+    ov.innerHTML='<div class="jul4-alarm-inner"><div class="jul4-alarm-flag">🎯🧠🎯</div>'+
+      '<div class="jul4-alarm-h">Daily Trivia is starting!</div>'+
       '<div class="jul4-alarm-sub">Get ready — the game begins in</div>'+
       '<div class="jul4-alarm-num" id="jul4-alarm-num">10</div>'+
-      '<div class="jul4-alarm-sub">Answer fast — 10 seconds per question!</div></div>';
+      '<div class="jul4-alarm-sub">15 questions · 12 seconds each · Top 3 win JMB Points!</div></div>';
     document.body.appendChild(ov);
     var n=10; var numEl=document.getElementById('jul4-alarm-num');
     alarmBeep();
@@ -12927,7 +13058,8 @@ window._slingRelease=function(id,el){
         setTimeout(function(){
           var e=document.getElementById('jul4-alarm'); if(e) e.remove();
           document.getElementById('jul4-modal').classList.add('on');
-          checkPlayed(function(played,x){ if(played) renderAlready(x); else jul4Start(); });
+          body().innerHTML='<div class="jul4-flag">🎯</div><div class="jul4-sub">Loading…</div>';
+          loadSession(function(s){ if(!s||!s.open){ renderNext(s); } else { SESSION=s; if(s.already_played) showLeaderboard(); else jul4Start(); } });
         }, 700);
       }
     },1000);
@@ -12942,12 +13074,6 @@ window._slingRelease=function(id,el){
     if(!d||!f) return;
     var on=getComputedStyle(d).display!=='none';
     f.style.display=on?'inline-flex':'none';
-    if(on && !window._jul4Auto){
-      window._jul4Auto=true;
-      var now=new Date(), isJul4=(now.getMonth()===6 && now.getDate()===4);
-      var seen=false; try{ seen=sessionStorage.getItem('jul4_seen'); }catch(e){}
-      if(isJul4 && !seen){ try{ sessionStorage.setItem('jul4_seen','1'); }catch(e){} setTimeout(jul4Open, 2600); }
-    }
   }, 1200);
   setInterval(function(){
     var d=document.getElementById('dashboard-screen');
