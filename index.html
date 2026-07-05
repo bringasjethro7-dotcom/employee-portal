@@ -10369,8 +10369,9 @@ function pollActiveTracker(){
     .catch(function(){});
 }
 // Keep the backend "who's active" signal fresh so the chat Online list stays accurate
-// even if Supabase realtime/presence is unavailable. (~30s)
-setInterval(function(){ try { pollActiveTracker(); } catch(e){} }, 30000);
+// even if Supabase realtime/presence is unavailable. Paused while the tab is hidden to
+// avoid hammering the Apps Script backend. (~45s)
+setInterval(function(){ if(document.hidden) return; try { pollActiveTracker(); } catch(e){} }, 45000);
 // Create/update an unread-count badge on a bubble
 function setBubbleUnread(id, count){
   var el = _bubbleEls[id];
@@ -13260,14 +13261,26 @@ body.light .jul4-lbscore{color:#059669}
   function fmtLeft(sec){ sec=Math.max(0,sec||0); var m=Math.floor(sec/60), s=sec%60; return m+'m '+(s<10?'0':'')+s+'s'; }
   function body(){ return document.getElementById('jul4-body'); }
   function loadSession(cb){
-    fetch(APPS_SCRIPT_URL+'?action=trivia_session&employee_id='+encodeURIComponent(empId())+'&_='+Date.now())
-      .then(function(r){return r.json();}).then(function(x){ cb(x); }).catch(function(){ cb(null); });
+    var done=false;
+    var ctrl=(window.AbortController)?new AbortController():null;
+    var to=setTimeout(function(){ if(done)return; done=true; if(ctrl)try{ctrl.abort();}catch(e){} cb('TIMEOUT'); }, 12000);
+    fetch(APPS_SCRIPT_URL+'?action=trivia_session&employee_id='+encodeURIComponent(empId())+'&_='+Date.now(), ctrl?{signal:ctrl.signal}:undefined)
+      .then(function(r){return r.json();})
+      .then(function(x){ if(done)return; done=true; clearTimeout(to); cb(x); })
+      .catch(function(){ if(done)return; done=true; clearTimeout(to); cb(null); });
   }
 
   window.jul4Open=function(){
     document.getElementById('jul4-modal').classList.add('on');
     body().innerHTML='<div class="jul4-flag">🎯</div><div class="jul4-sub">Loading…</div>';
     loadSession(function(s){
+      if(s==='TIMEOUT'){
+        body().innerHTML='<div class="jul4-flag">⏳</div><div class="jul4-h">Taking too long…</div>'+
+          '<div class="jul4-sub">The server is slow to respond right now. Please try again in a moment.</div>'+
+          '<button class="jul4-btn" onclick="jul4Open()">↻ Retry</button>'+
+          '<button class="jul4-btn ghost" onclick="jul4Close()" style="margin-top:8px">Close</button>';
+        return;
+      }
       if(!s || !s.open){ renderNext(s); return; }
       SESSION=s;
       if(s.already_played){ showLeaderboard(); return; }
