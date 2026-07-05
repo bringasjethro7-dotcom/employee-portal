@@ -5843,6 +5843,7 @@ document.addEventListener('visibilitychange', function(){
   if(document.hidden) return;
   try{ if(_empLiveTimer) empFetchRunning(); }catch(e){}
   try{ if(_notifStarted) loadNotifs(false); }catch(e){}
+  try{ if(typeof loadPoints==='function') loadPoints(); }catch(e){}   // keep JMB Points card current
 });
 document.addEventListener('click', function(ev){ var p=document.getElementById('notif-panel'), bell=document.getElementById('notif-bell'); if(!p||p.style.display==='none') return; if(p.contains(ev.target)||(bell&&bell.contains(ev.target))) return; p.style.display='none'; });
 /* ── JMB CALENDAR (approved leaves) — Team Live, CL7–CL9 ── */
@@ -6138,14 +6139,14 @@ async function loadScorecard() {
     var rgEl = document.getElementById('sum-regular');  if (rgEl && totH !== null) rgEl.textContent = Math.max(0, totH - (otH||0)).toFixed(1) + 'h';
 
     if (!data || !data.scorecard) {
-      // No scorecard — still show attendance from sheet
+      // No published scorecard yet — Attendance & Demerit are still LIVE running scores, so show them.
       document.getElementById('sc-overall-card').style.display = 'flex';
       document.getElementById('sc-empty').style.display = 'block';
       setScCard('prod', null);
       setScCard('qual', null);
-      setScCard('att',  null);
+      setScCard('att',  (data && data.attendance!=null && data.attendance!=='') ? data.attendance : null);
       setScCard('sales', null);
-      setScCard('dem', null);
+      setScCard('dem', (data && data.demerit_score!=null && data.demerit_score!=='') ? data.demerit_score : null);
       _renderAssessValue(assessScore);   // show the assessment even if no scorecard is published yet
       setScOverall(null);
       return;
@@ -6155,9 +6156,9 @@ async function loadScorecard() {
     document.getElementById('sc-overall-card').style.display = 'flex';
       setScCard('prod', sc.productivity);
     setScCard('qual', sc.quality);
-    setScCard('att',  sc.attendance);
+    setScCard('att',  (data.attendance!=null && data.attendance!=='') ? data.attendance : sc.attendance);       // live running score
     setScCard('sales', (sc.team_sales!==undefined?sc.team_sales:null));
-    setScCard('dem', (sc.demerit_score!==undefined?sc.demerit_score:null));
+    setScCard('dem', (data.demerit_score!=null && data.demerit_score!=='') ? data.demerit_score : (sc.demerit_score!==undefined?sc.demerit_score:null));   // live running score
     _renderAssessValue((sc.assessment!==null&&sc.assessment!==undefined&&sc.assessment!=='') ? sc.assessment : assessScore);
     setScOverall(sc.overall);
 
@@ -10553,14 +10554,32 @@ function renderContactList(data) {
   // Remove old dynamic contacts
   contacts.querySelectorAll('.chat-contact:not(#contact-group)').forEach(function(el) { el.remove(); });
 
-  var others  = (data||[]).filter(function(e) { return e.employee_id !== chatEmpId && isActiveUser(e.employee_id); });
-  var online  = others.filter(function(e) { return e.is_online; });
-  var offline = others.filter(function(e) { return !e.is_online; });
+  // Build the DM list from the FULL employee directory (so everyone is DM-able, even offline),
+  // then overlay live online status + names/photos from the presence table.
+  var map = {};
+  Object.keys(employeeDir||{}).forEach(function(id){
+    var d = employeeDir[id]; if (!d || d.active === false || id === chatEmpId) return;
+    map[id] = { employee_id:id, employee_name:(d.full_name || presenceNames[id] || id), is_online: !!onlineUsers[id] };
+  });
+  (data||[]).forEach(function(e){
+    if (!e || !e.employee_id || e.employee_id === chatEmpId) return;
+    if (!isActiveUser(e.employee_id)) return;
+    var cur = map[e.employee_id] || { employee_id:e.employee_id, employee_name:(e.employee_name || presenceNames[e.employee_id] || e.employee_id), is_online:false };
+    cur.is_online = !!e.is_online || !!cur.is_online;
+    if (e.employee_name) cur.employee_name = e.employee_name;
+    map[e.employee_id] = cur;
+  });
+
+  function byName(a,b){ return String(a.employee_name||'').localeCompare(String(b.employee_name||'')); }
+  var others  = Object.keys(map).map(function(id){ return map[id]; });
+  var online  = others.filter(function(e){ return e.is_online; }).sort(byName);
+  var offline = others.filter(function(e){ return !e.is_online; }).sort(byName);
 
   offlineLbl.style.display = offline.length ? 'block' : 'none';
-  online.forEach(function(emp)  { insertContact(emp, onlineLbl); });
-  offlineLbl.insertAdjacentElement('afterend', offlineLbl); // keep label in place
-  offline.forEach(function(emp) { insertContact(emp, offlineLbl); });
+  var anchor = onlineLbl;
+  online.forEach(function(emp){ insertContact(emp, anchor); var el = document.getElementById('contact-'+emp.employee_id); if (el) anchor = el; });
+  anchor = offlineLbl;
+  offline.forEach(function(emp){ insertContact(emp, anchor); var el2 = document.getElementById('contact-'+emp.employee_id); if (el2) anchor = el2; });
 
   // Re-apply bump order after list rebuild
   setTimeout(applyBumpOrder, 0);
@@ -12935,6 +12954,7 @@ function loadMyRedemptions(){
     if(lbTimer){clearInterval(lbTimer);lbTimer=null;}
     stopMusic();
     document.getElementById('jul4-modal').classList.remove('on');
+    try{ if(typeof loadPoints==='function') loadPoints(); }catch(e){}   // refresh JMB Points card on exit
   };
   function renderNext(s){
     var next=(s&&s.next_at)?s.next_at:'later today';
@@ -13016,6 +13036,7 @@ function loadMyRedemptions(){
   };
   function renderLeaderboard(d, myScore, myTotal){
     if(!d || !d.exists){ renderNext(d); return; }
+    if(d.finalized){ try{ if(typeof loadPoints==='function') loadPoints(); }catch(e){} }   // points awarded → refresh the card
     var me=empId().toLowerCase();
     var head = (myScore!=null)
       ? '<div class="jul4-flag">🎉</div><div class="jul4-h">You scored '+myScore+' / '+(myTotal||15)+'</div>'
