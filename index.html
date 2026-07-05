@@ -3415,6 +3415,8 @@
   /* ════════════════ LIGHT MODE — FULL SURFACE PASS ════════════════
      When a light background preset is chosen, flip every remaining hardcoded-dark
      surface (header, modals, glass cards, popovers, scrims) to a clean light look. */
+  /* Body side gutters — light gradient so the sides aren't black (JS paints the exact preset) */
+  body.light { background: radial-gradient(1100px 460px at 50% -140px, rgba(255,107,26,.06), transparent 62%), linear-gradient(180deg,#f4f6f9 0%,#eceff3 100%) !important; }
   /* Header — frosted white bar */
   body.light header { background: rgba(255,255,255,.82) !important; border-bottom: 1px solid var(--border) !important; box-shadow: 0 1px 0 rgba(0,0,0,.04); }
   body.light .theme-toggle { background: var(--bg-card2); color: var(--text-2); }
@@ -10056,6 +10058,8 @@ function handlePresenceChange(payload) {
     if (emp.time_in !== undefined) presenceTimeIn[emp.employee_id] = emp.time_in || '';
     updateContactOnlineDot(emp.employee_id, emp.is_online);
     try { renderRailOnline(); } catch(e) {}
+    // Move the contact into the correct Online/Offline section + update its label live
+    try { reflowContactPresence(); } catch(e) {}
     // Animate bubble pop in/out only when status actually flips (not on heartbeats)
     if (was !== emp.is_online) syncPresenceBubbles();
     // Live-update an existing bubble's status ring (work/idle/paused) on heartbeats
@@ -10069,6 +10073,61 @@ function updateContactOnlineDot(empId, isOnline) {
   var dot = document.getElementById('dot-' + empId);
   if (dot) dot.style.background = isOnline ? '#4ade80' : '#555';
 }
+
+// TTL-aware online check — a user is "online" only if their last heartbeat is fresh.
+function isUserOnline(id) {
+  if (!onlineUsers[id]) return false;
+  var ls = presenceLastSeen[id];
+  if (ls && (Date.now() - ls) > PRESENCE_TTL_MS) return false;
+  return true;
+}
+
+// Non-destructive: move existing contact rows between the Online/Offline sections and
+// update their dot + label live, WITHOUT recreating elements (keeps unread badges intact).
+function reflowContactPresence() {
+  var contacts = document.getElementById('chat-contacts'); if (!contacts) return;
+  var onlineLbl = document.getElementById('online-label');
+  var offlineLbl = document.getElementById('offline-label');
+  var els = Array.prototype.slice.call(contacts.querySelectorAll('.chat-contact:not(#contact-group)'));
+  var online = [], offline = [];
+  els.forEach(function(el) {
+    var id = el.id.replace('contact-', '');
+    var on = isUserOnline(id);
+    var dot = document.getElementById('dot-' + id); if (dot) dot.style.background = on ? '#4ade80' : '#555';
+    var sub = document.getElementById('sub-' + id);
+    if (sub && sub.textContent !== 'typing…') sub.textContent = on ? 'Online' : 'Offline';
+    (on ? online : offline).push(el);
+  });
+  function byName(a, b){ return (a.getAttribute('data-name')||'').localeCompare(b.getAttribute('data-name')||''); }
+  online.sort(byName); offline.sort(byName);
+  var anchor = onlineLbl;
+  online.forEach(function(el){ if (anchor) anchor.insertAdjacentElement('afterend', el); anchor = el; });
+  anchor = offlineLbl;
+  offline.forEach(function(el){ if (anchor) anchor.insertAdjacentElement('afterend', el); anchor = el; });
+  if (onlineLbl)  onlineLbl.style.display  = online.length  ? 'block' : 'none';
+  if (offlineLbl) offlineLbl.style.display = offline.length ? 'block' : 'none';
+  try { applyBumpOrder(); } catch(e) {}
+}
+
+// Lightweight periodic presence refresh — re-fetch the presence table and re-sort,
+// so newly-online teammates surface even if a realtime event was missed. (~30s)
+async function refreshOnlinePresence() {
+  if (!supaClient) return;
+  try {
+    var res = await supaClient.from('presence').select('*');
+    if (res && res.data) {
+      res.data.forEach(function(emp) {
+        onlineUsers[emp.employee_id] = emp.is_online;
+        if (emp.employee_name) presenceNames[emp.employee_id] = emp.employee_name;
+        if (emp.last_seen) presenceLastSeen[emp.employee_id] = new Date(emp.last_seen).getTime();
+        if (emp.status) presenceStatus[emp.employee_id] = emp.status;
+      });
+      reflowContactPresence();
+      try { renderRailOnline(); } catch(e) {}
+    }
+  } catch(e) {}
+}
+setInterval(function(){ try { refreshOnlinePresence(); } catch(e){} }, 30000);
 
 // ══════════ ONLINE PRESENCE BUBBLES ══════════
 var presenceNames    = {};
@@ -10603,9 +10662,11 @@ function renderContactList(data) {
 
   function byName(a,b){ return String(a.employee_name||'').localeCompare(String(b.employee_name||'')); }
   var others  = Object.keys(map).map(function(id){ return map[id]; });
+  others.forEach(function(e){ e.is_online = isUserOnline(e.employee_id); });   // TTL-aware (stale heartbeat = offline)
   var online  = others.filter(function(e){ return e.is_online; }).sort(byName);
   var offline = others.filter(function(e){ return !e.is_online; }).sort(byName);
 
+  if (onlineLbl)  onlineLbl.style.display  = online.length  ? 'block' : 'none';
   offlineLbl.style.display = offline.length ? 'block' : 'none';
   var anchor = onlineLbl;
   online.forEach(function(emp){ insertContact(emp, anchor); var el = document.getElementById('contact-'+emp.employee_id); if (el) anchor = el; });
@@ -11825,6 +11886,13 @@ function applyBgPreset(id){
     if (p.fx) mc.setAttribute('data-bgfx', p.fx); else mc.removeAttribute('data-bgfx');   // toggle animated/pattern layer
   }
   try { document.body.classList.toggle('light', !!p.light); } catch(e) {}   // light presets flip the whole portal into light mode
+  // Paint the body (the side gutters behind the content column) to match:
+  //  • light preset → same light gradient so the sides aren't black
+  //  • dark preset  → clear inline so the default dark CSS gradient returns
+  try {
+    if (p.light) { document.body.style.background = p.css; document.body.style.backgroundAttachment = 'fixed'; }
+    else { document.body.style.background = ''; document.body.style.backgroundAttachment = ''; }
+  } catch(e) {}
   try { if (typeof updateThemeIcons === 'function') updateThemeIcons(!!p.light); } catch(e) {}
   try { localStorage.setItem(bgKey(), p.id); } catch(e) {}
 }
