@@ -3419,6 +3419,11 @@
   body.light { background: radial-gradient(1100px 460px at 50% -140px, rgba(255,107,26,.06), transparent 62%), linear-gradient(180deg,#f4f6f9 0%,#eceff3 100%) !important; }
   /* Header — frosted white bar */
   body.light header { background: rgba(255,255,255,.82) !important; border-bottom: 1px solid var(--border) !important; box-shadow: 0 1px 0 rgba(0,0,0,.04); }
+  /* Notifications panel (uses an undefined --card-1 var → dark fallback); force light + light shadow */
+  body.light #notif-panel { background: var(--bg-card) !important; border-color: var(--border) !important; box-shadow: 0 18px 50px rgba(0,0,0,.14) !important; }
+  body.light #notif-panel > div:first-child { background: var(--bg-card) !important; }
+  /* Header wordmark — the white→orange gradient washes out on light; use a deep orange→charcoal one */
+  body.light .brand-wordmark { background: linear-gradient(180deg, #e8560d 0%, #c2410c 55%, #7c2d12 108%) !important; -webkit-background-clip: text !important; background-clip: text !important; text-shadow: none !important; }
   body.light .theme-toggle { background: var(--bg-card2); color: var(--text-2); }
   /* Presence "glass-water" hero cards — white-alpha washes out on light, use soft grey glass */
   body.light .rail-hero { background: linear-gradient(180deg,#ffffff,#f5f6f9) !important; border-color: var(--border) !important; box-shadow: 0 8px 22px rgba(0,0,0,.06) !important; }
@@ -10074,12 +10079,13 @@ function updateContactOnlineDot(empId, isOnline) {
   if (dot) dot.style.background = isOnline ? '#4ade80' : '#555';
 }
 
-// TTL-aware online check — a user is "online" only if their last heartbeat is fresh.
+// Online = a fresh heartbeat within the TTL (most reliable), OR flagged online with no
+// timestamp yet. A stale heartbeat counts as offline even if the is_online flag lingered.
 function isUserOnline(id) {
-  if (!onlineUsers[id]) return false;
   var ls = presenceLastSeen[id];
-  if (ls && (Date.now() - ls) > PRESENCE_TTL_MS) return false;
-  return true;
+  if (ls && (Date.now() - ls) <= PRESENCE_TTL_MS) return true;   // heartbeat is fresh → online
+  if (onlineUsers[id] && !ls) return true;                       // flagged online, nothing to age out
+  return false;
 }
 
 // Non-destructive: move existing contact rows between the Online/Offline sections and
@@ -12975,6 +12981,24 @@ function loadMyRedemptions(){
 .jul4-alarm-sub{color:#cdd6f5;font-size:14px;margin:4px 0}
 .jul4-alarm-num{font:900 90px/1 'Inter',sans-serif;color:#fbbf24;margin:10px 0;text-shadow:0 6px 30px rgba(251,191,36,.5)}
 @keyframes jul4Zoom{0%{transform:scale(.4);opacity:.3}100%{transform:scale(1);opacity:1}}
+/* ── Daily Trivia — LIGHT MODE ── */
+body.light #jul4-modal{background:rgba(20,24,33,.38)}
+body.light .jul4-card{background:linear-gradient(180deg,#ffffff,#f5f6f9);color:var(--text-1);box-shadow:0 30px 80px rgba(0,0,0,.18);border:1px solid rgba(0,0,0,.06)}
+body.light .jul4-sub{color:#5a6478}
+body.light .jul4-top{color:#5a6478}
+body.light .jul4-top b{color:#1a1a1a}
+body.light .jul4-btn.blue{background:linear-gradient(135deg,#eef0f4,#e2e6ee);color:#1a1a1a}
+body.light .jul4-btn.ghost{border:1px solid rgba(0,0,0,.15);color:#5a6478}
+body.light .jul4-timerwrap{background:rgba(0,0,0,.08)}
+body.light .jul4-q{color:#1a1a1a}
+body.light .jul4-opt{background:#f4f6f9;border:1px solid rgba(0,0,0,.1);color:#1a1a1a}
+body.light .jul4-opt:hover{background:#e9edf3}
+body.light .jul4-opt.correct{background:rgba(34,197,94,.18);border-color:#22c55e;color:#0f5132}
+body.light .jul4-opt.wrong{background:rgba(248,113,113,.16);border-color:#f87171;color:#8a1c1c}
+body.light .jul4-x{color:#8a93a6}
+body.light .jul4-count{color:#d97706}
+body.light .jul4-scoreBig{color:#d97706}
+/* (the 10s alarm countdown overlay stays dark by design — its white text is kept) */
 </style>
 
 <button id="jul4-fab" onclick="jul4Open()">🎯 Daily Trivia</button>
