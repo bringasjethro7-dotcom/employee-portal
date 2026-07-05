@@ -4164,7 +4164,7 @@
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-05 · daily-trivia</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-05 · no-july4</div>
         </div>
         <button class="prod-open-btn" onclick="openMyProductivity()"><span style="font-size:15px;">📊</span> My productivity — quantity per hour vs team</button>
         <div class="overview-layout">
@@ -9149,8 +9149,9 @@ function maybeResetReminder(){
   try { if (localStorage.getItem(key)) return; localStorage.setItem(key,'1'); } catch(e) {}
   var m=document.getElementById('reset-reminder'); if(m) m.classList.add('show');
 }
-// ── 4th of July festive theme (auto-active July 1–7 PHT) ──
+// ── 4th of July festive theme — RETIRED (banner/ribbon/badge/fireworks off) ──
 function july4Active(){
+  return false;   // Independence Day theme removed
   try { if(/[?&]july4=1/.test(location.search)) return true; if(/[?&]july4=0/.test(location.search)) return false; } catch(e){}
   var o={};
   try { new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).forEach(function(p){o[p.type]=p.value;}); }
@@ -11777,6 +11778,12 @@ var BG_PRESETS = [
   { id:'plum', name:'Plum', css:'radial-gradient(1000px 460px at 50% -130px, rgba(139,92,246,.13), transparent 66%), radial-gradient(700px 440px at 100% 100%, rgba(124,58,237,.08), transparent 70%), linear-gradient(180deg,#100c18,#0a0710)' },
   { id:'sand', name:'Sand', css:'radial-gradient(1000px 440px at 50% -130px, rgba(214,188,155,.10), transparent 66%), radial-gradient(700px 440px at 100% 100%, rgba(168,140,100,.07), transparent 70%), linear-gradient(180deg,#131110,#0b0a09)' },
   { id:'aurora', name:'Aurora', anim:true, fx:'aurora-anim', css:'radial-gradient(900px 420px at 20% -80px, rgba(99,102,241,.10), transparent 62%), radial-gradient(820px 460px at 88% 8%, rgba(45,212,191,.09), transparent 64%), linear-gradient(180deg,#0b0e14,#080a0f)' },
+  // ── Light backgrounds — picking one switches the whole portal into light mode (no toggle) ──
+  { id:'daylight', name:'Daylight', light:true, css:'radial-gradient(1100px 460px at 50% -140px, rgba(255,107,26,.06), transparent 66%), linear-gradient(180deg,#f7f8fa,#eef0f4)' },
+  { id:'linen',    name:'Linen',    light:true, css:'radial-gradient(1000px 440px at 50% -130px, rgba(214,188,155,.20), transparent 64%), radial-gradient(700px 440px at 100% 100%, rgba(168,140,100,.10), transparent 70%), linear-gradient(180deg,#faf7f2,#f1ece3)' },
+  { id:'sky',      name:'Sky',      light:true, css:'radial-gradient(1000px 460px at 50% -130px, rgba(56,120,255,.12), transparent 66%), radial-gradient(720px 460px at 0% 8%, rgba(56,189,248,.10), transparent 70%), linear-gradient(180deg,#f4f8ff,#e8eef8)' },
+  { id:'mint',     name:'Mint',     light:true, css:'radial-gradient(1000px 440px at 50% -130px, rgba(16,185,129,.12), transparent 66%), radial-gradient(720px 460px at 104% 6%, rgba(5,150,105,.09), transparent 70%), linear-gradient(180deg,#f2faf6,#e7f2ec)' },
+  { id:'blush',    name:'Blush',    light:true, css:'radial-gradient(1000px 460px at 50% -130px, rgba(244,114,182,.12), transparent 66%), radial-gradient(700px 440px at 100% 100%, rgba(219,39,119,.08), transparent 70%), linear-gradient(180deg,#fdf5f8,#f6ebf0)' },
 ];
 function bgKey(){ var id=(window._currentEmpData&&window._currentEmpData.employee_id)||'me'; return 'portal_bg_'+id; }
 function savedBgId(){ try{ return localStorage.getItem(bgKey()); }catch(e){ return null; } }
@@ -11787,7 +11794,8 @@ function applyBgPreset(id){
     mc.style.backgroundColor = 'transparent'; mc.style.backgroundImage = 'none'; mc.style.background = p.css;
     if (p.fx) mc.setAttribute('data-bgfx', p.fx); else mc.removeAttribute('data-bgfx');   // toggle animated/pattern layer
   }
-  try { document.body.classList.remove('light'); } catch(e) {}   // backgrounds are dark-mode only
+  try { document.body.classList.toggle('light', !!p.light); } catch(e) {}   // light presets flip the whole portal into light mode
+  try { if (typeof updateThemeIcons === 'function') updateThemeIcons(!!p.light); } catch(e) {}
   try { localStorage.setItem(bgKey(), p.id); } catch(e) {}
 }
 function applySavedBg(){ var id = savedBgId(); if (id) applyBgPreset(id); }
@@ -11796,7 +11804,7 @@ function renderBgSwatches(){
   var cur = savedBgId() || (BG_PRESETS[0] && BG_PRESETS[0].id);
   box.innerHTML = BG_PRESETS.map(function(p){
     return '<button class="bg-swatch' + (p.id===cur?' on':'') + '" data-bg="' + p.id + '" onclick="pickBg(this.dataset.bg)" title="' + p.name + '">' +
-      '<span class="bg-swatch-prev" style="background:' + p.css + '">' + (p.anim ? '<span class="bg-anim-tag">✨ animated</span>' : '') + '</span>' +
+      '<span class="bg-swatch-prev" style="background:' + p.css + '">' + (p.anim ? '<span class="bg-anim-tag">✨ animated</span>' : (p.light ? '<span class="bg-anim-tag">☀️ light</span>' : '')) + '</span>' +
       '<span class="bg-swatch-name">' + p.name + '</span>' +
     '</button>';
   }).join('');
@@ -11834,9 +11842,10 @@ setInterval(checkForcedRefresh, 60000);
 
 // ── WHAT'S NEW changelog (shows once per portal update) ──
 var CHANGELOG = {
-  ver: '2026-06-28d',
-  date: 'June 28, 2026',
+  ver: '2026-07-05a',
+  date: 'July 5, 2026',
   items: [
+    ['☀️', 'New light backgrounds', 'Head to Profile → Background and pick one of the new light themes — Daylight, Linen, Sky, Mint or Blush. Choosing a light background switches the whole portal to light mode automatically, and your choice is remembered next time you log in.'],
     ['📦', 'Add missing output anytime', 'Forgot to enter your output at EOD? Open Recent logs — any task missing its output now shows a "⚠ Add missing output" button. Tap it, type the volume for that day, and it saves instantly. No need to message your admin.']
   ]
 };
@@ -12820,31 +12829,31 @@ function loadMyRedemptions(){
 <!-- ═══════════ JULY 4TH TRIVIA GAME (self-contained) ═══════════ -->
 <style>
 #jul4-fab{position:fixed;left:18px;bottom:22px;z-index:9000;display:none;align-items:center;gap:8px;
-  background:linear-gradient(135deg,#b22234,#3c3b6e);color:#fff;border:2px solid #fff;border-radius:40px;
+  background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:40px;
   padding:11px 18px;font:700 13px/1 'Inter',sans-serif;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.4);
   animation:jul4Pulse 2s ease-in-out infinite}
 #jul4-fab:hover{filter:brightness(1.08)}
 @keyframes jul4Pulse{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 #jul4-modal{position:fixed;inset:0;z-index:9001;display:none;align-items:center;justify-content:center;
-  background:radial-gradient(ellipse at 50% 0%,rgba(60,59,110,.55),rgba(5,8,20,.92));backdrop-filter:blur(6px);padding:16px}
+  background:radial-gradient(ellipse at 50% 0%,rgba(255,107,26,.16),rgba(5,8,20,.94));backdrop-filter:blur(6px);padding:16px}
 #jul4-modal.on{display:flex}
 .jul4-card{position:relative;width:520px;max-width:100%;background:linear-gradient(180deg,#101830,#0b1122);
   border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:26px 24px;color:#eef2ff;
   box-shadow:0 30px 90px rgba(0,0,0,.6);overflow:hidden}
 .jul4-card::before{content:'';position:absolute;top:0;left:0;right:0;height:5px;
-  background:linear-gradient(90deg,#b22234 0 33%,#fff 33% 66%,#3c3b6e 66%)}
+  background:linear-gradient(90deg,#ff6b1a,#e83d00)}
 .jul4-flag{font-size:34px;text-align:center;margin-bottom:4px}
 .jul4-h{font:800 22px/1.15 'Inter',sans-serif;text-align:center;margin:4px 0 6px}
 .jul4-sub{text-align:center;color:#9fb0d6;font-size:13px;margin-bottom:18px;line-height:1.5}
-.jul4-btn{display:block;width:100%;background:linear-gradient(135deg,#b22234,#8f1b29);color:#fff;border:none;
+.jul4-btn{display:block;width:100%;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;
   border-radius:12px;padding:13px;font:700 15px 'Inter',sans-serif;cursor:pointer;margin-top:6px}
-.jul4-btn.blue{background:linear-gradient(135deg,#3c3b6e,#26264d)}
+.jul4-btn.blue{background:linear-gradient(135deg,#2a2f3a,#1b1f27)}
 .jul4-btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.2);color:#cdd6f5;font-weight:600}
 .jul4-btn:hover{filter:brightness(1.1)}
 .jul4-top{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#9fb0d6;margin-bottom:10px}
 .jul4-top b{color:#fff}
 .jul4-timerwrap{height:9px;border-radius:6px;background:rgba(255,255,255,.1);overflow:hidden;margin-bottom:4px}
-#jul4-timerbar{height:100%;width:100%;background:linear-gradient(90deg,#22c55e,#b22234);transition:width 1s linear}
+#jul4-timerbar{height:100%;width:100%;background:linear-gradient(90deg,#22c55e,#ef4444);transition:width 1s linear}
 .jul4-count{text-align:right;font:800 13px 'Inter';color:#fbbf24;margin-bottom:14px}
 .jul4-q{font:700 18px/1.35 'Inter';margin:6px 0 16px;min-height:52px}
 .jul4-opt{display:block;width:100%;text-align:left;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
@@ -12858,9 +12867,9 @@ function loadMyRedemptions(){
 .jul4-spark{position:absolute;pointer-events:none;font-size:26px;animation:jul4Float 2.6s ease-in infinite;opacity:0}
 @keyframes jul4Float{0%{transform:translateY(20px) scale(.6);opacity:0}20%{opacity:1}100%{transform:translateY(-140px) scale(1.2);opacity:0}}
 #jul4-alarm{position:fixed;inset:0;z-index:9100;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(ellipse at 50% 40%,rgba(178,34,52,.5),rgba(5,8,20,.96));backdrop-filter:blur(4px);
+  background:radial-gradient(ellipse at 50% 40%,rgba(255,107,26,.35),rgba(5,8,20,.96));backdrop-filter:blur(4px);
   animation:jul4Flash 1s ease-in-out infinite}
-@keyframes jul4Flash{0%,100%{background-color:rgba(5,8,20,.9)}50%{background-color:rgba(60,59,110,.55)}}
+@keyframes jul4Flash{0%,100%{background-color:rgba(5,8,20,.9)}50%{background-color:rgba(255,107,26,.28)}}
 .jul4-alarm-inner{text-align:center;color:#fff;padding:20px}
 .jul4-alarm-flag{font-size:44px;animation:jul4Shake .5s ease-in-out infinite}
 @keyframes jul4Shake{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
