@@ -1148,6 +1148,44 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
       <div id="dm-body"><div class="es">Loading…</div></div>
     </div>
 
+    <!-- OFFBOARDING (HR) -->
+    <div id="p-offboarding" style="display:none;">
+      <style>
+        .ob-chip{display:inline-flex;align-items:center;font-size:12px;padding:5px 11px;border-radius:20px;border:1px solid var(--border);background:var(--card2);color:var(--t2);cursor:pointer;user-select:none;margin:0 6px 6px 0;transition:.12s;}
+        .ob-chip:hover{border-color:var(--o3);color:var(--t1);}
+        .ob-chip.on{background:rgba(255,107,26,.15);border-color:var(--o3);color:var(--o3);font-weight:600;}
+        .ob-cat{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--t3);margin:10px 0 5px;width:100%;}
+        #ob-causes{width:100%;margin-top:4px;}
+      </style>
+      <div class="paygen">
+        <div class="paygen-title">＋ Start offboarding</div>
+        <div class="paygen-controls" style="margin-top:8px;flex-wrap:wrap;align-items:flex-end;">
+          <label>Employee <select class="sinp" id="ob-emp" style="width:220px;"></select></label>
+          <label>Type
+            <select class="sinp" id="ob-type" onchange="obTypeFields()" style="width:150px;">
+              <option value="resignation">Resignation</option>
+              <option value="termination">Termination</option>
+            </select>
+          </label>
+          <span id="ob-fields" style="display:inline-flex;gap:8px;flex-wrap:wrap;align-items:flex-end;"></span>
+          <button class="bsm" onclick="obStart()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;">Start offboarding</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--t3);margin-top:8px;">Completing a case <b style="color:#f87171">deactivates the account</b> (they can no longer log in) and <b style="color:#38bdf8">emails the employee</b> automatically.</div>
+      </div>
+      <div class="toolbar" style="margin-top:6px;">
+        <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Offboarding cases</span></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="ob-filter" onchange="renderOffboarding()" style="background:var(--card2);border:1px solid var(--border);border-radius:9px;color:var(--t1);font-family:inherit;font-size:13px;padding:8px 11px;cursor:pointer;">
+            <option value="open">In progress</option>
+            <option value="completed">Completed</option>
+            <option value="all">All</option>
+          </select>
+          <button class="bsm" onclick="loadOffboarding()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+        </div>
+      </div>
+      <div id="ob-body"><div class="es">Loading…</div></div>
+    </div>
+
     <!-- EXPECTED DAYS (admin-ticked calendar) -->
     <div id="p-expected" style="display:none;">
       <div class="toolbar">
@@ -1906,7 +1944,7 @@ async function voidDemerit(id){
   try{ var r=await fetch(API+'?action=void_demerit&id='+encodeURIComponent(id)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) loadDemerits(); else alert('Could not void.'); }catch(e){ alert('Network error.'); }
 }
 function goTab(name){
-  ['dash','live','emp','att','leave','chat','coe','scorecard','qa','worklog','projects','payslips','sales','demerits','expected'].forEach(function(n){
+  ['dash','live','emp','att','leave','chat','coe','scorecard','qa','worklog','projects','payslips','sales','demerits','offboarding','expected'].forEach(function(n){
     var t=document.getElementById('t-'+n), p=document.getElementById('p-'+n);
     if(t) t.classList.toggle('active',n===name);
     if(p) p.style.display=n===name?'block':'none';
@@ -1925,6 +1963,7 @@ function goTab(name){
   if(name==='sales') loadSales();
   if(name==='demerits') loadDemerits();
   if(name==='qa') loadQaGrid();
+  if(name==='offboarding') loadOffboarding();
   if(name==='expected') initExpected();
   syncAdminNav(name);
 }
@@ -2059,7 +2098,7 @@ async function fixDiscrepancy(id,date){
 // ── GROUPED NAVIGATION (top-level groups + sub-tabs) ──
 var ADMIN_NAV = [
   { id:'dashboard', label:'Dashboard', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>', tabs:[{name:'dash',label:'Overview'},{name:'live',label:'Live & Hours'}] },
-  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Employees'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'qa',label:'QA'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'}] },
+  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Employees'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'qa',label:'QA'},{name:'demerits',label:'Demerits'},{name:'offboarding',label:'Offboarding'},{name:'expected',label:'Expected Days'}] },
   { id:'requests', label:'Requests', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>', tabs:[{name:'leave',label:'Leave'},{name:'coe',label:'COE'}] },
   { id:'work', label:'Work', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>', tabs:[{name:'worklog',label:'Time Log'},{name:'projects',label:'Projects'}] },
   { id:'payslips', label:'Payslips', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>', tabs:[{name:'payslips',label:'Payslips'}] },
@@ -4341,6 +4380,146 @@ async function resolveRedeem(id, action){
   }catch(e){ alert('Network error.'); }
 }
 function gqEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+// ══════════ OFFBOARDING (HR) ══════════
+var OB_DATA={cases:[],employees:[]};
+function obBadge(type){ var t=String(type||'').toLowerCase();
+  if(t==='termination') return '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(248,113,113,.15);color:#f87171;">Termination</span>';
+  return '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(56,189,248,.15);color:#38bdf8;">Resignation</span>';
+}
+var OB_CAUSES={
+  termination:[
+    {cat:'Performance & Quality', items:['Inaccurate / low-quality work','Low productivity / output','Failure to meet KPIs / scorecard','Repeated errors after coaching','Missed deadlines']},
+    {cat:'Behaviour & Conduct', items:['Misconduct / policy violation','Insubordination','Dishonesty / falsification','Harassment / disrespect','Breach of confidentiality','Conflict of interest']},
+    {cat:'Attendance & Reliability', items:['Excessive absences / no-show','Chronic tardiness','Abandonment of post (AWOL)','Time theft / idle tracking']},
+    {cat:'Business', items:['End of contract / project','Redundancy / restructuring','Client account closed','Failed probation']}
+  ],
+  resignation:[
+    {cat:'Reason for leaving', items:['Better opportunity','Career shift','Personal / family reasons','Health reasons','Relocation','Return to school','Compensation','Work setup / schedule','Burnout / workload']}
+  ]
+};
+function obCausesHtml(type){
+  var groups=OB_CAUSES[type]||OB_CAUSES.termination;
+  var html='<div id="ob-causes"><div style="font-size:12px;color:var(--t2);font-weight:600;margin-bottom:2px;">'+(type==='termination'?'Cause(s) — select all that apply':'Reason(s) — select all that apply')+'</div>';
+  groups.forEach(function(g){
+    html+='<div class="ob-cat">'+gqEsc(g.cat)+'</div>';
+    html+=g.items.map(function(it){ return '<span class="ob-chip" onclick="this.classList.toggle(\'on\')">'+gqEsc(it)+'</span>'; }).join('');
+  });
+  html+='<label style="display:block;margin-top:8px;">Additional details (optional) <input class="sinp" id="ob-details" placeholder="anything specific to add" style="width:340px;max-width:100%;"></label>';
+  html+='</div>';
+  return html;
+}
+function obTypeFields(){
+  var t=(document.getElementById('ob-type')||{}).value; var el=document.getElementById('ob-fields'); if(!el) return;
+  if(t==='termination'){
+    el.innerHTML=
+      '<label>Effective date <input class="sinp" id="ob-eff" type="date" style="width:150px;"></label>'+
+      '<label>With cause? <select class="sinp" id="ob-cause" style="width:100px;"><option value="Yes">Yes</option><option value="No">No</option></select></label>'+
+      obCausesHtml('termination');
+  } else {
+    el.innerHTML=
+      '<label>Notice date <input class="sinp" id="ob-notice" type="date" style="width:150px;"></label>'+
+      '<label>Last day <input class="sinp" id="ob-last" type="date" style="width:150px;"></label>'+
+      obCausesHtml('resignation');
+  }
+}
+function obGatherReason(){
+  var chips=Array.prototype.slice.call(document.querySelectorAll('#ob-causes .ob-chip.on')).map(function(c){ return c.textContent.trim(); });
+  var det=((document.getElementById('ob-details')||{}).value||'').trim();
+  var parts=chips.join(', ');
+  if(det) parts=parts?(parts+' — '+det):det;
+  return parts;
+}
+function loadOffboarding(){
+  var body=document.getElementById('ob-body'); if(body) body.innerHTML='<div class="es">Loading…</div>';
+  obTypeFields();
+  fetch(API+'?action=offboarding_list&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+    if(!d||d.error){ if(body) body.innerHTML='<div class="es">Could not load ('+gqEsc((d&&d.error)||'error')+').</div>'; return; }
+    OB_DATA=d;
+    var sel=document.getElementById('ob-emp');
+    if(sel){ var avail=(d.employees||[]).filter(function(e){return !e.has_open;});
+      sel.innerHTML='<option value="">Select employee…</option>'+avail.map(function(e){ return '<option value="'+gqEsc(e.employee_id)+'">'+gqEsc(e.full_name)+' ('+gqEsc(e.employee_id)+')</option>'; }).join('');
+    }
+    renderOffboarding();
+  }).catch(function(){ if(body) body.innerHTML='<div class="es">Network error.</div>'; });
+}
+function obStart(){
+  var emp=(document.getElementById('ob-emp')||{}).value, type=(document.getElementById('ob-type')||{}).value;
+  if(!emp){ alert('Pick an employee first.'); return; }
+  var reason=obGatherReason();
+  if(!reason){ alert('Select at least one '+(type==='termination'?'cause':'reason')+' (or add details).'); return; }
+  var q=API+'?action=offboarding_start&employee_id='+encodeURIComponent(emp)+'&type='+encodeURIComponent(type)+'&by='+encodeURIComponent(typeof ADMIN_ID!=='undefined'?ADMIN_ID:'Admin');
+  q+='&reason='+encodeURIComponent(reason);
+  if(type==='termination'){
+    q+='&effective_date='+encodeURIComponent(((document.getElementById('ob-eff')||{}).value)||'');
+    q+='&with_cause='+encodeURIComponent(((document.getElementById('ob-cause')||{}).value)||'');
+  } else {
+    q+='&notice_date='+encodeURIComponent(((document.getElementById('ob-notice')||{}).value)||'');
+    q+='&last_day='+encodeURIComponent(((document.getElementById('ob-last')||{}).value)||'');
+  }
+  fetch(q+'&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok){ loadOffboarding(); }
+    else alert('Could not start: '+((d&&d.error==='ALREADY_OPEN')?'this employee already has an open case.':((d&&d.error)||'unknown')));
+  }).catch(function(){ alert('Network error.'); });
+}
+function renderOffboarding(){
+  var body=document.getElementById('ob-body'); if(!body) return;
+  var f=((document.getElementById('ob-filter')||{}).value)||'open';
+  var list=(OB_DATA.cases||[]).filter(function(c){ if(f==='all') return true; if(f==='completed') return c.status==='completed'; return c.status!=='completed'; });
+  if(!list.length){ body.innerHTML='<div class="es">No '+(f==='completed'?'completed':(f==='open'?'in-progress':''))+' offboarding cases.</div>'; return; }
+  body.innerHTML=list.map(obCard).join('');
+}
+function obCard(c){
+  var done=(c.checklist||[]).filter(function(x){return x.done;}).length, total=(c.checklist||[]).length;
+  var completed=c.status==='completed';
+  var dates = completed
+    ? 'Completed '+gqEsc(String(c.completed_at).slice(0,10))+' by '+gqEsc(c.completed_by)
+    : (c.type==='termination'
+        ? 'Effective: <b>'+gqEsc(c.effective_date||'—')+'</b>'+(c.with_cause?(' · With cause: <b>'+gqEsc(c.with_cause)+'</b>'):'')
+        : 'Notice: <b>'+gqEsc(c.notice_date||'—')+'</b> · Last day: <b>'+gqEsc(c.last_day||'—')+'</b>');
+  var checks=(c.checklist||[]).map(function(x,i){
+    return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t1);padding:5px 0;'+(completed?'opacity:.7;':'')+'">'+
+      '<input type="checkbox" '+(x.done?'checked':'')+' '+(completed?'disabled':'')+' onchange="obToggle(\''+c.id+'\','+i+',this.checked)" style="width:16px;height:16px;accent-color:var(--o3);">'+
+      '<span>'+gqEsc(x.label)+(x.done&&x.at?(' <span style="color:var(--t3);font-size:11px">· '+gqEsc(String(x.at).slice(0,10))+'</span>'):'')+'</span></label>';
+  }).join('');
+  var actions = completed ? '' :
+    '<div style="display:flex;gap:8px;margin-top:10px;">'+
+      '<button class="bsm" onclick="obComplete(\''+c.id+'\')" style="color:#fff;background:#f87171;border-color:#f87171;font-weight:600;">✓ Complete &amp; deactivate</button>'+
+      '<button class="bsm" onclick="obCancel(\''+c.id+'\')" style="color:var(--t2);">Cancel case</button>'+
+    '</div>';
+  return '<div style="background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;">'+
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
+      '<b style="color:var(--t1);font-size:14px;">'+gqEsc(c.full_name)+'</b>'+obBadge(c.type)+
+      (completed?'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(148,163,184,.18);color:var(--t2);">Completed</span>':'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(255,107,26,.15);color:var(--o3);">In progress · '+done+'/'+total+'</span>')+
+      '<span style="margin-left:auto;font-size:11px;color:var(--t3);">'+gqEsc(c.employee_id)+'</span>'+
+    '</div>'+
+    '<div style="font-size:12px;color:var(--t2);margin:6px 0 4px;">'+dates+(c.reason?(' · '+gqEsc(c.reason)):'')+'</div>'+
+    '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:6px;">'+checks+'</div>'+
+    actions+
+  '</div>';
+}
+function obToggle(id, i, checked){
+  var c=(OB_DATA.cases||[]).filter(function(x){return x.id===id;})[0]; if(!c||!c.checklist[i]) return;
+  c.checklist[i].done=!!checked;
+  c.checklist[i].at=checked?new Date().toISOString().slice(0,10):'';
+  c.checklist[i].by=checked?(typeof ADMIN_ID!=='undefined'?ADMIN_ID:'Admin'):'';
+  fetch(API+'?action=offboarding_update&id='+encodeURIComponent(id)+'&checklist='+encodeURIComponent(JSON.stringify(c.checklist))+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(){ renderOffboarding(); }).catch(function(){});
+}
+function obComplete(id){
+  var c=(OB_DATA.cases||[]).filter(function(x){return x.id===id;})[0]; if(!c) return;
+  if(!confirm('Complete offboarding for '+c.full_name+'?\n\nThis DEACTIVATES their account (they can no longer log in) and EMAILS them.')) return;
+  fetch(API+'?action=offboarding_complete&id='+encodeURIComponent(id)+'&by='+encodeURIComponent(typeof ADMIN_ID!=='undefined'?ADMIN_ID:'Admin')+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok){ alert(c.full_name+' offboarded. Account set to "'+d.deactivated_as+'".'+(d.emailed?' Email sent.':(d.email_to?' (email failed)':' (no email on file)'))); loadOffboarding(); }
+      else alert('Failed: '+((d&&d.error)||'unknown'));
+    }).catch(function(){ alert('Network error.'); });
+}
+function obCancel(id){
+  if(!confirm('Cancel and delete this offboarding case? The employee stays active.')) return;
+  fetch(API+'?action=offboarding_cancel&id='+encodeURIComponent(id)+'&_='+Date.now())
+    .then(function(r){return r.json();}).then(function(){ loadOffboarding(); }).catch(function(){});
+}
 </script>
 </body>
 </html>
