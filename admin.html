@@ -893,9 +893,12 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
             <button class="adm-media-btn" type="button" onclick="admPickImage()" title="Send photo">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             </button>
-            <button class="adm-media-btn gif" type="button" onclick="document.getElementById('adm-gif-file').click()" title="Send a GIF file">GIF</button>
+            <button class="adm-media-btn gif" type="button" onclick="admToggleGif(event)" title="Search GIFs">GIF</button>
             <input type="file" id="adm-chat-file" accept="image/*" style="display:none;" onchange="admFileChosen(this)" />
-            <input type="file" id="adm-gif-file" accept="image/gif" style="display:none;" onchange="admFileChosen(this)" />
+            <div class="adm-gif-panel" id="adm-gif-panel">
+              <input type="text" id="adm-gif-search" placeholder="Search GIFs…" oninput="admGifDebounced(this.value)" />
+              <div class="adm-gif-grid" id="adm-gif-grid"><div style="grid-column:1/-1;color:var(--t3);font-size:12px;text-align:center;padding:14px;">Type to search GIFs</div></div>
+            </div>
             <input class="chat-input" id="admin-chat-input" type="text" placeholder="Type a message..." onkeydown="if(event.key==='Enter')adminSendMessage()" onpaste="admChatPaste(event)" />
             <button class="chat-send-btn" onclick="adminSendMessage()">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -3697,7 +3700,7 @@ var adminCurrentChat = 'group';
 var adminCurrentChatName = 'Group Chat';
 var adminChatChannel = null;
 var adminOnlineUsers = {};
-var ADMIN_TENOR_KEY = "";      // ← paste your free Tenor API key here for GIF search
+var ADMIN_GIPHY_KEY = "dc6zaTOxFJmzC";   // Giphy public demo key — works out of the box. Swap for your own free key from developers.giphy.com for higher limits.
 var _admPendingImage = '';
 var _admReplyingTo = null;
 var _admMsgById = {};
@@ -3962,11 +3965,10 @@ function admToggleGif(e){ if(e){ e.stopPropagation(); } var g=document.getElemen
 function admGifDebounced(q){ clearTimeout(_admGifTimer); _admGifTimer=setTimeout(function(){ admGifSearch(q); }, 350); }
 function admGifSearch(q){
   var grid=document.getElementById('adm-gif-grid'); if(!grid) return;
-  if(!ADMIN_TENOR_KEY){ grid.innerHTML='<div style="grid-column:1/-1;color:var(--t3);font-size:12px;text-align:center;padding:14px;line-height:1.5">GIF search needs a free Tenor API key.<br>Set ADMIN_TENOR_KEY in admin.html.</div>'; return; }
   q=(q||'').trim();
-  var url=(q&&q!=='trending')?'https://tenor.googleapis.com/v2/search?q='+encodeURIComponent(q)+'&key='+ADMIN_TENOR_KEY+'&client_key=jmbadmin&limit=24&media_filter=tinygif,gif':'https://tenor.googleapis.com/v2/featured?key='+ADMIN_TENOR_KEY+'&client_key=jmbadmin&limit=24&media_filter=tinygif,gif';
+  var url=(q&&q!=='trending')?'https://api.giphy.com/v1/gifs/search?api_key='+ADMIN_GIPHY_KEY+'&q='+encodeURIComponent(q)+'&limit=24&rating=pg':'https://api.giphy.com/v1/gifs/trending?api_key='+ADMIN_GIPHY_KEY+'&limit=24&rating=pg';
   grid.innerHTML='<div style="grid-column:1/-1;color:var(--t3);font-size:12px;text-align:center;padding:14px;">Searching…</div>';
-  fetch(url).then(function(r){return r.json();}).then(function(d){ var results=(d&&d.results)||[]; if(!results.length){ grid.innerHTML='<div style="grid-column:1/-1;color:var(--t3);font-size:12px;text-align:center;padding:14px;">No GIFs found</div>'; return; } grid.innerHTML=results.map(function(g){ var mf=g.media_formats||{}; var thumb=(mf.tinygif&&mf.tinygif.url)||(mf.gif&&mf.gif.url)||''; var full=(mf.gif&&mf.gif.url)||thumb; if(!thumb) return ''; return '<img src="'+adminEsc(thumb)+'" data-full="'+adminEsc(full)+'" onclick="admGifPick(this.dataset.full)" loading="lazy">'; }).join(''); }).catch(function(){ grid.innerHTML='<div style="grid-column:1/-1;color:#f87171;font-size:12px;text-align:center;padding:14px;">GIF search failed.</div>'; });
+  fetch(url).then(function(r){return r.json();}).then(function(d){ var results=(d&&d.data)||[]; if(!results.length){ grid.innerHTML='<div style="grid-column:1/-1;color:var(--t3);font-size:12px;text-align:center;padding:14px;">No GIFs found</div>'; return; } grid.innerHTML=results.map(function(g){ var im=g.images||{}; var thumb=(im.fixed_height_small&&im.fixed_height_small.url)||(im.fixed_width_small&&im.fixed_width_small.url)||(im.preview_gif&&im.preview_gif.url)||(im.original&&im.original.url)||''; var full=(im.downsized_medium&&im.downsized_medium.url)||(im.original&&im.original.url)||thumb; if(!thumb) return ''; return '<img src="'+adminEsc(thumb)+'" data-full="'+adminEsc(full)+'" onclick="admGifPick(this.dataset.full)" loading="lazy">'; }).join(''); }).catch(function(){ grid.innerHTML='<div style="grid-column:1/-1;color:#f87171;font-size:12px;text-align:center;padding:14px;">GIF search failed.</div>'; });
 }
 function admGifPick(url){ _admPendingImage=url; var g=document.getElementById('adm-gif-panel'); if(g) g.classList.remove('open'); adminSendMessage(); }
 // ── admin reply ──
