@@ -3929,16 +3929,18 @@ async function adminSendMessage() {
   input.value = '';
   admClearImg(); admCancelReply();
   try {
-    await adminSupaClient.from('messages').insert([{
+    var rec = {
       sender_id: ADMIN_ID, sender_name: ADMIN_NAME,
       message: msg,
       receiver_id: (adminCurrentChat === 'group' || admIsChannel()) ? null : adminCurrentChat,
-      channel_id: admIsChannel() ? admChannelId() : null,
-      image: img || null,
-      reply: reply,
       is_read: false
-    }]);
-  } catch(e) { toast('Could not send.'); }
+    };
+    if (admIsChannel()) rec.channel_id = admChannelId();
+    if (img)   rec.image = img;
+    if (reply) rec.reply = reply;
+    var r = await adminSupaClient.from('messages').insert([rec]);
+    if (r.error) { toast('Send failed: ' + (r.error.message||'unknown')); throw r.error; }
+  } catch(e) { }
 }
 async function admUnsend(id){
   if(!adminSupaClient || !id) return;
