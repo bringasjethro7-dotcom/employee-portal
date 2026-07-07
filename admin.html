@@ -2466,6 +2466,10 @@ async function loadExpectedGrid(){
   // fetch saved ticks
   var saved={};
   try{ var r=await fetch(API+'?action=get_expected_days&month='+encodeURIComponent(month)); var d=await r.json(); saved=(d&&d.data)||{}; }catch(e){}
+  // fetch each VA's main project (same source as payroll) so rows can be grouped by Project
+  var mainProj={};
+  try{ var fr=await fetch(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.main_project) mainProj=fd.main_project; }catch(e){}
+  var edProjectOf=function(e){ return (mainProj[e.employee_id]||e.client||e.department||'').trim() || 'Unassigned'; };
   // header row: name + day numbers + quick-fill
   var dn=['S','M','T','W','T','F','S'];
   var th='<tr><th style="position:sticky;left:0;top:0;background:var(--card);z-index:3;text-align:left;min-width:150px;padding:8px;border-bottom:1px solid var(--bd);">VA</th>';
@@ -2475,26 +2479,39 @@ async function loadExpectedGrid(){
   }
   th+='<th style="position:sticky;top:0;z-index:2;background:var(--card);padding:8px;border-bottom:1px solid var(--bd);min-width:120px;text-align:center;">Fill</th></tr>';
   head.innerHTML=th;
-  // body rows
-  var list=(emps||[]).slice().sort(function(a,b){return (a.employee_id||'').localeCompare(b.employee_id||'');});
+  // body rows — grouped by Project
+  var list=(emps||[]).slice();
   if(!list.length){ body.innerHTML='<tr><td class="es">No employees loaded. Open the Employees tab first.</td></tr>'; return; }
-  var html='';
-  list.forEach(function(e){
-    var id=e.employee_id; if(!id) return;
+  // bucket employees under their project
+  var groups={};
+  list.forEach(function(e){ if(!e.employee_id) return; var pj=edProjectOf(e); (groups[pj]=groups[pj]||[]).push(e); });
+  var projNames=Object.keys(groups).sort(function(a,b){
+    if(a==='Unassigned') return 1; if(b==='Unassigned') return -1;   // keep Unassigned last
+    return a.localeCompare(b);
+  });
+  var totalCols=daysIn+2;   // VA + day columns + Fill
+  function edRow(e){
+    var id=e.employee_id;
     var set={}; (saved[id]||[]).forEach(function(n){ set[n]=true; });
     edState[id]=set;
-    html+='<tr data-emp="'+id+'">';
-    html+='<td style="position:sticky;left:0;background:var(--card);z-index:1;padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap;"><strong>'+(e.full_name||id)+'</strong><div style="font-size:10px;color:var(--t3);">'+id+'</div></td>';
+    var h='<tr data-emp="'+id+'">';
+    h+='<td style="position:sticky;left:0;background:var(--card);z-index:1;padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap;"><strong>'+(e.full_name||id)+'</strong><div style="font-size:10px;color:var(--t3);">'+id+'</div></td>';
     for(var dd=1;dd<=daysIn;dd++){
       var w=edDOW(y,mo,dd), wknd=(w===0||w===6);
       var on=!!set[dd];
-      html+='<td style="text-align:center;padding:2px 0;border-bottom:1px solid var(--bd);'+(wknd?'background:rgba(255,255,255,.04);':'')+'"><span class="edcell'+(on?' on':'')+'" data-emp="'+id+'" data-day="'+dd+'"></span></td>';
+      h+='<td style="text-align:center;padding:2px 0;border-bottom:1px solid var(--bd);'+(wknd?'background:rgba(255,255,255,.04);':'')+'"><span class="edcell'+(on?' on':'')+'" data-emp="'+id+'" data-day="'+dd+'"></span></td>';
     }
-    html+='<td style="text-align:center;padding:4px 6px;border-bottom:1px solid var(--bd);white-space:nowrap;">'+
+    h+='<td style="text-align:center;padding:4px 6px;border-bottom:1px solid var(--bd);white-space:nowrap;">'+
       '<button class="edqf" onclick="edFill(\''+id+'\',\'wd\')">WD</button>'+
       '<button class="edqf" onclick="edFill(\''+id+'\',\'all\')">All</button>'+
       '<button class="edqf" onclick="edFill(\''+id+'\',\'none\')">—</button></td>';
-    html+='</tr>';
+    return h+'</tr>';
+  }
+  var html='';
+  projNames.forEach(function(pj){
+    var members=groups[pj].sort(function(a,b){ return (a.full_name||a.employee_id||'').localeCompare(b.full_name||b.employee_id||''); });
+    html+='<tr class="ed-group-row"><td colspan="'+totalCols+'" style="position:sticky;left:0;background:linear-gradient(rgba(255,107,26,.14),rgba(255,107,26,.14)) var(--card);z-index:2;padding:7px 10px;border-bottom:1px solid var(--bd);border-top:2px solid rgba(255,107,26,.35);font-size:11.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--orange-1,#ff6b1a);">📁 '+escAdmin(pj)+' <span style="color:var(--t3);font-weight:600;text-transform:none;letter-spacing:0;">· '+members.length+' VA'+(members.length===1?'':'s')+'</span></td></tr>';
+    members.forEach(function(e){ html+=edRow(e); });
   });
   body.innerHTML=html;
   setupExpectedDrag();
@@ -3189,12 +3206,15 @@ async function loadAppeals(){
     box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
       '<div style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">⚑ Pending appeals ('+a.length+')</div>'+
       a.map(function(x){
+        var isRetag=(x.appeal_type||'').toLowerCase()==='retag';
         var claim=(x.claim_hours!==''&&x.claim_hours!=null)?(parseFloat(x.claim_hours).toFixed(2)+'h'):'—';
         var cur=(x.hours!==''&&x.hours!=null)?(parseFloat(x.hours).toFixed(2)+'h'):'0h';
         var untracked=String(x.status).toLowerCase()==='appeal';
+        var detail = isRetag
+          ? '<span style="color:#fb923c;font-weight:700;">🏷 Retag</span> <span style="color:var(--t2);font-size:12px;">'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+' → <b style="color:#4ade80">'+escAdmin(x.new_project||'')+(x.new_task?(' · '+escAdmin(x.new_task)):'')+'</b> <span style="color:var(--t3)">(time unchanged '+cur+')</span></span>'
+          : '<span style="color:var(--t2);font-size:12px;">'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' <span style="color:#fbbf24">(untracked)</span>':'')+' — current '+cur+' → claim <b style="color:#4ade80">'+claim+'</b></span>';
         return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(255,255,255,.06);">'+
-          '<div style="flex:1;min-width:200px;"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.date)+'<br>'+
-          '<span style="color:var(--t2);font-size:12px;">'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' <span style="color:#fbbf24">(untracked)</span>':'')+' — current '+cur+' → claim <b style="color:#4ade80">'+claim+'</b></span>'+
+          '<div style="flex:1;min-width:200px;"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.date)+'<br>'+detail+
           (x.note?('<br><span style="color:var(--t3);font-size:12px;">“'+escAdmin(x.note)+'”</span>'):'')+_appealDayHtml(x)+'</div>'+
           '<button class="bsm" style="color:#4ade80;border-color:rgba(74,222,128,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button>'+
           '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'reject\')">Reject</button>'+
@@ -3220,12 +3240,16 @@ async function loadDashAppeals(){
     var tot=document.getElementById('dash-appeals-total'); if(tot) tot.textContent = a.length ? '· '+a.length+' pending' : '';
     if(!a.length){ box.innerHTML='<div class="es" style="padding:1.2rem;text-align:center;font-size:13px;">No pending hour appeals.</div>'; return; }
     box.innerHTML=a.map(function(x){
+      var isRetag=(x.appeal_type||'').toLowerCase()==='retag';
       var claim=(x.claim_hours!==''&&x.claim_hours!=null)?(parseFloat(x.claim_hours).toFixed(2)+'h'):'—';
       var cur=(x.hours!==''&&x.hours!=null)?(parseFloat(x.hours).toFixed(2)+'h'):'0h';
       var untracked=String(x.status).toLowerCase()==='appeal';
-      return '<div class="dash-item"><span class="dash-chip chip-worklog">Appeal</span>'+
+      var dDetail = isRetag
+        ? '🏷 '+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+' → <b style="color:#4ade80">'+escAdmin(x.new_project||'')+(x.new_task?(' · '+escAdmin(x.new_task)):'')+'</b> (retag, time unchanged)'
+        : escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' (untracked)':'')+' — '+cur+' → claim <b style="color:#4ade80">'+claim+'</b>';
+      return '<div class="dash-item"><span class="dash-chip chip-worklog">'+(isRetag?'Retag':'Appeal')+'</span>'+
         '<div class="dash-item-main"><strong>'+escAdmin(x.full_name||x.employee_id)+'</strong> <small style="color:var(--t3)">'+escAdmin(x.date)+'</small><br>'+
-        '<small>'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' (untracked)':'')+' — '+cur+' → claim <b style="color:#4ade80">'+claim+'</b>'+(x.note?(' · “'+escAdmin(x.note)+'”'):'')+'</small>'+_appealDayHtml(x)+'</div>'+
+        '<small>'+dDetail+(x.note?(' · “'+escAdmin(x.note)+'”'):'')+'</small>'+_appealDayHtml(x)+'</div>'+
         '<div class="dash-item-actions"><button class="bsm edit" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button><button class="bsm danger" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'reject\')">Reject</button></div></div>';
     }).join('');
   }catch(e){ box.innerHTML='<div class="es">Could not load appeals.</div>'; }
