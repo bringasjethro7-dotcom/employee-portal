@@ -13997,18 +13997,18 @@ body.light .jul4-lbscore{color:#059669}
     </div>
     <div id="tet-controls" style="display:none;margin-top:12px;">
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-        <button class="tet-ctl" ontouchstart="tetKey('left',event)" onclick="tetKey('left')">◀</button>
-        <button class="tet-ctl" ontouchstart="tetKey('rot',event)" onclick="tetKey('rot')">⟳</button>
-        <button class="tet-ctl" ontouchstart="tetKey('right',event)" onclick="tetKey('right')">▶</button>
-        <button class="tet-ctl" ontouchstart="tetKey('down',event)" onclick="tetKey('down')">▼</button>
-        <button class="tet-ctl" ontouchstart="tetKey('drop',event)" onclick="tetKey('drop')">⤓ Drop</button>
+        <button class="tet-ctl" onpointerdown="tetHold('left',event)" onpointerup="tetRelease('left')" onpointerleave="tetRelease('left')" onpointercancel="tetRelease('left')">◀</button>
+        <button class="tet-ctl" onpointerdown="tetHold('rot',event)">⟳</button>
+        <button class="tet-ctl" onpointerdown="tetHold('right',event)" onpointerup="tetRelease('right')" onpointerleave="tetRelease('right')" onpointercancel="tetRelease('right')">▶</button>
+        <button class="tet-ctl" onpointerdown="tetHold('down',event)" onpointerup="tetRelease('down')" onpointerleave="tetRelease('down')" onpointercancel="tetRelease('down')">▼</button>
+        <button class="tet-ctl" onpointerdown="tetHold('drop',event)">⤓ Drop</button>
       </div>
       <div style="text-align:center;font-size:11px;color:#6b7d90;margin-top:6px;">Keys: ← → move · ↑ rotate · ↓ soft drop · Space hard drop</div>
     </div>
   </div>
 </div>
 <style>
-  .tet-ctl{background:#1b2233;color:#eef2ff;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:12px 16px;font-size:16px;font-weight:800;cursor:pointer;min-width:52px;}
+  .tet-ctl{background:#1b2233;color:#eef2ff;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:12px 16px;font-size:16px;font-weight:800;cursor:pointer;min-width:52px;touch-action:none;user-select:none;-webkit-user-select:none;}
   .tet-ctl:hover{background:#232c42;}
 </style>
 <script>
@@ -14149,10 +14149,10 @@ body.light .jul4-lbscore{color:#059669}
     cleanup(); el('tet-overlay').style.display='none';
   };
   function cleanup(){
-    stopMusic();
+    stopMusic(); stopAllRepeat(); cancelRender();
     if(M){ if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
       if(M.tchan){ try{ supaClient.removeChannel(M.tchan); }catch(e){} } }
-    document.removeEventListener('keydown', onKey);
+    detachControls();
     if(chan){ try{ supaClient.removeChannel(chan); }catch(e){} chan=null; }
     M=null;
   }
@@ -14173,13 +14173,13 @@ body.light .jul4-lbscore{color:#059669}
       .on('broadcast',{event:'attack'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.pendingGarbage+=(p.payload.lines||0); updateIncoming(); try{ sfxTick(); }catch(e){} } })
       .on('broadcast',{event:'over'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())) onOppOver(p.payload); })
       .subscribe();
-    document.addEventListener('keydown', onKey);
+    attachControls();
     // 3-2-1 countdown then go
     var n=3; status('Starting in '+n+'…'); sfxTick();
     var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); go(); } }, 800);
   }
   function go(){
-    sfxGo(); startMusic(); spawn(); draw(); updateIncoming();
+    sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); startRender();
     M.dropMs=700;
     M.loop=setInterval(tick, M.dropMs);
     M.net=setInterval(sendState, 350);
@@ -14221,11 +14221,21 @@ body.light .jul4-lbscore{color:#059669}
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
   function clearLines(){
     var full=[]; for(var y=0;y<H;y++){ if(M.grid[y].every(function(v){return v>0;})) full.push(y); }
-    if(full.length){ M.flash={ys:full.slice(), t0:Date.now()}; startFlash(); }
+    if(full.length){ M.flash={ys:full.slice(), t0:Date.now()}; spawnParticles(full); }
     for(var i=full.length-1;i>=0;i--){ M.grid.splice(full[i],1); M.grid.unshift(new Array(W).fill(0)); }
     return full.length;
   }
-  function startFlash(){ (function f(){ if(!M){ return; } draw(); if(M.flash && Date.now()-M.flash.t0<230){ requestAnimationFrame(f); } else { M.flash=null; draw(); } })(); }
+  // Continuous render loop → smooth flash, particles, and glow every frame
+  function startRender(){ cancelRender(); (function loop(){ if(!M){ return; } draw(); M._raf=requestAnimationFrame(loop); })(); }
+  function cancelRender(){ if(M&&M._raf){ cancelAnimationFrame(M._raf); M._raf=null; } }
+  function spawnParticles(rows){
+    var cv=el('tet-me'); if(!cv) return; var cs=cv.width/W; M.particles=M.particles||[];
+    var pal=['#ffffff','#fbbf24','#22d3ee','#a855f7','#22c55e'];
+    rows.forEach(function(ry){ for(var k=0;k<16;k++){
+      M.particles.push({ x:Math.random()*cv.width, y:ry*cs+cs/2, vx:(Math.random()-0.5)*7, vy:(Math.random()-1.2)*6, life:1, sz:Math.max(3,cs*0.24), color:pal[(k+ry)%pal.length] });
+    } });
+    if(M.particles.length>400) M.particles.splice(0, M.particles.length-400);
+  }
   function addGarbage(n){ if(n>0) sfxGarbage(); for(var i=0;i<n;i++){ var hole=Math.floor(Math.random()*W); var row=new Array(W).fill(8); row[hole]=0; M.grid.shift(); M.grid.push(row); }
     // if top row now occupied where piece sits, collision handled next spawn
   }
@@ -14242,20 +14252,40 @@ body.light .jul4-lbscore{color:#059669}
     spawn();
   }
   function tick(){ if(!M||!M.alive) return; if(!collide(M.cur.m,M.cur.x,M.cur.y+1)){ M.cur.y++; } else { lockPiece(); } draw(); }
-  function onKey(e){
-    if(!M||!M.alive) return;
-    var k=e.key;
-    if(k==='ArrowLeft'){ move(-1); } else if(k==='ArrowRight'){ move(1); }
-    else if(k==='ArrowDown'){ if(!collide(M.cur.m,M.cur.x,M.cur.y+1)){M.cur.y++;M.score+=1;} }
-    else if(k==='ArrowUp'){ rotate(); } else if(k===' '){ hardDrop(); e.preventDefault(); }
-    else return;
-    e.preventDefault(); draw();
-  }
-  window.tetKey=function(a,ev){ if(ev){ev.preventDefault();} if(!M||!M.alive) return;
-    if(a==='left') move(-1); else if(a==='right') move(1); else if(a==='rot') rotate();
-    else if(a==='down'){ if(!collide(M.cur.m,M.cur.x,M.cur.y+1)){M.cur.y++;} } else if(a==='drop') hardDrop();
+  // ── Continuous controls (DAS/ARR): hold to keep moving ──
+  var DAS=150, ARR=45, _rep={};
+  function doDir(dir){ if(!M||!M.alive) return;
+    if(dir==='left') move(-1); else if(dir==='right') move(1);
+    else if(dir==='down'){ if(!collide(M.cur.m,M.cur.x,M.cur.y+1)){ M.cur.y++; M.score+=1; } else { lockPiece(); } }
     draw();
+  }
+  function startRepeat(dir){ if(_rep[dir]||!M||!M.alive) return;
+    doDir(dir);
+    _rep[dir]={ to:setTimeout(function(){ if(!_rep[dir]) return; _rep[dir].iv=setInterval(function(){ doDir(dir); }, dir==='down'?50:ARR); }, DAS) };
+  }
+  function stopRepeat(dir){ var r=_rep[dir]; if(!r) return; clearTimeout(r.to); if(r.iv) clearInterval(r.iv); delete _rep[dir]; }
+  function stopAllRepeat(){ Object.keys(_rep).forEach(stopRepeat); }
+  function onKey(e){
+    if(!M||!M.alive) return; var k=e.key;
+    if(k==='ArrowLeft'){ if(!_rep.left){ stopRepeat('right'); startRepeat('left'); } }
+    else if(k==='ArrowRight'){ if(!_rep.right){ stopRepeat('left'); startRepeat('right'); } }
+    else if(k==='ArrowDown'){ if(!_rep.down) startRepeat('down'); }
+    else if(k==='ArrowUp'){ if(!e.repeat){ rotate(); draw(); } }
+    else if(k===' '){ if(!e.repeat){ hardDrop(); } }
+    else return;
+    e.preventDefault();
+  }
+  function onKeyUp(e){ var k=e.key;
+    if(k==='ArrowLeft') stopRepeat('left'); else if(k==='ArrowRight') stopRepeat('right'); else if(k==='ArrowDown') stopRepeat('down');
+  }
+  function attachControls(){ document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKeyUp); }
+  function detachControls(){ document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKeyUp); stopAllRepeat(); }
+  // Touch/mouse hold on the on-screen buttons
+  window.tetHold=function(a,ev){ if(ev){ ev.preventDefault(); } ac(); if(!M||!M.alive) return;
+    if(a==='rot'){ rotate(); draw(); } else if(a==='drop'){ hardDrop(); } else startRepeat(a);
   };
+  window.tetRelease=function(a){ if(a==='left'||a==='right'||a==='down') stopRepeat(a); };
+  window.tetKey=window.tetHold;   // back-compat
   function move(d){ if(!collide(M.cur.m,M.cur.x+d,M.cur.y)){ M.cur.x+=d; sfxMove(); } }
   function rotate(){ var nm=rotCW(M.cur.m); var kicks=[0,-1,1,-2,2]; for(var i=0;i<kicks.length;i++){ if(!collide(nm,M.cur.x+kicks[i],M.cur.y)){ M.cur.m=nm; M.cur.x+=kicks[i]; sfxRot(); return; } } }
   function hardDrop(){ while(!collide(M.cur.m,M.cur.x,M.cur.y+1)){ M.cur.y++; M.score+=2; } sfxDrop(); lockPiece(); draw(); }
@@ -14281,7 +14311,7 @@ body.light .jul4-lbscore{color:#059669}
     if(M.ended && how!=='topout') { /* allow override from topout already set */ }
     M.ended=true; M.alive=false; stopMusic();
     if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
-    document.removeEventListener('keydown', onKey);
+    detachControls();
     if(iWon===true){
       status('🏆 You win! Awarding points…'); sfxWin();
       awardWin();
@@ -14365,7 +14395,13 @@ body.light .jul4-lbscore{color:#059669}
       if(gy>M.cur.y){ for(r=0;r<m.length;r++)for(c=0;c<m[r].length;c++){ if(m[r][c]) ghostCell(ctx,M.cur.x+c,gy+r,cs,COLORS[m[r][c]]); } }
       for(r=0;r<m.length;r++)for(c=0;c<m[r].length;c++){ if(m[r][c]) block(ctx,M.cur.x+c,M.cur.y+r,cs,COLORS[m[r][c]],true); }
     }
-    if(M.flash){ var e=(Date.now()-M.flash.t0)/230; if(e<1){ ctx.save(); ctx.globalAlpha=(1-e)*0.9; ctx.fillStyle='#fff'; M.flash.ys.forEach(function(ry){ ctx.fillRect(0,ry*cs,cv.width,cs); }); ctx.restore(); } }
+    if(M.flash){ var e=(Date.now()-M.flash.t0)/230; if(e<1){ ctx.save(); ctx.globalAlpha=(1-e)*0.9; ctx.fillStyle='#fff'; M.flash.ys.forEach(function(ry){ ctx.fillRect(0,ry*cs,cv.width,cs); }); ctx.restore(); } else { M.flash=null; } }
+    if(M.particles && M.particles.length){ ctx.save();
+      for(var pi=M.particles.length-1;pi>=0;pi--){ var p=M.particles[pi]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.45; p.life-=0.03;
+        if(p.life<=0){ M.particles.splice(pi,1); continue; }
+        ctx.globalAlpha=Math.max(0,Math.min(1,p.life)); ctx.fillStyle=p.color; ctx.fillRect(p.x,p.y,p.sz,p.sz); }
+      ctx.restore();
+    }
   }
   function drawOpp(){ var cv=el('tet-opp'); if(!cv||!M) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
     ctx.clearRect(0,0,cv.width,cv.height); grid(ctx,cv,cs);
@@ -14458,12 +14494,12 @@ body.light .jul4-lbscore{color:#059669}
     M.rng=mulberry32(hashStr(seed)); M.bag=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1; M.pendingGarbage=0; M.nextT=null;
     openOverlay(); el('tet-controls').style.display='block';
     buildArena();
-    document.addEventListener('keydown', onKey);
+    attachControls();
     var n=3; status('Tournament starting in '+n+'…'); sfxTick();
     var cd=setInterval(function(){ n--; if(n>0){ status('Tournament starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); goTourney(); } }, 800);
   }
   function goTourney(){
-    sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); renderArena();
+    sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); renderArena(); startRender();
     M.dropMs=700; M.loop=setInterval(tick,M.dropMs); M.net=setInterval(sendState,350);
     M.timeLeft=300; status('⏱ 5:00 · '+tourneyAliveIds().length+' alive');
     M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ endByTime(); } else { status('⏱ '+fmtT(M.timeLeft)+' · '+tourneyAliveIds().length+' alive'); } }, 1000);
@@ -14487,7 +14523,7 @@ body.light .jul4-lbscore{color:#059669}
     var aliveAfter=tourneyAliveIds().length;
     var place=aliveAfter+1; if(me) me.place=place;
     if(M.loop){ clearInterval(M.loop); M.loop=null; }
-    document.removeEventListener('keydown', onKey);
+    detachControls();
     sfxLose();
     try{ M.tchan.send({type:'broadcast',event:'tover',payload:{tid:M.matchId,from:eid(),name:ename(),score:M.score,place:place}}); }catch(e){}
     status('💥 Knocked out — placed #'+place+' of '+M.startN+'. Watching for the winner…');
@@ -14500,7 +14536,7 @@ body.light .jul4-lbscore{color:#059669}
     M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
     var winId=alive[0]||null;
     if(winId && M.players[winId]) M.players[winId].place=1;
-    stopMusic();
+    stopMusic(); detachControls();
     if(winId && String(winId)===String(eid()) && M.alive){ status('🏆 You are the CHAMPION! Awarding points…'); sfxWin(); awardWin(); }
     else if(winId){ var wn=(M.players[winId]&&M.players[winId].name)||'A player'; status('🏆 '+esc(wn)+' is the champion! 🎉'); }
     else { status('🏁 Tournament over.'); }
@@ -14511,7 +14547,7 @@ body.light .jul4-lbscore{color:#059669}
     var alive=tourneyAliveIds(); var best=null;
     alive.forEach(function(id){ if(best===null || M.players[id].score>M.players[best].score) best=id; });
     M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
-    document.removeEventListener('keydown', onKey);
+    detachControls();
     if(best && M.players[best]) M.players[best].place=1;
     stopMusic();
     if(best && String(best)===String(eid()) && M.alive){ status('🏆 Time! Top score — you are the champion! Awarding…'); sfxWin(); awardWin(); }
