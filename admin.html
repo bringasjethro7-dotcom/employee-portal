@@ -3360,8 +3360,13 @@ function loadFromSheet(){
 
 function renderTable(){
   var q=document.getElementById('esearch').value.toLowerCase();
+  var _inact=function(e){ var s=(e.status||'').toLowerCase(); return s==='inactive'||s==='deactivated'; };
   var f=emps.filter(function(e){
     return(e.full_name||'').toLowerCase().includes(q)||(e.employee_id||'').toLowerCase().includes(q)||(e.position||'').toLowerCase().includes(q);
+  }).sort(function(a,b){
+    var ia=_inact(a)?1:0, ib=_inact(b)?1:0;             // deactivated users sink to the bottom
+    if(ia!==ib) return ia-ib;
+    return (a.full_name||a.employee_id||'').localeCompare(b.full_name||b.employee_id||'');
   });
   document.getElementById('ecount').textContent=f.length+' employee'+(f.length!==1?'s':'');
   var tb=document.getElementById('etbody');
@@ -3375,7 +3380,11 @@ function renderTable(){
     var toggleBtn=inactive
       ? '<button class="bsm" style="border-color:rgba(34,197,94,.4);color:#4ade80;" onclick="toggleActive('+ri+')">Reactivate</button>'
       : '<button class="bsm" style="border-color:rgba(248,113,113,.4);color:#f87171;" onclick="toggleActive('+ri+')">Deactivate</button>';
-    return'<tr'+(inactive?' style="opacity:.55"':'')+'><td style="font-weight:500;color:var(--t1);">'+nameCell+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button>'+toggleBtn+'<button class="bsm danger" onclick="delEmp('+ri+')">Delete</button></div></td></tr>';
+    // Permanent delete is only offered once the account is deactivated (safety gate).
+    var purgeBtn=inactive
+      ? '<button class="bsm danger" style="background:rgba(248,113,113,.14);" onclick="purgeEmp('+ri+')">🗑 Delete permanently</button>'
+      : '';
+    return'<tr'+(inactive?' style="opacity:.55"':'')+'><td style="font-weight:500;color:var(--t1);">'+nameCell+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button>'+toggleBtn+purgeBtn+'</div></td></tr>';
   }).join('');
 }
 function toggleActive(idx){
@@ -3472,9 +3481,36 @@ function saveEmp(){
   persist();renderTable();closeModal();
 }
 
-function delEmp(idx){
-  if(!confirm('Delete '+emps[idx].full_name+'?'))return;
-  emps.splice(idx,1);persist();renderTable();toast('Deleted.');
+async function purgeEmp(idx){
+  var e=emps[idx]; if(!e) return;
+  var id=e.employee_id||''; var nm=e.full_name||id;
+  if(!id){ // no backend id — just drop the local row
+    if(confirm('Remove '+nm+' from the list?')){ emps.splice(idx,1); persist(); renderTable(); toast('Removed.'); }
+    return;
+  }
+  if(!confirm('⚠️ PERMANENTLY DELETE '+nm+' ('+id+')?\n\nThis erases ALL their data across every feature — time logs, attendance, payslips, demerits, QA, trivia, points, redemptions, appeals, notifications, and chat. This CANNOT be undone.')) return;
+  var typed=prompt('To confirm, type the Employee ID exactly:\n'+id);
+  if(typed===null) return;
+  if(String(typed).trim().toLowerCase()!==String(id).trim().toLowerCase()){ toast('Employee ID did not match — nothing deleted.'); return; }
+  toast('Deleting '+nm+' everywhere…');
+  try{
+    // 1) Purge all Google Sheet data (server-side, across every per-user sheet)
+    var r=await fetch(API+'?action=purge_employee&employee_id='+encodeURIComponent(id)+'&_='+Date.now());
+    var d=await r.json();
+    if(!d||!d.ok){ toast('Purge failed: '+((d&&d.error)||'error')); return; }
+    // 2) Purge Supabase chat + presence (best-effort)
+    try{
+      if(typeof bubbleSupa!=='undefined' && bubbleSupa){
+        await bubbleSupa.from('messages').delete().or('sender_id.eq.'+id+',receiver_id.eq.'+id);
+        await bubbleSupa.from('presence').delete().eq('employee_id', id);
+      }
+    }catch(_s){}
+    // 3) Remove locally
+    var li=emps.indexOf(e); if(li>=0) emps.splice(li,1);
+    persist(); renderTable();
+    var parts=Object.keys(d.removed||{}).map(function(k){ return k+':'+d.removed[k]; });
+    toast('✓ '+nm+' permanently deleted'+(parts.length?(' ('+parts.join(', ')+')'):'.'));
+  }catch(err){ toast('Network error — could not delete.'); }
 }
 
 function exportJSON(){
