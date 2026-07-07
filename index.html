@@ -13991,7 +13991,7 @@ body.light .jul4-lbscore{color:#059669}
         <div style="margin-top:5px;font-size:12px;">Score <b id="tet-opp-score" style="color:#cdd6f5;">0</b> · Lines <b id="tet-opp-lines">0</b></div>
       </div>
       <div id="tet-arena-col" style="display:none;text-align:center;">
-        <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Arena</div>
+        <div id="tet-arena-label" style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Arena</div>
         <div id="tet-arena" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;max-width:360px;max-height:560px;overflow:auto;padding:4px;"></div>
       </div>
     </div>
@@ -14045,6 +14045,17 @@ body.light .jul4-lbscore{color:#059669}
   function sfxWin(){ [523,659,784,1046,1318,1046,1318].forEach(function(f,i){ beep(f,0.18,'triangle',0.2,i*0.12); }); }
   function sfxLose(){ [440,392,349,294].forEach(function(f,i){ beep(f,0.22,'sawtooth',0.16,i*0.14); }); }
   function sfxInvite(){ beep(784,0.12,'triangle',0.16); beep(1046,0.14,'triangle',0.16,0.12); }
+  // ── Background music: looping Tetris theme (Korobeiniki), low volume under the SFX ──
+  var musicTimer=null;
+  var MUSIC=[[659,2],[494,1],[523,1],[587,2],[523,1],[494,1],[440,2],[440,1],[523,1],[659,2],[587,1],[523,1],[494,3],[523,1],[587,2],[659,2],[523,2],[440,2],[440,4],
+    [587,3],[698,1],[880,2],[784,1],[698,1],[659,3],[523,1],[659,2],[587,1],[523,1],[494,2],[494,1],[523,1],[587,2],[659,2],[523,2],[440,2],[440,4]];
+  var BEAT=150;
+  function scheduleMusic(){ if(!M||M.ended) return; var a=ac(); if(!a){ return; }
+    var t=0; MUSIC.forEach(function(n){ beep(n[0], Math.max(0.08, n[1]*BEAT/1000*0.85), 'triangle', 0.04, t/1000); t+=n[1]*BEAT; });
+    musicTimer=setTimeout(function(){ if(M && !M.ended) scheduleMusic(); }, t);
+  }
+  function startMusic(){ stopMusic(); if(M) scheduleMusic(); }
+  function stopMusic(){ if(musicTimer){ clearTimeout(musicTimer); musicTimer=null; } }
 
   function eid(){ try{ return chatEmpId||''; }catch(e){ return ''; } }
   function ename(){ try{ return chatEmpName||''; }catch(e){ return ''; } }
@@ -14138,6 +14149,7 @@ body.light .jul4-lbscore{color:#059669}
     cleanup(); el('tet-overlay').style.display='none';
   };
   function cleanup(){
+    stopMusic();
     if(M){ if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
       if(M.tchan){ try{ supaClient.removeChannel(M.tchan); }catch(e){} } }
     document.removeEventListener('keydown', onKey);
@@ -14167,7 +14179,7 @@ body.light .jul4-lbscore{color:#059669}
     var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); go(); } }, 800);
   }
   function go(){
-    sfxGo(); spawn(); draw(); updateIncoming();
+    sfxGo(); startMusic(); spawn(); draw(); updateIncoming();
     M.dropMs=700;
     M.loop=setInterval(tick, M.dropMs);
     M.net=setInterval(sendState, 350);
@@ -14267,7 +14279,7 @@ body.light .jul4-lbscore{color:#059669}
   }
   function finish(iWon, how){
     if(M.ended && how!=='topout') { /* allow override from topout already set */ }
-    M.ended=true; M.alive=false;
+    M.ended=true; M.alive=false; stopMusic();
     if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
     document.removeEventListener('keydown', onKey);
     if(iWon===true){
@@ -14451,7 +14463,7 @@ body.light .jul4-lbscore{color:#059669}
     var cd=setInterval(function(){ n--; if(n>0){ status('Tournament starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); goTourney(); } }, 800);
   }
   function goTourney(){
-    sfxGo(); spawn(); draw(); updateIncoming(); renderArena();
+    sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); renderArena();
     M.dropMs=700; M.loop=setInterval(tick,M.dropMs); M.net=setInterval(sendState,350);
     M.timeLeft=300; status('⏱ 5:00 · '+tourneyAliveIds().length+' alive');
     M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ endByTime(); } else { status('⏱ '+fmtT(M.timeLeft)+' · '+tourneyAliveIds().length+' alive'); } }, 1000);
@@ -14487,10 +14499,12 @@ body.light .jul4-lbscore{color:#059669}
     if(alive.length>1) return;
     M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
     var winId=alive[0]||null;
+    if(winId && M.players[winId]) M.players[winId].place=1;
+    stopMusic();
     if(winId && String(winId)===String(eid()) && M.alive){ status('🏆 You are the CHAMPION! Awarding points…'); sfxWin(); awardWin(); }
     else if(winId){ var wn=(M.players[winId]&&M.players[winId].name)||'A player'; status('🏆 '+esc(wn)+' is the champion! 🎉'); }
     else { status('🏁 Tournament over.'); }
-    renderArena();
+    showTourneyResults();
   }
   function tourneyTimeEnd(){
     if(M.ended) return;
@@ -14498,10 +14512,12 @@ body.light .jul4-lbscore{color:#059669}
     alive.forEach(function(id){ if(best===null || M.players[id].score>M.players[best].score) best=id; });
     M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
     document.removeEventListener('keydown', onKey);
+    if(best && M.players[best]) M.players[best].place=1;
+    stopMusic();
     if(best && String(best)===String(eid()) && M.alive){ status('🏆 Time! Top score — you are the champion! Awarding…'); sfxWin(); awardWin(); }
     else if(best){ var wn=(M.players[best]&&M.players[best].name)||'Top scorer'; status('🏁 Time! '+esc(wn)+' wins on score.'); sfxLose(); }
     else { status('🏁 Time!'); }
-    renderArena();
+    showTourneyResults();
   }
   // Arena: mini-boards of all other players
   function buildArena(){
@@ -14523,6 +14539,29 @@ body.light .jul4-lbscore{color:#059669}
       var sc=el('tascore-'+id); if(sc) sc.textContent=pl.score;
       var ko=el('tako-'+id); if(ko) ko.style.display=pl.alive?'none':'flex';
     });
+  }
+  // Full final standings: survivors first (by score), then knocked-out players by how long they lasted.
+  function finalRanking(){
+    var arr=Object.keys(M.players).map(function(id){ var p=M.players[id]; return {id:id, name:p.name, score:p.score||0, lines:p.lines||0, alive:p.alive, place:p.place||0}; });
+    var alive=arr.filter(function(p){return p.alive;}).sort(function(a,b){ return b.score-a.score; });
+    var dead=arr.filter(function(p){return !p.alive;}).sort(function(a,b){ return (a.place||999)-(b.place||999) || b.score-a.score; });
+    var all=alive.concat(dead); all.forEach(function(p,i){ p.rank=i+1; });
+    return all;
+  }
+  function showTourneyResults(){
+    var lbl=el('tet-arena-label'); if(lbl) lbl.textContent='🏆 Final Ranking';
+    var box=el('tet-arena'); if(!box) return;
+    box.style.maxHeight='560px';
+    var rank=finalRanking(); var myRank=0; rank.forEach(function(p){ if(p.id===eid()) myRank=p.rank; });
+    box.innerHTML='<div style="width:320px;">'+ rank.map(function(p){
+      var medal=p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:(p.rank+'.');
+      var mine=p.id===eid();
+      return '<div style="display:flex;align-items:center;gap:10px;padding:9px 11px;margin-bottom:6px;border-radius:11px;background:'+(mine?'rgba(255,107,26,.16)':'#0d1117')+';border:1px solid '+(p.rank===1?'rgba(251,191,36,.5)':(mine?'rgba(255,107,26,.4)':'rgba(255,255,255,.08)'))+';">'+
+        '<div style="width:30px;text-align:center;font-weight:800;font-size:16px;">'+medal+'</div>'+
+        '<div style="flex:1;text-align:left;font-size:13px;font-weight:600;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+
+          (p.rank===1?' <span style="color:#fbbf24;font-size:10px;font-weight:800;">CHAMPION · +50 pts</span>':'')+'</div>'+
+        '<div style="font-size:12px;color:#9fb0d6;">'+p.score+' pts<br><span style="font-size:10px;">'+p.lines+' lines</span></div></div>';
+    }).join('')+'</div>';
   }
 })();
 </script>
