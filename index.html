@@ -14220,7 +14220,9 @@ body.light .jul4-lbscore{color:#059669}
   function rotCW(m){ var R=m.length, C=m[0].length; var o=[]; for(var c=0;c<C;c++){ o.push([]); for(var r=R-1;r>=0;r--){ o[c].push(m[r][c]); } } return o; }
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
   function clearLines(){
-    var full=[]; for(var y=0;y<H;y++){ if(M.grid[y].every(function(v){return v>0;})) full.push(y); }
+    // A row clears only if it's full AND contains at least one real piece cell —
+    // solid garbage rows (all 8) are permanent and never line-clear.
+    var full=[]; for(var y=0;y<H;y++){ var row=M.grid[y]; if(row.every(function(v){return v>0;}) && row.some(function(v){return v!==8;})) full.push(y); }
     if(full.length){ M.flash={ys:full.slice(), t0:Date.now()}; spawnParticles(full); }
     for(var i=full.length-1;i>=0;i--){ M.grid.splice(full[i],1); M.grid.unshift(new Array(W).fill(0)); }
     return full.length;
@@ -14236,13 +14238,17 @@ body.light .jul4-lbscore{color:#059669}
     } });
     if(M.particles.length>400) M.particles.splice(0, M.particles.length-400);
   }
-  function addGarbage(n){ if(n>0) sfxGarbage(); for(var i=0;i<n;i++){ var hole=Math.floor(Math.random()*W); var row=new Array(W).fill(8); row[hole]=0; M.grid.shift(); M.grid.push(row); }
-    // if top row now occupied where piece sits, collision handled next spawn
+  function addGarbage(n){ if(n<=0) return; sfxGarbage();
+    for(var i=0;i<n;i++){
+      // If the top row already has blocks, rising garbage overflows the ceiling → knocked out.
+      if(M.grid[0].some(function(v){ return v>0; })){ M.grid.shift(); M.grid.push(new Array(W).fill(8)); topOut(); return; }
+      M.grid.shift(); M.grid.push(new Array(W).fill(8));   // SOLID permanent garbage (no hole → cannot be cleared)
+    }
   }
   function lockPiece(){
     merge(); sfxLock();
     // apply any queued garbage from opponent before clearing
-    if(M.pendingGarbage>0){ addGarbage(M.pendingGarbage); M.pendingGarbage=0; updateIncoming(); }
+    if(M.pendingGarbage>0){ addGarbage(M.pendingGarbage); M.pendingGarbage=0; updateIncoming(); if(!M.alive){ draw(); return; } }
     var c=clearLines();
     if(c>0){ var pts=[0,100,300,500,800][c]||800; M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10); sfxClear(c);
       if(c>=2){ sfxAttack(); sendAttack(c-1); }
@@ -14501,7 +14507,7 @@ body.light .jul4-lbscore{color:#059669}
   function goTourney(){
     sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); renderArena(); startRender();
     M.dropMs=700; M.loop=setInterval(tick,M.dropMs); M.net=setInterval(sendState,350);
-    M.timeLeft=300; status('⏱ 5:00 · '+tourneyAliveIds().length+' alive');
+    M.timeLeft=180; status('⏱ 3:00 · '+tourneyAliveIds().length+' alive');
     M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ endByTime(); } else { status('⏱ '+fmtT(M.timeLeft)+' · '+tourneyAliveIds().length+' alive'); } }, 1000);
   }
   function tourneyAliveIds(){ if(!M||!M.players) return []; return Object.keys(M.players).filter(function(id){ return M.players[id].alive; }); }
