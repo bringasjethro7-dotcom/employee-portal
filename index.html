@@ -13945,7 +13945,7 @@ body.light .jul4-lbscore{color:#059669}
 </div>
 
 <div id="tet-overlay" style="display:none;position:fixed;inset:0;z-index:9400;background:rgba(5,8,20,.9);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:14px;">
-  <div style="width:640px;max-width:100%;background:linear-gradient(180deg,#101830,#0a0f1c);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:16px;color:#eef2ff;box-shadow:0 30px 90px rgba(0,0,0,.65);max-height:96vh;overflow:auto;">
+  <div style="width:760px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 55%,#080d19 100%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:18px;color:#eef2ff;box-shadow:0 40px 120px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.06);max-height:96vh;overflow:auto;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
       <div style="font-size:16px;font-weight:800;">🎮 Tetris — Winner +50 pts</div>
       <button onclick="tetrisQuit()" style="background:none;border:none;color:#9fb0d6;font-size:20px;cursor:pointer;">✕</button>
@@ -13954,12 +13954,12 @@ body.light .jul4-lbscore{color:#059669}
     <div style="display:flex;gap:14px;justify-content:center;align-items:flex-start;flex-wrap:wrap;">
       <div style="text-align:center;">
         <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">You</div>
-        <canvas id="tet-me" width="200" height="400" style="background:#0a0f1c;border:2px solid rgba(255,255,255,.14);border-radius:8px;display:block;"></canvas>
+        <canvas id="tet-me" width="270" height="540" style="background:linear-gradient(180deg,#0b1122,#070b16);border:2px solid rgba(120,150,255,.28);border-radius:12px;display:block;box-shadow:0 0 32px rgba(80,120,255,.22),inset 0 0 30px rgba(0,0,0,.5);"></canvas>
         <div style="margin-top:5px;font-size:12px;">Score <b id="tet-me-score" style="color:#fbbf24;">0</b> · Lines <b id="tet-me-lines">0</b></div>
       </div>
       <div style="text-align:center;">
         <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;" id="tet-opp-label">Opponent</div>
-        <canvas id="tet-opp" width="140" height="280" style="background:#0a0f1c;border:2px solid rgba(255,255,255,.10);border-radius:8px;display:block;opacity:.9;"></canvas>
+        <canvas id="tet-opp" width="180" height="360" style="background:linear-gradient(180deg,#0b1122,#070b16);border:2px solid rgba(255,255,255,.12);border-radius:12px;display:block;box-shadow:0 0 20px rgba(0,0,0,.4),inset 0 0 24px rgba(0,0,0,.5);"></canvas>
         <div style="margin-top:5px;font-size:12px;">Score <b id="tet-opp-score" style="color:#cdd6f5;">0</b> · Lines <b id="tet-opp-lines">0</b></div>
       </div>
     </div>
@@ -14144,7 +14144,13 @@ body.light .jul4-lbscore{color:#059669}
   function collide(m,x,y){ for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(!m[r][c]) continue; var gx=x+c, gy=y+r; if(gx<0||gx>=W||gy>=H) return true; if(gy>=0 && M.grid[gy][gx]) return true; } } return false; }
   function rotCW(m){ var R=m.length, C=m[0].length; var o=[]; for(var c=0;c<C;c++){ o.push([]); for(var r=R-1;r>=0;r--){ o[c].push(m[r][c]); } } return o; }
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
-  function clearLines(){ var cleared=0; for(var y=H-1;y>=0;y--){ if(M.grid[y].every(function(v){return v>0;})){ M.grid.splice(y,1); M.grid.unshift(new Array(W).fill(0)); cleared++; y++; } } return cleared; }
+  function clearLines(){
+    var full=[]; for(var y=0;y<H;y++){ if(M.grid[y].every(function(v){return v>0;})) full.push(y); }
+    if(full.length){ M.flash={ys:full.slice(), t0:Date.now()}; startFlash(); }
+    for(var i=full.length-1;i>=0;i--){ M.grid.splice(full[i],1); M.grid.unshift(new Array(W).fill(0)); }
+    return full.length;
+  }
+  function startFlash(){ (function f(){ if(!M){ return; } draw(); if(M.flash && Date.now()-M.flash.t0<230){ requestAnimationFrame(f); } else { M.flash=null; draw(); } })(); }
   function addGarbage(n){ if(n>0) sfxGarbage(); for(var i=0;i<n;i++){ var hole=Math.floor(Math.random()*W); var row=new Array(W).fill(8); row[hole]=0; M.grid.shift(); M.grid.push(row); }
     // if top row now occupied where piece sits, collision handled next spawn
   }
@@ -14231,20 +14237,45 @@ body.light .jul4-lbscore{color:#059669}
     drawOpp();
   }
 
-  // ── Rendering ──
-  function draw(){ var cv=el('tet-me'); if(!cv) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
-    ctx.clearRect(0,0,cv.width,cv.height);
-    for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=M.grid[y][x]; if(v){ cell(ctx,x,y,cs,COLORS[v]); } }
-    if(M.cur){ var m=M.cur.m; for(var r=0;r<m.length;r++)for(var c=0;c<m[r].length;c++){ if(m[r][c]){ cell(ctx,M.cur.x+c,M.cur.y+r,cs,COLORS[m[r][c]]); } } }
-    grid(ctx,cv,cs);
+  // ── Rendering (premium: gradient bevel blocks, glow, ghost piece, clear flash) ──
+  function hexAdj(hex,amt){ hex=String(hex).replace('#',''); if(hex.length!==6) return hex;
+    var r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16);
+    function a(c){ return Math.max(0,Math.min(255,Math.round(c+(amt>0?(255-c)*amt:c*amt)))); }
+    return 'rgb('+a(r)+','+a(g)+','+a(b)+')'; }
+  function rr(ctx,x,y,w,h,r){ if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(x,y,w,h,r); return; }
+    ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function block(ctx,x,y,cs,color,glow){
+    var px=x*cs,py=y*cs,r=Math.max(2,cs*0.17);
+    ctx.save();
+    var g=ctx.createLinearGradient(px,py,px,py+cs);
+    g.addColorStop(0,hexAdj(color,0.42)); g.addColorStop(0.5,color); g.addColorStop(1,hexAdj(color,-0.3));
+    if(glow){ ctx.shadowColor=color; ctx.shadowBlur=cs*0.5; }
+    rr(ctx,px+1.5,py+1.5,cs-3,cs-3,r); ctx.fillStyle=g; ctx.fill(); ctx.shadowBlur=0;
+    ctx.globalAlpha=0.5; ctx.fillStyle='rgba(255,255,255,.9)';
+    rr(ctx,px+cs*0.22,py+cs*0.15,cs*0.56,cs*0.15,cs*0.07); ctx.fill();
+    ctx.restore();
   }
-  function drawOpp(){ var cv=el('tet-opp'); if(!cv) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
-    ctx.clearRect(0,0,cv.width,cv.height);
-    for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(M.oppGrid[y]&&M.oppGrid[y][x])||0; if(v){ cell(ctx,x,y,cs,COLORS[v]||'#64748b'); } }
-    grid(ctx,cv,cs);
+  function ghostCell(ctx,x,y,cs,color){ var px=x*cs,py=y*cs,r=Math.max(2,cs*0.17);
+    ctx.save(); rr(ctx,px+1.5,py+1.5,cs-3,cs-3,r); ctx.globalAlpha=0.14; ctx.fillStyle=color; ctx.fill();
+    ctx.globalAlpha=0.55; ctx.lineWidth=1.5; ctx.strokeStyle=color; ctx.stroke(); ctx.restore(); }
+  function grid(ctx,cv,cs){ ctx.strokeStyle='rgba(150,175,255,.045)'; ctx.lineWidth=1;
+    for(var x=0;x<=W;x++){ ctx.beginPath(); ctx.moveTo(x*cs,0); ctx.lineTo(x*cs,cv.height); ctx.stroke(); }
+    for(var y=0;y<=H;y++){ ctx.beginPath(); ctx.moveTo(0,y*cs); ctx.lineTo(cv.width,y*cs); ctx.stroke(); } }
+  function draw(){ var cv=el('tet-me'); if(!cv||!M) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
+    ctx.clearRect(0,0,cv.width,cv.height); grid(ctx,cv,cs);
+    for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=M.grid[y][x]; if(v){ block(ctx,x,y,cs, v===8?'#5b6b82':COLORS[v]); } }
+    if(M.cur){
+      var gy=M.cur.y; while(!collide(M.cur.m,M.cur.x,gy+1)) gy++;
+      var m=M.cur.m, r, c;
+      if(gy>M.cur.y){ for(r=0;r<m.length;r++)for(c=0;c<m[r].length;c++){ if(m[r][c]) ghostCell(ctx,M.cur.x+c,gy+r,cs,COLORS[m[r][c]]); } }
+      for(r=0;r<m.length;r++)for(c=0;c<m[r].length;c++){ if(m[r][c]) block(ctx,M.cur.x+c,M.cur.y+r,cs,COLORS[m[r][c]],true); }
+    }
+    if(M.flash){ var e=(Date.now()-M.flash.t0)/230; if(e<1){ ctx.save(); ctx.globalAlpha=(1-e)*0.9; ctx.fillStyle='#fff'; M.flash.ys.forEach(function(ry){ ctx.fillRect(0,ry*cs,cv.width,cs); }); ctx.restore(); } }
   }
-  function cell(ctx,x,y,cs,color){ ctx.fillStyle=color; ctx.fillRect(x*cs+1,y*cs+1,cs-2,cs-2); }
-  function grid(ctx,cv,cs){ ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1; for(var x=0;x<=W;x++){ ctx.beginPath(); ctx.moveTo(x*cs,0); ctx.lineTo(x*cs,cv.height); ctx.stroke(); } for(var y=0;y<=H;y++){ ctx.beginPath(); ctx.moveTo(0,y*cs); ctx.lineTo(cv.width,y*cs); ctx.stroke(); } }
+  function drawOpp(){ var cv=el('tet-opp'); if(!cv||!M) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
+    ctx.clearRect(0,0,cv.width,cv.height); grid(ctx,cv,cs);
+    for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(M.oppGrid[y]&&M.oppGrid[y][x])||0; if(v){ block(ctx,x,y,cs, v===8?'#5b6b82':(COLORS[v]||'#5b6b82')); } }
+  }
 })();
 </script>
 </body>
