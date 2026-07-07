@@ -13988,8 +13988,31 @@ body.light .jul4-lbscore{color:#059669}
     Z:[[5,5,0],[0,5,5]], J:[[6,0,0],[6,6,6]], L:[[0,0,7],[7,7,7]]
   };
   var TYPES=['I','O','T','S','Z','J','L'];
-  var lobby=null, chan=null;
+  var lobby=null, chan=null, lobbyReady=false, lobbyQueue=[];
   var M=null; // current match state
+
+  // ── Audio engine (Web Audio beeps) ──
+  var TAC=null;
+  function ac(){ try{ if(!TAC) TAC=new (window.AudioContext||window.webkitAudioContext)(); if(TAC.state==='suspended') TAC.resume(); }catch(e){ TAC=null; } return TAC; }
+  function beep(freq,dur,type,vol,delay){ var a=ac(); if(!a) return; try{
+    var o=a.createOscillator(), g=a.createGain(); var t=a.currentTime+(delay||0);
+    o.type=type||'square'; o.frequency.setValueAtTime(freq,t);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol||0.14,t+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+(dur||0.12));
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+(dur||0.12)+0.03);
+  }catch(e){} }
+  function sfxMove(){ beep(320,0.03,'square',0.05); }
+  function sfxRot(){ beep(480,0.045,'square',0.06); }
+  function sfxLock(){ beep(150,0.08,'triangle',0.12); }
+  function sfxDrop(){ beep(110,0.11,'sawtooth',0.12); }
+  function sfxClear(n){ var base=[0,523,659,784,1046][n]||1046; beep(base,0.12,'triangle',0.18); beep(base*1.5,0.14,'triangle',0.16,0.08); if(n>=4){ beep(base*2,0.18,'triangle',0.16,0.16); } }
+  function sfxAttack(){ beep(700,0.06,'square',0.12); beep(500,0.08,'square',0.1,0.05); }
+  function sfxGarbage(){ beep(90,0.16,'sawtooth',0.16); }
+  function sfxTick(){ beep(880,0.08,'square',0.14); }
+  function sfxGo(){ [523,659,784,1046].forEach(function(f,i){ beep(f,0.14,'triangle',0.18,i*0.09); }); }
+  function sfxWin(){ [523,659,784,1046,1318,1046,1318].forEach(function(f,i){ beep(f,0.18,'triangle',0.2,i*0.12); }); }
+  function sfxLose(){ [440,392,349,294].forEach(function(f,i){ beep(f,0.22,'sawtooth',0.16,i*0.14); }); }
+  function sfxInvite(){ beep(784,0.12,'triangle',0.16); beep(1046,0.14,'triangle',0.16,0.12); }
 
   function eid(){ try{ return chatEmpId||''; }catch(e){ return ''; } }
   function ename(){ try{ return chatEmpName||''; }catch(e){ return ''; } }
@@ -14008,9 +14031,15 @@ body.light .jul4-lbscore{color:#059669}
         .on('broadcast',{event:'invite'}, function(p){ onInvite(p.payload); })
         .on('broadcast',{event:'accept'}, function(p){ onAccept(p.payload); })
         .on('broadcast',{event:'decline'}, function(p){ onDecline(p.payload); })
-        .subscribe();
+        .subscribe(function(st){ if(st==='SUBSCRIBED'){ lobbyReady=true; var q=lobbyQueue.slice(); lobbyQueue=[]; q.forEach(function(m){ try{ lobby.send(m); }catch(e){} }); } });
     }catch(e){}
   };
+  // Send on the lobby only once it's actually joined; queue otherwise so nothing is lost to a race.
+  function lobbySend(event,payload){
+    var msg={type:'broadcast',event:event,payload:payload};
+    if(lobby && lobbyReady){ try{ lobby.send(msg); }catch(e){} }
+    else { lobbyQueue.push(msg); window.tetrisSetupLobby(); }
+  }
   var _pendingInvite=null;
   function onInvite(p){
     if(!p || String(p.to)!==String(eid())) return;
@@ -14018,7 +14047,7 @@ body.light .jul4-lbscore{color:#059669}
     _pendingInvite=p;
     el('tet-invite-txt').innerHTML='<b>'+esc(p.fromName||'A teammate')+'</b> challenges you to Tetris!<br>Winner gets <b style="color:#fbbf24">+50 pts</b> (first win/day).';
     el('tet-invite-pop').style.display='block';
-    try{ new AudioContext(); }catch(e){}
+    sfxInvite();
   }
   function onDecline(p){ if(M && M.host && String(p.matchId)===String(M.matchId)){ status('Challenge declined.'); setTimeout(tetrisQuit, 1400); } }
   function onAccept(p){
@@ -14033,22 +14062,35 @@ body.light .jul4-lbscore{color:#059669}
     if(typeof supaClient==='undefined' || !supaClient){ showToast('Chat not connected.'); return; }
     window.tetrisSetupLobby();
     var opp=currentChat, oppName=(typeof currentChatName!=='undefined'?currentChatName:opp);
+    ac();  // unlock audio on this user gesture
     var matchId=[eid(),opp].sort().join('-')+'-'+Date.now();
     M={ matchId:matchId, host:true, oppId:opp, oppName:oppName, playing:false };
     openOverlay(); status('Waiting for '+esc(oppName)+' to accept…');
     el('tet-opp-label').textContent=oppName;
-    try{ lobby.send({type:'broadcast',event:'invite',payload:{matchId:matchId, from:eid(), fromName:ename(), to:opp}}); }catch(e){}
+    // Resend a few times so the invite lands even if the opponent's lobby joined a moment late.
+    var tries=0;
+    (function resend(){
+      if(!M || M.playing || M.ended) return;
+      lobbySend('invite',{matchId:matchId, from:eid(), fromName:ename(), to:opp});
+      if(++tries<5) setTimeout(resend, 1500);
+    })();
   };
   window.tetrisAcceptInvite=function(){
     var p=_pendingInvite; el('tet-invite-pop').style.display='none'; if(!p) return;
+    ac();  // unlock audio on this user gesture
     M={ matchId:p.matchId, host:false, oppId:p.from, oppName:p.fromName||p.from, playing:false };
     openOverlay(); el('tet-opp-label').textContent=M.oppName;
-    try{ lobby.send({type:'broadcast',event:'accept',payload:{matchId:p.matchId, from:eid(), fromName:ename(), to:p.from}}); }catch(e){}
+    var tries=0;
+    (function resend(){
+      if(!M || M.playing) return;
+      lobbySend('accept',{matchId:p.matchId, from:eid(), fromName:ename(), to:p.from});
+      if(++tries<4) setTimeout(resend, 900);
+    })();
     startMatch();
   };
   window.tetrisDeclineInvite=function(){
     var p=_pendingInvite; el('tet-invite-pop').style.display='none'; if(!p) return;
-    try{ lobby.send({type:'broadcast',event:'decline',payload:{matchId:p.matchId, to:p.from}}); }catch(e){}
+    lobbySend('decline',{matchId:p.matchId, to:p.from});
     _pendingInvite=null;
   };
 
@@ -14079,11 +14121,11 @@ body.light .jul4-lbscore{color:#059669}
       .subscribe();
     document.addEventListener('keydown', onKey);
     // 3-2-1 countdown then go
-    var n=3; status('Starting in '+n+'…');
-    var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); } else { clearInterval(cd); go(); } }, 800);
+    var n=3; status('Starting in '+n+'…'); sfxTick();
+    var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); go(); } }, 800);
   }
   function go(){
-    spawn(); draw();
+    sfxGo(); spawn(); draw();
     M.dropMs=700;
     M.loop=setInterval(tick, M.dropMs);
     M.net=setInterval(sendState, 350);
@@ -14103,16 +14145,16 @@ body.light .jul4-lbscore{color:#059669}
   function rotCW(m){ var R=m.length, C=m[0].length; var o=[]; for(var c=0;c<C;c++){ o.push([]); for(var r=R-1;r>=0;r--){ o[c].push(m[r][c]); } } return o; }
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
   function clearLines(){ var cleared=0; for(var y=H-1;y>=0;y--){ if(M.grid[y].every(function(v){return v>0;})){ M.grid.splice(y,1); M.grid.unshift(new Array(W).fill(0)); cleared++; y++; } } return cleared; }
-  function addGarbage(n){ for(var i=0;i<n;i++){ var hole=Math.floor(Math.random()*W); var row=new Array(W).fill(8); row[hole]=0; M.grid.shift(); M.grid.push(row); }
+  function addGarbage(n){ if(n>0) sfxGarbage(); for(var i=0;i<n;i++){ var hole=Math.floor(Math.random()*W); var row=new Array(W).fill(8); row[hole]=0; M.grid.shift(); M.grid.push(row); }
     // if top row now occupied where piece sits, collision handled next spawn
   }
   function lockPiece(){
-    merge();
+    merge(); sfxLock();
     // apply any queued garbage from opponent before clearing
     if(M.pendingGarbage>0){ addGarbage(M.pendingGarbage); M.pendingGarbage=0; }
     var c=clearLines();
-    if(c>0){ var pts=[0,100,300,500,800][c]||800; M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10);
-      if(c>=2){ try{ chan.send({type:'broadcast',event:'attack',payload:{from:eid(),lines:c-1}}); }catch(e){} }
+    if(c>0){ var pts=[0,100,300,500,800][c]||800; M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10); sfxClear(c);
+      if(c>=2){ sfxAttack(); try{ chan.send({type:'broadcast',event:'attack',payload:{from:eid(),lines:c-1}}); }catch(e){} }
       var ns=Math.max(120,700-(M.level-1)*55); if(ns!==M.dropMs){ M.dropMs=ns; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); }
     }
     el('tet-me-score').textContent=M.score; el('tet-me-lines').textContent=M.lines;
@@ -14133,9 +14175,9 @@ body.light .jul4-lbscore{color:#059669}
     else if(a==='down'){ if(!collide(M.cur.m,M.cur.x,M.cur.y+1)){M.cur.y++;} } else if(a==='drop') hardDrop();
     draw();
   };
-  function move(d){ if(!collide(M.cur.m,M.cur.x+d,M.cur.y)) M.cur.x+=d; }
-  function rotate(){ var nm=rotCW(M.cur.m); var kicks=[0,-1,1,-2,2]; for(var i=0;i<kicks.length;i++){ if(!collide(nm,M.cur.x+kicks[i],M.cur.y)){ M.cur.m=nm; M.cur.x+=kicks[i]; return; } } }
-  function hardDrop(){ while(!collide(M.cur.m,M.cur.x,M.cur.y+1)){ M.cur.y++; M.score+=2; } lockPiece(); draw(); }
+  function move(d){ if(!collide(M.cur.m,M.cur.x+d,M.cur.y)){ M.cur.x+=d; sfxMove(); } }
+  function rotate(){ var nm=rotCW(M.cur.m); var kicks=[0,-1,1,-2,2]; for(var i=0;i<kicks.length;i++){ if(!collide(nm,M.cur.x+kicks[i],M.cur.y)){ M.cur.m=nm; M.cur.x+=kicks[i]; sfxRot(); return; } } }
+  function hardDrop(){ while(!collide(M.cur.m,M.cur.x,M.cur.y+1)){ M.cur.y++; M.score+=2; } sfxDrop(); lockPiece(); draw(); }
 
   function topOut(){ if(!M.alive) return; M.alive=false; M.ended=true;
     try{ chan.send({type:'broadcast',event:'over',payload:{from:eid(),score:M.score}}); }catch(e){}
@@ -14157,12 +14199,12 @@ body.light .jul4-lbscore{color:#059669}
     if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
     document.removeEventListener('keydown', onKey);
     if(iWon===true){
-      status('🏆 You win! Awarding points…');
+      status('🏆 You win! Awarding points…'); sfxWin();
       awardWin();
     } else if(iWon===false){
-      status('💪 '+esc(M.oppName)+' won this round. Good game!');
+      status('💪 '+esc(M.oppName)+' won this round. Good game!'); sfxLose();
     } else {
-      status('🤝 Draw — no points awarded.');
+      status('🤝 Draw — no points awarded.'); sfxTick();
     }
   }
   function awardWin(){
