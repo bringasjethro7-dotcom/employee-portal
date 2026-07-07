@@ -4803,6 +4803,7 @@
             </button>
             <button class="chat-media-btn gif" type="button" onclick="toggleGifPanel(event)" title="Search GIFs" aria-label="Search GIFs">GIF</button>
             <button class="chat-media-btn" type="button" id="chat-game-btn" onclick="tetrisInvite()" title="Challenge to Tetris (win 50 pts)" aria-label="Play Tetris" style="display:none;font-size:16px;">🎮</button>
+            <button class="chat-media-btn" type="button" id="chat-tourney-btn" onclick="tourneyStart()" title="Start a Tetris tournament (win 50 pts)" aria-label="Tetris tournament" style="display:none;font-size:16px;">🏆</button>
             <input type="file" id="chat-file" accept="image/*" style="display:none;" onchange="chatFileChosen(this)" />
             <div class="emoji-panel" id="emoji-panel"></div>
             <div class="gif-panel" id="gif-panel">
@@ -11050,6 +11051,9 @@ function selectChat(empId, name) {
   // Tetris challenge button shows only in 1-on-1 DMs (not group/channels)
   var gameBtn = document.getElementById('chat-game-btn');
   if (gameBtn) gameBtn.style.display = (empId !== 'group' && empId.indexOf('ch:') !== 0) ? 'inline-flex' : 'none';
+  // Tournament button shows in group / channel chats (not DMs, not EOD)
+  var tourBtn = document.getElementById('chat-tourney-btn');
+  if (tourBtn) tourBtn.style.display = ((empId === 'group' || empId.indexOf('ch:') === 0) && empId !== 'ch:eod') ? 'inline-flex' : 'none';
 
   // Reset any lingering typing indicator from the previous chat
   resetTyping();
@@ -13944,6 +13948,17 @@ body.light .jul4-lbscore{color:#059669}
   </div>
 </div>
 
+<div id="tourney-lobby" style="display:none;position:fixed;inset:0;z-index:9450;background:rgba(5,8,20,.9);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
+  <div style="width:420px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 60%,#080d19 100%);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:20px;color:#eef2ff;box-shadow:0 40px 120px rgba(0,0,0,.7);">
+    <div style="font-size:17px;font-weight:800;margin-bottom:2px;" id="tl-title">🏆 Tetris Tournament</div>
+    <div style="font-size:12px;color:#9fb0d6;margin-bottom:14px;">Last player standing wins <b style="color:#fbbf24;">+50 pts</b> · <span id="tl-count">1 player</span></div>
+    <div id="tl-roster" style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;margin-bottom:16px;"></div>
+    <button id="tl-join" onclick="tourneyJoin()" style="display:none;width:100%;background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border:none;border-radius:11px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:8px;">✋ Join tournament</button>
+    <button id="tl-launch" onclick="tourneyLaunch()" style="display:none;width:100%;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:11px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:8px;">▶ Start</button>
+    <button onclick="tourneyLeaveLobby()" style="width:100%;background:transparent;border:1px solid rgba(255,255,255,.18);color:#cdd6f5;border-radius:11px;padding:10px;font-weight:600;font-size:13px;cursor:pointer;">Leave</button>
+  </div>
+</div>
+
 <div id="tet-overlay" style="display:none;position:fixed;inset:0;z-index:9400;background:rgba(5,8,20,.9);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:14px;">
   <div style="width:760px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 55%,#080d19 100%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:18px;color:#eef2ff;box-shadow:0 40px 120px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.06);max-height:96vh;overflow:auto;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
@@ -13952,15 +13967,32 @@ body.light .jul4-lbscore{color:#059669}
     </div>
     <div id="tet-status" style="text-align:center;font-size:13px;color:#fbbf24;font-weight:700;min-height:20px;margin-bottom:8px;">Connecting…</div>
     <div style="display:flex;gap:14px;justify-content:center;align-items:flex-start;flex-wrap:wrap;">
-      <div style="text-align:center;">
-        <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">You</div>
-        <canvas id="tet-me" width="270" height="540" style="background:linear-gradient(180deg,#0b1122,#070b16);border:2px solid rgba(120,150,255,.28);border-radius:12px;display:block;box-shadow:0 0 32px rgba(80,120,255,.22),inset 0 0 30px rgba(0,0,0,.5);"></canvas>
-        <div style="margin-top:5px;font-size:12px;">Score <b id="tet-me-score" style="color:#fbbf24;">0</b> · Lines <b id="tet-me-lines">0</b></div>
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <div style="text-align:center;">
+          <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">You</div>
+          <canvas id="tet-me" width="270" height="540" style="background:linear-gradient(180deg,#0b1122,#070b16);border:2px solid rgba(120,150,255,.28);border-radius:12px;display:block;box-shadow:0 0 32px rgba(80,120,255,.22),inset 0 0 30px rgba(0,0,0,.5);"></canvas>
+          <div style="margin-top:5px;font-size:12px;">Score <b id="tet-me-score" style="color:#fbbf24;">0</b> · Lines <b id="tet-me-lines">0</b></div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;width:84px;">
+          <div style="font-size:10px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Next</div>
+          <canvas id="tet-next" width="84" height="66" style="background:linear-gradient(180deg,#0b1122,#070b16);border:1px solid rgba(255,255,255,.12);border-radius:10px;display:block;"></canvas>
+          <div style="font-size:10px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin:12px 0 4px;">Incoming</div>
+          <div style="display:flex;gap:6px;align-items:flex-end;">
+            <div style="position:relative;width:22px;height:200px;background:#0b1122;border:1px solid rgba(255,255,255,.12);border-radius:6px;overflow:hidden;">
+              <div id="tet-incoming-fill" style="position:absolute;left:0;right:0;bottom:0;height:0%;background:linear-gradient(180deg,#f97316,#dc2626);transition:height .18s ease;"></div>
+            </div>
+            <div id="tet-incoming-num" style="font-size:16px;font-weight:800;color:#f87171;min-width:16px;">0</div>
+          </div>
+        </div>
       </div>
-      <div style="text-align:center;">
+      <div id="tet-opp-col" style="text-align:center;">
         <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;" id="tet-opp-label">Opponent</div>
         <canvas id="tet-opp" width="180" height="360" style="background:linear-gradient(180deg,#0b1122,#070b16);border:2px solid rgba(255,255,255,.12);border-radius:12px;display:block;box-shadow:0 0 20px rgba(0,0,0,.4),inset 0 0 24px rgba(0,0,0,.5);"></canvas>
         <div style="margin-top:5px;font-size:12px;">Score <b id="tet-opp-score" style="color:#cdd6f5;">0</b> · Lines <b id="tet-opp-lines">0</b></div>
+      </div>
+      <div id="tet-arena-col" style="display:none;text-align:center;">
+        <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Arena</div>
+        <div id="tet-arena" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;max-width:360px;max-height:560px;overflow:auto;padding:4px;"></div>
       </div>
     </div>
     <div id="tet-controls" style="display:none;margin-top:12px;">
@@ -14031,6 +14063,9 @@ body.light .jul4-lbscore{color:#059669}
         .on('broadcast',{event:'invite'}, function(p){ onInvite(p.payload); })
         .on('broadcast',{event:'accept'}, function(p){ onAccept(p.payload); })
         .on('broadcast',{event:'decline'}, function(p){ onDecline(p.payload); })
+        .on('broadcast',{event:'tinvite'}, function(p){ onTInvite(p.payload); })
+        .on('broadcast',{event:'tjoin'},   function(p){ onTJoin(p.payload); })
+        .on('broadcast',{event:'tstart'},  function(p){ onTStart(p.payload); })
         .subscribe(function(st){ if(st==='SUBSCRIBED'){ lobbyReady=true; var q=lobbyQueue.slice(); lobbyQueue=[]; q.forEach(function(m){ try{ lobby.send(m); }catch(e){} }); } });
     }catch(e){}
   };
@@ -14096,19 +14131,26 @@ body.light .jul4-lbscore{color:#059669}
 
   function openOverlay(){ el('tet-overlay').style.display='flex'; }
   window.tetrisQuit=function(){
-    if(M && M.playing && !M.ended){ try{ chan.send({type:'broadcast',event:'over',payload:{from:eid(),score:M.score||0,forfeit:true}}); }catch(e){} }
+    if(M && M.playing && !M.ended){
+      if(M.mode==='tourney'){ try{ M.tchan.send({type:'broadcast',event:'tover',payload:{tid:M.matchId,from:eid(),name:ename(),score:M.score||0,place:tourneyAliveIds().length}}); }catch(e){} }
+      else { try{ chan.send({type:'broadcast',event:'over',payload:{from:eid(),score:M.score||0,forfeit:true}}); }catch(e){} }
+    }
     cleanup(); el('tet-overlay').style.display='none';
   };
   function cleanup(){
-    if(M){ if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net); }
+    if(M){ if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
+      if(M.tchan){ try{ supaClient.removeChannel(M.tchan); }catch(e){} } }
     document.removeEventListener('keydown', onKey);
     if(chan){ try{ supaClient.removeChannel(chan); }catch(e){} chan=null; }
     M=null;
   }
 
-  // ── Match ──
+  // ── Match (1v1 duel) ──
   function startMatch(){
     el('tet-controls').style.display='block';
+    var oc=el('tet-opp-col'); if(oc) oc.style.display='';           // duel shows single opponent board
+    var ar=el('tet-arena-col'); if(ar) ar.style.display='none';
+    M.mode='duel';
     var seed=hashStr(M.matchId);
     M.rng=mulberry32(seed); M.bag=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1;
     M.oppGrid=empty(); M.oppScore=0; M.oppLines=0; M.oppAlive=true;
@@ -14116,7 +14158,7 @@ body.light .jul4-lbscore{color:#059669}
     // match realtime channel
     chan=supaClient.channel('tetris-'+M.matchId,{config:{broadcast:{self:false}}})
       .on('broadcast',{event:'state'}, function(p){ if(M) onOppState(p.payload); })
-      .on('broadcast',{event:'attack'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())) M.pendingGarbage+=(p.payload.lines||0); })
+      .on('broadcast',{event:'attack'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.pendingGarbage+=(p.payload.lines||0); updateIncoming(); try{ sfxTick(); }catch(e){} } })
       .on('broadcast',{event:'over'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())) onOppOver(p.payload); })
       .subscribe();
     document.addEventListener('keydown', onKey);
@@ -14125,7 +14167,7 @@ body.light .jul4-lbscore{color:#059669}
     var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); go(); } }, 800);
   }
   function go(){
-    sfxGo(); spawn(); draw();
+    sfxGo(); spawn(); draw(); updateIncoming();
     M.dropMs=700;
     M.loop=setInterval(tick, M.dropMs);
     M.net=setInterval(sendState, 350);
@@ -14137,9 +14179,30 @@ body.light .jul4-lbscore{color:#059669}
   function empty(){ var g=[]; for(var y=0;y<H;y++){ g.push(new Array(W).fill(0)); } return g; }
   function nextType(){ if(!M.bag.length){ M.bag=TYPES.slice(); for(var i=M.bag.length-1;i>0;i--){ var j=Math.floor(M.rng()*(i+1)); var t=M.bag[i]; M.bag[i]=M.bag[j]; M.bag[j]=t; } } return M.bag.shift(); }
   function spawn(){
-    var t=nextType(); var m=SHAPES[t].map(function(r){ return r.slice(); });
+    var t=M.nextT||nextType();
+    M.nextT=nextType();
+    var m=SHAPES[t].map(function(r){ return r.slice(); });
     M.cur={ m:m, x:Math.floor((W-m[0].length)/2), y:0 };
+    renderNext();
     if(collide(M.cur.m,M.cur.x,M.cur.y)){ topOut(); }
+  }
+  function renderNext(){
+    var cv=el('tet-next'); if(!cv||!M||!M.nextT) return; var ctx=cv.getContext('2d');
+    ctx.clearRect(0,0,cv.width,cv.height);
+    var m=SHAPES[M.nextT], rows=m.length, cols=m[0].length;
+    var cs=Math.min((cv.width-8)/cols, (cv.height-8)/rows, 20);
+    var ox=(cv.width-cols*cs)/2, oy=(cv.height-rows*cs)/2;
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){ if(m[r][c]){
+      var color=COLORS[m[r][c]], px=ox+c*cs, py=oy+r*cs, rad=Math.max(2,cs*0.17);
+      var g=ctx.createLinearGradient(px,py,px,py+cs); g.addColorStop(0,hexAdj(color,0.42)); g.addColorStop(0.5,color); g.addColorStop(1,hexAdj(color,-0.3));
+      rr(ctx,px+1,py+1,cs-2,cs-2,rad); ctx.fillStyle=g; ctx.fill();
+      ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle='rgba(255,255,255,.9)'; rr(ctx,px+cs*0.22,py+cs*0.15,cs*0.56,cs*0.15,cs*0.07); ctx.fill(); ctx.restore();
+    } }
+  }
+  function updateIncoming(){
+    var f=el('tet-incoming-fill'), nu=el('tet-incoming-num'); var n=(M&&M.pendingGarbage)||0;
+    if(nu) nu.textContent=n;
+    if(f) f.style.height=Math.min(100,(n/12)*100)+'%';
   }
   function collide(m,x,y){ for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(!m[r][c]) continue; var gx=x+c, gy=y+r; if(gx<0||gx>=W||gy>=H) return true; if(gy>=0 && M.grid[gy][gx]) return true; } } return false; }
   function rotCW(m){ var R=m.length, C=m[0].length; var o=[]; for(var c=0;c<C;c++){ o.push([]); for(var r=R-1;r>=0;r--){ o[c].push(m[r][c]); } } return o; }
@@ -14157,10 +14220,10 @@ body.light .jul4-lbscore{color:#059669}
   function lockPiece(){
     merge(); sfxLock();
     // apply any queued garbage from opponent before clearing
-    if(M.pendingGarbage>0){ addGarbage(M.pendingGarbage); M.pendingGarbage=0; }
+    if(M.pendingGarbage>0){ addGarbage(M.pendingGarbage); M.pendingGarbage=0; updateIncoming(); }
     var c=clearLines();
     if(c>0){ var pts=[0,100,300,500,800][c]||800; M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10); sfxClear(c);
-      if(c>=2){ sfxAttack(); try{ chan.send({type:'broadcast',event:'attack',payload:{from:eid(),lines:c-1}}); }catch(e){} }
+      if(c>=2){ sfxAttack(); sendAttack(c-1); }
       var ns=Math.max(120,700-(M.level-1)*55); if(ns!==M.dropMs){ M.dropMs=ns; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); }
     }
     el('tet-me-score').textContent=M.score; el('tet-me-lines').textContent=M.lines;
@@ -14185,7 +14248,9 @@ body.light .jul4-lbscore{color:#059669}
   function rotate(){ var nm=rotCW(M.cur.m); var kicks=[0,-1,1,-2,2]; for(var i=0;i<kicks.length;i++){ if(!collide(nm,M.cur.x+kicks[i],M.cur.y)){ M.cur.m=nm; M.cur.x+=kicks[i]; sfxRot(); return; } } }
   function hardDrop(){ while(!collide(M.cur.m,M.cur.x,M.cur.y+1)){ M.cur.y++; M.score+=2; } sfxDrop(); lockPiece(); draw(); }
 
-  function topOut(){ if(!M.alive) return; M.alive=false; M.ended=true;
+  function topOut(){ if(!M.alive) return; M.alive=false;
+    if(M.mode==='tourney'){ tourneyOnMyDeath(); return; }
+    M.ended=true;
     try{ chan.send({type:'broadcast',event:'over',payload:{from:eid(),score:M.score}}); }catch(e){}
     finish(false, 'topout');
   }
@@ -14194,6 +14259,7 @@ body.light .jul4-lbscore{color:#059669}
   }
   function endByTime(){
     if(M.ended) return;
+    if(M.mode==='tourney'){ tourneyTimeEnd(); return; }
     // higher score wins; tie = draw
     if(M.score>M.oppScore) finish(true,'time');
     else if(M.score<M.oppScore) finish(false,'time');
@@ -14224,7 +14290,24 @@ body.light .jul4-lbscore{color:#059669}
   }
 
   // ── Networking: broadcast my board so the opponent can watch ──
-  function sendState(){ if(!M||!chan) return; try{ chan.send({type:'broadcast',event:'state',payload:{from:eid(),grid:packGrid(),score:M.score,lines:M.lines,alive:M.alive}}); }catch(e){} }
+  function sendAttack(n){
+    if(M.mode==='tourney'){
+      var others=tourneyAliveIds().filter(function(id){ return id!==eid(); });
+      if(!others.length || !M.tchan) return;
+      var to=others[Math.floor(Math.random()*others.length)];
+      try{ M.tchan.send({type:'broadcast',event:'tattack',payload:{tid:M.matchId,from:eid(),to:to,lines:n}}); }catch(e){}
+      return;
+    }
+    try{ chan.send({type:'broadcast',event:'attack',payload:{from:eid(),lines:n}}); }catch(e){}
+  }
+  function sendState(){
+    if(M.mode==='tourney'){ if(!M.tchan) return;
+      try{ M.tchan.send({type:'broadcast',event:'tstate',payload:{tid:M.matchId,from:eid(),name:ename(),grid:packGrid(),score:M.score,lines:M.lines,alive:M.alive}}); }catch(e){}
+      if(M.players&&M.players[eid()]){ M.players[eid()].score=M.score; M.players[eid()].lines=M.lines; }
+      return;
+    }
+    if(!chan) return; try{ chan.send({type:'broadcast',event:'state',payload:{from:eid(),grid:packGrid(),score:M.score,lines:M.lines,alive:M.alive}}); }catch(e){}
+  }
   function packGrid(){ // include current piece so opponent sees live movement
     var g=M.grid.map(function(r){return r.slice();});
     if(M.cur){ var m=M.cur.m; for(var r=0;r<m.length;r++)for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r,gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) g[gy][gx]=m[r][c]; } } }
@@ -14275,6 +14358,171 @@ body.light .jul4-lbscore{color:#059669}
   function drawOpp(){ var cv=el('tet-opp'); if(!cv||!M) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
     ctx.clearRect(0,0,cv.width,cv.height); grid(ctx,cv,cs);
     for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(M.oppGrid[y]&&M.oppGrid[y][x])||0; if(v){ block(ctx,x,y,cs, v===8?'#5b6b82':(COLORS[v]||'#5b6b82')); } }
+  }
+
+  // ════════════════ GROUP TOURNAMENT (simultaneous survival) ════════════════
+  var TL=null;   // lobby state {tid, groupKey, groupName, host, hostName, players:{id:name}, started}
+  function isGroupMember(groupKey){
+    if(groupKey==='group') return true;
+    if(String(groupKey).indexOf('ch:')===0){ var cid=groupKey.slice(3);
+      try{ return (window._myChannels||[]).some(function(c){ return String(c.id)===String(cid); }); }catch(e){ return false; } }
+    return false;
+  }
+  window.tourneyStart=function(){
+    if(typeof currentChat==='undefined' || !(currentChat==='group' || String(currentChat).indexOf('ch:')===0)){ showToast('Open a group chat to start a tournament.'); return; }
+    if(typeof supaClient==='undefined' || !supaClient){ showToast('Chat not connected.'); return; }
+    window.tetrisSetupLobby(); ac();
+    var tid='T-'+eid()+'-'+Date.now();
+    var gname=(typeof currentChatName!=='undefined'?currentChatName:'Group');
+    TL={ tid:tid, groupKey:currentChat, groupName:gname, host:eid(), hostName:ename(), players:{}, started:false };
+    TL.players[eid()]=ename();
+    openLobby();
+    var tries=0;
+    (function resend(){ if(!TL || TL.started) return; lobbySend('tinvite',{tid:tid, groupKey:currentChat, groupName:gname, from:eid(), fromName:ename()}); if(++tries<5) setTimeout(resend,1500); })();
+  };
+  function onTInvite(p){
+    if(!p || String(p.from)===String(eid())) return;
+    if(!isGroupMember(p.groupKey)) return;
+    if(M && M.playing) return;
+    if(TL && TL.tid===p.tid) return;   // already showing this lobby
+    TL={ tid:p.tid, groupKey:p.groupKey, groupName:p.groupName, host:p.from, hostName:p.fromName, players:{}, started:false };
+    TL.players[p.from]=p.fromName;
+    openLobby(); sfxInvite();
+  }
+  function onTJoin(p){ if(!TL || p.tid!==TL.tid) return; TL.players[p.id]=p.name; renderLobby();
+    // host re-announces roster so everyone converges
+    if(TL.host===eid()){ Object.keys(TL.players).forEach(function(id){ }); }
+  }
+  window.tourneyJoin=function(){
+    if(!TL) return; TL.players[eid()]=ename(); ac();
+    var tries=0; (function r(){ if(!TL||TL.started) return; lobbySend('tjoin',{tid:TL.tid, id:eid(), name:ename()}); if(++tries<3) setTimeout(r,900); })();
+    renderLobby();
+  };
+  window.tourneyLaunch=function(){
+    if(!TL) return; if(Object.keys(TL.players).length<2){ showToast('Need at least 2 players.'); return; }
+    var seed=TL.tid; TL.started=true;
+    var players=Object.keys(TL.players).map(function(id){ return {id:id, name:TL.players[id]}; });
+    lobbySend('tstart',{tid:TL.tid, seed:seed, players:players});
+    beginTourney(TL.tid, seed, players);
+  };
+  function onTStart(p){ if(!TL || p.tid!==TL.tid) return; if(!TL.players[eid()]) return; // I didn't join
+    if(M && M.playing) return;
+    TL.started=true; beginTourney(p.tid, p.seed, p.players);
+  }
+  window.tourneyLeaveLobby=function(){ TL=null; el('tourney-lobby').style.display='none'; };
+
+  function openLobby(){ el('tourney-lobby').style.display='flex'; renderLobby(); }
+  function renderLobby(){
+    if(!TL) return;
+    el('tl-title').textContent='🏆 Tetris Tournament — '+esc(TL.groupName||'Group');
+    var ids=Object.keys(TL.players);
+    el('tl-roster').innerHTML=ids.map(function(id){ return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0d1117;border:1px solid rgba(255,255,255,.1);border-radius:9px;font-size:12.5px;">'+
+      '<span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;"></span>'+esc(TL.players[id])+(id===TL.host?' <span style="color:#fbbf24;font-size:10px;">HOST</span>':'')+(id===eid()?' <span style="color:#6b7d90;font-size:10px;">(you)</span>':'')+'</div>'; }).join('');
+    el('tl-count').textContent=ids.length+' player'+(ids.length!==1?'s':'');
+    var joined=!!TL.players[eid()];
+    el('tl-join').style.display=joined?'none':'block';
+    el('tl-launch').style.display=joined?'block':'none';
+    el('tl-launch').textContent='▶ Start ('+ids.length+')';
+  }
+
+  function beginTourney(tid, seed, players){
+    el('tourney-lobby').style.display='none';
+    // arena panel on, single-opponent column off
+    el('tet-opp-col').style.display='none';
+    el('tet-arena-col').style.display='block';
+    var mine=players.filter(function(x){ return x.id===eid(); }).length?ename():ename();
+    M={ matchId:tid, mode:'tourney', playing:true, ended:false, alive:true, oppName:'' };
+    M.tchan=supaClient.channel('tourney-'+tid,{config:{broadcast:{self:false}}})
+      .on('broadcast',{event:'tstate'}, function(p){ onTState(p.payload); })
+      .on('broadcast',{event:'tattack'},function(p){ onTAttack(p.payload); })
+      .on('broadcast',{event:'tover'},  function(p){ onTOver(p.payload); })
+      .subscribe();
+    // players map
+    M.players={};
+    players.forEach(function(x){ M.players[x.id]={ name:x.name, score:0, lines:0, alive:true, grid:null, place:0 }; });
+    if(!M.players[eid()]) M.players[eid()]={ name:ename(), score:0, lines:0, alive:true, grid:null, place:0 };
+    M.startN=Object.keys(M.players).length;
+    // engine init
+    M.rng=mulberry32(hashStr(seed)); M.bag=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1; M.pendingGarbage=0; M.nextT=null;
+    openOverlay(); el('tet-controls').style.display='block';
+    buildArena();
+    document.addEventListener('keydown', onKey);
+    var n=3; status('Tournament starting in '+n+'…'); sfxTick();
+    var cd=setInterval(function(){ n--; if(n>0){ status('Tournament starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); goTourney(); } }, 800);
+  }
+  function goTourney(){
+    sfxGo(); spawn(); draw(); updateIncoming(); renderArena();
+    M.dropMs=700; M.loop=setInterval(tick,M.dropMs); M.net=setInterval(sendState,350);
+    M.timeLeft=300; status('⏱ 5:00 · '+tourneyAliveIds().length+' alive');
+    M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ endByTime(); } else { status('⏱ '+fmtT(M.timeLeft)+' · '+tourneyAliveIds().length+' alive'); } }, 1000);
+  }
+  function tourneyAliveIds(){ if(!M||!M.players) return []; return Object.keys(M.players).filter(function(id){ return M.players[id].alive; }); }
+  function onTState(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId||String(p.from)===String(eid())) return;
+    var pl=M.players[p.from]; if(!pl){ pl=M.players[p.from]={name:p.name,score:0,lines:0,alive:true,grid:null,place:0}; buildArena(); }
+    pl.name=p.name||pl.name; pl.score=p.score||0; pl.lines=p.lines||0; pl.alive=p.alive!==false;
+    if(p.grid){ pl.grid=p.grid.split('|').map(function(rw){ return rw.split('').map(Number); }); }
+    renderArena();
+  }
+  function onTAttack(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId) return;
+    if(String(p.to)===String(eid()) && M.alive){ M.pendingGarbage+=(p.lines||0); updateIncoming(); try{ sfxTick(); }catch(e){} }
+  }
+  function onTOver(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId) return;
+    var pl=M.players[p.from]; if(pl){ pl.alive=false; pl.score=p.score||pl.score; pl.place=p.place||pl.place; }
+    renderArena(); tourneyCheckEnd();
+  }
+  function tourneyOnMyDeath(){
+    var me=M.players[eid()]; if(me) me.alive=false;
+    var aliveAfter=tourneyAliveIds().length;
+    var place=aliveAfter+1; if(me) me.place=place;
+    if(M.loop){ clearInterval(M.loop); M.loop=null; }
+    document.removeEventListener('keydown', onKey);
+    sfxLose();
+    try{ M.tchan.send({type:'broadcast',event:'tover',payload:{tid:M.matchId,from:eid(),name:ename(),score:M.score,place:place}}); }catch(e){}
+    status('💥 Knocked out — placed #'+place+' of '+M.startN+'. Watching for the winner…');
+    renderArena(); tourneyCheckEnd();
+  }
+  function tourneyCheckEnd(){
+    if(!M||M.ended) return;
+    var alive=tourneyAliveIds();
+    if(alive.length>1) return;
+    M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
+    var winId=alive[0]||null;
+    if(winId && String(winId)===String(eid()) && M.alive){ status('🏆 You are the CHAMPION! Awarding points…'); sfxWin(); awardWin(); }
+    else if(winId){ var wn=(M.players[winId]&&M.players[winId].name)||'A player'; status('🏆 '+esc(wn)+' is the champion! 🎉'); }
+    else { status('🏁 Tournament over.'); }
+    renderArena();
+  }
+  function tourneyTimeEnd(){
+    if(M.ended) return;
+    var alive=tourneyAliveIds(); var best=null;
+    alive.forEach(function(id){ if(best===null || M.players[id].score>M.players[best].score) best=id; });
+    M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
+    document.removeEventListener('keydown', onKey);
+    if(best && String(best)===String(eid()) && M.alive){ status('🏆 Time! Top score — you are the champion! Awarding…'); sfxWin(); awardWin(); }
+    else if(best){ var wn=(M.players[best]&&M.players[best].name)||'Top scorer'; status('🏁 Time! '+esc(wn)+' wins on score.'); sfxLose(); }
+    else { status('🏁 Time!'); }
+    renderArena();
+  }
+  // Arena: mini-boards of all other players
+  function buildArena(){
+    var box=el('tet-arena'); if(!box||!M||!M.players) return;
+    var ids=Object.keys(M.players).filter(function(id){ return id!==eid(); });
+    box.innerHTML=ids.map(function(id){ return '<div style="text-align:center;" id="tacard-'+id+'">'+
+      '<div style="font-size:10px;color:#9fb0d6;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 auto 3px;">'+esc(M.players[id].name)+'</div>'+
+      '<div style="position:relative;display:inline-block;"><canvas id="tacanvas-'+id+'" width="64" height="128" style="background:#070b16;border:1px solid rgba(255,255,255,.12);border-radius:7px;display:block;"></canvas>'+
+      '<div id="tako-'+id+'" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.55);border-radius:7px;align-items:center;justify-content:center;color:#f87171;font-weight:800;font-size:11px;">KO</div></div>'+
+      '<div style="font-size:10px;color:#cdd6f5;margin-top:2px;"><b id="tascore-'+id+'">0</b></div></div>'; }).join('');
+    renderArena();
+  }
+  function renderArena(){
+    if(!M||!M.players) return;
+    Object.keys(M.players).forEach(function(id){ if(id===eid()) return;
+      var pl=M.players[id]; var cv=el('tacanvas-'+id); if(!cv) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
+      ctx.clearRect(0,0,cv.width,cv.height);
+      if(pl.grid){ for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(pl.grid[y]&&pl.grid[y][x])||0; if(v){ ctx.fillStyle=(v===8?'#5b6b82':(COLORS[v]||'#5b6b82')); ctx.fillRect(x*cs,y*cs,cs-0.5,cs-0.5); } } }
+      var sc=el('tascore-'+id); if(sc) sc.textContent=pl.score;
+      var ko=el('tako-'+id); if(ko) ko.style.display=pl.alive?'none':'flex';
+    });
   }
 })();
 </script>
