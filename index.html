@@ -5180,6 +5180,31 @@
 // CONFIG — update these two values
 // ─────────────────────────────────────────────
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbOUn-0xO4r8H4bw4nA7YMfVb0yByOLL4TuRPKvtPh2rjY-b3rOJ5aBoIc8sOmO9kP/exec";
+
+// ── Shared READ helper: timeout + 1 retry + in-flight dedupe + short TTL cache ──
+// Reads only (resolves a Response so callers keep using .json()). Writes stay on fetch().
+var _jCache={}, _jInflight={};
+function _jKey(u){ return String(u).replace(/[?&]_=\d+/,''); }
+function _jText(url,tries,timeout){
+  return new Promise(function(res,rej){
+    var ctrl=window.AbortController?new AbortController():null;
+    var to=setTimeout(function(){ try{ ctrl&&ctrl.abort(); }catch(e){} }, timeout||15000);
+    fetch(url, ctrl?{signal:ctrl.signal}:undefined)
+      .then(function(r){ return r.text(); })
+      .then(function(t){ clearTimeout(to); res(t); })
+      .catch(function(e){ clearTimeout(to); if((tries||1)>1) _jText(url,(tries||1)-1,timeout).then(res,rej); else rej(e); });
+  });
+}
+function jGet(url, ttl){
+  ttl = (ttl==null?1500:ttl);
+  var key=_jKey(url), now=Date.now(), c=_jCache[key];
+  if(ttl>0 && c && (now-c.t)<ttl) return Promise.resolve(new Response(c.txt));
+  if(ttl>0 && _jInflight[key]) return _jInflight[key].then(function(t){ return new Response(t); });
+  var p=_jText(url, ttl>0?2:1, 15000).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
+  if(ttl>0) _jInflight[key]=p;
+  return p.then(function(t){ return new Response(t); });
+}
+function jBust(){ _jCache={}; }
 const COMPANY_NAME    = "JMB VIRTUALS";  // shown in header & login
 
 // ─────────────────────────────────────────────
@@ -5723,7 +5748,7 @@ async function renderCutoffHours(id){
   if (tile) tile.title = 'Productive tracked hours · cutoff ' + co.label;
   var lEl = tile ? tile.querySelector('.kpi-l') : null; if (lEl) lEl.textContent = 'Tracked hours (cutoff)';
   try {
-    var res = await fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now());
+    var res = await jGet(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now());
     var j = await res.json();
     var total = 0;
     (j.worklog || []).forEach(function(w){
@@ -5745,7 +5770,7 @@ async function renderKPIs(data) {
   renderCutoffHours(id);   // Hours tracked = productive tracked hours for the current cutoff
   var mk = monthKeyPHT();   // monthly cards roll over to the new month at 8 AM PHT on the 1st
   try {
-    var res = await fetch(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk));
+    var res = await jGet(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk));
     var j = await res.json();
     var sc = j.scorecard || {}, ab = j.attendance_breakdown || {};
     if (sc.overall != null && sc.overall !== '') countUp(document.getElementById('kpi-score'), Math.round(parseFloat(sc.overall))); else set('kpi-score', '—');
@@ -6037,7 +6062,7 @@ function empLiveStop(){
 }
 async function empFetchRunning(){
   try{
-    var r=await fetch(APPS_SCRIPT_URL+'?action=get_running&_='+Date.now()); var d=await r.json();
+    var r=await jGet(APPS_SCRIPT_URL+'?action=get_running&_='+Date.now()); var d=await r.json();
     _empLiveRows=(d&&d.running)||[]; _empLiveBase=Date.now(); empRenderLive();
     var u=document.getElementById('emp-live-updated'); if(u) u.textContent='Updated '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' · auto-refreshes';
   }catch(e){ var box=document.getElementById('emp-live-now'); if(box) box.innerHTML='<div class="emp-live-empty" style="color:#f87171">Could not load live data.</div>'; }
@@ -6050,7 +6075,7 @@ async function loadNotifs(openRender){
   var id=_notifEmpId(); if(!id) return;
   try{
     var d=_bootTake('notifications');
-    if(!d){ var r=await fetch(APPS_SCRIPT_URL+'?action=get_notifications&employee_id='+encodeURIComponent(id)+'&_='+Date.now()); d=await r.json(); }
+    if(!d){ var r=await jGet(APPS_SCRIPT_URL+'?action=get_notifications&employee_id='+encodeURIComponent(id)+'&_='+Date.now()); d=await r.json(); }
     if(!d||!d.ok) return; _notifs=d.notifications||[];
     var b=document.getElementById('notif-badge'); if(b){ if(d.unread>0){ b.style.display=''; b.textContent=d.unread>99?'99+':d.unread; } else b.style.display='none'; }
     var panel=document.getElementById('notif-panel');
@@ -6094,7 +6119,7 @@ function toggleEmpCal(){
 function empCalShift(d){ _empCalM=new Date(_empCalM.getFullYear(), _empCalM.getMonth()+d, 1); renderEmpCal(); }
 async function loadEmpCal(){
   var box=document.getElementById('emp-cal-body'); if(box) box.innerHTML='<div class="emp-live-empty">Loading…</div>';
-  try{ var r=await fetch(APPS_SCRIPT_URL+'?action=approved_leaves&_='+Date.now()); var d=await r.json(); _empCalLeaves=(d&&d.leaves)||[]; renderEmpCal(); }
+  try{ var r=await jGet(APPS_SCRIPT_URL+'?action=approved_leaves&_='+Date.now()); var d=await r.json(); _empCalLeaves=(d&&d.leaves)||[]; renderEmpCal(); }
   catch(e){ if(box) box.innerHTML='<div class="emp-live-empty" style="color:#f87171">Could not load leaves.</div>'; }
 }
 function _ecYMD(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
@@ -6313,7 +6338,7 @@ function loadMyDemerits() {
   listEl.innerHTML='<div class="cfy-no-entries" style="padding:10px 0;font-size:12.5px;">Loading…</div>';
   var _cd=_bootTake('demerits');
   var _demP = _cd ? Promise.resolve(_cd)
-                  : fetch(APPS_SCRIPT_URL + '?action=get_demerits&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;});
+                  : jGet(APPS_SCRIPT_URL + '?action=get_demerits&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;});
   Promise.all([
     _demP,
     fetch(APPS_SCRIPT_URL + '?action=get_demerit_disputes&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;})
@@ -6449,7 +6474,7 @@ async function renderScoreTrend(empId, year, month) {
   try {
     var vals = await Promise.all(months.map(function(mo) {
       var k = mo.y + '-' + String(mo.m).padStart(2, '0');
-      return fetch(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(empId) + '&month=' + encodeURIComponent(k))
+      return jGet(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(empId) + '&month=' + encodeURIComponent(k))
         .then(function(r){ return r.json(); })
         .then(function(j){ var sc = j && j.scorecard; return (sc && sc.overall != null && sc.overall !== '') ? parseFloat(sc.overall) : null; })
         .catch(function(){ return null; });
@@ -7756,7 +7781,7 @@ function openMyAppeals(){ document.getElementById('myappeals-modal').classList.a
 function closeMyAppeals(){ var m=document.getElementById('myappeals-modal'); if(m) m.classList.remove('show'); }
 function loadMyAppeals(){
   var box=document.getElementById('myappeals-list'); box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div>';
-  fetch(APPS_SCRIPT_URL+'?action=my_appeals&employee_id='+encodeURIComponent(attEmpId)+'&_='+Date.now())
+  jGet(APPS_SCRIPT_URL+'?action=my_appeals&employee_id='+encodeURIComponent(attEmpId)+'&_='+Date.now())
     .then(function(r){ return r.json(); }).then(function(d){
       var rows=(d&&d.appeals)||[];
       if(!rows.length){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">No appeals yet. Use “Appeal missing / untracked work” on the EOD receipt.</div>'; return; }
@@ -8573,7 +8598,7 @@ async function loadTrackerHistory() {
   if (!wrap) return;
   try {
     var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
-    var res  = await fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(empId));
+    var res  = await jGet(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(empId));
     var json = await res.json();
     var byDate = {};
     (json.worklog || []).forEach(function(w) {
@@ -8629,7 +8654,7 @@ async function openDayLog(ev, date) {
   if (!items) {
     try {
       var empId = attEmpId || (trkEmpData && trkEmpData.employee_id) || '';
-      var res  = await fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(empId));
+      var res  = await jGet(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(empId));
       var json = await res.json();
       items = (json.worklog || []).filter(function(w){ return w.date === date && w.status !== 'running'; });
     } catch (e) { items = []; }
@@ -10019,7 +10044,7 @@ function setMonthlyTrackedHours() {
   var id = attEmpId || (trkEmpData && trkEmpData.employee_id) || (window._currentEmpData && window._currentEmpData.employee_id) || '';
   if (!id) return;
   var mk = monthKeyPHT();
-  fetch(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now())
+  jGet(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now())
     .then(function(r){ return r.json(); }).then(function(d){
       var mins = 0;
       (d.worklog || []).forEach(function(w){
@@ -10505,7 +10530,7 @@ function refreshAllBubbleStatus(){
 // Poll the backend for who is actually running/paused a timer right now (team-wide,
 // browser-independent) and recolour the rings.
 function pollActiveTracker(){
-  fetch(APPS_SCRIPT_URL + '?action=get_active_tracker')
+  jGet(APPS_SCRIPT_URL + '?action=get_active_tracker')
     .then(function(r){ return r.json(); })
     .then(function(d){
       serverStatus = (d && d.statuses) || {};
@@ -13486,7 +13511,7 @@ function rdCalc(){
 }
 function loadPoints(){
   var id=_pEmp(); if(!id) return;
-  fetch(APPS_SCRIPT_URL+'?action=points_balance&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
+  jGet(APPS_SCRIPT_URL+'?action=points_balance&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok) return; _pBal=d.balance||0;
       var b=document.getElementById('points-bal'); if(b) b.textContent=Number(_pBal).toLocaleString();
@@ -13837,7 +13862,7 @@ body.light .jul4-lbscore{color:#059669}
   window.showLeaderboard=function(myScore, myTotal){
     if(lbTimer){ clearInterval(lbTimer); lbTimer=null; }
     var fetchLb=function(){
-      fetch(APPS_SCRIPT_URL+'?action=trivia_leaderboard&employee_id='+encodeURIComponent(empId())+'&_='+Date.now())
+      jGet(APPS_SCRIPT_URL+'?action=trivia_leaderboard&employee_id='+encodeURIComponent(empId())+'&_='+Date.now())
         .then(function(r){return r.json();}).then(function(d){
           renderLeaderboard(d, myScore, myTotal);
           if(d && d.exists && !d.finalized){ if(!lbTimer) lbTimer=setInterval(fetchLb, 5000); }   // realtime: others' scores appear as they finish

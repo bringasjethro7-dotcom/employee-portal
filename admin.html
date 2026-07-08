@@ -1360,6 +1360,32 @@ h1,h2,h3,#mtitle,.modal-title{font-family:'Sora','Inter',sans-serif;letter-spaci
 const PASS = "JMBeast_020298";
 const API  = "https://script.google.com/macros/s/AKfycbxbOUn-0xO4r8H4bw4nA7YMfVb0yByOLL4TuRPKvtPh2rjY-b3rOJ5aBoIc8sOmO9kP/exec";
 
+// ── Shared READ helper: timeout + 1 retry + in-flight dedupe + short TTL cache ──
+// Use for GET reads only. Resolves a Response, so callers keep using .json()/.text().
+// Never use for writes (set_/save_/resolve_/record_/purge_/otp_ …) — those stay on fetch().
+var _jCache={}, _jInflight={};
+function _jKey(u){ return String(u).replace(/[?&]_=\d+/,''); }
+function _jText(url,tries,timeout){
+  return new Promise(function(res,rej){
+    var ctrl=window.AbortController?new AbortController():null;
+    var to=setTimeout(function(){ try{ ctrl&&ctrl.abort(); }catch(e){} }, timeout||15000);
+    fetch(url, ctrl?{signal:ctrl.signal}:undefined)
+      .then(function(r){ return r.text(); })
+      .then(function(t){ clearTimeout(to); res(t); })
+      .catch(function(e){ clearTimeout(to); if((tries||1)>1) _jText(url,(tries||1)-1,timeout).then(res,rej); else rej(e); });
+  });
+}
+function jGet(url, ttl){
+  ttl = (ttl==null?1500:ttl);
+  var key=_jKey(url), now=Date.now(), c=_jCache[key];
+  if(ttl>0 && c && (now-c.t)<ttl) return Promise.resolve(new Response(c.txt));
+  if(ttl>0 && _jInflight[key]) return _jInflight[key].then(function(t){ return new Response(t); });
+  var p=_jText(url, ttl>0?2:1, 15000).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
+  if(ttl>0) _jInflight[key]=p;
+  return p.then(function(t){ return new Response(t); });
+}
+function jBust(){ _jCache={}; }   // call after a write to force fresh reads
+
 let emps=JSON.parse(localStorage.getItem('portal_employees')||'[]'), editIdx=-1;
 let attRecs=[], leaveRecs=[];
 
@@ -1452,14 +1478,14 @@ async function salesLoadFx(){
   var fx=document.getElementById('sl-fx');
   var method=(document.getElementById('sl-method')||{}).value||'wise';
   try{
-    var r=await fetch(API+'?action=fx_rate&method='+encodeURIComponent(method)+'&_='+Date.now()); var d=await r.json();
+    var r=await jGet(API+'?action=fx_rate&method='+encodeURIComponent(method)+'&_='+Date.now()); var d=await r.json();
     if(d&&d.ok&&d.rate){ var net=Math.round(d.rate*1e4)/1e4; fx.value=net; var raw=d.raw_rate?(Math.round(d.raw_rate*1e4)/1e4):null; fx.placeholder=net+(raw?(' ('+method+': market '+raw+' −₱'+(d.margin)+')'):' (today)'); }
     else fx.placeholder='enter rate';
   }catch(e){ fx.placeholder='enter rate'; }
   salesRecompute();
 }
 async function loadFxMargins(){
-  try{ var r=await fetch(API+'?action=get_fx_margins&_='+Date.now()); var d=await r.json();
+  try{ var r=await jGet(API+'?action=get_fx_margins&_='+Date.now()); var d=await r.json();
     if(d&&d.ok){ var b=document.getElementById('fm-binance'),w=document.getElementById('fm-wise'),p=document.getElementById('fm-paypal');
       if(b&&b.value==='') b.value=d.binance; if(w&&w.value==='') w.value=d.wise; if(p&&p.value==='') p.value=d.paypal; }
   }catch(e){}
@@ -1475,7 +1501,7 @@ async function setSalesStatus(id,status){
   try{
     var r=await fetch(API+'?action=set_sales_status&id='+encodeURIComponent(id)+'&status='+encodeURIComponent(status)+'&_='+Date.now());
     var d=await r.json();
-    if(d&&d.ok){ if(typeof toast==='function') toast('Invoice marked '+status+((status==='sent'||status==='paid')?' — rate locked.':'.')); loadSalesData(); }
+    if(d&&d.ok){ if(typeof toast==='function') toast('Invoice marked '+status+((status==='sent'||status==='paid')?' — rate locked.':'.')); jBust(); loadSalesData(); }
     else if(typeof toast==='function') toast('Status update failed: '+((d&&d.error)||'error'));
   }catch(e){ if(typeof toast==='function') toast('Status update failed (network).'); }
 }
@@ -1524,7 +1550,7 @@ function salesRecompute(){
 async function loadSalesData(){
   var tb=document.getElementById('sales-tbody'); tb.innerHTML='<tr><td colspan="10" class="es">Loading…</td></tr>';
   try{
-    var r=await fetch(API+'?action=get_sales&token='+encodeURIComponent(_salesToken())+'&_='+Date.now()); var d=await r.json();
+    var r=await jGet(API+'?action=get_sales&token='+encodeURIComponent(_salesToken())+'&_='+Date.now()); var d=await r.json();
     if(d&&d.error==='LOCKED'){ salesLock(); return; }
     var rows=(d&&d.sales)||[];
     if(!rows.length){ tb.innerHTML='<tr><td colspan="14" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
@@ -1600,7 +1626,7 @@ function liveStatus(rn){
 async function loadLive(){
   var sel=document.getElementById('live-emp');
   if(sel && sel.options.length<=1){
-    try{ var r=await fetch(API+'?action=get_all_employees'); var d=await r.json(); (d.employees||[]).forEach(function(e){ sel.innerHTML+='<option value="'+e.employee_id+'">'+escAdmin(e.full_name||e.employee_id)+'</option>'; }); }catch(e){}
+    try{ var r=await jGet(API+'?action=get_all_employees'); var d=await r.json(); (d.employees||[]).forEach(function(e){ sel.innerHTML+='<option value="'+e.employee_id+'">'+escAdmin(e.full_name||e.employee_id)+'</option>'; }); }catch(e){}
   }
   var f=document.getElementById('live-from'), t=document.getElementById('live-to');
   if(f && !f.value){ var now=new Date(); t.value=fmtYMD(now); f.value=fmtYMD(new Date(now.getTime()-6*86400000)); }
@@ -1754,13 +1780,13 @@ async function loadDashboard(opts){
   if(!list) return;
   if(!opts.silent) list.innerHTML='<div class="es">Loading…</div>';
   // Demerit disputes card: how many are pending
-  fetch(API+'?action=get_all_demerit_disputes&status=pending&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+  jGet(API+'?action=get_all_demerit_disputes&status=pending&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
     var n=((d&&d.disputes)||[]).length; var el=document.getElementById('dc-demdisp'); if(el) el.textContent=n;
   }).catch(function(){});
   try{
     var R=await Promise.all([
-      fetch(API+'?action=get_leave_requests').then(function(r){return r.json();}).catch(function(){return {};}),
-      fetch(API+'?action=get_coe_requests').then(function(r){return r.json();}).catch(function(){return {};})
+      jGet(API+'?action=get_leave_requests').then(function(r){return r.json();}).catch(function(){return {};}),
+      jGet(API+'?action=get_coe_requests').then(function(r){return r.json();}).catch(function(){return {};})
     ]);
     var leave=(R[0].requests||[]).filter(function(r){return (r.status||'pending')==='pending';});
     var coe=(R[1].requests||[]).filter(function(r){return (r.status||'pending').toLowerCase()==='pending';});
@@ -1788,7 +1814,7 @@ async function loadDashboard(opts){
   }catch(e){ list.innerHTML='<div class="es">Could not load dashboard.</div>'; }
 }
 async function dashAct(url, okMsg){
-  try{ await fetch(API+url); if(okMsg&&typeof toast==='function') toast(okMsg); setTimeout(loadDashboard,700); }catch(e){ if(typeof toast==='function') toast('Action failed.'); }
+  try{ await fetch(API+url); jBust(); if(okMsg&&typeof toast==='function') toast(okMsg); setTimeout(loadDashboard,700); }catch(e){ if(typeof toast==='function') toast('Action failed.'); }
 }
 
 /* ════════ DEMERITS ════════ */
@@ -1810,12 +1836,12 @@ function dmFillEmployees(){
   var f=document.getElementById('dm-filter'); if(f){ var cur=f.value; f.innerHTML='<option value="">Standings (all)</option>'+optHtml; f.value=cur; }
 }
 async function loadDemerits(){
-  if(!_demEmps().length){ try{ var er=await fetch(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  if(!_demEmps().length){ try{ var er=await jGet(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
   dmFillCategories(); dmFillEmployees();
   var dEl=document.getElementById('dm-date'); if(dEl && !dEl.value){ var n=new Date(); dEl.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); }
   var body=document.getElementById('dm-body'); body.innerHTML='<div class="es">Loading…</div>';
   loadDemeritDisputes();
-  try{ var r=await fetch(API+'?action=get_demerits&_='+Date.now()); var d=await r.json(); DEM_STATE.rows=(d&&d.rows)||[]; DEM_STATE.standings=(d&&d.standings)||[]; renderDemerits(); }
+  try{ var r=await jGet(API+'?action=get_demerits&_='+Date.now()); var d=await r.json(); DEM_STATE.rows=(d&&d.rows)||[]; DEM_STATE.standings=(d&&d.standings)||[]; renderDemerits(); }
   catch(e){ body.innerHTML='<div class="es" style="color:#f87171">Could not load demerits.</div>'; }
   // (Auto-detect no longer runs on tab open — it held the script lock and made disputes/actions time out.
   //  Use the "⚡ Run auto-detect" button, or the daily trigger, instead.)
@@ -1834,7 +1860,7 @@ function openLightbox(full, orig){ var lb=document.getElementById('img-lightbox'
 function closeLightbox(){ var lb=document.getElementById('img-lightbox'); if(lb){ lb.style.display='none'; document.getElementById('img-lightbox-img').src=''; } }
 async function loadDemeritDisputes(){
   var box=document.getElementById('dm-disputes'); if(!box) return; box.innerHTML='';
-  try{ var r=await fetch(API+'?action=get_all_demerit_disputes&status=pending&_='+Date.now()); var d=await r.json();
+  try{ var r=await jGet(API+'?action=get_all_demerit_disputes&status=pending&_='+Date.now()); var d=await r.json();
     var list=(d&&d.disputes)||[]; if(!list.length){ box.innerHTML=''; return; }
     box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
       '<div style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">⚑ Demerit disputes to review ('+list.length+')</div>'+
@@ -1855,7 +1881,7 @@ async function demResolveDispute(id,status){
   var note=''; if(status==='rejected'){ note=prompt('Optional note to the employee (reason for rejecting):')||''; }
   if(status==='approved' && !confirm('Approve this dispute? This will VOID the demerit (removes it from their score).')) return;
   try{ var r=await fetch(API+'?action=resolve_demerit_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note)+'&_='+Date.now()); var d=await r.json();
-    if(d&&d.ok){ if(typeof toast==='function') toast('Dispute '+status+'.'); loadDemeritDisputes(); loadDemerits(); } else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error'));
+    if(d&&d.ok){ if(typeof toast==='function') toast('Dispute '+status+'.'); jBust(); loadDemeritDisputes(); loadDemerits(); } else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error'));
   }catch(e){ if(typeof toast==='function') toast('Failed (network).'); }
 }
 // Scan attendance + worklog and auto-log new demerits. silent=true skips the toast/button spinner.
@@ -1864,7 +1890,7 @@ async function autoScanDemerits(days, silent){
     var r=await fetch(API+'?action=auto_demerits&days='+(days||7)+'&_='+Date.now()); var d=await r.json();
     if(d&&d.ok){
       if(d.added>0){
-        var r2=await fetch(API+'?action=get_demerits&_='+Date.now()); var d2=await r2.json();
+        var r2=await jGet(API+'?action=get_demerits&_='+Date.now()); var d2=await r2.json();
         DEM_STATE.rows=(d2&&d2.rows)||[]; DEM_STATE.standings=(d2&&d2.standings)||[]; renderDemerits();
       }
       if(!silent && typeof toast==='function') toast(d.added>0?('Auto-detect logged '+d.added+' new demerit'+(d.added>1?'s':'')+'.'):'Auto-detect ran — nothing new to flag.');
@@ -1879,7 +1905,7 @@ async function loadQaGrid(){
   var month=_qaMonthVal(); var box=document.getElementById('qa-body'); if(!box) return;
   box.innerHTML='<div class="es">Loading…</div>';
   loadQaDisputes();
-  if(!_demEmps().length){ try{ var er=await fetch(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  if(!_demEmps().length){ try{ var er=await jGet(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
   var map={}; try{ var r=await fetch(API+'?action=get_all_qa_weekly&month='+encodeURIComponent(month)+'&_='+Date.now()); var d=await r.json(); map=(d&&d.map)||{}; }catch(e){}
   var list=_demEmps().filter(function(e){return e.employee_id && String(e.status||'active').toLowerCase()!=='inactive';})
     .sort(function(a,b){ return String(a.full_name||a.employee_id).localeCompare(String(b.full_name||b.employee_id)); });
@@ -1893,7 +1919,7 @@ async function loadQaGrid(){
 }
 async function loadQaDisputes(){
   var box=document.getElementById('qa-disputes'); if(!box) return; box.innerHTML='';
-  try{ var r=await fetch(API+'?action=get_all_qa_disputes&status=pending&_='+Date.now()); var d=await r.json();
+  try{ var r=await jGet(API+'?action=get_all_qa_disputes&status=pending&_='+Date.now()); var d=await r.json();
     var list=(d&&d.disputes)||[]; if(!list.length){ box.innerHTML=''; return; }
     box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
       '<div style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">⚑ QA disputes to review ('+list.length+')</div>'+
@@ -1913,7 +1939,7 @@ async function loadQaDisputes(){
 async function qaResolveDispute(id,status){
   var note=''; if(status==='rejected'){ note=prompt('Optional note to the employee (reason for rejecting):')||''; }
   try{ var r=await fetch(API+'?action=resolve_qa_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note)+'&_='+Date.now()); var d=await r.json();
-    if(d&&d.ok){ if(typeof toast==='function') toast('Dispute '+status+'.'); loadQaDisputes(); } else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error'));
+    if(d&&d.ok){ if(typeof toast==='function') toast('Dispute '+status+'.'); jBust(); loadQaDisputes(); } else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error'));
   }catch(e){ if(typeof toast==='function') toast('Failed (network).'); }
 }
 async function qaSave(inp){
@@ -2034,7 +2060,7 @@ function discSign(m){return (m>0?'+':(m<0?'−':''))+discFmt(m);}
 async function initDiscrepancy(){
   var sel=document.getElementById('disc-emp'); if(!sel) return;
   if(sel.options.length<=1){
-    try{ var r=await fetch(API+'?action=get_all_employees'); var d=await r.json();
+    try{ var r=await jGet(API+'?action=get_all_employees'); var d=await r.json();
       (d.employees||[]).forEach(function(e){ sel.innerHTML+='<option value="'+e.employee_id+'">'+escAdmin(e.full_name||e.employee_id)+' ('+e.employee_id+')</option>'; });
     }catch(e){}
   }
@@ -2046,8 +2072,8 @@ async function loadDiscrepancy(){
   body.innerHTML='<div style="color:var(--t3);font-size:13px;padding:24px 0;text-align:center;">Loading…</div>';
   try{
     var resp=await Promise.all([
-      fetch(API+'?action=get_attendance&id='+encodeURIComponent(id)).then(function(r){return r.json();}).catch(function(){return {};}),
-      fetch(API+'?action=get_worklog&employee_id='+encodeURIComponent(id)).then(function(r){return r.json();}).catch(function(){return {};})
+      jGet(API+'?action=get_attendance&id='+encodeURIComponent(id)).then(function(r){return r.json();}).catch(function(){return {};}),
+      jGet(API+'?action=get_worklog&employee_id='+encodeURIComponent(id)).then(function(r){return r.json();}).catch(function(){return {};})
     ]);
     var aData=resp[0]||{}, wData=resp[1]||{};
     var recs=(aData.records||aData.attendance||[]);
@@ -2427,7 +2453,7 @@ function spawnShards(el){try{var r=el.getBoundingClientRect();var cx=r.left+r.wi
 function removeBubble(id){var el=_bubbleEls[id];if(!el)return;delete _bubbleEls[id];delete _phys[id];el.classList.remove('entering');el.style.transform='';el.classList.add('leaving');spawnShards(el);bubblePop();setTimeout(function(){if(el&&el.parentNode)el.parentNode.removeChild(el);},540);}
 function bubbleClicked(id,name){goTab('chat');setTimeout(function(){if(typeof adminSelectChat==='function'){ if(id===ADMIN_ID) adminSelectChat('group','Group Chat'); else adminSelectChat(id,name); }},140);}
 function refreshAllBubbleStatus(){Object.keys(_bubbleEls).forEach(function(id){if(id===ADMIN_ID)return;applyBubbleStatus(_bubbleEls[id],statusFor(id));});}
-function pollActiveTracker(){fetch(API+'?action=get_active_tracker').then(function(r){return r.json();}).then(function(d){serverStatus=(d&&d.statuses)||{};refreshAllBubbleStatus();}).catch(function(){});}
+function pollActiveTracker(){jGet(API+'?action=get_active_tracker').then(function(r){return r.json();}).then(function(d){serverStatus=(d&&d.statuses)||{};refreshAllBubbleStatus();}).catch(function(){});}
 
 function initBubblePhysics(id,el){var x=parseFloat(el.style.left)||0,y=parseFloat(el.style.top)||0,size=el.offsetWidth||60;_phys[id]={x:x,y:y,vx:(Math.random()-0.5)*0.5,vy:-0.3,size:size,dragging:false};el.onclick=null;attachBubbleDrag(id,el);if(!_physRAF)_physRAF=requestAnimationFrame(physicsStep);}
 function attachBubbleDrag(id,el){var c=document.getElementById('presence-bubbles');var moved=0,lx=0,ly=0,lt=0;el.addEventListener('pointerdown',function(ev){var p=_phys[id];if(!p)return;try{el.setPointerCapture(ev.pointerId);}catch(e){}var r=c.getBoundingClientRect();p.dragging=true;moved=0;p.gx=ev.clientX-r.left-p.x;p.gy=ev.clientY-r.top-p.y;lx=ev.clientX;ly=ev.clientY;lt=performance.now();el.classList.add('grabbing');el.style.zIndex=90;ev.preventDefault();});el.addEventListener('pointermove',function(ev){var p=_phys[id];if(!p||!p.dragging)return;var r=c.getBoundingClientRect();p.x=ev.clientX-r.left-p.gx;p.y=ev.clientY-r.top-p.gy;el.style.left=p.x+'px';el.style.top=p.y+'px';moved+=Math.abs(ev.clientX-lx)+Math.abs(ev.clientY-ly);var now=performance.now(),dt=Math.max(8,now-lt);p.vx=(ev.clientX-lx)/dt*16;p.vy=(ev.clientY-ly)/dt*16;lx=ev.clientX;ly=ev.clientY;lt=now;});function rel(){var p=_phys[id];if(!p||!p.dragging)return;p.dragging=false;el.classList.remove('grabbing');el.style.zIndex='';var mx=32;p.vx=Math.max(-mx,Math.min(mx,p.vx));p.vy=Math.max(-mx,Math.min(mx,p.vy));if(moved<6){p.vx*=0.05;p.vy*=0.05;bubbleClicked(id,presenceNames[id]||id);}}el.addEventListener('pointerup',rel);el.addEventListener('pointercancel',rel);}
@@ -2465,10 +2491,10 @@ async function loadExpectedGrid(){
   var daysIn=new Date(y,mo,0).getDate();
   // fetch saved ticks
   var saved={};
-  try{ var r=await fetch(API+'?action=get_expected_days&month='+encodeURIComponent(month)); var d=await r.json(); saved=(d&&d.data)||{}; }catch(e){}
+  try{ var r=await jGet(API+'?action=get_expected_days&month='+encodeURIComponent(month)); var d=await r.json(); saved=(d&&d.data)||{}; }catch(e){}
   // fetch each VA's main project (same source as payroll) so rows can be grouped by Project
   var mainProj={};
-  try{ var fr=await fetch(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.main_project) mainProj=fd.main_project; }catch(e){}
+  try{ var fr=await jGet(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.main_project) mainProj=fd.main_project; }catch(e){}
   var edProjectOf=function(e){ return (mainProj[e.employee_id]||e.client||e.department||'').trim() || 'Unassigned'; };
   // header row: name + day numbers + quick-fill
   var dn=['S','M','T','W','T','F','S'];
@@ -2631,7 +2657,7 @@ async function loadPauses(){
   var body=document.getElementById('cp-body'); if(!body) return;
   body.innerHTML='<tr><td colspan="5" class="es">Loading…</td></tr>';
   try{
-    var res=await fetch(API+'?action=get_client_pauses');
+    var res=await jGet(API+'?action=get_client_pauses');
     var d=await res.json();
     var rows=d.pauses||[];
     if(!rows.length){ body.innerHTML='<tr><td colspan="5" class="es">No client pauses set.</td></tr>'; return; }
@@ -2668,11 +2694,11 @@ async function pgPreview(){
   var from=document.getElementById('pg-from').value, to=document.getElementById('pg-to').value;
   var source=document.getElementById('pg-source').value, incIdle=document.getElementById('pg-idle').checked;
   if(!from||!to){ alert('Pick a From and To date.'); return; }
-  if(!payEmps||!payEmps.length){ try{ var r0=await fetch(API+'?action=get_all_employees'); var d0=await r0.json(); payEmps=d0.employees||[]; }catch(e){} }
+  if(!payEmps||!payEmps.length){ try{ var r0=await jGet(API+'?action=get_all_employees'); var d0=await r0.json(); payEmps=d0.employees||[]; }catch(e){} }
   var box=document.getElementById('pg-preview'); box.innerHTML='<div class="es" style="padding:10px 0">Computing…</div>';
   document.getElementById('pg-save').style.display='none';
   try{
-    var wr=await fetch(API+'?action=get_worklog&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+'&_='+Date.now());
+    var wr=await jGet(API+'?action=get_worklog&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+'&_='+Date.now());
     var wd=await wr.json(); var wrows=(wd&&wd.worklog)||[];
     var wlByEmp={};
     wrows.forEach(function(w){ if(!w.date||w.status==='running'||w.status==='rejected') return; var id=String(w.employee_id||''); var h=parseFloat(w.hours)||0; var o=wlByEmp[id]||(wlByEmp[id]={prod:0,idle:0}); if(isIdleProj(w.project)) o.idle+=h; else o.prod+=h; });
@@ -2680,7 +2706,7 @@ async function pgPreview(){
     // person's shift (night/morning) over the cutoff so night shift gets the 5% diff.
     var attByEmp={};
     await Promise.all((payEmps||[]).map(function(e){ var id=String(e.employee_id);
-      return fetch(API+'?action=get_attendance&id='+encodeURIComponent(id)+'&_='+Date.now()).then(function(r){return r.json();}).then(function(a){
+      return jGet(API+'?action=get_attendance&id='+encodeURIComponent(id)+'&_='+Date.now()).then(function(r){return r.json();}).then(function(a){
         var recs=(a.records||a.attendance||[]); var mins=0, night=0, morning=0;
         recs.forEach(function(rec){ var dk=String(rec.date).slice(0,10); if(dk>=from && dk<=to){ var m=minsWorkedAdmin(rec); if(m) mins+=m; var sh=String(rec.shift||'').toLowerCase(); if(sh==='night') night++; else if(sh) morning++; } });
         attByEmp[id]={ clocked:mins/60, night:night, morning:morning };
@@ -2743,7 +2769,7 @@ var _pgBanks={};
 async function pgDisburse(){
   if(!_pgRows||!_pgRows.length){ alert('Preview a cutoff first.'); return; }
   var box=document.getElementById('pg-disburse'); box.innerHTML='<div class="es" style="padding:10px 0">Loading GoTyme accounts…</div>';
-  try{ var r=await fetch(API+'?action=get_banks&_='+Date.now()); var d=await r.json(); _pgBanks=(d&&d.banks)||{}; }catch(e){ _pgBanks={}; }
+  try{ var r=await jGet(API+'?action=get_banks&_='+Date.now()); var d=await r.json(); _pgBanks=(d&&d.banks)||{}; }catch(e){ _pgBanks={}; }
   var ref='JMB Payroll '+_pgPeriod;
   var rows=_pgRows.map(function(x,i){
     var acct=_pgBanks[x.id]||'';
@@ -2799,14 +2825,14 @@ async function loadPayslipsAdmin(){
   var empSel=document.getElementById('pay-emp-filter');
   body.innerHTML='<tr><td colspan="7" class="es">Loading…</td></tr>';
   try{
-    var res=await fetch(API+'?action=get_all_employees');
+    var res=await jGet(API+'?action=get_all_employees');
     var d=await res.json();
     payEmps=d.employees||[];
     // Funding: each employee's main project + which (period → project) invoices are paid.
     var fund={main_project:{},paid:{}};
-    try{ var fr=await fetch(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.ok) fund=fd; }catch(_e){}
+    try{ var fr=await jGet(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.ok) fund=fd; }catch(_e){}
     var payBanks={};
-    try{ var bkr=await fetch(API+'?action=get_banks&_='+Date.now()); var bkd=await bkr.json(); payBanks=(bkd&&bkd.banks)||{}; }catch(_b){}
+    try{ var bkr=await jGet(API+'?action=get_banks&_='+Date.now()); var bkd=await bkr.json(); payBanks=(bkd&&bkd.banks)||{}; }catch(_b){}
     var mpOf=function(id){ return fund.main_project[id]||''; };
     var isFunded=function(period,proj){ return !!(proj && fund.paid[period||''] && fund.paid[period||''][String(proj).toLowerCase()]); };
     if(empSel && empSel.options.length<=1){
@@ -2951,7 +2977,7 @@ async function openQrMgr(){
   document.getElementById('qrmgr-modal').style.display='flex';
   var box=document.getElementById('qrmgr-list'); box.innerHTML='<div class="es" style="padding:12px;">Loading…</div>';
   var bs=document.getElementById('qrmgr-bulk-status'); if(bs) bs.textContent='';
-  try{ var r=await fetch(API+'?action=get_all_employees&_='+Date.now()); var d=await r.json(); _qrMgrEmps=(d.employees||[]).filter(function(e){return e.employee_id;}); renderQrMgr(); }
+  try{ var r=await jGet(API+'?action=get_all_employees&_='+Date.now()); var d=await r.json(); _qrMgrEmps=(d.employees||[]).filter(function(e){return e.employee_id;}); renderQrMgr(); }
   catch(e){ box.innerHTML='<div class="es" style="padding:12px;color:#f87171;">Could not load employees.</div>'; }
 }
 function closeQrMgr(){ document.getElementById('qrmgr-modal').style.display='none'; }
@@ -3200,7 +3226,7 @@ function _appealDayHtml(x){
 async function loadAppeals(){
   var box=document.getElementById('appeals-panel'); if(!box) return;
   try{
-    var r=await fetch(API+'?action=get_appeals&_='+Date.now()); var d=await r.json();
+    var r=await jGet(API+'?action=get_appeals&_='+Date.now()); var d=await r.json();
     var a=(d&&d.appeals)||[];
     if(!a.length){ box.innerHTML=''; return; }
     box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
@@ -3227,14 +3253,14 @@ async function resolveAppeal(entryId, decision){
   try{
     var r=await fetch(API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+'&_='+Date.now());
     var d=await r.json();
-    if(d&&d.ok){ loadAppeals(); loadDashAppeals(); loadWorkLog(); } else { alert('Could not resolve the appeal.'); }
+    if(d&&d.ok){ jBust(); loadAppeals(); loadDashAppeals(); loadWorkLog(); } else { alert('Could not resolve the appeal.'); }
   }catch(e){ alert('Network error.'); }
 }
 // Mirror pending appeals onto the Dashboard so they aren't missed in the Time Log tab.
 async function loadDashAppeals(){
   var box=document.getElementById('dash-appeals'); if(!box) return;
   try{
-    var r=await fetch(API+'?action=get_appeals&_='+Date.now()); var d=await r.json();
+    var r=await jGet(API+'?action=get_appeals&_='+Date.now()); var d=await r.json();
     var a=(d&&d.appeals)||[];
     setDashCount('dc-appeals', a.length);
     var tot=document.getElementById('dash-appeals-total'); if(tot) tot.textContent = a.length ? '· '+a.length+' pending' : '';
@@ -3259,7 +3285,7 @@ async function loadWorkLog(){
   var empSel = document.getElementById('wl-emp-filter');
   if(empSel && empSel.options.length <= 1){
     try{
-      var r = await fetch(API + '?action=get_all_employees');
+      var r = await jGet(API + '?action=get_all_employees');
       var d = await r.json();
       wlEmps = d.employees || [];
       wlEmps.forEach(function(e){
@@ -3348,7 +3374,7 @@ async function loadWorkLog(){
 
 function loadFromSheet(){
   if(!API)return;
-  fetch(API+'?action=get_all_employees')
+  jGet(API+'?action=get_all_employees')
     .then(function(r){return r.json();})
     .then(function(d){
       if(d.employees&&Array.isArray(d.employees)){
@@ -3538,7 +3564,7 @@ function loadAtt(){
   tb.innerHTML='<tr><td colspan="9" class="es">Loading…</td></tr>';
   attRecs=[];
   var proms=emps.filter(function(e){return e.employee_id;}).map(function(e){
-    return fetch(API+'?action=get_attendance&id='+encodeURIComponent(e.employee_id))
+    return jGet(API+'?action=get_attendance&id='+encodeURIComponent(e.employee_id))
       .then(function(r){return r.json();})
       .then(function(d){if(d.records)d.records.forEach(function(r){attRecs.push(Object.assign({},r,{full_name:e.full_name,employee_id:e.employee_id}));});})
       .catch(function(){});
@@ -3603,7 +3629,7 @@ function fmtD(s){
 function loadLeave(){
   var tb=document.getElementById('ltbody');
   tb.innerHTML='<tr><td colspan="8" class="es">Loading…</td></tr>';
-  fetch(API+'?action=get_leave_requests')
+  jGet(API+'?action=get_leave_requests')
     .then(function(r){return r.json();})
     .then(function(d){leaveRecs=d.requests||[];filterLeave();})
     .catch(function(){tb.innerHTML='<tr><td colspan="8" class="es">Could not load.</td></tr>';});
@@ -4149,7 +4175,7 @@ function loadCOE() {
   if (!tb) return;
   tb.innerHTML = '<tr><td colspan="5" class="es">Loading…</td></tr>';
   var filter = (document.getElementById('coe-status-filter') || {}).value || '';
-  fetch(API + '?action=get_coe_requests')
+  jGet(API + '?action=get_coe_requests')
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var rows = d.requests || [];
@@ -4230,7 +4256,7 @@ async function loadAdminScorecard() {
   // Populate employee dropdown
   if (!scAdminEmps.length) {
     try {
-      var r = await fetch(API + '?action=get_all_employees');
+      var r = await jGet(API + '?action=get_all_employees');
       var d = await r.json();
       scAdminEmps = d.employees || [];
       var empSel = document.getElementById('sc-emp-filter');
@@ -4340,7 +4366,7 @@ function closeJmbCal(){ document.getElementById('jcal-modal').style.display='non
 function jcalShift(d){ JCAL_M=new Date(JCAL_M.getFullYear(), JCAL_M.getMonth()+d, 1); renderJmbCal(); }
 async function loadJmbCal(){
   var body=document.getElementById('jcal-body'); if(body) body.innerHTML='<div class="es" style="padding:16px">Loading…</div>';
-  try{ var r=await fetch(API+'?action=approved_leaves&_='+Date.now()); var d=await r.json(); JCAL_LEAVES=(d&&d.leaves)||[]; renderJmbCal(); }
+  try{ var r=await jGet(API+'?action=approved_leaves&_='+Date.now()); var d=await r.json(); JCAL_LEAVES=(d&&d.leaves)||[]; renderJmbCal(); }
   catch(e){ if(body) body.innerHTML='<div class="es" style="padding:16px;color:#f87171">Could not load leaves.</div>'; }
 }
 function _jcalYMD(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
@@ -4379,7 +4405,7 @@ var NOTIF_PRESETS={
 };
 var NT_TEMPLATES={};
 function openNotify(){ document.getElementById('notify-modal').style.display='block'; notifFillEmps(); loadNotifProjects(); loadNotifTemplates(); ntPreset(); }
-async function loadNotifTemplates(){ try{ var r=await fetch(API+'?action=get_notif_templates&_='+Date.now()); var d=await r.json(); NT_TEMPLATES=(d&&d.templates)||{}; }catch(e){ NT_TEMPLATES={}; } }
+async function loadNotifTemplates(){ try{ var r=await jGet(API+'?action=get_notif_templates&_='+Date.now()); var d=await r.json(); NT_TEMPLATES=(d&&d.templates)||{}; }catch(e){ NT_TEMPLATES={}; } }
 function closeNotify(){ document.getElementById('notify-modal').style.display='none'; }
 function notifFillEmps(){
   var sel=document.getElementById('nt-emp'); if(!sel||sel.options.length>1) return;
