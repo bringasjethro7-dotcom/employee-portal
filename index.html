@@ -4804,6 +4804,7 @@
             <button class="chat-media-btn gif" type="button" onclick="toggleGifPanel(event)" title="Search GIFs" aria-label="Search GIFs">GIF</button>
             <button class="chat-media-btn" type="button" id="chat-game-btn" onclick="tetrisInvite()" title="Challenge to Tetris (win 50 pts)" aria-label="Play Tetris" style="display:none;font-size:16px;">🎮</button>
             <button class="chat-media-btn" type="button" id="chat-tourney-btn" onclick="tourneyStart()" title="Start a Tetris tournament (win 50 pts)" aria-label="Tetris tournament" style="display:none;font-size:16px;">🏆</button>
+            <button class="chat-media-btn" type="button" id="chat-train-btn" onclick="tetrisTraining()" title="Practice Tetris vs a Bot" aria-label="Training mode" style="font-size:16px;">🤖</button>
             <input type="file" id="chat-file" accept="image/*" style="display:none;" onchange="chatFileChosen(this)" />
             <div class="emoji-panel" id="emoji-panel"></div>
             <div class="gif-panel" id="gif-panel">
@@ -13970,10 +13971,15 @@ body.light .jul4-lbscore{color:#059669}
       <div style="display:flex;gap:10px;align-items:flex-start;">
         <div style="text-align:center;">
           <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">You</div>
-          <canvas id="tet-me" width="270" height="540" style="background:linear-gradient(180deg,#0b1122,#070b16);border:2px solid rgba(120,150,255,.28);border-radius:12px;display:block;box-shadow:0 0 32px rgba(80,120,255,.22),inset 0 0 30px rgba(0,0,0,.5);"></canvas>
-          <div style="margin-top:5px;font-size:12px;">Score <b id="tet-me-score" style="color:#fbbf24;">0</b> · Lines <b id="tet-me-lines">0</b></div>
+          <div style="position:relative;display:inline-block;">
+            <canvas id="tet-me" width="270" height="540" style="background:linear-gradient(180deg,#0b1122,#070b16);border:2px solid rgba(120,150,255,.28);border-radius:12px;display:block;box-shadow:0 0 32px rgba(80,120,255,.22),inset 0 0 30px rgba(0,0,0,.5);"></canvas>
+            <div id="tet-announce" style="position:absolute;left:0;right:0;top:42%;text-align:center;font-weight:900;font-size:19px;color:#fbbf24;text-shadow:0 2px 12px rgba(0,0,0,.9),0 0 20px rgba(251,191,36,.6);pointer-events:none;opacity:0;"></div>
+          </div>
+          <div style="margin-top:5px;font-size:12px;">Score <b id="tet-me-score" style="color:#fbbf24;">0</b> · Lines <b id="tet-me-lines">0</b> · KO <b id="tet-me-ko" style="color:#f87171;">0</b>/3</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:center;width:84px;">
+          <div style="font-size:10px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Hold</div>
+          <canvas id="tet-hold" width="84" height="60" style="background:linear-gradient(180deg,#0b1122,#070b16);border:1px solid rgba(255,255,255,.12);border-radius:10px;display:block;margin-bottom:12px;"></canvas>
           <div style="font-size:10px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Next</div>
           <canvas id="tet-next" width="84" height="66" style="background:linear-gradient(180deg,#0b1122,#070b16);border:1px solid rgba(255,255,255,.12);border-radius:10px;display:block;"></canvas>
           <div style="font-size:10px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin:12px 0 4px;">Incoming</div>
@@ -13988,7 +13994,7 @@ body.light .jul4-lbscore{color:#059669}
       <div id="tet-opp-col" style="text-align:center;">
         <div style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;" id="tet-opp-label">Opponent</div>
         <canvas id="tet-opp" width="180" height="360" style="background:linear-gradient(180deg,#0b1122,#070b16);border:2px solid rgba(255,255,255,.12);border-radius:12px;display:block;box-shadow:0 0 20px rgba(0,0,0,.4),inset 0 0 24px rgba(0,0,0,.5);"></canvas>
-        <div style="margin-top:5px;font-size:12px;">Score <b id="tet-opp-score" style="color:#cdd6f5;">0</b> · Lines <b id="tet-opp-lines">0</b></div>
+        <div style="margin-top:5px;font-size:12px;">Score <b id="tet-opp-score" style="color:#cdd6f5;">0</b> · Lines <b id="tet-opp-lines">0</b> · KO <b id="tet-opp-ko" style="color:#f87171;">0</b>/3</div>
       </div>
       <div id="tet-arena-col" style="display:none;text-align:center;">
         <div id="tet-arena-label" style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Arena</div>
@@ -13997,31 +14003,61 @@ body.light .jul4-lbscore{color:#059669}
     </div>
     <div id="tet-controls" style="display:none;margin-top:12px;">
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+        <button class="tet-ctl" onpointerdown="tetHold('hold',event)" title="Hold">⇩H</button>
+        <button class="tet-ctl" onpointerdown="tetHold('rotccw',event)" title="Rotate CCW">↺</button>
         <button class="tet-ctl" onpointerdown="tetHold('left',event)" onpointerup="tetRelease('left')" onpointerleave="tetRelease('left')" onpointercancel="tetRelease('left')">◀</button>
-        <button class="tet-ctl" onpointerdown="tetHold('rot',event)">⟳</button>
+        <button class="tet-ctl" onpointerdown="tetHold('rot',event)" title="Rotate CW">↻</button>
         <button class="tet-ctl" onpointerdown="tetHold('right',event)" onpointerup="tetRelease('right')" onpointerleave="tetRelease('right')" onpointercancel="tetRelease('right')">▶</button>
         <button class="tet-ctl" onpointerdown="tetHold('down',event)" onpointerup="tetRelease('down')" onpointerleave="tetRelease('down')" onpointercancel="tetRelease('down')">▼</button>
         <button class="tet-ctl" onpointerdown="tetHold('drop',event)">⤓ Drop</button>
+        <button class="tet-ctl" onpointerdown="tetHold('skip',event)" title="Skip block (10s cooldown)">⏭</button>
       </div>
-      <div style="text-align:center;font-size:11px;color:#6b7d90;margin-top:6px;">Keys: ← → move · ↑ rotate · ↓ soft drop · Space hard drop</div>
+      <div style="text-align:center;font-size:11px;color:#6b7d90;margin-top:6px;">← → move · ↑/X rotate · Z ccw · ↓ soft drop · Space hard drop · C hold · Shift skip (10s)</div>
     </div>
   </div>
 </div>
 <style>
-  .tet-ctl{background:#1b2233;color:#eef2ff;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:12px 16px;font-size:16px;font-weight:800;cursor:pointer;min-width:52px;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .tet-ctl{background:#1b2233;color:#eef2ff;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:12px 14px;font-size:16px;font-weight:800;cursor:pointer;min-width:48px;touch-action:none;user-select:none;-webkit-user-select:none;}
+  @keyframes tetPop{0%{opacity:0;transform:scale(.7)}15%{opacity:1;transform:scale(1.1)}30%{transform:scale(1)}80%{opacity:1}100%{opacity:0;transform:translateY(-14px)}}
   .tet-ctl:hover{background:#232c42;}
 </style>
 <script>
 (function(){
   var W=10, H=20;
   var COLORS=[null,'#22d3ee','#facc15','#a855f7','#22c55e','#ef4444','#3b82f6','#f97316']; // I O T S Z J L
-  var SHAPES={
-    I:[[1,1,1,1]], O:[[2,2],[2,2]], T:[[0,3,0],[3,3,3]], S:[[0,4,4],[4,4,0]],
-    Z:[[5,5,0],[0,5,5]], J:[[6,0,0],[6,6,6]], L:[[0,0,7],[7,7,7]]
+  // SRS spawn matrices (3x3 for JLSTZ, 4x4 for I, 2x2 for O) — enables wall kicks + T-spins
+  var PIECES={
+    I:[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    O:[[2,2],[2,2]],
+    T:[[0,3,0],[3,3,3],[0,0,0]],
+    S:[[0,4,4],[4,4,0],[0,0,0]],
+    Z:[[5,5,0],[0,5,5],[0,0,0]],
+    J:[[6,0,0],[6,6,6],[0,0,0]],
+    L:[[0,0,7],[7,7,7],[0,0,0]]
   };
   var TYPES=['I','O','T','S','Z','J','L'];
+  var STATES={};
+  (function(){ for(var i=0;i<TYPES.length;i++){ var t=TYPES[i]; var s=[PIECES[t]]; for(var k=1;k<4;k++) s.push(rotCW(s[k-1])); STATES[t]=s; } })();
+  // SRS wall-kick tables (y already flipped to grid-down)
+  var KICK_JLSTZ={ '0>1':[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]], '1>0':[[0,0],[1,0],[1,1],[0,-2],[1,-2]],
+    '1>2':[[0,0],[1,0],[1,1],[0,-2],[1,-2]], '2>1':[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+    '2>3':[[0,0],[1,0],[1,-1],[0,2],[1,2]], '3>2':[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+    '3>0':[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]], '0>3':[[0,0],[1,0],[1,-1],[0,2],[1,2]] };
+  var KICK_I={ '0>1':[[0,0],[-2,0],[1,0],[-2,1],[1,-2]], '1>0':[[0,0],[2,0],[-1,0],[2,-1],[-1,2]],
+    '1>2':[[0,0],[-1,0],[2,0],[-1,-2],[2,1]], '2>1':[[0,0],[1,0],[-2,0],[1,2],[-2,-1]],
+    '2>3':[[0,0],[2,0],[-1,0],[2,-1],[-1,2]], '3>2':[[0,0],[-2,0],[1,0],[-2,1],[1,-2]],
+    '3>0':[[0,0],[1,0],[-2,0],[1,2],[-2,-1]], '0>3':[[0,0],[-1,0],[2,0],[-1,-2],[2,1]] };
+  function getKicks(type,from,to){ if(type==='O') return [[0,0]]; if(type==='I') return KICK_I[from+'>'+to]||[[0,0]]; return KICK_JLSTZ[from+'>'+to]||[[0,0]]; }
   var lobby=null, chan=null, lobbyReady=false, lobbyQueue=[];
   var M=null; // current match state
+  var BOT=null; // training bot state
+  // Games are only allowed when idle or with no task running (not while actively tracking)
+  function canPlayGame(){
+    var s=(typeof myWorkStatus==='function')?myWorkStatus():'online';
+    if(s==='idle'||s==='online') return true;
+    showToast('You can only play while idle or with no task running. Stop your current task first. ⏱️');
+    return false;
+  }
 
   // ── Audio engine (Web Audio beeps) ──
   var TAC=null;
@@ -14106,6 +14142,7 @@ body.light .jul4-lbscore{color:#059669}
   window.tetrisInvite=function(){
     if(typeof currentChat==='undefined' || currentChat==='group' || String(currentChat).indexOf('ch:')===0){ showToast('Open a 1-on-1 chat to challenge someone.'); return; }
     if(typeof supaClient==='undefined' || !supaClient){ showToast('Chat not connected.'); return; }
+    if(!canPlayGame()) return;
     window.tetrisSetupLobby();
     var opp=currentChat, oppName=(typeof currentChatName!=='undefined'?currentChatName:opp);
     ac();  // unlock audio on this user gesture
@@ -14123,6 +14160,7 @@ body.light .jul4-lbscore{color:#059669}
   };
   window.tetrisAcceptInvite=function(){
     var p=_pendingInvite; el('tet-invite-pop').style.display='none'; if(!p) return;
+    if(!canPlayGame()) return;
     ac();  // unlock audio on this user gesture
     M={ matchId:p.matchId, host:false, oppId:p.from, oppName:p.fromName||p.from, playing:false };
     openOverlay(); el('tet-opp-label').textContent=M.oppName;
@@ -14150,6 +14188,7 @@ body.light .jul4-lbscore{color:#059669}
   };
   function cleanup(){
     stopMusic(); stopAllRepeat(); cancelRender();
+    if(BOT && BOT.loop){ clearInterval(BOT.loop); } BOT=null;
     if(M){ if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
       if(M.tchan){ try{ supaClient.removeChannel(M.tchan); }catch(e){} } }
     detachControls();
@@ -14167,11 +14206,13 @@ body.light .jul4-lbscore{color:#059669}
     M.rng=mulberry32(seed); M.bag=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1;
     M.oppGrid=empty(); M.oppScore=0; M.oppLines=0; M.oppAlive=true;
     M.playing=true; M.ended=false; M.alive=true; M.pendingGarbage=0;
+    M.hold=null; M.canHold=true; M.combo=0; M.b2b=false; M.nextT=null; M.kos=0; M.myKos=0; M.oppKos=0;
     // match realtime channel
     chan=supaClient.channel('tetris-'+M.matchId,{config:{broadcast:{self:false}}})
       .on('broadcast',{event:'state'}, function(p){ if(M) onOppState(p.payload); })
       .on('broadcast',{event:'attack'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.pendingGarbage+=(p.payload.lines||0); updateIncoming(); try{ sfxTick(); }catch(e){} } })
       .on('broadcast',{event:'over'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())) onOppOver(p.payload); })
+      .on('broadcast',{event:'ko'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.oppKos=p.payload.kos||0; if(p.payload.score!=null) M.oppScore=p.payload.score; updateKoDisplay(); if(p.payload.elim) onOppOver(p.payload); } })
       .subscribe();
     attachControls();
     // 3-2-1 countdown then go
@@ -14179,7 +14220,7 @@ body.light .jul4-lbscore{color:#059669}
     var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); go(); } }, 800);
   }
   function go(){
-    sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); startRender();
+    sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); startRender(); renderHold();
     M.dropMs=700;
     M.loop=setInterval(tick, M.dropMs);
     M.net=setInterval(sendState, 350);
@@ -14190,13 +14231,34 @@ body.light .jul4-lbscore{color:#059669}
 
   function empty(){ var g=[]; for(var y=0;y<H;y++){ g.push(new Array(W).fill(0)); } return g; }
   function nextType(){ if(!M.bag.length){ M.bag=TYPES.slice(); for(var i=M.bag.length-1;i>0;i--){ var j=Math.floor(M.rng()*(i+1)); var t=M.bag[i]; M.bag[i]=M.bag[j]; M.bag[j]=t; } } return M.bag.shift(); }
+  function spawnType(t){
+    var m=STATES[t][0];
+    M.cur={ type:t, rot:0, m:m, x:Math.floor((W-m[0].length)/2), y:0 };
+    M.lastRot=false; M.lastKick=0;
+    if(collide(M.cur.m,M.cur.x,M.cur.y)){ topOut(); }
+  }
   function spawn(){
     var t=M.nextT||nextType();
     M.nextT=nextType();
-    var m=SHAPES[t].map(function(r){ return r.slice(); });
-    M.cur={ m:m, x:Math.floor((W-m[0].length)/2), y:0 };
+    M.canHold=true;
+    spawnType(t);
     renderNext();
-    if(collide(M.cur.m,M.cur.x,M.cur.y)){ topOut(); }
+  }
+  // ── Hold piece (Tetris Battle) ──
+  function holdPiece(){
+    if(!M||!M.alive||!M.canHold) return;
+    var cur=M.cur.type;
+    if(M.hold){ var h=M.hold; M.hold=cur; spawnType(h); }
+    else { M.hold=cur; var t=M.nextT||nextType(); M.nextT=nextType(); spawnType(t); renderNext(); }
+    M.canHold=false; renderHold(); sfxRot();
+  }
+  function renderHold(){
+    var cv=el('tet-hold'); if(!cv) return; var ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
+    if(!M||!M.hold) return; var m=STATES[M.hold][0]; var rows=m.length, cols=m[0].length;
+    var cs=Math.min((cv.width-8)/cols,(cv.height-8)/rows,20); var ox=(cv.width-cols*cs)/2, oy=(cv.height-rows*cs)/2;
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){ if(m[r][c]){ var color=COLORS[m[r][c]],px=ox+c*cs,py=oy+r*cs,rad=Math.max(2,cs*0.17);
+      var g=ctx.createLinearGradient(px,py,px,py+cs); g.addColorStop(0,hexAdj(color,0.42)); g.addColorStop(0.5,color); g.addColorStop(1,hexAdj(color,-0.3));
+      rr(ctx,px+1,py+1,cs-2,cs-2,rad); ctx.fillStyle=g; ctx.fill(); } }
   }
   function renderNext(){
     var cv=el('tet-next'); if(!cv||!M||!M.nextT) return; var ctx=cv.getContext('2d');
@@ -14220,9 +14282,7 @@ body.light .jul4-lbscore{color:#059669}
   function rotCW(m){ var R=m.length, C=m[0].length; var o=[]; for(var c=0;c<C;c++){ o.push([]); for(var r=R-1;r>=0;r--){ o[c].push(m[r][c]); } } return o; }
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
   function clearLines(){
-    // A row clears only if it's full AND contains at least one real piece cell —
-    // solid garbage rows (all 8) are permanent and never line-clear.
-    var full=[]; for(var y=0;y<H;y++){ var row=M.grid[y]; if(row.every(function(v){return v>0;}) && row.some(function(v){return v!==8;})) full.push(y); }
+    var full=[]; for(var y=0;y<H;y++){ if(M.grid[y].every(function(v){return v>0;})) full.push(y); }
     if(full.length){ M.flash={ys:full.slice(), t0:Date.now()}; spawnParticles(full); }
     for(var i=full.length-1;i>=0;i--){ M.grid.splice(full[i],1); M.grid.unshift(new Array(W).fill(0)); }
     return full.length;
@@ -14238,25 +14298,56 @@ body.light .jul4-lbscore{color:#059669}
     } });
     if(M.particles.length>400) M.particles.splice(0, M.particles.length-400);
   }
-  function addGarbage(n){ if(n<=0) return; sfxGarbage();
+  function addGarbage(n){ if(n<=0) return; sfxGarbage(); var hole=Math.floor(Math.random()*W);
     for(var i=0;i<n;i++){
-      // If the top row already has blocks, rising garbage overflows the ceiling → knocked out.
-      if(M.grid[0].some(function(v){ return v>0; })){ M.grid.shift(); M.grid.push(new Array(W).fill(8)); topOut(); return; }
-      M.grid.shift(); M.grid.push(new Array(W).fill(8));   // SOLID permanent garbage (no hole → cannot be cleared)
+      // Garbage rises from the bottom with a single hole (clearable). Overflow → knocked out.
+      var row=new Array(W).fill(8); row[hole]=0;
+      if(M.grid[0].some(function(v){ return v>0; })){ M.grid.shift(); M.grid.push(row); topOut(); return; }
+      M.grid.shift(); M.grid.push(row);
     }
   }
+  var COMBO_TABLE=[0,0,1,1,2,2,3,3,4,4,4,5];   // garbage bonus by combo count (Tetris Battle style)
   function lockPiece(){
     merge(); sfxLock();
-    // apply any queued garbage from opponent before clearing
-    if(M.pendingGarbage>0){ addGarbage(M.pendingGarbage); M.pendingGarbage=0; updateIncoming(); if(!M.alive){ draw(); return; } }
+    var ts=tSpinType();                          // detect T-spin BEFORE the board changes
     var c=clearLines();
-    if(c>0){ var pts=[0,100,300,500,800][c]||800; M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10); sfxClear(c);
-      if(c>=2){ sfxAttack(); sendAttack(c-1); }
+    if(c>0){
+      var sent=0, label='', pts=0;
+      if(ts==='full'){
+        if(c===1){ sent=2; pts=800; label='T-Spin Single'; }
+        else if(c===2){ sent=4; pts=1200; label='T-Spin Double'; }
+        else { sent=6; pts=1600; label='T-Spin Triple'; }
+      } else if(ts==='mini'){
+        // Tuned mini values (guideline): mini single sends 0, mini double sends 1; low points.
+        if(c===1){ sent=0; pts=200; label='T-Spin Mini Single'; }
+        else { sent=1; pts=400; label='T-Spin Mini Double'; }
+      } else {
+        sent=[0,0,1,2,4][c]||4; pts=[0,100,300,500,800][c]||800;
+        label=(c===4?'Tetris':(c===3?'Triple':(c===2?'Double':'Single')));
+      }
+      // Back-to-back: kept by Tetris and any T-spin line clear (incl. mini). +1 line, +50% points.
+      var b2b=!!(ts||c===4);
+      if(b2b && M.b2b){ sent+=1; pts=Math.round(pts*1.5); label='B2B '+label; }
+      M.b2b=b2b;
+      M.combo=(M.combo||0)+1;
+      sent+=COMBO_TABLE[Math.min(M.combo-1, COMBO_TABLE.length-1)];
+      if(isBoardEmpty()){ sent+=6; pts+=(c>=4?2000:1000); label='Perfect Clear'; }
+      M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10);
+      sfxClear(c); announce(label + (M.combo>1?(' · Combo '+M.combo):''));
+      // Garbage cancellation: your outgoing cancels incoming first, remainder goes out.
+      if(M.pendingGarbage>0 && sent>0){ var cx=Math.min(M.pendingGarbage,sent); M.pendingGarbage-=cx; sent-=cx; updateIncoming(); }
+      if(sent>0){ sfxAttack(); sendAttack(sent); }
       var ns=Math.max(120,700-(M.level-1)*55); if(ns!==M.dropMs){ M.dropMs=ns; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); }
+    } else {
+      M.combo=0;
+      // A T-spin with no line clear still scores (and preserves back-to-back), then garbage dumps.
+      if(ts){ M.score+=(ts==='mini'?100:400)*M.level; announce(ts==='mini'?'T-Spin Mini':'T-Spin'); }
+      if(M.pendingGarbage>0){ addGarbage(M.pendingGarbage); M.pendingGarbage=0; updateIncoming(); if(!M.alive){ draw(); return; } }
     }
     el('tet-me-score').textContent=M.score; el('tet-me-lines').textContent=M.lines;
     spawn();
   }
+  function announce(txt){ if(!txt) return; var e=el('tet-announce'); if(!e) return; e.textContent=txt; e.style.animation='none'; void e.offsetWidth; e.style.animation='tetPop 1.15s ease forwards'; }
   function tick(){ if(!M||!M.alive) return; if(!collide(M.cur.m,M.cur.x,M.cur.y+1)){ M.cur.y++; } else { lockPiece(); } draw(); }
   // ── Continuous controls (DAS/ARR): hold to keep moving ──
   var DAS=150, ARR=45, _rep={};
@@ -14276,7 +14367,10 @@ body.light .jul4-lbscore{color:#059669}
     if(k==='ArrowLeft'){ if(!_rep.left){ stopRepeat('right'); startRepeat('left'); } }
     else if(k==='ArrowRight'){ if(!_rep.right){ stopRepeat('left'); startRepeat('right'); } }
     else if(k==='ArrowDown'){ if(!_rep.down) startRepeat('down'); }
-    else if(k==='ArrowUp'){ if(!e.repeat){ rotate(); draw(); } }
+    else if(k==='ArrowUp'||k==='x'||k==='X'){ if(!e.repeat){ rotate(1); draw(); } }
+    else if(k==='z'||k==='Z'||k==='Control'){ if(!e.repeat){ rotate(-1); draw(); } }
+    else if(k==='c'||k==='C'){ if(!e.repeat){ holdPiece(); draw(); } }
+    else if(k==='Shift'){ if(!e.repeat){ skipBlock(); } }
     else if(k===' '){ if(!e.repeat){ hardDrop(); } }
     else return;
     e.preventDefault();
@@ -14288,19 +14382,67 @@ body.light .jul4-lbscore{color:#059669}
   function detachControls(){ document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKeyUp); stopAllRepeat(); }
   // Touch/mouse hold on the on-screen buttons
   window.tetHold=function(a,ev){ if(ev){ ev.preventDefault(); } ac(); if(!M||!M.alive) return;
-    if(a==='rot'){ rotate(); draw(); } else if(a==='drop'){ hardDrop(); } else startRepeat(a);
+    if(a==='rot'){ rotate(1); draw(); } else if(a==='rotccw'){ rotate(-1); draw(); } else if(a==='hold'){ holdPiece(); draw(); } else if(a==='skip'){ skipBlock(); } else if(a==='drop'){ hardDrop(); } else startRepeat(a);
   };
+  // Skip the current piece → jump to the next one. Once every 10 seconds.
+  function skipBlock(){
+    if(!M||!M.alive) return;
+    var now=Date.now();
+    if(M.lastSkip && (now-M.lastSkip)<10000){ var left=Math.ceil((10000-(now-M.lastSkip))/1000); announce('⏭ Skip ready in '+left+'s'); return; }
+    M.lastSkip=now; spawn(); draw(); announce('⏭ Skipped'); sfxRot();
+  }
   window.tetRelease=function(a){ if(a==='left'||a==='right'||a==='down') stopRepeat(a); };
   window.tetKey=window.tetHold;   // back-compat
-  function move(d){ if(!collide(M.cur.m,M.cur.x+d,M.cur.y)){ M.cur.x+=d; sfxMove(); } }
-  function rotate(){ var nm=rotCW(M.cur.m); var kicks=[0,-1,1,-2,2]; for(var i=0;i<kicks.length;i++){ if(!collide(nm,M.cur.x+kicks[i],M.cur.y)){ M.cur.m=nm; M.cur.x+=kicks[i]; sfxRot(); return; } } }
+  function move(d){ if(!collide(M.cur.m,M.cur.x+d,M.cur.y)){ M.cur.x+=d; M.lastRot=false; sfxMove(); } }
+  function rotate(dir){
+    if(M.cur.type==='O'){ return; }
+    var from=M.cur.rot, to=(from+(dir>0?1:3))%4, nm=STATES[M.cur.type][to];
+    var kicks=getKicks(M.cur.type, from, to);
+    for(var i=0;i<kicks.length;i++){ var kx=kicks[i][0], ky=kicks[i][1];
+      if(!collide(nm, M.cur.x+kx, M.cur.y+ky)){ M.cur.rot=to; M.cur.m=nm; M.cur.x+=kx; M.cur.y+=ky; M.lastRot=true; M.lastKick=i; sfxRot(); return true; }
+    }
+    return false;
+  }
   function hardDrop(){ while(!collide(M.cur.m,M.cur.x,M.cur.y+1)){ M.cur.y++; M.score+=2; } sfxDrop(); lockPiece(); draw(); }
+  // T-spin detection (3-corner rule) — must be a T whose last successful action was a rotation
+  function tSpinType(){
+    if(M.cur.type!=='T' || !M.lastRot) return null;
+    var bx=M.cur.x, by=M.cur.y;
+    function occ(cx,cy){ if(cx<0||cx>=W||cy<0||cy>=H) return true; return M.grid[cy] && M.grid[cy][cx]>0; }
+    var tl=occ(bx,by), tr=occ(bx+2,by), bl=occ(bx,by+2), br=occ(bx+2,by+2);
+    var cnt=(tl?1:0)+(tr?1:0)+(bl?1:0)+(br?1:0);
+    if(cnt<3) return null;
+    var front; // corners on the side the T points
+    if(M.cur.rot===0) front=[tl,tr]; else if(M.cur.rot===1) front=[tr,br]; else if(M.cur.rot===2) front=[bl,br]; else front=[tl,bl];
+    return (front[0] && front[1]) ? 'full' : 'mini';
+  }
+  function isBoardEmpty(){ for(var y=0;y<H;y++) for(var x=0;x<W;x++) if(M.grid[y][x]>0) return false; return true; }
 
-  function topOut(){ if(!M.alive) return; M.alive=false;
-    if(M.mode==='tourney'){ tourneyOnMyDeath(); return; }
-    M.ended=true;
-    try{ chan.send({type:'broadcast',event:'over',payload:{from:eid(),score:M.score}}); }catch(e){}
-    finish(false, 'topout');
+  function updateKoDisplay(){ var a=el('tet-me-ko'); if(a) a.textContent=(M.myKos||0); var b=el('tet-opp-ko'); if(b) b.textContent=(M.oppKos||0); }
+  // KO but not eliminated: wipe the board and keep playing (score/lines persist).
+  function respawn(){
+    M.grid=empty(); M.pendingGarbage=0; M.combo=0; M.b2b=false; M.hold=null; M.canHold=true; M.nextT=null; M.particles=[];
+    updateIncoming(); renderHold(); M.alive=true; spawn();
+    announce('💥 KO! '+(3-(M.kos||0))+' left'); sfxGarbage();
+  }
+  function topOut(){
+    if(!M.alive) return; M.alive=false;
+    M.kos=(M.kos||0)+1; M.myKos=M.kos; updateKoDisplay();
+    var elim=(M.kos>=3);
+    if(M.mode==='tourney'){
+      if(M.players[eid()]) M.players[eid()].kos=M.kos;
+      try{ M.tchan.send({type:'broadcast',event:'tko',payload:{tid:M.matchId,from:eid(),name:ename(),kos:M.kos,score:M.score,elim:elim}}); }catch(e){}
+      if(elim){ tourneyOnMyDeath(); return; }
+      respawn(); return;
+    }
+    if(M.mode==='training'){
+      if(elim){ trainingEnd('userdead'); return; }
+      respawn(); return;
+    }
+    // duel — 3 KOs and you lose the match
+    try{ chan.send({type:'broadcast',event:'ko',payload:{from:eid(),kos:M.kos,elim:elim,score:M.score}}); }catch(e){}
+    if(elim){ M.ended=true; finish(false, 'topout'); return; }
+    respawn(); return;
   }
   function onOppOver(p){ if(!M) return; M.oppAlive=false; if(M.alive && !M.ended){ // opponent died first → I win
       finish(true, 'oppout'); }
@@ -14308,8 +14450,12 @@ body.light .jul4-lbscore{color:#059669}
   function endByTime(){
     if(M.ended) return;
     if(M.mode==='tourney'){ tourneyTimeEnd(); return; }
-    // higher score wins; tie = draw
-    if(M.score>M.oppScore) finish(true,'time');
+    if(M.mode==='training'){ trainingEnd('time'); return; }
+    // Battle rule: fewest KOs wins; tie on KOs → higher score; tie on both → draw.
+    var myK=M.myKos||0, opK=M.oppKos||0;
+    if(myK<opK) finish(true,'time');
+    else if(myK>opK) finish(false,'time');
+    else if(M.score>M.oppScore) finish(true,'time');
     else if(M.score<M.oppScore) finish(false,'time');
     else finish(null,'time');
   }
@@ -14339,6 +14485,7 @@ body.light .jul4-lbscore{color:#059669}
 
   // ── Networking: broadcast my board so the opponent can watch ──
   function sendAttack(n){
+    if(M.mode==='training'){ if(BOT){ BOT.pending+=n; } return; }
     if(M.mode==='tourney'){
       var others=tourneyAliveIds().filter(function(id){ return id!==eid(); });
       if(!others.length || !M.tchan) return;
@@ -14425,6 +14572,7 @@ body.light .jul4-lbscore{color:#059669}
   window.tourneyStart=function(){
     if(typeof currentChat==='undefined' || !(currentChat==='group' || String(currentChat).indexOf('ch:')===0)){ showToast('Open a group chat to start a tournament.'); return; }
     if(typeof supaClient==='undefined' || !supaClient){ showToast('Chat not connected.'); return; }
+    if(!canPlayGame()) return;
     window.tetrisSetupLobby(); ac();
     var tid='T-'+eid()+'-'+Date.now();
     var gname=(typeof currentChatName!=='undefined'?currentChatName:'Group');
@@ -14448,7 +14596,7 @@ body.light .jul4-lbscore{color:#059669}
     if(TL.host===eid()){ Object.keys(TL.players).forEach(function(id){ }); }
   }
   window.tourneyJoin=function(){
-    if(!TL) return; TL.players[eid()]=ename(); ac();
+    if(!TL) return; if(!canPlayGame()) return; TL.players[eid()]=ename(); ac();
     var tries=0; (function r(){ if(!TL||TL.started) return; lobbySend('tjoin',{tid:TL.tid, id:eid(), name:ename()}); if(++tries<3) setTimeout(r,900); })();
     renderLobby();
   };
@@ -14490,14 +14638,17 @@ body.light .jul4-lbscore{color:#059669}
       .on('broadcast',{event:'tstate'}, function(p){ onTState(p.payload); })
       .on('broadcast',{event:'tattack'},function(p){ onTAttack(p.payload); })
       .on('broadcast',{event:'tover'},  function(p){ onTOver(p.payload); })
+      .on('broadcast',{event:'tko'},    function(p){ if(p.payload && String(p.payload.from)!==String(eid())) onTKo(p.payload); })
       .subscribe();
+    M.kos=0; M.myKos=0;
     // players map
     M.players={};
-    players.forEach(function(x){ M.players[x.id]={ name:x.name, score:0, lines:0, alive:true, grid:null, place:0 }; });
-    if(!M.players[eid()]) M.players[eid()]={ name:ename(), score:0, lines:0, alive:true, grid:null, place:0 };
+    players.forEach(function(x){ M.players[x.id]={ name:x.name, score:0, lines:0, alive:true, grid:null, place:0, kos:0 }; });
+    if(!M.players[eid()]) M.players[eid()]={ name:ename(), score:0, lines:0, alive:true, grid:null, place:0, kos:0 };
     M.startN=Object.keys(M.players).length;
     // engine init
     M.rng=mulberry32(hashStr(seed)); M.bag=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1; M.pendingGarbage=0; M.nextT=null;
+    M.hold=null; M.canHold=true; M.combo=0; M.b2b=false;
     openOverlay(); el('tet-controls').style.display='block';
     buildArena();
     attachControls();
@@ -14506,7 +14657,7 @@ body.light .jul4-lbscore{color:#059669}
   }
   function goTourney(){
     sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); renderArena(); startRender();
-    M.dropMs=700; M.loop=setInterval(tick,M.dropMs); M.net=setInterval(sendState,350);
+    renderHold(); M.dropMs=700; M.loop=setInterval(tick,M.dropMs); M.net=setInterval(sendState,350);
     M.timeLeft=180; status('⏱ 3:00 · '+tourneyAliveIds().length+' alive');
     M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ endByTime(); } else { status('⏱ '+fmtT(M.timeLeft)+' · '+tourneyAliveIds().length+' alive'); } }, 1000);
   }
@@ -14523,6 +14674,11 @@ body.light .jul4-lbscore{color:#059669}
   function onTOver(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId) return;
     var pl=M.players[p.from]; if(pl){ pl.alive=false; pl.score=p.score||pl.score; pl.place=p.place||pl.place; }
     renderArena(); tourneyCheckEnd();
+  }
+  // A KO in a tournament — update the player's KO count; only eliminated on their 3rd.
+  function onTKo(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId) return;
+    var pl=M.players[p.from]; if(pl){ pl.kos=p.kos||pl.kos; if(p.score!=null) pl.score=p.score; if(p.elim) pl.alive=false; }
+    renderArena(); if(p.elim) tourneyCheckEnd();
   }
   function tourneyOnMyDeath(){
     var me=M.players[eid()]; if(me) me.alive=false;
@@ -14551,7 +14707,9 @@ body.light .jul4-lbscore{color:#059669}
   function tourneyTimeEnd(){
     if(M.ended) return;
     var alive=tourneyAliveIds(); var best=null;
-    alive.forEach(function(id){ if(best===null || M.players[id].score>M.players[best].score) best=id; });
+    alive.forEach(function(id){ if(best===null){ best=id; return; }
+      var a=M.players[id], b=M.players[best];
+      if((a.kos||0)<(b.kos||0) || ((a.kos||0)===(b.kos||0) && a.score>b.score)) best=id; });
     M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
     detachControls();
     if(best && M.players[best]) M.players[best].place=1;
@@ -14568,8 +14726,8 @@ body.light .jul4-lbscore{color:#059669}
     box.innerHTML=ids.map(function(id){ return '<div style="text-align:center;" id="tacard-'+id+'">'+
       '<div style="font-size:10px;color:#9fb0d6;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 auto 3px;">'+esc(M.players[id].name)+'</div>'+
       '<div style="position:relative;display:inline-block;"><canvas id="tacanvas-'+id+'" width="64" height="128" style="background:#070b16;border:1px solid rgba(255,255,255,.12);border-radius:7px;display:block;"></canvas>'+
-      '<div id="tako-'+id+'" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.55);border-radius:7px;align-items:center;justify-content:center;color:#f87171;font-weight:800;font-size:11px;">KO</div></div>'+
-      '<div style="font-size:10px;color:#cdd6f5;margin-top:2px;"><b id="tascore-'+id+'">0</b></div></div>'; }).join('');
+      '<div id="tako-'+id+'" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.55);border-radius:7px;align-items:center;justify-content:center;color:#f87171;font-weight:800;font-size:11px;">OUT</div></div>'+
+      '<div style="font-size:10px;color:#cdd6f5;margin-top:2px;"><b id="tascore-'+id+'">0</b> · <span style="color:#f87171;" id="tako-n-'+id+'">0</span>/3 KO</div></div>'; }).join('');
     renderArena();
   }
   function renderArena(){
@@ -14579,13 +14737,14 @@ body.light .jul4-lbscore{color:#059669}
       ctx.clearRect(0,0,cv.width,cv.height);
       if(pl.grid){ for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(pl.grid[y]&&pl.grid[y][x])||0; if(v){ ctx.fillStyle=(v===8?'#5b6b82':(COLORS[v]||'#5b6b82')); ctx.fillRect(x*cs,y*cs,cs-0.5,cs-0.5); } } }
       var sc=el('tascore-'+id); if(sc) sc.textContent=pl.score;
-      var ko=el('tako-'+id); if(ko) ko.style.display=pl.alive?'none':'flex';
+      var kn=el('tako-n-'+id); if(kn) kn.textContent=(pl.kos||0);
+      var ko=el('tako-'+id); if(ko) ko.style.display=pl.alive?'none':'flex';   // OUT = eliminated (3 KOs)
     });
   }
   // Full final standings: survivors first (by score), then knocked-out players by how long they lasted.
   function finalRanking(){
-    var arr=Object.keys(M.players).map(function(id){ var p=M.players[id]; return {id:id, name:p.name, score:p.score||0, lines:p.lines||0, alive:p.alive, place:p.place||0}; });
-    var alive=arr.filter(function(p){return p.alive;}).sort(function(a,b){ return b.score-a.score; });
+    var arr=Object.keys(M.players).map(function(id){ var p=M.players[id]; return {id:id, name:p.name, score:p.score||0, lines:p.lines||0, alive:p.alive, place:p.place||0, kos:p.kos||0}; });
+    var alive=arr.filter(function(p){return p.alive;}).sort(function(a,b){ return (a.kos-b.kos) || (b.score-a.score); });
     var dead=arr.filter(function(p){return !p.alive;}).sort(function(a,b){ return (a.place||999)-(b.place||999) || b.score-a.score; });
     var all=alive.concat(dead); all.forEach(function(p,i){ p.rank=i+1; });
     return all;
@@ -14604,6 +14763,83 @@ body.light .jul4-lbscore{color:#059669}
           (p.rank===1?' <span style="color:#fbbf24;font-size:10px;font-weight:800;">CHAMPION · +50 pts</span>':'')+'</div>'+
         '<div style="font-size:12px;color:#9fb0d6;">'+p.score+' pts<br><span style="font-size:10px;">'+p.lines+' lines</span></div></div>';
     }).join('')+'</div>';
+  }
+
+  // ════════════════ TRAINING MODE (vs Bot) ════════════════
+  function collideOn(grid,m,x,y){ for(var r=0;r<m.length;r++)for(var c=0;c<m[r].length;c++){ if(!m[r][c]) continue; var gx=x+c,gy=y+r; if(gx<0||gx>=W||gy>=H) return true; if(gy>=0&&grid[gy][gx]) return true; } return false; }
+  window.tetrisTraining=function(){
+    if(M && M.playing) return;
+    if(!canPlayGame()) return; ac();
+    var oc=el('tet-opp-col'); if(oc) oc.style.display='';
+    var arc=el('tet-arena-col'); if(arc) arc.style.display='none';
+    el('tet-opp-label').textContent='🤖 Bot';
+    var id='train-'+Date.now();
+    M={ matchId:id, mode:'training', playing:true, ended:false, alive:true, oppName:'Bot',
+        rng:mulberry32(hashStr(id)), bag:[], grid:empty(), score:0, lines:0, level:1, pendingGarbage:0, nextT:null, hold:null, canHold:true, combo:0, b2b:false,
+        kos:0, myKos:0, oppKos:0, oppGrid:empty(), oppScore:0, oppLines:0, oppAlive:true };
+    BOT={ grid:empty(), rng:mulberry32(hashStr(id+'-bot')), bag:[], score:0, lines:0, alive:true, pending:0, combo:0, kos:0 };
+    openOverlay(); el('tet-controls').style.display='block';
+    el('tet-me-score').textContent='0'; el('tet-me-lines').textContent='0'; el('tet-opp-score').textContent='0'; el('tet-opp-lines').textContent='0';
+    attachControls();
+    var n=3; status('Training vs Bot — starting in '+n+'…'); sfxTick();
+    var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); goTraining(); } }, 800);
+  };
+  function goTraining(){
+    sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); startRender(); renderHold();
+    M.dropMs=700; M.loop=setInterval(tick,M.dropMs);
+    M.timeLeft=180; status('⏱ 3:00 · vs Bot');
+    M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ trainingEnd('time'); } else { status('⏱ '+fmtT(M.timeLeft)+' · vs Bot'); } }, 1000);
+    BOT.loop=setInterval(botStep, 640);
+  }
+  function botNextType(){ if(!BOT.bag.length){ BOT.bag=TYPES.slice(); for(var i=BOT.bag.length-1;i>0;i--){ var j=Math.floor(BOT.rng()*(i+1)); var t=BOT.bag[i]; BOT.bag[i]=BOT.bag[j]; BOT.bag[j]=t; } } return BOT.bag.shift(); }
+  function botEval(g){
+    var heights=new Array(W).fill(0), holes=0;
+    for(var x=0;x<W;x++){ var seen=false; for(var y=0;y<H;y++){ if(g[y][x]){ if(!seen){ heights[x]=H-y; seen=true; } } else if(seen){ holes++; } } }
+    var agg=0,bump=0,maxh=0,lines=0; for(var i=0;i<W;i++){ agg+=heights[i]; if(heights[i]>maxh)maxh=heights[i]; if(i<W-1) bump+=Math.abs(heights[i]-heights[i+1]); }
+    for(var yy=0;yy<H;yy++){ var full=true; for(var xx=0;xx<W;xx++){ if(!g[yy][xx]){ full=false; break; } } if(full) lines++; }
+    return -0.51*agg + 0.76*lines - 0.36*holes - 0.18*bump - 0.2*maxh;
+  }
+  function botBest(type){
+    var best=null;
+    for(var rot=0;rot<4;rot++){ var m=STATES[type][rot];
+      for(var x=-2;x<W;x++){
+        if(collideOn(BOT.grid,m,x,0)) continue;
+        var y=0; while(!collideOn(BOT.grid,m,x,y+1)) y++;
+        var g=BOT.grid.map(function(r){return r.slice();}); var ok=true;
+        for(var r=0;r<m.length&&ok;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=y+r,gx=x+c; if(gy<0){ ok=false; break; } g[gy][gx]=m[r][c]; } } }
+        if(!ok) continue;
+        var sc=botEval(g); if(!best||sc>best.score) best={score:sc,x:x,y:y,m:m};
+      }
+    }
+    return best;
+  }
+  function botClear(){ var n=0; for(var y=H-1;y>=0;y--){ var full=true; for(var x=0;x<W;x++){ if(!BOT.grid[y][x]){ full=false; break; } } if(full){ BOT.grid.splice(y,1); BOT.grid.unshift(new Array(W).fill(0)); n++; y++; } } return n; }
+  function botAddGarbage(n){ var hole=Math.floor(Math.random()*W); for(var i=0;i<n;i++){ var row=new Array(W).fill(8); row[hole]=0; if(BOT.grid[0].some(function(v){return v>0;})){ BOT.grid.shift(); BOT.grid.push(row); BOT.alive=false; return; } BOT.grid.shift(); BOT.grid.push(row); } }
+  function botStep(){
+    if(!M||M.ended||!BOT||!BOT.alive) return;
+    if(BOT.pending>0){ botAddGarbage(BOT.pending); BOT.pending=0; if(!BOT.alive){ botKO(); return; } }
+    var type=botNextType(); var best=botBest(type);
+    if(!best){ botKO(); return; }
+    var m=best.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=best.y+r,gx=best.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) BOT.grid[gy][gx]=m[r][c]; } } }
+    var cleared=botClear();
+    if(cleared>0){ var sent=[0,0,1,2,4][cleared]||4; BOT.combo=(BOT.combo||0)+1; sent+=COMBO_TABLE[Math.min(BOT.combo-1,COMBO_TABLE.length-1)];
+      if(sent>0){ M.pendingGarbage+=sent; updateIncoming(); }
+      BOT.lines+=cleared; BOT.score+=([0,100,300,500,800][cleared]||0);
+    } else BOT.combo=0;
+    M.oppGrid=BOT.grid; M.oppScore=BOT.score; M.oppLines=BOT.lines;
+    el('tet-opp-score').textContent=BOT.score; el('tet-opp-lines').textContent=BOT.lines; drawOpp();
+  }
+  function botKO(){ if(!BOT) return; BOT.kos=(BOT.kos||0)+1; M.oppKos=BOT.kos; updateKoDisplay();
+    if(BOT.kos>=3){ BOT.alive=false; trainingEnd('botdead'); return; }
+    BOT.grid=empty(); BOT.pending=0; BOT.combo=0; BOT.alive=true;   // bot respawns
+  }
+  function trainingEnd(how){
+    if(!M||M.ended) return; M.ended=true; M.alive=false;
+    if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(BOT&&BOT.loop) clearInterval(BOT.loop);
+    stopMusic(); detachControls();
+    var win = (how==='botdead') ? true : (how==='userdead') ? false : (M.score>=(BOT?BOT.score:0));
+    if(win){ status('🏆 You beat the Bot! (Training — no points)'); sfxWin(); }
+    else { status('🤖 Bot wins — keep practicing! (Training)'); sfxLose(); }
   }
 })();
 </script>
