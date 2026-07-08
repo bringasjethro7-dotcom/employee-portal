@@ -13985,6 +13985,26 @@ body.light .jul4-lbscore{color:#059669}
   </div>
 </div>
 
+<div id="tet-nightly-pop" style="display:none;position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:9500;background:linear-gradient(180deg,#131a2e,#0c1120);border:1px solid rgba(251,191,36,.4);border-radius:16px;padding:14px 16px;box-shadow:0 18px 50px rgba(0,0,0,.6);color:#eef2ff;max-width:360px;">
+  <div style="font-weight:800;font-size:14px;margin-bottom:2px;">🏆 Nightly Tetris Tournament</div>
+  <div style="font-size:12.5px;color:#9fb0d6;margin-bottom:10px;">It's midnight! Winners earn JMB Points — 🥇 300 · 🥈 250 · 🥉 200. Join now!</div>
+  <div style="display:flex;gap:8px;">
+    <button onclick="tetNightlyJoin()" style="flex:1;background:linear-gradient(135deg,#fbbf24,#d97706);color:#111;border:none;border-radius:10px;padding:9px;font-weight:800;font-size:12.5px;cursor:pointer;">Join</button>
+    <button onclick="tetNightlyDismiss()" style="flex:1;background:#1b2233;color:#cdd6f5;border:none;border-radius:10px;padding:9px;font-weight:700;font-size:12.5px;cursor:pointer;">Later</button>
+  </div>
+</div>
+
+<div id="tet-result" style="display:none;position:fixed;inset:0;z-index:9600;background:rgba(5,8,20,.86);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
+  <div style="width:410px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 60%,#080d19 100%);border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:26px 24px;text-align:center;color:#eef2ff;box-shadow:0 40px 120px rgba(0,0,0,.7);">
+    <div id="tr-emoji" style="font-size:46px;line-height:1;">🏆</div>
+    <div id="tr-title" style="font-size:23px;font-weight:900;margin:6px 0 2px;">You Win!</div>
+    <div id="tr-sub" style="font-size:12.5px;color:#9fb0d6;margin-bottom:4px;"></div>
+    <div id="tr-points" style="font-size:12.5px;font-weight:700;color:#fbbf24;min-height:16px;margin-bottom:16px;"></div>
+    <div id="tr-stats" style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;"></div>
+    <button onclick="tetrisQuit()" style="width:100%;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">Close</button>
+  </div>
+</div>
+
 <div id="tet-overlay" style="display:none;position:fixed;inset:0;z-index:9400;background:rgba(5,8,20,.9);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:14px;">
   <div style="width:760px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 55%,#080d19 100%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:18px;color:#eef2ff;box-shadow:0 40px 120px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.06);max-height:96vh;overflow:auto;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
@@ -14211,13 +14231,13 @@ body.light .jul4-lbscore{color:#059669}
     _pendingInvite=null;
   };
 
-  function openOverlay(){ el('tet-overlay').style.display='flex'; }
+  function openOverlay(){ var r=el('tet-result'); if(r) r.style.display='none'; el('tet-overlay').style.display='flex'; }
   window.tetrisQuit=function(){
     if(M && M.playing && !M.ended){
       if(M.mode==='tourney'){ try{ M.tchan.send({type:'broadcast',event:'tover',payload:{tid:M.matchId,from:eid(),name:ename(),score:M.score||0,place:tourneyAliveIds().length}}); }catch(e){} }
       else { try{ chan.send({type:'broadcast',event:'over',payload:{from:eid(),score:M.score||0,forfeit:true}}); }catch(e){} }
     }
-    cleanup(); el('tet-overlay').style.display='none';
+    cleanup(); el('tet-overlay').style.display='none'; var r=el('tet-result'); if(r) r.style.display='none';
   };
   function cleanup(){
     stopMusic(); stopAllRepeat(); cancelRender();
@@ -14516,13 +14536,37 @@ body.light .jul4-lbscore{color:#059669}
     if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
     detachControls();
     if(iWon===true){
-      status('🏆 You win! Awarding points…'); sfxWin();
-      awardWin();
+      status('🏆 You win!'); sfxWin(); showDuelResult(true); awardWin();
     } else if(iWon===false){
-      status('💪 '+esc(M.oppName)+' won this round. Good game!'); sfxLose();
+      status('💪 '+esc(M.oppName)+' won this round. Good game!'); sfxLose(); showDuelResult(false);
     } else {
-      status('🤝 Draw — no points awarded.'); sfxTick();
+      status('🤝 Draw — no points awarded.'); sfxTick(); showDuelResult(null);
     }
+  }
+  // Post-match result dashboard (duel + training): WIN / LOSE / DRAW with both players' stats.
+  function showDuelResult(iWon){
+    var e=el('tet-result'); if(!e) return;
+    var win=(iWon===true), draw=(iWon===null);
+    el('tr-emoji').textContent = win?'🏆':(draw?'🤝':'💪');
+    var t=el('tr-title'); t.textContent = win?'You Win!':(draw?'Draw':'You Lose'); t.style.color = win?'#fbbf24':(draw?'#cdd6f5':'#f87171');
+    el('tr-sub').textContent = win?('You beat '+esc(M.oppName||'your opponent')+'!'):(draw?'Evenly matched — no winner':(esc(M.oppName||'Your opponent')+' won this one'));
+    el('tr-points').textContent = win?'Awarding points…':'';
+    var row=function(name,mine,sc,ln,ko){ return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;border-radius:12px;background:'+(mine?'rgba(255,107,26,.15)':'#0d1117')+';border:1px solid '+(mine?'rgba(255,107,26,.4)':'rgba(255,255,255,.08)')+';">'+
+      '<div style="font-weight:700;font-size:13px;text-align:left;">'+esc(name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
+      '<div style="font-size:11.5px;color:#9fb0d6;white-space:nowrap;">'+sc+' pts · '+ln+' lines · KO '+ko+'/3</div></div>'; };
+    el('tr-stats').innerHTML = row(ename(), true, M.score, M.lines, M.myKos||0) + row(M.oppName||'Opponent', false, M.oppScore||0, M.oppLines||0, M.oppKos||0);
+    e.style.display='flex';
+  }
+  function awardWin(){
+    fetch(APPS_SCRIPT_URL+'?action=game_award&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())+'&match_id='+encodeURIComponent(M.matchId)+'&opponent='+encodeURIComponent(M.oppName||'')+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(d){
+        var msg;
+        if(d && d.ok && d.awarded>0){ msg='+50 JMB Points 🎉'; try{ if(typeof loadPoints==='function') loadPoints(); }catch(e){} }
+        else if(d && d.ok && d.capped){ msg='Daily points cap reached — still a win!'; }
+        else if(d && d.ok && d.already){ msg='🎉'; }
+        else { msg='(Could not award points — try later.)'; }
+        status('🏆 You win! '+msg); var p=el('tr-points'); if(p) p.textContent=msg;
+      }).catch(function(){ status('🏆 You win! (Network issue awarding points.)'); var p=el('tr-points'); if(p) p.textContent='(Network issue awarding points.)'; });
   }
   function awardWin(){
     fetch(APPS_SCRIPT_URL+'?action=game_award&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())+'&match_id='+encodeURIComponent(M.matchId)+'&opponent='+encodeURIComponent(M.oppName||'')+'&_='+Date.now())
@@ -14634,16 +14678,28 @@ body.light .jul4-lbscore{color:#059669}
     if(!isGroupMember(p.groupKey)) return;
     if(M && M.playing) return;
     if(TL && TL.tid===p.tid) return;   // already showing this lobby
-    TL={ tid:p.tid, groupKey:p.groupKey, groupName:p.groupName, host:p.from, hostName:p.fromName, players:{}, started:false };
+    TL={ tid:p.tid, groupKey:p.groupKey, groupName:p.groupName, host:p.from, hostName:p.fromName, players:{}, started:false, nightly:!!p.nightly };
     TL.players[p.from]=p.fromName;
     openLobby(); sfxInvite();
   }
+  // Scheduled 11 PM tournament — no idle-gate, everyone converges on the same tid.
+  window.tourneyStartNightly=function(sid){
+    if(M && M.playing) return;
+    if(typeof supaClient==='undefined' || !supaClient) return;
+    window.tetrisSetupLobby(); ac();
+    var tid=sid;   // "NT-<date>"
+    TL={ tid:tid, groupKey:'group', groupName:'🏆 Nightly Tournament', host:eid(), hostName:ename(), players:{}, started:false, nightly:true };
+    TL.players[eid()]=ename();
+    openLobby();
+    var tries=0;
+    (function resend(){ if(!TL || TL.started) return; lobbySend('tinvite',{tid:tid, groupKey:'group', groupName:'🏆 Nightly Tournament', from:eid(), fromName:ename(), nightly:true}); if(++tries<6) setTimeout(resend,1500); })();
+  };
   function onTJoin(p){ if(!TL || p.tid!==TL.tid) return; TL.players[p.id]=p.name; renderLobby();
     // host re-announces roster so everyone converges
     if(TL.host===eid()){ Object.keys(TL.players).forEach(function(id){ }); }
   }
   window.tourneyJoin=function(){
-    if(!TL) return; if(!canPlayGame()) return; TL.players[eid()]=ename(); ac();
+    if(!TL) return; if(!TL.nightly && !canPlayGame()) return; TL.players[eid()]=ename(); ac();
     var tries=0; (function r(){ if(!TL||TL.started) return; lobbySend('tjoin',{tid:TL.tid, id:eid(), name:ename()}); if(++tries<3) setTimeout(r,900); })();
     renderLobby();
   };
@@ -14680,7 +14736,7 @@ body.light .jul4-lbscore{color:#059669}
     el('tet-opp-col').style.display='none';
     el('tet-arena-col').style.display='block';
     var mine=players.filter(function(x){ return x.id===eid(); }).length?ename():ename();
-    M={ matchId:tid, mode:'tourney', playing:true, ended:false, alive:true, oppName:'' };
+    M={ matchId:tid, mode:'tourney', playing:true, ended:false, alive:true, oppName:'', nightly:(String(tid).indexOf('NT-')===0) };
     M.tchan=supaClient.channel('tourney-'+tid,{config:{broadcast:{self:false}}})
       .on('broadcast',{event:'tstate'}, function(p){ onTState(p.payload); })
       .on('broadcast',{event:'tattack'},function(p){ onTAttack(p.payload); })
@@ -14746,10 +14802,20 @@ body.light .jul4-lbscore{color:#059669}
     var winId=alive[0]||null;
     if(winId && M.players[winId]) M.players[winId].place=1;
     stopMusic(); detachControls();
-    if(winId && String(winId)===String(eid()) && M.alive){ status('🏆 You are the CHAMPION! Awarding points…'); sfxWin(); awardWin(); }
+    if(M.nightly){ if(winId && String(winId)===String(eid())) reportNightlyRanking(); var wn0=(winId&&M.players[winId]&&M.players[winId].name)||''; status(winId&&String(winId)===String(eid())?'🏆 You won the Nightly Tournament!':('🏆 '+esc(wn0)+' won the Nightly Tournament!')); }
+    else if(winId && String(winId)===String(eid()) && M.alive){ status('🏆 You are the CHAMPION! Awarding points…'); sfxWin(); awardWin(); }
     else if(winId){ var wn=(M.players[winId]&&M.players[winId].name)||'A player'; status('🏆 '+esc(wn)+' is the champion! 🎉'); }
     else { status('🏁 Tournament over.'); }
     showTourneyResults();
+  }
+  // Nightly tournament: the CHAMPION reports the authoritative full final ranking → backend pays 300/250/200.
+  function reportNightlyRanking(){
+    try{
+      var rank=finalRanking();
+      var arr=rank.map(function(p){ return {employee_id:p.id, full_name:p.name, placement:p.rank, score:p.score, kos:p.kos||0}; });
+      fetch(APPS_SCRIPT_URL+'?action=tourney_report&tid='+encodeURIComponent(M.matchId)+'&ranking='+encodeURIComponent(JSON.stringify(arr))+'&_='+Date.now())
+        .then(function(){ try{ if(typeof loadPoints==='function') setTimeout(loadPoints, 14*60000); }catch(e){} }).catch(function(){});
+    }catch(e){}
   }
   function tourneyTimeEnd(){
     if(M.ended) return;
@@ -14761,7 +14827,8 @@ body.light .jul4-lbscore{color:#059669}
     detachControls();
     if(best && M.players[best]) M.players[best].place=1;
     stopMusic();
-    if(best && String(best)===String(eid()) && M.alive){ status('🏆 Time! Top score — you are the champion! Awarding…'); sfxWin(); awardWin(); }
+    if(M.nightly){ if(best && String(best)===String(eid())) reportNightlyRanking(); var wb=(best&&M.players[best]&&M.players[best].name)||''; status(best&&String(best)===String(eid())?'🏆 Time! You won the Nightly Tournament!':('🏁 Time! '+esc(wb)+' wins the Nightly Tournament.')); }
+    else if(best && String(best)===String(eid()) && M.alive){ status('🏆 Time! Top score — you are the champion! Awarding…'); sfxWin(); awardWin(); }
     else if(best){ var wn=(M.players[best]&&M.players[best].name)||'Top scorer'; status('🏁 Time! '+esc(wn)+' wins on score.'); sfxLose(); }
     else { status('🏁 Time!'); }
     showTourneyResults();
@@ -14877,6 +14944,21 @@ body.light .jul4-lbscore{color:#059669}
     M.oppGrid=BOT.grid; M.oppScore=BOT.score; M.oppLines=BOT.lines;
     el('tet-opp-score').textContent=BOT.score; el('tet-opp-lines').textContent=BOT.lines; drawOpp();
   }
+  // ── Nightly tournament trigger (poll the backend; prompt everyone at 11 PM) ──
+  function showNightlyPrompt(sid){ var e=el('tet-nightly-pop'); if(!e) return; e.setAttribute('data-sid', sid); e.style.display='block'; try{ sfxInvite(); }catch(_){} }
+  window.tetNightlyJoin=function(){ var e=el('tet-nightly-pop'); var sid=e?e.getAttribute('data-sid'):''; if(e) e.style.display='none'; if(sid) window.tourneyStartNightly(sid); };
+  window.tetNightlyDismiss=function(){ var e=el('tet-nightly-pop'); if(e) e.style.display='none'; };
+  (function(){ var base=null;
+    setInterval(function(){
+      if(document.hidden || typeof APPS_SCRIPT_URL==='undefined') return;
+      fetch(APPS_SCRIPT_URL+'?action=get_tourney_trigger&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
+        var ver=(x&&x.ver)||''; if(base===null){ base=ver; return; }
+        if(ver && ver!==base){ base=ver; var sid=ver.split('|').pop();
+          if(!(M&&M.playing) && !TL && !(el('tet-nightly-pop')&&el('tet-nightly-pop').style.display==='block')) showNightlyPrompt(sid);
+        }
+      }).catch(function(){});
+    }, 25000);
+  })();
   function botKO(){ if(!BOT) return; BOT.kos=(BOT.kos||0)+1; M.oppKos=BOT.kos; updateKoDisplay();
     if(BOT.kos>=3){ BOT.alive=false; trainingEnd('botdead'); return; }
     stripGarbage(BOT.grid);   // clear garbage + settle remaining blocks
@@ -14890,6 +14972,7 @@ body.light .jul4-lbscore{color:#059669}
     var win = (how==='botdead') ? true : (how==='userdead') ? false : (M.score>=(BOT?BOT.score:0));
     if(win){ status('🏆 You beat the Bot! (Training — no points)'); sfxWin(); }
     else { status('🤖 Bot wins — keep practicing! (Training)'); sfxLose(); }
+    var p=el('tr-points'); showDuelResult(win?true:false); if(p) p.textContent='Training — no points';
   }
 })();
 </script>
