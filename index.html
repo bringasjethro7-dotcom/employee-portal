@@ -14314,9 +14314,10 @@ body.light .jul4-lbscore{color:#059669}
   }
   function addGarbage(n){ if(n<=0) return; sfxGarbage(); var hole=Math.floor(Math.random()*W);
     for(var i=0;i<n;i++){
-      // Garbage rises from the bottom with a single hole (clearable). Overflow → knocked out.
+      // If a block already sits on the top row, more garbage would push it off → KO
+      // (don't destroy the puzzle row — just knock out; respawn() then clears the garbage).
+      if(M.grid[0].some(function(v){ return v>0; })){ topOut(); return; }
       var row=new Array(W).fill(8); row[hole]=0;
-      if(M.grid[0].some(function(v){ return v>0; })){ M.grid.shift(); M.grid.push(row); topOut(); return; }
       M.grid.shift(); M.grid.push(row);
     }
   }
@@ -14357,7 +14358,7 @@ body.light .jul4-lbscore{color:#059669}
       M.combo=0;
       // A T-spin with no line clear still scores (and preserves back-to-back), then garbage dumps.
       if(ts){ M.score+=(ts==='mini'?100:400)*M.level; announce(ts==='mini'?'T-Spin Mini':'T-Spin'); }
-      if(M.pendingGarbage>0){ var dump=Math.min(M.pendingGarbage,MAX_SEND); addGarbage(dump); M.pendingGarbage-=dump; updateIncoming(); if(!M.alive){ draw(); return; } }
+      if(M.pendingGarbage>0){ M._respawned=false; var dump=Math.min(M.pendingGarbage,MAX_SEND); addGarbage(dump); M.pendingGarbage-=dump; updateIncoming(); if(!M.alive || M._respawned){ M._respawned=false; draw(); return; } }
     }
     el('tet-me-score').textContent=M.score; el('tet-me-lines').textContent=M.lines;
     spawn();
@@ -14436,9 +14437,16 @@ body.light .jul4-lbscore{color:#059669}
   function updateKoDisplay(){ var a=el('tet-me-ko'); if(a) a.textContent=(M.myKos||0); var b=el('tet-opp-ko'); if(b) b.textContent=(M.oppKos||0); }
   // KO but not eliminated: clear ONLY the garbage (grey, value 8) — your own placed
   // puzzle blocks stay exactly where they are. Incoming resets to 0.
+  // Remove all garbage cells (value 8) from a grid, then let remaining blocks fall (per-column gravity).
+  function stripGarbage(grid){
+    for(var x=0;x<W;x++){ var stack=[];
+      for(var y=H-1;y>=0;y--){ var v=grid[y][x]; if(v && v!==8) stack.push(v); }   // keep puzzle blocks, drop garbage
+      for(var yy=H-1,i=0;yy>=0;yy--){ grid[yy][x]=(i<stack.length)?stack[i++]:0; }
+    }
+  }
   function respawn(){
-    for(var y=0;y<H;y++){ for(var x=0;x<W;x++){ if(M.grid[y][x]===8) M.grid[y][x]=0; } }
-    M.pendingGarbage=0; M.combo=0; M.b2b=false; M.canHold=true; M.nextT=null; M.particles=[];
+    stripGarbage(M.grid);
+    M.pendingGarbage=0; M.combo=0; M.b2b=false; M.canHold=true; M.particles=[]; M._respawned=true;
     updateIncoming(); M.alive=true; spawn();
     announce('💥 KO! Garbage cleared · '+(3-(M.kos||0))+' left'); sfxGarbage();
   }
@@ -14828,7 +14836,7 @@ body.light .jul4-lbscore{color:#059669}
     return best;
   }
   function botClear(){ var n=0; for(var y=H-1;y>=0;y--){ var full=true; for(var x=0;x<W;x++){ if(!BOT.grid[y][x]){ full=false; break; } } if(full){ BOT.grid.splice(y,1); BOT.grid.unshift(new Array(W).fill(0)); n++; y++; } } return n; }
-  function botAddGarbage(n){ var hole=Math.floor(Math.random()*W); for(var i=0;i<n;i++){ var row=new Array(W).fill(8); row[hole]=0; if(BOT.grid[0].some(function(v){return v>0;})){ BOT.grid.shift(); BOT.grid.push(row); BOT.alive=false; return; } BOT.grid.shift(); BOT.grid.push(row); } }
+  function botAddGarbage(n){ var hole=Math.floor(Math.random()*W); for(var i=0;i<n;i++){ if(BOT.grid[0].some(function(v){return v>0;})){ BOT.alive=false; return; } var row=new Array(W).fill(8); row[hole]=0; BOT.grid.shift(); BOT.grid.push(row); } }
   function botStep(){
     if(!M||M.ended||!BOT||!BOT.alive) return;
     if(BOT.pending>0){ var bd=Math.min(BOT.pending,MAX_SEND); botAddGarbage(bd); BOT.pending-=bd; if(!BOT.alive){ botKO(); return; } }
@@ -14846,7 +14854,7 @@ body.light .jul4-lbscore{color:#059669}
   }
   function botKO(){ if(!BOT) return; BOT.kos=(BOT.kos||0)+1; M.oppKos=BOT.kos; updateKoDisplay();
     if(BOT.kos>=3){ BOT.alive=false; trainingEnd('botdead'); return; }
-    for(var y=0;y<H;y++){ for(var x=0;x<W;x++){ if(BOT.grid[y][x]===8) BOT.grid[y][x]=0; } }   // clear only garbage
+    stripGarbage(BOT.grid);   // clear garbage + settle remaining blocks
     BOT.pending=0; BOT.combo=0; BOT.alive=true;
   }
   function trainingEnd(how){
