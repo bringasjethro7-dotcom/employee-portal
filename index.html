@@ -14263,7 +14263,7 @@ body.light .jul4-lbscore{color:#059669}
   function renderNext(){
     var cv=el('tet-next'); if(!cv||!M||!M.nextT) return; var ctx=cv.getContext('2d');
     ctx.clearRect(0,0,cv.width,cv.height);
-    var m=SHAPES[M.nextT], rows=m.length, cols=m[0].length;
+    var m=STATES[M.nextT][0], rows=m.length, cols=m[0].length;
     var cs=Math.min((cv.width-8)/cols, (cv.height-8)/rows, 20);
     var ox=(cv.width-cols*cs)/2, oy=(cv.height-rows*cs)/2;
     for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){ if(m[r][c]){
@@ -14283,13 +14283,19 @@ body.light .jul4-lbscore{color:#059669}
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
   function clearLines(){
     var full=[]; for(var y=0;y<H;y++){ if(M.grid[y].every(function(v){return v>0;})) full.push(y); }
-    if(full.length){ M.flash={ys:full.slice(), t0:Date.now()}; spawnParticles(full); }
+    if(full.length){ M.flash={ys:full.slice(), t0:Date.now()}; spawnParticles(full); ensureFx(); }
     for(var i=full.length-1;i>=0;i--){ M.grid.splice(full[i],1); M.grid.unshift(new Array(W).fill(0)); }
     return full.length;
   }
-  // Continuous render loop → smooth flash, particles, and glow every frame
-  function startRender(){ cancelRender(); (function loop(){ if(!M){ return; } draw(); M._raf=requestAnimationFrame(loop); })(); }
-  function cancelRender(){ if(M&&M._raf){ cancelAnimationFrame(M._raf); M._raf=null; } }
+  // Draw is event-driven (on tick/input); a short rAF loop runs ONLY while a flash or
+  // particles are active, so we don't repaint the whole board every frame (that caused lag).
+  function startRender(){ if(M) draw(); }
+  function cancelRender(){ if(M){ if(M._raf){ cancelAnimationFrame(M._raf); M._raf=null; } M._fx=false; } }
+  function ensureFx(){ if(!M||M._fx) return; M._fx=true;
+    (function loop(){ if(!M){ return; } draw();
+      if(M.flash || (M.particles && M.particles.length)){ M._raf=requestAnimationFrame(loop); } else { M._fx=false; }
+    })();
+  }
   function spawnParticles(rows){
     var cv=el('tet-me'); if(!cv) return; var cs=cv.width/W; M.particles=M.particles||[];
     var pal=['#ffffff','#fbbf24','#22d3ee','#a855f7','#22c55e'];
@@ -14522,16 +14528,12 @@ body.light .jul4-lbscore{color:#059669}
     return 'rgb('+a(r)+','+a(g)+','+a(b)+')'; }
   function rr(ctx,x,y,w,h,r){ if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(x,y,w,h,r); return; }
     ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  // Cheap beveled block — no per-cell gradient/shadow (those tanked performance).
   function block(ctx,x,y,cs,color,glow){
     var px=x*cs,py=y*cs,r=Math.max(2,cs*0.17);
-    ctx.save();
-    var g=ctx.createLinearGradient(px,py,px,py+cs);
-    g.addColorStop(0,hexAdj(color,0.42)); g.addColorStop(0.5,color); g.addColorStop(1,hexAdj(color,-0.3));
-    if(glow){ ctx.shadowColor=color; ctx.shadowBlur=cs*0.5; }
-    rr(ctx,px+1.5,py+1.5,cs-3,cs-3,r); ctx.fillStyle=g; ctx.fill(); ctx.shadowBlur=0;
-    ctx.globalAlpha=0.5; ctx.fillStyle='rgba(255,255,255,.9)';
-    rr(ctx,px+cs*0.22,py+cs*0.15,cs*0.56,cs*0.15,cs*0.07); ctx.fill();
-    ctx.restore();
+    rr(ctx,px+1.5,py+1.5,cs-3,cs-3,r); ctx.fillStyle=color; ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.28)'; ctx.fillRect(px+3,py+3,cs-6,Math.max(2,cs*0.15));
+    ctx.fillStyle='rgba(0,0,0,.22)';     ctx.fillRect(px+3,py+cs-Math.max(3,cs*0.18),cs-6,Math.max(2,cs*0.13));
   }
   function ghostCell(ctx,x,y,cs,color){ var px=x*cs,py=y*cs,r=Math.max(2,cs*0.17);
     ctx.save(); rr(ctx,px+1.5,py+1.5,cs-3,cs-3,r); ctx.globalAlpha=0.14; ctx.fillStyle=color; ctx.fill();
