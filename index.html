@@ -14312,7 +14312,8 @@ body.light .jul4-lbscore{color:#059669}
       M.grid.shift(); M.grid.push(row);
     }
   }
-  var COMBO_TABLE=[0,0,1,1,2,2,3,3,4,4,4,5];   // garbage bonus by combo count (Tetris Battle style)
+  var COMBO_TABLE=[0,0,0,1,1,1,2,2,2,3,3,4];   // gentler combo garbage (softened per feedback)
+  var MAX_SEND=5;                               // hard cap on garbage sent per placement
   function lockPiece(){
     merge(); sfxLock();
     var ts=tSpinType();                          // detect T-spin BEFORE the board changes
@@ -14337,7 +14338,8 @@ body.light .jul4-lbscore{color:#059669}
       M.b2b=b2b;
       M.combo=(M.combo||0)+1;
       sent+=COMBO_TABLE[Math.min(M.combo-1, COMBO_TABLE.length-1)];
-      if(isBoardEmpty()){ sent+=6; pts+=(c>=4?2000:1000); label='Perfect Clear'; }
+      if(isBoardEmpty()){ sent+=4; pts+=(c>=4?2000:1000); label='Perfect Clear'; }
+      sent=Math.min(sent, MAX_SEND);   // cap total garbage per placement
       M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10);
       sfxClear(c); announce(label + (M.combo>1?(' · Combo '+M.combo):''));
       // Garbage cancellation: your outgoing cancels incoming first, remainder goes out.
@@ -14825,6 +14827,7 @@ body.light .jul4-lbscore{color:#059669}
     var m=best.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=best.y+r,gx=best.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) BOT.grid[gy][gx]=m[r][c]; } } }
     var cleared=botClear();
     if(cleared>0){ var sent=[0,0,1,2,4][cleared]||4; BOT.combo=(BOT.combo||0)+1; sent+=COMBO_TABLE[Math.min(BOT.combo-1,COMBO_TABLE.length-1)];
+      sent=Math.min(sent, MAX_SEND);
       if(sent>0){ M.pendingGarbage+=sent; updateIncoming(); }
       BOT.lines+=cleared; BOT.score+=([0,100,300,500,800][cleared]||0);
     } else BOT.combo=0;
