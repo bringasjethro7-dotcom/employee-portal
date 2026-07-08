@@ -14312,8 +14312,8 @@ body.light .jul4-lbscore{color:#059669}
       M.grid.shift(); M.grid.push(row);
     }
   }
-  var COMBO_TABLE=[0,0,0,1,1,1,2,2,2,3,3,4];   // gentler combo garbage (softened per feedback)
-  var MAX_SEND=5;                               // hard cap on garbage sent per placement
+  var COMBO_TABLE=[0,0,0,0,1,1,1,1,2,2,2,3];   // very gentle combo garbage
+  var MAX_SEND=4;                               // hard cap on garbage sent per placement
   function lockPiece(){
     merge(); sfxLock();
     var ts=tSpinType();                          // detect T-spin BEFORE the board changes
@@ -14321,15 +14321,14 @@ body.light .jul4-lbscore{color:#059669}
     if(c>0){
       var sent=0, label='', pts=0;
       if(ts==='full'){
-        if(c===1){ sent=2; pts=800; label='T-Spin Single'; }
-        else if(c===2){ sent=4; pts=1200; label='T-Spin Double'; }
-        else { sent=6; pts=1600; label='T-Spin Triple'; }
+        if(c===1){ sent=1; pts=800; label='T-Spin Single'; }
+        else if(c===2){ sent=2; pts=1200; label='T-Spin Double'; }
+        else { sent=3; pts=1600; label='T-Spin Triple'; }
       } else if(ts==='mini'){
-        // Tuned mini values (guideline): mini single sends 0, mini double sends 1; low points.
         if(c===1){ sent=0; pts=200; label='T-Spin Mini Single'; }
         else { sent=1; pts=400; label='T-Spin Mini Double'; }
       } else {
-        sent=[0,0,1,2,4][c]||4; pts=[0,100,300,500,800][c]||800;
+        sent=[0,0,1,1,2][c]||2; pts=[0,100,300,500,800][c]||800;   // Double 1 · Triple 1 · Tetris 2
         label=(c===4?'Tetris':(c===3?'Triple':(c===2?'Double':'Single')));
       }
       // Back-to-back: kept by Tetris and any T-spin line clear (incl. mini). +1 line, +50% points.
@@ -14338,7 +14337,7 @@ body.light .jul4-lbscore{color:#059669}
       M.b2b=b2b;
       M.combo=(M.combo||0)+1;
       sent+=COMBO_TABLE[Math.min(M.combo-1, COMBO_TABLE.length-1)];
-      if(isBoardEmpty()){ sent+=4; pts+=(c>=4?2000:1000); label='Perfect Clear'; }
+      if(isBoardEmpty()){ sent+=2; pts+=(c>=4?2000:1000); label='Perfect Clear'; }
       sent=Math.min(sent, MAX_SEND);   // cap total garbage per placement
       M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10);
       sfxClear(c); announce(label + (M.combo>1?(' · Combo '+M.combo):''));
@@ -14350,7 +14349,7 @@ body.light .jul4-lbscore{color:#059669}
       M.combo=0;
       // A T-spin with no line clear still scores (and preserves back-to-back), then garbage dumps.
       if(ts){ M.score+=(ts==='mini'?100:400)*M.level; announce(ts==='mini'?'T-Spin Mini':'T-Spin'); }
-      if(M.pendingGarbage>0){ addGarbage(M.pendingGarbage); M.pendingGarbage=0; updateIncoming(); if(!M.alive){ draw(); return; } }
+      if(M.pendingGarbage>0){ var dump=Math.min(M.pendingGarbage,MAX_SEND); addGarbage(dump); M.pendingGarbage-=dump; updateIncoming(); if(!M.alive){ draw(); return; } }
     }
     el('tet-me-score').textContent=M.score; el('tet-me-lines').textContent=M.lines;
     spawn();
@@ -14793,7 +14792,7 @@ body.light .jul4-lbscore{color:#059669}
     M.dropMs=700; M.loop=setInterval(tick,M.dropMs);
     M.timeLeft=180; status('⏱ 3:00 · vs Bot');
     M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ trainingEnd('time'); } else { status('⏱ '+fmtT(M.timeLeft)+' · vs Bot'); } }, 1000);
-    BOT.loop=setInterval(botStep, 640);
+    BOT.loop=setInterval(botStep, 900);
   }
   function botNextType(){ if(!BOT.bag.length){ BOT.bag=TYPES.slice(); for(var i=BOT.bag.length-1;i>0;i--){ var j=Math.floor(BOT.rng()*(i+1)); var t=BOT.bag[i]; BOT.bag[i]=BOT.bag[j]; BOT.bag[j]=t; } } return BOT.bag.shift(); }
   function botEval(g){
@@ -14821,12 +14820,12 @@ body.light .jul4-lbscore{color:#059669}
   function botAddGarbage(n){ var hole=Math.floor(Math.random()*W); for(var i=0;i<n;i++){ var row=new Array(W).fill(8); row[hole]=0; if(BOT.grid[0].some(function(v){return v>0;})){ BOT.grid.shift(); BOT.grid.push(row); BOT.alive=false; return; } BOT.grid.shift(); BOT.grid.push(row); } }
   function botStep(){
     if(!M||M.ended||!BOT||!BOT.alive) return;
-    if(BOT.pending>0){ botAddGarbage(BOT.pending); BOT.pending=0; if(!BOT.alive){ botKO(); return; } }
+    if(BOT.pending>0){ var bd=Math.min(BOT.pending,MAX_SEND); botAddGarbage(bd); BOT.pending-=bd; if(!BOT.alive){ botKO(); return; } }
     var type=botNextType(); var best=botBest(type);
     if(!best){ botKO(); return; }
     var m=best.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=best.y+r,gx=best.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) BOT.grid[gy][gx]=m[r][c]; } } }
     var cleared=botClear();
-    if(cleared>0){ var sent=[0,0,1,2,4][cleared]||4; BOT.combo=(BOT.combo||0)+1; sent+=COMBO_TABLE[Math.min(BOT.combo-1,COMBO_TABLE.length-1)];
+    if(cleared>0){ var sent=[0,0,1,1,2][cleared]||2; BOT.combo=(BOT.combo||0)+1; sent+=COMBO_TABLE[Math.min(BOT.combo-1,COMBO_TABLE.length-1)];
       sent=Math.min(sent, MAX_SEND);
       if(sent>0){ M.pendingGarbage+=sent; updateIncoming(); }
       BOT.lines+=cleared; BOT.score+=([0,100,300,500,800][cleared]||0);
