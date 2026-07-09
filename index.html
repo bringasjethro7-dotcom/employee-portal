@@ -15085,6 +15085,13 @@ body.light .jul4-lbscore{color:#059669}
   window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.classList.remove('open'); };
   function rkInitial(n){ n=String(n||'?').trim(); return (n.charAt(0)||'?').toUpperCase(); }
   function rkAvColor(rank){ return rank===1?'linear-gradient(135deg,#ffe08a,#f59e0b)':rank===2?'linear-gradient(135deg,#e6ecf5,#9aa7bd)':'linear-gradient(135deg,#f0b98a,#c77e46)'; }
+  function rkRing(rank){ return rank===1?'#f59e0b':rank===2?'#9aa7bd':rank===3?'#c77e46':'rgba(255,255,255,.14)'; }
+  function rkPhoto(id){
+    if(!id) return '';
+    var ep=(typeof employeePhotos!=='undefined')?employeePhotos:{}, pp=(typeof presencePhotos!=='undefined')?presencePhotos:{};
+    var u=ep[id]||pp[id]||ep[String(id).toUpperCase()]||pp[String(id).toUpperCase()]||ep[String(id).toLowerCase()]||pp[String(id).toLowerCase()];
+    return u||'';
+  }
   function renderPodium(rows, me){
     var host=el('tet-rank-podium'); if(!host) return;
     var top=rows.slice(0,3);
@@ -15096,9 +15103,12 @@ body.light .jul4-lbscore{color:#059669}
       var first=p.rank===1, mine=String(p.employee_id||'').toLowerCase()===me;
       var md=['🥇','🥈','🥉'][p.rank-1];
       var sk=(p.skill_level||0)>0?'<div class="rk-sk">🎖 Lv'+p.skill_level+'</div>':'';
+      var ph=rkPhoto(p.employee_id);
+      var av = ph
+        ? '<div class="rk-av" style="overflow:hidden;background:#0b1020;border:3px solid '+rkRing(p.rank)+';padding:0;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\''+rkAvColor(p.rank)+'\';"></div>'
+        : '<div class="rk-av" style="background:'+rkAvColor(p.rank)+';">'+rkInitial(p.name)+'</div>';
       return '<div class="rk-pod'+(first?' first':'')+(mine?' me':'')+'">'+
-        '<div class="rk-md">'+md+'</div>'+
-        '<div class="rk-av" style="background:'+rkAvColor(p.rank)+';">'+rkInitial(p.name)+'</div>'+
+        '<div class="rk-md">'+md+'</div>'+ av +
         '<div class="rk-nm">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
         '<div class="rk-rt">'+(p.rating||0)+' <span style="font-weight:600;color:#9fb0d6;font-size:9px;">RATING</span></div>'+ sk +
       '</div>';
@@ -15122,9 +15132,11 @@ body.light .jul4-lbscore{color:#059669}
         var mine=String(p.employee_id||'').toLowerCase()===me;
         var skill=p.skill_level||0, skillBadge=skill>0?'<span style="color:#a855f7;font-weight:800;">🎖 Lv'+skill+'</span> · ':'';
         var apg=(p.avg_lines!=null)?p.avg_lines:0;
+        var ph=rkPhoto(p.employee_id);
+        var av2=ph?'<div class="rk-av2" style="overflow:hidden;padding:0;background:#0b1020;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\'linear-gradient(135deg,#2c3a5c,#1a2438)\';"></div>':'<div class="rk-av2">'+rkInitial(p.name)+'</div>';
         return '<div class="rk-row'+(mine?' me':'')+'">'+
           '<div class="rk-pos">'+p.rank+'</div>'+
-          '<div class="rk-av2">'+rkInitial(p.name)+'</div>'+
+          av2+
           '<div style="flex:1;min-width:0;text-align:left;">'+
             '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
             '<div style="font-size:10px;color:#9fb0d6;margin-top:2px;">'+skillBadge+'🏆 '+(p.wins||0)+'W · 📏 '+apg+' l/game · ⚔ '+(p.duel_games||0)+'</div>'+
