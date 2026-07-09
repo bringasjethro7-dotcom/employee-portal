@@ -15092,6 +15092,7 @@ body.light .jul4-lbscore{color:#059669}
     if(M && M.playing) return;
     if(!canPlayGame()) return; ac();
     level=parseInt(level,10)||1; if(level<1) level=1; if(level>10) level=10;
+    if(level>_mySkill+1){ try{ showToast('🔒 Locked — beat Lv'+_mySkill+' first to unlock Lv'+level+'.'); }catch(_){} return; }
     var bot=BOTS[level-1];
     var oc=el('tet-opp-col'); if(oc) oc.style.display='';
     var arc=el('tet-arena-col'); if(arc) arc.style.display='none';
@@ -15275,13 +15276,19 @@ body.light .jul4-lbscore{color:#059669}
   function buildLadderHTML(compact){
     var DIFF=['Warm-up','Easy','Easy','Fair','Fair','Tough','Tough','Hard','Very hard','Elite'];
     return BOTS.map(function(b){
-      var cleared=b.lv<=_mySkill, next=b.lv===_mySkill+1;
-      var badge=cleared?'<span style="color:#34d399;font-size:11px;font-weight:800;">✓ Cleared</span>':(next?'<span style="color:#fbbf24;font-size:11px;font-weight:800;">▶ Next</span>':'<span style="color:#6b7d90;font-size:11px;">Lv '+b.lv+'</span>');
-      return '<div style="display:flex;align-items:center;gap:10px;padding:'+(compact?'7px 10px':'10px 12px')+';margin-bottom:6px;border-radius:11px;background:'+(next?'rgba(251,191,36,.12)':'#0d1117')+';border:1px solid '+(next?'rgba(251,191,36,.4)':(cleared?'rgba(52,211,153,.3)':'rgba(255,255,255,.08)'))+';">'+
-        '<div style="width:'+(compact?'26':'30')+'px;height:'+(compact?'26':'30')+'px;border-radius:8px;background:linear-gradient(135deg,#1b2233,#0c1120);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:'+(compact?'12':'13')+'px;color:#fbbf24;">'+b.lv+'</div>'+
+      var cleared=b.lv<=_mySkill, next=b.lv===_mySkill+1, locked=b.lv>_mySkill+1;
+      var badge=cleared?'<span style="color:#34d399;font-size:11px;font-weight:800;">✓ Cleared</span>':(next?'<span style="color:#fbbf24;font-size:11px;font-weight:800;">▶ Play now</span>':'<span style="color:#6b7d90;font-size:11px;">🔒 Beat Lv'+(b.lv-1)+' to unlock</span>');
+      var tile = locked
+        ? '<div style="width:'+(compact?'26':'30')+'px;height:'+(compact?'26':'30')+'px;border-radius:8px;background:#0c1120;border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;font-size:'+(compact?'12':'13')+'px;color:#4a5670;">🔒</div>'
+        : '<div style="width:'+(compact?'26':'30')+'px;height:'+(compact?'26':'30')+'px;border-radius:8px;background:linear-gradient(135deg,#1b2233,#0c1120);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:'+(compact?'12':'13')+'px;color:#fbbf24;">'+b.lv+'</div>';
+      var btn = locked
+        ? '<button disabled style="background:#161b28;color:#4a5670;border:1px solid rgba(255,255,255,.06);border-radius:9px;padding:7px 13px;font-weight:800;font-size:12px;cursor:not-allowed;">🔒 Locked</button>'
+        : '<button onclick="tetLadderFight('+b.lv+')" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:9px;padding:7px 13px;font-weight:800;font-size:12px;cursor:pointer;">'+(cleared?'Replay':'Fight')+'</button>';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:'+(compact?'7px 10px':'10px 12px')+';margin-bottom:6px;border-radius:11px;opacity:'+(locked?'.6':'1')+';background:'+(next?'rgba(251,191,36,.12)':'#0d1117')+';border:1px solid '+(next?'rgba(251,191,36,.4)':(cleared?'rgba(52,211,153,.3)':'rgba(255,255,255,.08)'))+';">'+
+        tile+
         '<div style="flex:1;min-width:0;text-align:left;"><div style="font-size:'+(compact?'12.5':'13.5')+'px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(b.name)+'</div>'+
           '<div style="font-size:10px;color:#9fb0d6;margin-top:1px;">'+DIFF[b.lv-1]+' · '+badge+'</div></div>'+
-        '<button onclick="tetLadderFight('+b.lv+')" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:9px;padding:7px 13px;font-weight:800;font-size:12px;cursor:pointer;">Fight</button></div>';
+        btn+'</div>';
     }).join('');
   }
   function renderLadder(){
