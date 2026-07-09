@@ -14031,7 +14031,9 @@ body.light .jul4-lbscore{color:#059669}
       <button onclick="tetCloseRanking()" style="background:none;border:none;color:#9fb0d6;font-size:20px;cursor:pointer;">✕</button>
     </div>
     <div style="font-size:11.5px;color:#9fb0d6;margin-bottom:10px;">Best players by <b style="color:#fbbf24;">Tetris Rating</b> — 1v1 duels, tournaments & bot skill ladder combined.</div>
-    <button onclick="tetOpenLadder()" style="width:100%;background:#141a2b;color:#a855f7;border:1px solid rgba(168,85,247,.4);border-radius:11px;padding:10px;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:12px;">🤖 Open Skill Ladder — grade your skill</button>
+    <div id="tet-rank-next" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:11px;padding:10px 12px;font-size:12px;font-weight:700;color:#fbbf24;text-align:center;margin-bottom:12px;"></div>
+    <div id="tet-rank-bots" style="margin-bottom:14px;"></div>
+    <div style="font-size:12px;font-weight:800;color:#fbbf24;margin:2px 0 8px;">🏆 Leaderboard</div>
     <div id="tet-rank-body"><div style="text-align:center;color:#6b7d90;padding:34px;">Loading…</div></div>
   </div>
 </div>
@@ -14380,6 +14382,7 @@ body.light .jul4-lbscore{color:#059669}
     detachControls();
     if(chan){ try{ supaClient.removeChannel(chan); }catch(e){} chan=null; }
     M=null;
+    _ladderNext=0;   // cancel any pending Skill Ladder auto-advance
     document.body.classList.remove('tet-ingame');
   }
 
@@ -15048,23 +15051,27 @@ body.light .jul4-lbscore{color:#059669}
   window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.style.display='none'; };
   window.tetOpenRanking=function(){
     var m=el('tet-rank-modal'); if(!m) return;
+    renderRankNext(); renderRankBots();
     el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:34px;">Loading…</div>';
     m.style.display='flex';
     fetch(APPS_SCRIPT_URL+'?action=tetris_ranking&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
       var rows=(d&&d.ranking)||[];
-      if(!rows.length){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:34px;">No tournament results yet.<br>Win a nightly tournament (11:55 PM) to make the board! 🏆</div>'; return; }
       var me=(typeof eid==='function')?String(eid()).toLowerCase():'';
+      rows.forEach(function(p){ if(String(p.employee_id||'').toLowerCase()===me && p.skill_level!=null) _mySkill=p.skill_level; });
+      renderRankBots();
+      if(!rows.length){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:28px;">No games recorded yet.<br>Play a 1v1, a tournament, or fight a bot to make the board! 🏆</div>'; return; }
       el('tet-rank-body').innerHTML=rows.map(function(p){
         var medal=p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:('<span style="color:#6b7d90;">'+p.rank+'</span>');
         var mine=String(p.employee_id||'').toLowerCase()===me;
         var brd=p.rank===1?'rgba(251,191,36,.55)':(mine?'rgba(255,107,26,.45)':'rgba(255,255,255,.08)');
         var skill=p.skill_level||0;
-        var skillBadge=skill>0?'<span style="color:#a855f7;font-weight:800;">🎖 Skill Lv'+skill+'</span> · ':'';
+        var skillBadge=skill>0?'<span style="color:#a855f7;font-weight:800;">🎖 Lv'+skill+'</span> · ':'';
+        var apg=(p.avg_lines!=null)?p.avg_lines:0;
         return '<div style="display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:7px;border-radius:12px;background:'+(mine?'rgba(255,107,26,.15)':'#0d1117')+';border:1px solid '+brd+';">'+
           '<div style="width:32px;text-align:center;font-weight:900;font-size:17px;">'+medal+'</div>'+
           '<div style="flex:1;min-width:0;text-align:left;">'+
             '<div style="font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
-            '<div style="font-size:10.5px;color:#9fb0d6;margin-top:2px;">'+skillBadge+'🏆 '+(p.wins||0)+'W · ⚔ '+(p.duel_games||0)+' duels · 🏅 '+(p.tour_wins||0)+' cups · best '+(p.best||0)+'</div>'+
+            '<div style="font-size:10.5px;color:#9fb0d6;margin-top:2px;">'+skillBadge+'🏆 '+(p.wins||0)+'W · 📏 '+apg+' lines/game · ⚔ '+(p.duel_games||0)+' duels · 🏅 '+(p.tour_wins||0)+' cups</div>'+
           '</div>'+
           '<div style="text-align:right;"><div style="font-size:16px;font-weight:900;color:#fbbf24;">'+(p.rating||0)+'</div><div style="font-size:9px;color:#6b7d90;text-transform:uppercase;letter-spacing:.05em;">rating</div></div></div>';
       }).join('');
@@ -15079,7 +15086,7 @@ body.light .jul4-lbscore{color:#059669}
     {lv:7, name:'Stacker Sven'},   {lv:8, name:'T-Spin Tara'},  {lv:9, name:'Blitz Bruno'},
     {lv:10,name:'Grandmaster Goliath'}
   ];
-  var _mySkill=0;
+  var _mySkill=0, _ladderNext=0;
   function collideOn(grid,m,x,y){ for(var r=0;r<m.length;r++)for(var c=0;c<m[r].length;c++){ if(!m[r][c]) continue; var gx=x+c,gy=y+r; if(gx<0||gx>=W||gy>=H) return true; if(gy>=0&&grid[gy][gx]) return true; } return false; }
   window.tetrisTraining=function(level){
     if(M && M.playing) return;
@@ -15182,8 +15189,8 @@ body.light .jul4-lbscore{color:#059669}
     if(TL&&TL.nightly){ el('tourney-lobby').style.display='flex'; return; }
     if(M&&M.playing){ try{ showToast('You are already in a game.'); }catch(_){} return; }
     if(live){ window.tourneyStartNightly('NT-'+p.date); return; }
-    var toStart=((23*3600+55*60) - (p.H*3600+p.M*60+p.S) + 86400)%86400, mins=Math.round(toStart/60);
-    try{ showToast('🏆 Nightly Tetris Tournament — 11:55 PM. All online players invited, 45s to join. Top 5 win 300/250/200/150/100 pts. Next in ~'+mins+' min.'); }catch(_){}
+    // No timer / not live → open the Tetris dashboard (current rankings)
+    if(typeof tetOpenRanking==='function') tetOpenRanking();
   };
   setInterval(function(){
     var p=phtNowParts();
@@ -15199,7 +15206,7 @@ body.light .jul4-lbscore{color:#059669}
       var lbl=document.getElementById('ttf-label');
       if(live){ fab.classList.add('live'); if(lbl) lbl.innerHTML='Tournament LIVE <span class="ttf-cd">JOIN</span>'; }
       else if(toStart<=1800){ fab.classList.remove('live'); var mm=Math.floor(toStart/60), ss=toStart%60; if(lbl) lbl.innerHTML='Tournament <span class="ttf-cd">'+mm+':'+(ss<10?'0':'')+ss+'</span>'; }
-      else { fab.classList.remove('live'); if(lbl) lbl.textContent='Tetris Tournament'; }
+      else { fab.classList.remove('live'); if(lbl) lbl.textContent='Tetris'; }   // no timer → just "Tetris"
     }
     if(inMinute){
       // Auto-invite everyone online once, at 11:55 PM
@@ -15225,39 +15232,72 @@ body.light .jul4-lbscore{color:#059669}
     BOT.pending=0; BOT.combo=0; BOT.alive=true;
   }
   function trainingEnd(how){
-    if(!M||M.ended) return; M.ended=true; M.alive=false;
+    if(!M||M.ended) return; M.ended=true; M.alive=false; M.playing=false;
     if(how==='time') sfxUrgent(0);
     if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(BOT&&BOT.loop) clearInterval(BOT.loop);
-    stopMusic(); detachControls();
+    cancelRender(); stopMusic(); detachControls();
     var win = (how==='botdead') ? true : (how==='userdead') ? false : (M.score>=(BOT?BOT.score:0));
     var lv=M.botLevel||0, bname=(BOT&&BOT.name)||'the Bot';
-    if(win){ status('🏆 You beat '+esc(bname)+'!'); sfxWin(); }
-    else { status('🤖 '+esc(bname)+' wins — keep practicing!'); sfxLose(); }
+    if(lv) recordBotGame(win, lv, M.score||0, M.lines||0, bname);   // grade skill + log lines
+    // Skill Ladder: on a WIN, climb to the next level automatically until you lose (or clear Lv10).
+    if(lv && win && lv<10){
+      var nx=lv+1, nb=BOTS[lv];
+      status('🏆 Lv'+lv+' cleared! Next up: Lv'+nx+' '+esc(nb.name)+'…'); sfxWin();
+      showLevelUp(lv, nx, nb.name);
+      _ladderNext=nx;
+      setTimeout(function(){ if(_ladderNext!==nx) return; _ladderNext=0; if(M&&M.playing) return; window.tetrisTraining(nx); }, 2600);
+      return;
+    }
     var p=el('tr-points'); showDuelResult(win?true:false);
     if(lv){
-      if(win){
-        if(p) p.textContent='Skill Ladder · Lv'+lv+' cleared! 🎖';
-        if(lv>_mySkill) _mySkill=lv;
-        fetch(APPS_SCRIPT_URL+'?action=bot_result&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())+'&level='+lv+'&won=1&_='+Date.now())
-          .then(function(r){return r.json();}).then(function(d){ if(d&&d.skill_level!=null) _mySkill=d.skill_level; }).catch(function(){});
-      } else if(p){ p.textContent='Skill Ladder · Lv'+lv+' — try again!'; }
+      if(win){ if(p) p.textContent='🏆 Skill Ladder complete — you beat all 10 bots! You are a Grandmaster.'; }
+      else if(p){ p.textContent='Skill Ladder · fell at Lv'+lv+' — best cleared: Lv'+_mySkill; }
     } else if(p){ p.textContent='Training — no points'; }
+  }
+  function recordBotGame(win, lv, score, lines, bname){
+    if(win && lv>_mySkill) _mySkill=lv;
+    fetch(APPS_SCRIPT_URL+'?action=bot_result&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())+'&level='+lv+'&won='+(win?1:0)+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(d){ if(d&&d.skill_level!=null) _mySkill=d.skill_level; }).catch(function(){});
+    fetch(APPS_SCRIPT_URL+'?action=game_result&solo=1&mode=bot&match_id='+encodeURIComponent('bot-'+eid()+'-'+Date.now())
+      +'&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())
+      +'&result='+(win?'win':'loss')+'&score='+(score||0)+'&lines='+(lines||0)+'&opponent='+encodeURIComponent(bname||'Bot')+'&_='+Date.now()).catch(function(){});
+  }
+  // Brief "Level Up" splash between ladder rounds
+  function showLevelUp(from, to, nextName){
+    var host=el('tet-bigcount'), num=el('bc-num'); if(!host||!num) return;
+    host.style.display='flex'; num.className='bc-num go'; num.textContent='Lv'+to;
+    void num.offsetWidth; num.classList.add('bc-anim');
+    setTimeout(function(){ host.style.display='none'; num.classList.remove('bc-anim'); }, 1400);
   }
   // ── Skill Ladder UI ──
   window.tetCloseLadder=function(){ var m=el('tet-ladder-modal'); if(m) m.style.display='none'; };
   window.tetLadderFight=function(lv){ tetCloseLadder(); window.tetrisTraining(lv); };
-  function renderLadder(){
+  function buildLadderHTML(compact){
     var DIFF=['Warm-up','Easy','Easy','Fair','Fair','Tough','Tough','Hard','Very hard','Elite'];
-    el('tet-ladder-sub').innerHTML='Your Skill Grade: <b style="color:#fbbf24;">Lv '+_mySkill+' / 10</b> — beat the next bot to climb. Practice anytime you\'re idle.';
-    el('tet-ladder-body').innerHTML=BOTS.map(function(b){
+    return BOTS.map(function(b){
       var cleared=b.lv<=_mySkill, next=b.lv===_mySkill+1;
       var badge=cleared?'<span style="color:#34d399;font-size:11px;font-weight:800;">✓ Cleared</span>':(next?'<span style="color:#fbbf24;font-size:11px;font-weight:800;">▶ Next</span>':'<span style="color:#6b7d90;font-size:11px;">Lv '+b.lv+'</span>');
-      return '<div style="display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:7px;border-radius:12px;background:'+(next?'rgba(251,191,36,.12)':'#0d1117')+';border:1px solid '+(next?'rgba(251,191,36,.4)':(cleared?'rgba(52,211,153,.3)':'rgba(255,255,255,.08)'))+';">'+
-        '<div style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#1b2233,#0c1120);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#fbbf24;">'+b.lv+'</div>'+
-        '<div style="flex:1;min-width:0;text-align:left;"><div style="font-size:13.5px;font-weight:700;">'+esc(b.name)+'</div>'+
-          '<div style="font-size:10.5px;color:#9fb0d6;margin-top:1px;">'+DIFF[b.lv-1]+' · '+badge+'</div></div>'+
-        '<button onclick="tetLadderFight('+b.lv+')" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:800;font-size:12.5px;cursor:pointer;">Fight</button></div>';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:'+(compact?'7px 10px':'10px 12px')+';margin-bottom:6px;border-radius:11px;background:'+(next?'rgba(251,191,36,.12)':'#0d1117')+';border:1px solid '+(next?'rgba(251,191,36,.4)':(cleared?'rgba(52,211,153,.3)':'rgba(255,255,255,.08)'))+';">'+
+        '<div style="width:'+(compact?'26':'30')+'px;height:'+(compact?'26':'30')+'px;border-radius:8px;background:linear-gradient(135deg,#1b2233,#0c1120);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:'+(compact?'12':'13')+'px;color:#fbbf24;">'+b.lv+'</div>'+
+        '<div style="flex:1;min-width:0;text-align:left;"><div style="font-size:'+(compact?'12.5':'13.5')+'px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(b.name)+'</div>'+
+          '<div style="font-size:10px;color:#9fb0d6;margin-top:1px;">'+DIFF[b.lv-1]+' · '+badge+'</div></div>'+
+        '<button onclick="tetLadderFight('+b.lv+')" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:9px;padding:7px 13px;font-weight:800;font-size:12px;cursor:pointer;">Fight</button></div>';
     }).join('');
+  }
+  function renderLadder(){
+    el('tet-ladder-sub').innerHTML='Your Skill Grade: <b style="color:#fbbf24;">Lv '+_mySkill+' / 10</b> — beat the next bot to climb. Practice anytime you\'re idle.';
+    el('tet-ladder-body').innerHTML=buildLadderHTML(false);
+  }
+  function renderRankBots(){
+    var host=el('tet-rank-bots'); if(!host) return;
+    host.innerHTML='<div style="font-size:12px;font-weight:800;color:#a855f7;margin:2px 0 8px;">🤖 Challenge a bot daily — your Skill Grade Lv '+_mySkill+'/10</div>'+buildLadderHTML(true);
+  }
+  function renderRankNext(){
+    var nb=el('tet-rank-next'); if(!nb) return;
+    var np=phtNowParts(); var toS=((23*3600+55*60)-(np.H*3600+np.M*60+np.S)+86400)%86400;
+    var hh=Math.floor(toS/3600), mm=Math.floor((toS%3600)/60);
+    var live=(np.H===23&&np.M>=55);
+    nb.innerHTML = live ? '🔴 Tournament LIVE now — tap the Tetris button to join!' : ('🏆 Next nightly tournament in '+(hh>0?hh+'h ':'')+mm+'m — top 5 win 300/250/200/150/100 pts');
   }
   window.tetOpenLadder=function(){
     var m=el('tet-ladder-modal'); if(!m) return;
