@@ -14023,18 +14023,52 @@ body.light .jul4-lbscore{color:#059669}
   </div>
 </div>
 
-<!-- Tetris all-time rankings -->
-<div id="tet-rank-modal" style="display:none;position:fixed;inset:0;z-index:9620;background:rgba(5,8,20,.86);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
-  <div style="width:470px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 60%,#080d19 100%);border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:22px 22px 20px;color:#eef2ff;box-shadow:0 40px 120px rgba(0,0,0,.7);max-height:92vh;overflow:auto;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
-      <div style="font-size:19px;font-weight:900;">🏆 Tetris Rankings</div>
-      <button onclick="tetCloseRanking()" style="background:none;border:none;color:#9fb0d6;font-size:20px;cursor:pointer;">✕</button>
+<!-- Tetris all-time rankings — premium dashboard -->
+<style>
+  #tet-rank-modal{display:none;position:fixed;inset:0;z-index:9620;background:rgba(4,7,16,.9);backdrop-filter:blur(9px);align-items:center;justify-content:center;padding:16px}
+  #tet-rank-modal.open{display:flex}
+  #tet-rank-modal .rk-card{width:500px;max-width:100%;background:linear-gradient(180deg,#151c33 0%,#0b1020 60%,#070b16 100%);border:1px solid rgba(251,191,36,.22);border-radius:26px;color:#eef2ff;box-shadow:0 50px 140px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.06);max-height:94vh;display:flex;flex-direction:column;overflow:hidden}
+  #tet-rank-modal .rk-head{padding:20px 22px 16px;background:radial-gradient(140% 120% at 50% -20%,rgba(251,191,36,.18),transparent 62%);border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between}
+  #tet-rank-modal .rk-title{font-size:20px;font-weight:900;letter-spacing:.3px}
+  #tet-rank-modal .rk-title small{display:block;font-size:10.5px;font-weight:600;letter-spacing:.04em;color:#9fb0d6;margin-top:3px}
+  #tet-rank-modal .rk-x{background:rgba(255,255,255,.06);border:none;color:#c7d0e6;width:30px;height:30px;border-radius:9px;font-size:16px;cursor:pointer;line-height:1}
+  #tet-rank-modal .rk-x:hover{background:rgba(255,255,255,.12)}
+  #tet-rank-modal .rk-scroll{overflow:auto;padding:18px 20px 22px}
+  #tet-rank-modal .rk-sec{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:#7d8bab;margin:22px 2px 11px;display:flex;align-items:center;gap:7px}
+  #tet-rank-modal .rk-sec::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.12),transparent)}
+  .rk-podium{display:flex;align-items:flex-end;justify-content:center;gap:9px;margin:4px 0 4px}
+  .rk-pod{flex:1;min-width:0;text-align:center;border-radius:16px;padding:14px 6px 12px;border:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.015))}
+  .rk-pod .rk-md{font-size:19px;line-height:1;margin-bottom:5px}
+  .rk-pod .rk-av{width:44px;height:44px;border-radius:50%;margin:0 auto 7px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;color:#0b1020}
+  .rk-pod .rk-nm{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px}
+  .rk-pod .rk-rt{font-size:12px;font-weight:900;color:#fbbf24;margin-top:3px}
+  .rk-pod .rk-sk{font-size:9px;color:#a855f7;font-weight:700;margin-top:2px}
+  .rk-pod.first{background:linear-gradient(180deg,rgba(251,191,36,.24),rgba(251,191,36,.04));border-color:rgba(251,191,36,.55);box-shadow:0 14px 40px rgba(251,191,36,.24);padding-top:20px;transform:translateY(-8px)}
+  .rk-pod.first .rk-md{font-size:30px;filter:drop-shadow(0 0 14px rgba(251,191,36,.7))}
+  .rk-pod.first .rk-av{width:64px;height:64px;font-size:26px;box-shadow:0 8px 24px rgba(251,191,36,.55)}
+  .rk-pod.first .rk-nm{font-size:17px;font-weight:900}
+  .rk-pod.first .rk-rt{font-size:15px}
+  .rk-pod.me{outline:2px solid rgba(255,107,26,.6);outline-offset:1px}
+  .rk-row{display:flex;align-items:center;gap:11px;padding:9px 12px;margin-bottom:7px;border-radius:12px;background:#0d1117;border:1px solid rgba(255,255,255,.07)}
+  .rk-row.me{background:rgba(255,107,26,.14);border-color:rgba(255,107,26,.42)}
+  .rk-row .rk-pos{width:24px;text-align:center;font-weight:800;font-size:14px;color:#8a97b5;flex:0 0 auto}
+  .rk-row .rk-av2{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#eef2ff;flex:0 0 auto;background:linear-gradient(135deg,#2c3a5c,#1a2438)}
+  .rk-next-banner{background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(255,107,26,.08));border:1px solid rgba(251,191,36,.32);border-radius:13px;padding:11px 13px;font-size:12px;font-weight:700;color:#fdd98a;text-align:center}
+</style>
+<div id="tet-rank-modal">
+  <div class="rk-card">
+    <div class="rk-head">
+      <div class="rk-title">🏆 Tetris Champions<small>Ranked by Tetris Rating · duels · tournaments · skill ladder</small></div>
+      <button class="rk-x" onclick="tetCloseRanking()">✕</button>
     </div>
-    <div style="font-size:11.5px;color:#9fb0d6;margin-bottom:10px;">Best players by <b style="color:#fbbf24;">Tetris Rating</b> — 1v1 duels, tournaments & bot skill ladder combined.</div>
-    <div id="tet-rank-next" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:11px;padding:10px 12px;font-size:12px;font-weight:700;color:#fbbf24;text-align:center;margin-bottom:12px;"></div>
-    <div id="tet-rank-bots" style="margin-bottom:14px;"></div>
-    <div style="font-size:12px;font-weight:800;color:#fbbf24;margin:2px 0 8px;">🏆 Leaderboard</div>
-    <div id="tet-rank-body"><div style="text-align:center;color:#6b7d90;padding:34px;">Loading…</div></div>
+    <div class="rk-scroll">
+      <div id="tet-rank-podium"></div>
+      <div id="tet-rank-body"><div style="text-align:center;color:#6b7d90;padding:30px;">Loading…</div></div>
+      <div class="rk-sec">⏰ Next tournament</div>
+      <div id="tet-rank-next" class="rk-next-banner"></div>
+      <div class="rk-sec">🤖 Daily bot challenges</div>
+      <div id="tet-rank-bots"></div>
+    </div>
   </div>
 </div>
 
@@ -15047,35 +15081,57 @@ body.light .jul4-lbscore{color:#059669}
     if(myRank===1 || (M.nightly && myRank>=1 && myRank<=5)){ try{ tetConfetti({count: myRank===1?200:130, dur: myRank===1?3200:2400}); }catch(_){} }
   }
 
-  // ════════════════ ALL-TIME TETRIS RANKINGS ════════════════
-  window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.style.display='none'; };
+  // ════════════════ ALL-TIME TETRIS RANKINGS (premium dashboard) ════════════════
+  window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.classList.remove('open'); };
+  function rkInitial(n){ n=String(n||'?').trim(); return (n.charAt(0)||'?').toUpperCase(); }
+  function rkAvColor(rank){ return rank===1?'linear-gradient(135deg,#ffe08a,#f59e0b)':rank===2?'linear-gradient(135deg,#e6ecf5,#9aa7bd)':'linear-gradient(135deg,#f0b98a,#c77e46)'; }
+  function renderPodium(rows, me){
+    var host=el('tet-rank-podium'); if(!host) return;
+    var top=rows.slice(0,3);
+    if(!top.length){ host.innerHTML=''; return; }
+    // display order: 2nd (left), 1st (center, biggest), 3rd (right)
+    var order=[top[1],top[0],top[2]];
+    host.innerHTML='<div class="rk-podium">'+order.map(function(p){
+      if(!p) return '<div class="rk-pod" style="visibility:hidden;"></div>';
+      var first=p.rank===1, mine=String(p.employee_id||'').toLowerCase()===me;
+      var md=['🥇','🥈','🥉'][p.rank-1];
+      var sk=(p.skill_level||0)>0?'<div class="rk-sk">🎖 Lv'+p.skill_level+'</div>':'';
+      return '<div class="rk-pod'+(first?' first':'')+(mine?' me':'')+'">'+
+        '<div class="rk-md">'+md+'</div>'+
+        '<div class="rk-av" style="background:'+rkAvColor(p.rank)+';">'+rkInitial(p.name)+'</div>'+
+        '<div class="rk-nm">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
+        '<div class="rk-rt">'+(p.rating||0)+' <span style="font-weight:600;color:#9fb0d6;font-size:9px;">RATING</span></div>'+ sk +
+      '</div>';
+    }).join('')+'</div>';
+  }
   window.tetOpenRanking=function(){
     var m=el('tet-rank-modal'); if(!m) return;
     renderRankNext(); renderRankBots();
-    el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:34px;">Loading…</div>';
-    m.style.display='flex';
+    el('tet-rank-podium').innerHTML='';
+    el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:30px;">Loading…</div>';
+    m.classList.add('open');
     fetch(APPS_SCRIPT_URL+'?action=tetris_ranking&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
       var rows=(d&&d.ranking)||[];
       var me=(typeof eid==='function')?String(eid()).toLowerCase():'';
       rows.forEach(function(p){ if(String(p.employee_id||'').toLowerCase()===me && p.skill_level!=null) _mySkill=p.skill_level; });
       renderRankBots();
-      if(!rows.length){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:28px;">No games recorded yet.<br>Play a 1v1, a tournament, or fight a bot to make the board! 🏆</div>'; return; }
-      el('tet-rank-body').innerHTML=rows.map(function(p){
-        var medal=p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:('<span style="color:#6b7d90;">'+p.rank+'</span>');
+      if(!rows.length){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:26px;">No games recorded yet.<br>Play a 1v1, a tournament, or fight a bot to make the board! 🏆</div>'; return; }
+      renderPodium(rows, me);
+      var rest=rows.slice(3);
+      el('tet-rank-body').innerHTML = rest.length ? rest.map(function(p){
         var mine=String(p.employee_id||'').toLowerCase()===me;
-        var brd=p.rank===1?'rgba(251,191,36,.55)':(mine?'rgba(255,107,26,.45)':'rgba(255,255,255,.08)');
-        var skill=p.skill_level||0;
-        var skillBadge=skill>0?'<span style="color:#a855f7;font-weight:800;">🎖 Lv'+skill+'</span> · ':'';
+        var skill=p.skill_level||0, skillBadge=skill>0?'<span style="color:#a855f7;font-weight:800;">🎖 Lv'+skill+'</span> · ':'';
         var apg=(p.avg_lines!=null)?p.avg_lines:0;
-        return '<div style="display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:7px;border-radius:12px;background:'+(mine?'rgba(255,107,26,.15)':'#0d1117')+';border:1px solid '+brd+';">'+
-          '<div style="width:32px;text-align:center;font-weight:900;font-size:17px;">'+medal+'</div>'+
+        return '<div class="rk-row'+(mine?' me':'')+'">'+
+          '<div class="rk-pos">'+p.rank+'</div>'+
+          '<div class="rk-av2">'+rkInitial(p.name)+'</div>'+
           '<div style="flex:1;min-width:0;text-align:left;">'+
-            '<div style="font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
-            '<div style="font-size:10.5px;color:#9fb0d6;margin-top:2px;">'+skillBadge+'🏆 '+(p.wins||0)+'W · 📏 '+apg+' lines/game · ⚔ '+(p.duel_games||0)+' duels · 🏅 '+(p.tour_wins||0)+' cups</div>'+
+            '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
+            '<div style="font-size:10px;color:#9fb0d6;margin-top:2px;">'+skillBadge+'🏆 '+(p.wins||0)+'W · 📏 '+apg+' l/game · ⚔ '+(p.duel_games||0)+'</div>'+
           '</div>'+
-          '<div style="text-align:right;"><div style="font-size:16px;font-weight:900;color:#fbbf24;">'+(p.rating||0)+'</div><div style="font-size:9px;color:#6b7d90;text-transform:uppercase;letter-spacing:.05em;">rating</div></div></div>';
-      }).join('');
-    }).catch(function(){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#f87171;padding:34px;">Couldn\'t load rankings — try again.</div>'; });
+          '<div style="text-align:right;"><div style="font-size:15px;font-weight:900;color:#fbbf24;">'+(p.rating||0)+'</div><div style="font-size:8px;color:#6b7d90;text-transform:uppercase;letter-spacing:.05em;">rating</div></div></div>';
+      }).join('') : '<div style="text-align:center;color:#6b7d90;padding:8px;font-size:12px;">That\'s everyone so far — climb the ranks! 🎮</div>';
+    }).catch(function(){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#f87171;padding:30px;">Couldn\'t load rankings — try again.</div>'; });
   };
 
   // ════════════════ TRAINING / SKILL LADDER (vs Bots) ════════════════
