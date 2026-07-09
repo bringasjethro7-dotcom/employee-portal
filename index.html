@@ -4802,9 +4802,10 @@
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             </button>
             <button class="chat-media-btn gif" type="button" onclick="toggleGifPanel(event)" title="Search GIFs" aria-label="Search GIFs">GIF</button>
-            <button class="chat-media-btn" type="button" id="chat-game-btn" onclick="tetrisInvite()" title="Challenge to Tetris (win 50 pts)" aria-label="Play Tetris" style="display:none;font-size:16px;">🎮</button>
+            <button class="chat-media-btn" type="button" id="chat-game-btn" onclick="tetrisInvite()" title="Challenge to Tetris (1v1)" aria-label="Play Tetris" style="display:none;font-size:16px;">🎮</button>
             <button class="chat-media-btn" type="button" id="chat-tourney-btn" onclick="tourneyStart()" title="Start a Tetris tournament (win 50 pts)" aria-label="Tetris tournament" style="display:none;font-size:16px;">🏆</button>
-            <button class="chat-media-btn" type="button" id="chat-train-btn" onclick="tetrisTraining()" title="Practice Tetris vs a Bot" aria-label="Training mode" style="font-size:16px;">🤖</button>
+            <button class="chat-media-btn" type="button" id="chat-train-btn" onclick="tetOpenLadder()" title="Skill Ladder — fight 10 bots (Lv 1-10)" aria-label="Skill ladder" style="font-size:16px;">🤖</button>
+            <button class="chat-media-btn" type="button" id="chat-rank-btn" onclick="tetOpenRanking()" title="Tetris rankings — all-time best players" aria-label="Tetris rankings" style="font-size:16px;">🏅</button>
             <input type="file" id="chat-file" accept="image/*" style="display:none;" onchange="chatFileChosen(this)" />
             <div class="emoji-panel" id="emoji-panel"></div>
             <div class="gif-panel" id="gif-panel">
@@ -14015,7 +14016,35 @@ body.light .jul4-lbscore{color:#059669}
     <div id="tr-sub" style="font-size:12.5px;color:#9fb0d6;margin-bottom:4px;"></div>
     <div id="tr-points" style="font-size:12.5px;font-weight:700;color:#fbbf24;min-height:16px;margin-bottom:16px;"></div>
     <div id="tr-stats" style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;"></div>
-    <button onclick="tetrisQuit()" style="width:100%;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">Close</button>
+    <div style="display:flex;gap:8px;">
+      <button onclick="tetOpenRanking()" style="flex:1;background:#141a2b;color:#fbbf24;border:1px solid rgba(251,191,36,.4);border-radius:12px;padding:12px;font-weight:800;font-size:13.5px;cursor:pointer;">🏅 Rankings</button>
+      <button onclick="tetrisQuit()" style="flex:1;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tetris all-time rankings -->
+<div id="tet-rank-modal" style="display:none;position:fixed;inset:0;z-index:9620;background:rgba(5,8,20,.86);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
+  <div style="width:470px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 60%,#080d19 100%);border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:22px 22px 20px;color:#eef2ff;box-shadow:0 40px 120px rgba(0,0,0,.7);max-height:92vh;overflow:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+      <div style="font-size:19px;font-weight:900;">🏆 Tetris Rankings</div>
+      <button onclick="tetCloseRanking()" style="background:none;border:none;color:#9fb0d6;font-size:20px;cursor:pointer;">✕</button>
+    </div>
+    <div style="font-size:11.5px;color:#9fb0d6;margin-bottom:10px;">Best players by <b style="color:#fbbf24;">Tetris Rating</b> — 1v1 duels, tournaments & bot skill ladder combined.</div>
+    <button onclick="tetOpenLadder()" style="width:100%;background:#141a2b;color:#a855f7;border:1px solid rgba(168,85,247,.4);border-radius:11px;padding:10px;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:12px;">🤖 Open Skill Ladder — grade your skill</button>
+    <div id="tet-rank-body"><div style="text-align:center;color:#6b7d90;padding:34px;">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Tetris skill ladder (10 bots, Lv 1-10) -->
+<div id="tet-ladder-modal" style="display:none;position:fixed;inset:0;z-index:9620;background:rgba(5,8,20,.86);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
+  <div style="width:470px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 60%,#080d19 100%);border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:22px 22px 20px;color:#eef2ff;box-shadow:0 40px 120px rgba(0,0,0,.7);max-height:92vh;overflow:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+      <div style="font-size:19px;font-weight:900;">🤖 Skill Ladder</div>
+      <button onclick="tetCloseLadder()" style="background:none;border:none;color:#9fb0d6;font-size:20px;cursor:pointer;">✕</button>
+    </div>
+    <div id="tet-ladder-sub" style="font-size:11.5px;color:#9fb0d6;margin-bottom:14px;">Beat bots Lv 1→10. The highest level you clear is your <b style="color:#fbbf24;">Skill Grade</b>. Practice daily to climb!</div>
+    <div id="tet-ladder-body"></div>
   </div>
 </div>
 
@@ -14641,11 +14670,25 @@ body.light .jul4-lbscore{color:#059669}
     if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
     detachControls();
     if(iWon===true){
-      status('🏆 You win!'); sfxWin(); showDuelResult(true);   // 1v1 duels no longer award JMB Points
+      status('🏆 You win!'); sfxWin(); showDuelResult(true); reportDuel('win');   // recorded to the ranking (no JMB points)
     } else if(iWon===false){
-      status('💪 '+esc(M.oppName)+' won this round. Good game!'); sfxLose(); showDuelResult(false);
+      status('💪 '+esc(M.oppName)+' won this round. Good game!'); sfxLose(); showDuelResult(false);   // winner reports both rows
     } else {
-      status('🤝 Draw — good game!'); sfxTick(); showDuelResult(null);
+      status('🤝 Draw — good game!'); sfxTick(); showDuelResult(null); reportDuel('draw');
+    }
+  }
+  // Record a finished 1v1 duel to the all-time ranking. Winner reports both players (authoritative);
+  // on a draw, the lower employee_id reports — so each match is written exactly once.
+  function reportDuel(res){
+    if(!M || M.mode==='tourney' || M.mode==='training') return;
+    var me=String(eid()), opp=String(M.oppId||''); if(!opp) return;
+    var base=APPS_SCRIPT_URL+'?action=game_result&mode=duel&match_id='+encodeURIComponent(M.matchId||'');
+    if(res==='win'){
+      fetch(base+'&winner_id='+encodeURIComponent(me)+'&winner_name='+encodeURIComponent(ename())+'&winner_score='+(M.score||0)+'&winner_lines='+(M.lines||0)
+        +'&loser_id='+encodeURIComponent(opp)+'&loser_name='+encodeURIComponent(M.oppName||'')+'&loser_score='+(M.oppScore||0)+'&loser_lines='+(M.oppLines||0)+'&_='+Date.now()).catch(function(){});
+    } else if(res==='draw' && me<opp){
+      fetch(base+'&draw=1&p1_id='+encodeURIComponent(me)+'&p1_name='+encodeURIComponent(ename())+'&p1_score='+(M.score||0)+'&p1_lines='+(M.lines||0)
+        +'&p2_id='+encodeURIComponent(opp)+'&p2_name='+encodeURIComponent(M.oppName||'')+'&p2_score='+(M.oppScore||0)+'&p2_lines='+(M.oppLines||0)+'&_='+Date.now()).catch(function(){});
     }
   }
   // Post-match result dashboard (duel + training): WIN / LOSE / DRAW with both players' stats.
@@ -15001,31 +15044,70 @@ body.light .jul4-lbscore{color:#059669}
     if(myRank===1 || (M.nightly && myRank>=1 && myRank<=5)){ try{ tetConfetti({count: myRank===1?200:130, dur: myRank===1?3200:2400}); }catch(_){} }
   }
 
-  // ════════════════ TRAINING MODE (vs Bot) ════════════════
+  // ════════════════ ALL-TIME TETRIS RANKINGS ════════════════
+  window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.style.display='none'; };
+  window.tetOpenRanking=function(){
+    var m=el('tet-rank-modal'); if(!m) return;
+    el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:34px;">Loading…</div>';
+    m.style.display='flex';
+    fetch(APPS_SCRIPT_URL+'?action=tetris_ranking&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+      var rows=(d&&d.ranking)||[];
+      if(!rows.length){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:34px;">No tournament results yet.<br>Win a nightly tournament (11:55 PM) to make the board! 🏆</div>'; return; }
+      var me=(typeof eid==='function')?String(eid()).toLowerCase():'';
+      el('tet-rank-body').innerHTML=rows.map(function(p){
+        var medal=p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:('<span style="color:#6b7d90;">'+p.rank+'</span>');
+        var mine=String(p.employee_id||'').toLowerCase()===me;
+        var brd=p.rank===1?'rgba(251,191,36,.55)':(mine?'rgba(255,107,26,.45)':'rgba(255,255,255,.08)');
+        var skill=p.skill_level||0;
+        var skillBadge=skill>0?'<span style="color:#a855f7;font-weight:800;">🎖 Skill Lv'+skill+'</span> · ':'';
+        return '<div style="display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:7px;border-radius:12px;background:'+(mine?'rgba(255,107,26,.15)':'#0d1117')+';border:1px solid '+brd+';">'+
+          '<div style="width:32px;text-align:center;font-weight:900;font-size:17px;">'+medal+'</div>'+
+          '<div style="flex:1;min-width:0;text-align:left;">'+
+            '<div style="font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
+            '<div style="font-size:10.5px;color:#9fb0d6;margin-top:2px;">'+skillBadge+'🏆 '+(p.wins||0)+'W · ⚔ '+(p.duel_games||0)+' duels · 🏅 '+(p.tour_wins||0)+' cups · best '+(p.best||0)+'</div>'+
+          '</div>'+
+          '<div style="text-align:right;"><div style="font-size:16px;font-weight:900;color:#fbbf24;">'+(p.rating||0)+'</div><div style="font-size:9px;color:#6b7d90;text-transform:uppercase;letter-spacing:.05em;">rating</div></div></div>';
+      }).join('');
+    }).catch(function(){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#f87171;padding:34px;">Couldn\'t load rankings — try again.</div>'; });
+  };
+
+  // ════════════════ TRAINING / SKILL LADDER (vs Bots) ════════════════
+  // 10 named bots, Level 1-10. Difficulty scales via drop speed + how often the bot plays a weak move.
+  var BOTS=[
+    {lv:1, name:'Pixel Pip'},      {lv:2, name:'Blocky Bea'},   {lv:3, name:'Tetra Tim'},
+    {lv:4, name:'Cascade Cara'},   {lv:5, name:'Combo Cole'},   {lv:6, name:'Rotor Rhea'},
+    {lv:7, name:'Stacker Sven'},   {lv:8, name:'T-Spin Tara'},  {lv:9, name:'Blitz Bruno'},
+    {lv:10,name:'Grandmaster Goliath'}
+  ];
+  var _mySkill=0;
   function collideOn(grid,m,x,y){ for(var r=0;r<m.length;r++)for(var c=0;c<m[r].length;c++){ if(!m[r][c]) continue; var gx=x+c,gy=y+r; if(gx<0||gx>=W||gy>=H) return true; if(gy>=0&&grid[gy][gx]) return true; } return false; }
-  window.tetrisTraining=function(){
+  window.tetrisTraining=function(level){
     if(M && M.playing) return;
     if(!canPlayGame()) return; ac();
+    level=parseInt(level,10)||1; if(level<1) level=1; if(level>10) level=10;
+    var bot=BOTS[level-1];
     var oc=el('tet-opp-col'); if(oc) oc.style.display='';
     var arc=el('tet-arena-col'); if(arc) arc.style.display='none';
-    el('tet-opp-label').textContent='🤖 Bot';
+    el('tet-opp-label').textContent='🤖 '+bot.name+' · Lv'+level;
     var id='train-'+Date.now();
-    M={ matchId:id, mode:'training', playing:true, ended:false, alive:true, oppName:'Bot',
+    M={ matchId:id, mode:'training', playing:true, ended:false, alive:true, oppName:bot.name, botLevel:level,
         rng:mulberry32(hashStr(id)), bag:[], grid:empty(), score:0, lines:0, level:1, pendingGarbage:0, nextT:null, hold:null, canHold:true, combo:0, b2b:false,
         kos:0, myKos:0, oppKos:0, oppGrid:empty(), oppScore:0, oppLines:0, oppAlive:true };
-    BOT={ grid:empty(), rng:mulberry32(hashStr(id+'-bot')), bag:[], score:0, lines:0, alive:true, pending:0, combo:0, kos:0 };
+    BOT={ grid:empty(), rng:mulberry32(hashStr(id+'-bot')), bag:[], score:0, lines:0, alive:true, pending:0, combo:0, kos:0,
+        level:level, name:bot.name, mistake:Math.max(0,(10-level)/13), interval:Math.max(240, 1150-(level-1)*100) };
     openOverlay(); el('tet-controls').style.display='block';
     el('tet-me-score').textContent='0'; el('tet-me-lines').textContent='0'; el('tet-opp-score').textContent='0'; el('tet-opp-lines').textContent='0';
     attachControls();
-    var n=3; status('Training vs Bot — starting in '+n+'…'); sfxTick();
+    var n=3; status('Lv'+level+' '+bot.name+' — starting in '+n+'…'); sfxTick();
     var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); goTraining(); } }, 800);
   };
   function goTraining(){
     sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); startRender(); renderHold();
     M.dropMs=700; M.loop=setInterval(tick,M.dropMs);
-    M.timeLeft=180; status('⏱ 3:00 · vs Bot');
-    M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ trainingEnd('time'); } else { status('⏱ '+fmtT(M.timeLeft)+' · vs Bot'); if(M.timeLeft<=10) sfxUrgent(M.timeLeft); } }, 1000);
-    BOT.loop=setInterval(botStep, 900);
+    var lab=' · '+(BOT&&BOT.name?BOT.name:'Bot');
+    M.timeLeft=180; status('⏱ 3:00'+lab);
+    M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ trainingEnd('time'); } else { status('⏱ '+fmtT(M.timeLeft)+lab); if(M.timeLeft<=10) sfxUrgent(M.timeLeft); } }, 1000);
+    BOT.loop=setInterval(botStep, (BOT&&BOT.interval)||900);
   }
   function botNextType(){ if(!BOT.bag.length){ BOT.bag=TYPES.slice(); for(var i=BOT.bag.length-1;i>0;i--){ var j=Math.floor(BOT.rng()*(i+1)); var t=BOT.bag[i]; BOT.bag[i]=BOT.bag[j]; BOT.bag[j]=t; } } return BOT.bag.shift(); }
   function botEval(g){
@@ -15051,10 +15133,19 @@ body.light .jul4-lbscore{color:#059669}
   }
   function botClear(){ var n=0; for(var y=H-1;y>=0;y--){ var full=true; for(var x=0;x<W;x++){ if(!BOT.grid[y][x]){ full=false; break; } } if(full){ BOT.grid.splice(y,1); BOT.grid.unshift(new Array(W).fill(0)); n++; y++; } } return n; }
   function botAddGarbage(n){ var hole=Math.floor(Math.random()*W); for(var i=0;i<n;i++){ if(BOT.grid[0].some(function(v){return v>0;})){ BOT.alive=false; return; } var row=new Array(W).fill(8); row[hole]=0; BOT.grid.shift(); BOT.grid.push(row); } }
+  function botRandom(type){ var opts=[];
+    for(var rot=0;rot<4;rot++){ var m=STATES[type][rot];
+      for(var x=-2;x<W;x++){ if(collideOn(BOT.grid,m,x,0)) continue; var y=0; while(!collideOn(BOT.grid,m,x,y+1)) y++;
+        var ok=true; for(var r=0;r<m.length&&ok;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c] && (y+r)<0){ ok=false; break; } } }
+        if(ok) opts.push({x:x,y:y,m:m}); } }
+    return opts.length?opts[Math.floor(Math.random()*opts.length)]:null;
+  }
   function botStep(){
     if(!M||M.ended||!BOT||!BOT.alive) return;
     if(BOT.pending>0){ var bd=Math.min(BOT.pending,MAX_SEND); botAddGarbage(bd); BOT.pending-=bd; if(!BOT.alive){ botKO(); return; } }
-    var type=botNextType(); var best=botBest(type);
+    var type=botNextType();
+    // Low-level bots play a weak (random) move sometimes; top bots always play optimally.
+    var best=(BOT.mistake && Math.random()<BOT.mistake) ? (botRandom(type)||botBest(type)) : botBest(type);
     if(!best){ botKO(); return; }
     var m=best.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=best.y+r,gx=best.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) BOT.grid[gy][gx]=m[r][c]; } } }
     var cleared=botClear();
@@ -15139,10 +15230,44 @@ body.light .jul4-lbscore{color:#059669}
     if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(BOT&&BOT.loop) clearInterval(BOT.loop);
     stopMusic(); detachControls();
     var win = (how==='botdead') ? true : (how==='userdead') ? false : (M.score>=(BOT?BOT.score:0));
-    if(win){ status('🏆 You beat the Bot! (Training — no points)'); sfxWin(); }
-    else { status('🤖 Bot wins — keep practicing! (Training)'); sfxLose(); }
-    var p=el('tr-points'); showDuelResult(win?true:false); if(p) p.textContent='Training — no points';
+    var lv=M.botLevel||0, bname=(BOT&&BOT.name)||'the Bot';
+    if(win){ status('🏆 You beat '+esc(bname)+'!'); sfxWin(); }
+    else { status('🤖 '+esc(bname)+' wins — keep practicing!'); sfxLose(); }
+    var p=el('tr-points'); showDuelResult(win?true:false);
+    if(lv){
+      if(win){
+        if(p) p.textContent='Skill Ladder · Lv'+lv+' cleared! 🎖';
+        if(lv>_mySkill) _mySkill=lv;
+        fetch(APPS_SCRIPT_URL+'?action=bot_result&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())+'&level='+lv+'&won=1&_='+Date.now())
+          .then(function(r){return r.json();}).then(function(d){ if(d&&d.skill_level!=null) _mySkill=d.skill_level; }).catch(function(){});
+      } else if(p){ p.textContent='Skill Ladder · Lv'+lv+' — try again!'; }
+    } else if(p){ p.textContent='Training — no points'; }
   }
+  // ── Skill Ladder UI ──
+  window.tetCloseLadder=function(){ var m=el('tet-ladder-modal'); if(m) m.style.display='none'; };
+  window.tetLadderFight=function(lv){ tetCloseLadder(); window.tetrisTraining(lv); };
+  function renderLadder(){
+    var DIFF=['Warm-up','Easy','Easy','Fair','Fair','Tough','Tough','Hard','Very hard','Elite'];
+    el('tet-ladder-sub').innerHTML='Your Skill Grade: <b style="color:#fbbf24;">Lv '+_mySkill+' / 10</b> — beat the next bot to climb. Practice anytime you\'re idle.';
+    el('tet-ladder-body').innerHTML=BOTS.map(function(b){
+      var cleared=b.lv<=_mySkill, next=b.lv===_mySkill+1;
+      var badge=cleared?'<span style="color:#34d399;font-size:11px;font-weight:800;">✓ Cleared</span>':(next?'<span style="color:#fbbf24;font-size:11px;font-weight:800;">▶ Next</span>':'<span style="color:#6b7d90;font-size:11px;">Lv '+b.lv+'</span>');
+      return '<div style="display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:7px;border-radius:12px;background:'+(next?'rgba(251,191,36,.12)':'#0d1117')+';border:1px solid '+(next?'rgba(251,191,36,.4)':(cleared?'rgba(52,211,153,.3)':'rgba(255,255,255,.08)'))+';">'+
+        '<div style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#1b2233,#0c1120);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#fbbf24;">'+b.lv+'</div>'+
+        '<div style="flex:1;min-width:0;text-align:left;"><div style="font-size:13.5px;font-weight:700;">'+esc(b.name)+'</div>'+
+          '<div style="font-size:10.5px;color:#9fb0d6;margin-top:1px;">'+DIFF[b.lv-1]+' · '+badge+'</div></div>'+
+        '<button onclick="tetLadderFight('+b.lv+')" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:800;font-size:12.5px;cursor:pointer;">Fight</button></div>';
+    }).join('');
+  }
+  window.tetOpenLadder=function(){
+    var m=el('tet-ladder-modal'); if(!m) return;
+    renderLadder(); m.style.display='flex';
+    // refresh my skill grade from the server
+    fetch(APPS_SCRIPT_URL+'?action=tetris_ranking&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+      var me=String(eid()).toLowerCase(); (d&&d.ranking||[]).forEach(function(p){ if(String(p.employee_id||'').toLowerCase()===me && p.skill_level!=null) _mySkill=p.skill_level; });
+      if(m.style.display!=='none') renderLadder();
+    }).catch(function(){});
+  };
 })();
 </script>
 </body>
