@@ -14053,7 +14053,30 @@ body.light .jul4-lbscore{color:#059669}
   .rk-row.me{background:rgba(255,107,26,.14);border-color:rgba(255,107,26,.42)}
   .rk-row .rk-pos{width:24px;text-align:center;font-weight:800;font-size:14px;color:#8a97b5;flex:0 0 auto}
   .rk-row .rk-av2{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#eef2ff;flex:0 0 auto;background:linear-gradient(135deg,#2c3a5c,#1a2438)}
-  .rk-next-banner{background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(255,107,26,.08));border:1px solid rgba(251,191,36,.32);border-radius:13px;padding:11px 13px;font-size:12px;font-weight:700;color:#fdd98a;text-align:center}
+  .rk-next-banner{background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(255,107,26,.08));border:1px solid rgba(251,191,36,.32);border-radius:13px;padding:11px 13px;font-size:12px;font-weight:700;color:#fdd98a;text-align:center;position:relative;overflow:hidden}
+  /* ── animations ── */
+  #tet-rank-modal.open .rk-card{animation:rkCardIn .42s cubic-bezier(.2,1.15,.3,1) both}
+  @keyframes rkCardIn{0%{opacity:0;transform:translateY(18px) scale(.96)}100%{opacity:1;transform:translateY(0) scale(1)}}
+  #tet-rank-modal .rk-head{position:relative;overflow:hidden}
+  #tet-rank-modal .rk-head::after{content:"";position:absolute;top:0;left:0;width:40%;height:100%;pointer-events:none;
+    background:linear-gradient(100deg,transparent,rgba(255,255,255,.18),transparent);transform:translateX(-260%) skewX(-18deg);animation:rkSheen 4.5s ease-in-out 0.4s infinite}
+  @keyframes rkSheen{0%{transform:translateX(-260%) skewX(-18deg)}55%,100%{transform:translateX(360%) skewX(-18deg)}}
+  .rk-pod{animation:rkPodRise .5s cubic-bezier(.2,1.1,.3,1) both}
+  @keyframes rkPodRise{0%{opacity:0;transform:translateY(26px)}100%{opacity:1;transform:translateY(0)}}
+  .rk-pod.first{animation:rkFirstPop .62s cubic-bezier(.18,1.3,.32,1) both}
+  @keyframes rkFirstPop{0%{opacity:0;transform:translateY(10px) scale(.6)}60%{opacity:1;transform:translateY(-8px) scale(1.06)}100%{transform:translateY(-8px) scale(1)}}
+  .rk-pod.first .rk-av{animation:rkFloat 3s ease-in-out .7s infinite}
+  @keyframes rkFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+  .rk-pod.first .rk-md{animation:rkMedal 2.2s ease-in-out .7s infinite}
+  @keyframes rkMedal{0%,100%{transform:scale(1) rotate(0)}50%{transform:scale(1.14) rotate(-6deg)}}
+  .rk-row{animation:rkRowIn .36s ease both}
+  @keyframes rkRowIn{0%{opacity:0;transform:translateX(-14px)}100%{opacity:1;transform:translateX(0)}}
+  .rk-sec{animation:rkFadeIn .5s ease both}
+  #tet-rank-next,#tet-rank-bots>div{animation:rkFadeIn .5s ease both}
+  @keyframes rkFadeIn{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
+  .rk-next-banner::before{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent,rgba(255,255,255,.14),transparent);transform:translateX(-100%);animation:rkBannerSweep 3.2s ease-in-out 1s infinite}
+  @keyframes rkBannerSweep{0%{transform:translateX(-100%)}60%,100%{transform:translateX(220%)}}
+  @media (prefers-reduced-motion: reduce){ #tet-rank-modal *{animation:none !important} }
 </style>
 <div id="tet-rank-modal">
   <div class="rk-card">
@@ -15098,8 +15121,9 @@ body.light .jul4-lbscore{color:#059669}
     if(!top.length){ host.innerHTML=''; return; }
     // display order: 2nd (left), 1st (center, biggest), 3rd (right)
     var order=[top[1],top[0],top[2]];
-    host.innerHTML='<div class="rk-podium">'+order.map(function(p){
+    host.innerHTML='<div class="rk-podium">'+order.map(function(p,i){
       if(!p) return '<div class="rk-pod" style="visibility:hidden;"></div>';
+      var delay=(i===1?0:(i===0?140:240));
       var first=p.rank===1, mine=String(p.employee_id||'').toLowerCase()===me;
       var md=['🥇','🥈','🥉'][p.rank-1];
       var sk=(p.skill_level||0)>0?'<div class="rk-sk">🎖 Lv'+p.skill_level+'</div>':'';
@@ -15107,7 +15131,7 @@ body.light .jul4-lbscore{color:#059669}
       var av = ph
         ? '<div class="rk-av" style="overflow:hidden;background:#0b1020;border:3px solid '+rkRing(p.rank)+';padding:0;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\''+rkAvColor(p.rank)+'\';"></div>'
         : '<div class="rk-av" style="background:'+rkAvColor(p.rank)+';">'+rkInitial(p.name)+'</div>';
-      return '<div class="rk-pod'+(first?' first':'')+(mine?' me':'')+'">'+
+      return '<div class="rk-pod'+(first?' first':'')+(mine?' me':'')+'" style="animation-delay:'+delay+'ms;">'+
         '<div class="rk-md">'+md+'</div>'+ av +
         '<div class="rk-nm">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
         '<div class="rk-rt">'+(p.rating||0)+' <span style="font-weight:600;color:#9fb0d6;font-size:9px;">RATING</span></div>'+ sk +
@@ -15128,13 +15152,13 @@ body.light .jul4-lbscore{color:#059669}
       if(!rows.length){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:26px;">No games recorded yet.<br>Play a 1v1, a tournament, or fight a bot to make the board! 🏆</div>'; return; }
       renderPodium(rows, me);
       var rest=rows.slice(3);
-      el('tet-rank-body').innerHTML = rest.length ? rest.map(function(p){
+      el('tet-rank-body').innerHTML = rest.length ? rest.map(function(p,i){
         var mine=String(p.employee_id||'').toLowerCase()===me;
         var skill=p.skill_level||0, skillBadge=skill>0?'<span style="color:#a855f7;font-weight:800;">🎖 Lv'+skill+'</span> · ':'';
         var apg=(p.avg_lines!=null)?p.avg_lines:0;
         var ph=rkPhoto(p.employee_id);
         var av2=ph?'<div class="rk-av2" style="overflow:hidden;padding:0;background:#0b1020;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\'linear-gradient(135deg,#2c3a5c,#1a2438)\';"></div>':'<div class="rk-av2">'+rkInitial(p.name)+'</div>';
-        return '<div class="rk-row'+(mine?' me':'')+'">'+
+        return '<div class="rk-row'+(mine?' me':'')+'" style="animation-delay:'+Math.min(i*45,500)+'ms;">'+
           '<div class="rk-pos">'+p.rank+'</div>'+
           av2+
           '<div style="flex:1;min-width:0;text-align:left;">'+
