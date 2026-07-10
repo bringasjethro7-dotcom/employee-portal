@@ -4279,6 +4279,22 @@
       </div>
     </div>
 
+    <!-- Appeal recent work log (last 5 days) — re-tag or request untracked time -->
+    <div id="recent-wl-modal" class="wl-vol-overlay" onclick="if(event.target===this)closeRecentWL()">
+      <div class="wl-vol-box" style="max-width:500px;">
+        <div class="wl-vol-head">
+          <div class="wl-vol-icon">🗓️</div>
+          <h3>Appeal recent work log</h3>
+          <p>Last 5 days. Re-tag a task you logged to the wrong project, fix its hours, or request time that wasn't tracked. Everything goes to your admin for approval.</p>
+        </div>
+        <button onclick="rwlAppeal('untracked')" style="width:100%;background:linear-gradient(135deg,#ff8a4a,#e83d00);color:#fff;border:none;border-radius:10px;padding:11px;font-weight:800;font-size:13px;cursor:pointer;margin:2px 0 8px;">＋ Appeal untracked time</button>
+        <div id="recent-wl-list" style="padding:2px;max-height:52vh;overflow:auto;"><div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div></div>
+        <div class="wl-vol-actions">
+          <button class="wl-vol-later" onclick="closeRecentWL()">Close</button>
+        </div>
+      </div>
+    </div>
+
     <!-- INACTIVITY DEMERIT NOTICE -->
     <div id="inactive-demerit-modal" class="wl-warn-overlay">
       <div class="wl-warn-box">
@@ -4628,6 +4644,7 @@
         <div class="ch-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></div>
         <div><div class="ch-t">Recent logs</div></div>
         <div class="ch-line"></div>
+        <button onclick="openRecentWL()" title="Appeal a wrong task, hours, or untracked time in the last 5 days" style="flex:0 0 auto;background:rgba(255,107,26,.12);color:var(--orange-3,#FF6B1A);border:1px solid rgba(255,107,26,.35);border-radius:9px;padding:7px 12px;font:700 12px/1 inherit;cursor:pointer;">🗓️ Appeal recent work</button>
       </div>
       <div class="att-table">
         <div class="att-head">
@@ -7639,7 +7656,7 @@ function buildEodReceipt() {
       '<div class="eod-right">' + right + '</div></div>';
   }).join('');
   if (!ents.length) rows = '<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">No tracked tasks today.</div>';
-  rows += '<div class="eod-untracked"><a onclick="appealUntracked()">＋ Appeal missing / untracked work</a> &nbsp;·&nbsp; <a onclick="openMyAppeals()">📋 My appeals</a></div>';
+  rows += '<div class="eod-untracked"><a onclick="openRecentWL()">🗓️ Appeal recent work (5 days)</a> &nbsp;·&nbsp; <a onclick="appealUntracked()">＋ Untracked work</a> &nbsp;·&nbsp; <a onclick="openMyAppeals()">📋 My appeals</a></div>';
   document.getElementById('eod-list').innerHTML = rows;
   var sum = document.getElementById('eod-summary');
   if (sum) sum.innerHTML = '<span class="wl-vol-chip"><b>' + prodCount + '</b> productive</span>' +
@@ -7666,8 +7683,8 @@ function _postAppeal(p, cb) {
 // ── Appeal modal (replaces the old prompt chain) ──
 var _apMode = 'untracked', _apEntryId = '';
 function _apToday(){ return (typeof shiftDate === 'function' ? shiftDate() : new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'})); }
-// Earliest date an appeal may be filed for: today minus 2 days (a rolling 48-hour / 2-day window).
-function _apMinDate(){ var d=new Date(_apToday()+'T00:00:00'); d.setDate(d.getDate()-2); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+/// Earliest date an appeal may be filed for: today minus 4 days (a rolling 5-day window).
+function _apMinDate(){ var d=new Date(_apToday()+'T00:00:00'); d.setDate(d.getDate()-4); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 async function openAppeal(mode, opts){
   _apMode = mode || 'untracked'; opts = opts || {};
   document.getElementById('ap-err').style.display = 'none';
@@ -7781,6 +7798,61 @@ function submitAppeal(){
 // ── My appeals (status list) ──
 function openMyAppeals(){ document.getElementById('myappeals-modal').classList.add('show'); loadMyAppeals(); }
 function closeMyAppeals(){ var m=document.getElementById('myappeals-modal'); if(m) m.classList.remove('show'); }
+// ── Appeal recent work log (last 5 days): re-tag / fix hours / untracked ──
+function openRecentWL(){ var m=document.getElementById('recent-wl-modal'); if(!m) return; m.classList.add('show'); loadRecentWL(); }
+function closeRecentWL(){ var m=document.getElementById('recent-wl-modal'); if(m) m.classList.remove('show'); }
+function rwlAppeal(kind, idEnc, labelEnc){
+  closeRecentWL();
+  if(kind==='retag') appealRetag(idEnc, labelEnc);
+  else if(kind==='hours') appealEntry(idEnc, labelEnc);
+  else appealUntracked();
+}
+function _rwlDayLabel(dk){
+  try{ var t=_apToday(); if(dk===t) return 'Today';
+    var y=new Date(t+'T00:00:00'); y.setDate(y.getDate()-1);
+    var ys=y.getFullYear()+'-'+('0'+(y.getMonth()+1)).slice(-2)+'-'+('0'+y.getDate()).slice(-2);
+    if(dk===ys) return 'Yesterday';
+    return new Date(dk+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  }catch(e){ return dk; }
+}
+function loadRecentWL(){
+  var box=document.getElementById('recent-wl-list');
+  box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div>';
+  var id=(typeof attEmpId!=='undefined'&&attEmpId)?attEmpId:(typeof _pEmp==='function'?_pEmp():'');
+  if(!id){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Not signed in.</div>'; return; }
+  var to=_apToday(); var dd=new Date(to+'T00:00:00'); dd.setDate(dd.getDate()-4);
+  var from=dd.getFullYear()+'-'+('0'+(dd.getMonth()+1)).slice(-2)+'-'+('0'+dd.getDate()).slice(-2);
+  jGet(APPS_SCRIPT_URL+'?action=get_worklog&employee_id='+encodeURIComponent(id)+'&from='+from+'&to='+to+'&_='+Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      var wl=(d&&d.worklog)||[];
+      wl=wl.filter(function(w){ var pj=String(w.project||'').toLowerCase(); return (w.clockify_id||w.entry_id) && pj.indexOf('idle')<0 && pj!=='untracked'; });
+      if(!wl.length){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">No tracked entries in the last 5 days.</div>'; return; }
+      var byDay={}, order=[];
+      wl.forEach(function(w){ var dk=w.date||'—'; if(!byDay[dk]){ byDay[dk]=[]; order.push(dk); } byDay[dk].push(w); });
+      order.sort(function(a,b){ return String(b).localeCompare(String(a)); });
+      var html='';
+      order.forEach(function(dk){
+        html+='<div style="font-size:11px;font-weight:800;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin:12px 2px 6px;">'+escapeHtml(_rwlDayLabel(dk))+'</div>';
+        byDay[dk].forEach(function(w){
+          var id2=String(w.clockify_id||w.entry_id||'');
+          var label=[w.project,w.category,w.task].filter(function(x){return x;}).join(' · ')||'Task';
+          var hrs=parseFloat(w.hours)||0;
+          var st=String(w.appeal_status||'').toLowerCase();
+          var badge = st==='pending'?' · <span style="color:#f59e0b;font-weight:700;">appeal pending</span>':(st==='approved'?' · <span style="color:#34d399;">approved</span>':(st==='rejected'?' · <span style="color:#f87171;">not approved</span>':''));
+          var actions = st==='pending'
+            ? '<span style="font-size:11px;color:#6b7d90;">pending…</span>'
+            : '<button onclick="rwlAppeal(\'retag\',\''+encodeURIComponent(id2)+'\',\''+encodeURIComponent(label)+'\')" style="background:#1b2233;color:#fbbf24;border:1px solid rgba(251,191,36,.35);border-radius:8px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;">🏷 Re-tag</button>'+
+              '<button onclick="rwlAppeal(\'hours\',\''+encodeURIComponent(id2)+'\',\''+encodeURIComponent(label)+'\')" style="background:#1b2233;color:#9fb0d6;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;">🕐 Hours</button>';
+          html+='<div style="display:flex;align-items:center;gap:8px;padding:9px 11px;margin-bottom:6px;border-radius:10px;background:#0d1117;border:1px solid rgba(255,255,255,.08);">'+
+            '<div style="flex:1;min-width:0;">'+
+              '<div style="font-size:12.5px;font-weight:600;color:#eef2ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escapeHtml(label)+'</div>'+
+              '<div style="font-size:10.5px;color:#9fb0d6;margin-top:2px;">'+hrs.toFixed(2)+'h'+badge+'</div>'+
+            '</div>'+ actions +'</div>';
+        });
+      });
+      box.innerHTML=html;
+    }).catch(function(){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;color:#f87171;">Couldn\'t load. Try again.</div>'; });
+}
 function loadMyAppeals(){
   var box=document.getElementById('myappeals-list'); box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div>';
   jGet(APPS_SCRIPT_URL+'?action=my_appeals&employee_id='+encodeURIComponent(attEmpId)+'&_='+Date.now())
