@@ -4450,6 +4450,7 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="prod-open-btn" style="margin:0;" onclick="if(window.jul4Open)jul4Open();"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polygon points="10 8 16 12 10 16" fill="currentColor" stroke="none"/></svg></span> Play Daily Trivia</button>
               <button class="prod-open-btn" style="margin:0;" onclick="openRedeem()"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v9H4v-9"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></span> Redeem</button>
+              <button class="prod-open-btn" style="margin:0;" onclick="if(window.trvOpenRanking)trvOpenRanking()"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;font-size:14px;">🏆</span> Trivia Champions</button>
             </div>
           </div>
           <div id="points-hist" style="margin-top:8px;font-size:11.5px;color:var(--text-3);"></div>
@@ -13510,18 +13511,22 @@ function rdCalc(){
   var pts=parseInt((document.getElementById('rd-points')||{}).value,10)||0;
   var el=document.getElementById('rd-peso'); if(el) el.textContent='= '+fmtPeso(ptsToPeso(pts))+(pts&&pts<1000?' · below 1,000 minimum':'');
 }
-function loadPoints(){
+function loadPoints(retry){
   var id=_pEmp(); if(!id) return;
-  jGet(APPS_SCRIPT_URL+'?action=points_balance&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
+  // Direct fetch (bypass the short cache) so a freshly-earned balance always shows.
+  fetch(APPS_SCRIPT_URL+'?action=points_balance&employee_id='+encodeURIComponent(id)+'&_='+Date.now())
     .then(function(r){return r.json();}).then(function(d){
-      if(!d||!d.ok) return; _pBal=d.balance||0;
+      // Accept the balance whenever the response carries one; treat a valid empty reply as 0.
+      var bal = (d && d.balance!=null) ? Number(d.balance) : ((d && d.ok) ? 0 : null);
+      if(bal==null){ if(!retry) setTimeout(function(){ loadPoints(true); }, 900); return; }
+      _pBal=bal;
       var b=document.getElementById('points-bal'); if(b) b.textContent=Number(_pBal).toLocaleString();
       var pe=document.getElementById('points-peso'); if(pe) pe.textContent='(≈ '+fmtPeso(ptsToPeso(_pBal))+') ';
       var h=document.getElementById('points-hist');
-      if(h){ var led=d.ledger||[];
-        h.innerHTML = led.length ? ('Recent: '+led.slice(0,3).map(function(x){ return (x.delta>0?'+':'')+x.delta+' '+String(x.reason||'').replace(/ —.*$/,''); }).join(' · ')) : 'Play Daily Trivia (3PM & 3AM) — top 3 win points!';
+      if(h){ var led=(d&&d.ledger)||[];
+        h.innerHTML = led.length ? ('Recent: '+led.slice(0,3).map(function(x){ return (x.delta>0?'+':'')+x.delta+' '+String(x.reason||'').replace(/ —.*$/,''); }).join(' · ')) : 'Play Daily Trivia (2PM & 2AM) — top 3 win points!';
       }
-    }).catch(function(){});
+    }).catch(function(){ if(!retry) setTimeout(function(){ loadPoints(true); }, 1200); });
 }
 // ── Rewards catalog ──
 // Photos auto-appear when these files exist in the site root; otherwise an emoji tile shows.
@@ -14025,17 +14030,17 @@ body.light .jul4-lbscore{color:#059669}
 
 <!-- Tetris all-time rankings — premium dashboard -->
 <style>
-  #tet-rank-modal{display:none;position:fixed;inset:0;z-index:9620;background:rgba(4,7,16,.9);backdrop-filter:blur(9px);align-items:center;justify-content:center;padding:16px}
-  #tet-rank-modal.open{display:flex}
-  #tet-rank-modal .rk-card{width:500px;max-width:100%;background:linear-gradient(180deg,#151c33 0%,#0b1020 60%,#070b16 100%);border:1px solid rgba(251,191,36,.22);border-radius:26px;color:#eef2ff;box-shadow:0 50px 140px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.06);max-height:94vh;display:flex;flex-direction:column;overflow:hidden}
-  #tet-rank-modal .rk-head{padding:20px 22px 16px;background:radial-gradient(140% 120% at 50% -20%,rgba(251,191,36,.18),transparent 62%);border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between}
-  #tet-rank-modal .rk-title{font-size:20px;font-weight:900;letter-spacing:.3px}
-  #tet-rank-modal .rk-title small{display:block;font-size:10.5px;font-weight:600;letter-spacing:.04em;color:#9fb0d6;margin-top:3px}
-  #tet-rank-modal .rk-x{background:rgba(255,255,255,.06);border:none;color:#c7d0e6;width:30px;height:30px;border-radius:9px;font-size:16px;cursor:pointer;line-height:1}
-  #tet-rank-modal .rk-x:hover{background:rgba(255,255,255,.12)}
-  #tet-rank-modal .rk-scroll{overflow:auto;padding:18px 20px 22px}
-  #tet-rank-modal .rk-sec{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:#7d8bab;margin:22px 2px 11px;display:flex;align-items:center;gap:7px}
-  #tet-rank-modal .rk-sec::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.12),transparent)}
+  .champ-modal{display:none;position:fixed;inset:0;z-index:9620;background:rgba(4,7,16,.9);backdrop-filter:blur(9px);align-items:center;justify-content:center;padding:16px}
+  .champ-modal.open{display:flex}
+  .champ-modal .rk-card{width:500px;max-width:100%;background:linear-gradient(180deg,#151c33 0%,#0b1020 60%,#070b16 100%);border:1px solid rgba(251,191,36,.22);border-radius:26px;color:#eef2ff;box-shadow:0 50px 140px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.06);max-height:94vh;display:flex;flex-direction:column;overflow:hidden}
+  .champ-modal .rk-head{padding:20px 22px 16px;background:radial-gradient(140% 120% at 50% -20%,rgba(251,191,36,.18),transparent 62%);border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between}
+  .champ-modal .rk-title{font-size:20px;font-weight:900;letter-spacing:.3px}
+  .champ-modal .rk-title small{display:block;font-size:10.5px;font-weight:600;letter-spacing:.04em;color:#9fb0d6;margin-top:3px}
+  .champ-modal .rk-x{background:rgba(255,255,255,.06);border:none;color:#c7d0e6;width:30px;height:30px;border-radius:9px;font-size:16px;cursor:pointer;line-height:1}
+  .champ-modal .rk-x:hover{background:rgba(255,255,255,.12)}
+  .champ-modal .rk-scroll{overflow:auto;padding:18px 20px 22px}
+  .champ-modal .rk-sec{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:#7d8bab;margin:22px 2px 11px;display:flex;align-items:center;gap:7px}
+  .champ-modal .rk-sec::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.12),transparent)}
   .rk-podium{display:flex;align-items:flex-end;justify-content:center;gap:9px;margin:4px 0 4px}
   .rk-pod{flex:1;min-width:0;text-align:center;border-radius:16px;padding:14px 6px 12px;border:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.015))}
   .rk-pod .rk-md{font-size:19px;line-height:1;margin-bottom:5px}
@@ -14055,10 +14060,10 @@ body.light .jul4-lbscore{color:#059669}
   .rk-row .rk-av2{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#eef2ff;flex:0 0 auto;background:linear-gradient(135deg,#2c3a5c,#1a2438)}
   .rk-next-banner{background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(255,107,26,.08));border:1px solid rgba(251,191,36,.32);border-radius:13px;padding:11px 13px;font-size:12px;font-weight:700;color:#fdd98a;text-align:center;position:relative;overflow:hidden}
   /* ── animations ── */
-  #tet-rank-modal.open .rk-card{animation:rkCardIn .42s cubic-bezier(.2,1.15,.3,1) both}
+  .champ-modal.open .rk-card{animation:rkCardIn .42s cubic-bezier(.2,1.15,.3,1) both}
   @keyframes rkCardIn{0%{opacity:0;transform:translateY(18px) scale(.96)}100%{opacity:1;transform:translateY(0) scale(1)}}
-  #tet-rank-modal .rk-head{position:relative;overflow:hidden}
-  #tet-rank-modal .rk-head::after{content:"";position:absolute;top:0;left:0;width:40%;height:100%;pointer-events:none;
+  .champ-modal .rk-head{position:relative;overflow:hidden}
+  .champ-modal .rk-head::after{content:"";position:absolute;top:0;left:0;width:40%;height:100%;pointer-events:none;
     background:linear-gradient(100deg,transparent,rgba(255,255,255,.18),transparent);transform:translateX(-260%) skewX(-18deg);animation:rkSheen 4.5s ease-in-out 0.4s infinite}
   @keyframes rkSheen{0%{transform:translateX(-260%) skewX(-18deg)}55%,100%{transform:translateX(360%) skewX(-18deg)}}
   .rk-pod{animation:rkPodRise .5s cubic-bezier(.2,1.1,.3,1) both}
@@ -14076,9 +14081,9 @@ body.light .jul4-lbscore{color:#059669}
   @keyframes rkFadeIn{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
   .rk-next-banner::before{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent,rgba(255,255,255,.14),transparent);transform:translateX(-100%);animation:rkBannerSweep 3.2s ease-in-out 1s infinite}
   @keyframes rkBannerSweep{0%{transform:translateX(-100%)}60%,100%{transform:translateX(220%)}}
-  @media (prefers-reduced-motion: reduce){ #tet-rank-modal *{animation:none !important} }
+  @media (prefers-reduced-motion: reduce){ .champ-modal *{animation:none !important} }
 </style>
-<div id="tet-rank-modal">
+<div id="tet-rank-modal" class="champ-modal">
   <div class="rk-card">
     <div class="rk-head">
       <div class="rk-title">🏆 Tetris Champions<small>Ranked by Tetris Rating · duels · tournaments · skill ladder</small></div>
@@ -14091,6 +14096,22 @@ body.light .jul4-lbscore{color:#059669}
       <div id="tet-rank-next" class="rk-next-banner"></div>
       <div class="rk-sec">🤖 Daily bot challenges</div>
       <div id="tet-rank-bots"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Trivia Champions — premium dashboard (avg points/game) -->
+<div id="trivia-rank-modal" class="champ-modal">
+  <div class="rk-card">
+    <div class="rk-head">
+      <div class="rk-title">🧠 Trivia Champions<small>Ranked by average JMB Points per game · min 3 games to qualify</small></div>
+      <button class="rk-x" onclick="trvCloseRanking()">✕</button>
+    </div>
+    <div class="rk-scroll">
+      <div id="trv-rank-podium"></div>
+      <div id="trv-rank-body"><div style="text-align:center;color:#6b7d90;padding:30px;">Loading…</div></div>
+      <div class="rk-sec">⏰ Next trivia</div>
+      <div id="trv-rank-next" class="rk-next-banner"></div>
     </div>
   </div>
 </div>
@@ -15168,6 +15189,61 @@ body.light .jul4-lbscore{color:#059669}
           '<div style="text-align:right;"><div style="font-size:15px;font-weight:900;color:#fbbf24;">'+(p.rating||0)+'</div><div style="font-size:8px;color:#6b7d90;text-transform:uppercase;letter-spacing:.05em;">rating</div></div></div>';
       }).join('') : '<div style="text-align:center;color:#6b7d90;padding:8px;font-size:12px;">That\'s everyone so far — climb the ranks! 🎮</div>';
     }).catch(function(){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#f87171;padding:30px;">Couldn\'t load rankings — try again.</div>'; });
+  };
+
+  // ════════════════ TRIVIA CHAMPIONS (avg points/game) ════════════════
+  window.trvCloseRanking=function(){ var m=el('trivia-rank-modal'); if(m) m.classList.remove('open'); };
+  function renderTrvNext(){
+    var nb=el('trv-rank-next'); if(!nb) return;
+    var np=phtNowParts(); var nowSec=np.H*3600+np.M*60+np.S, best=1e9;
+    [2*3600,14*3600].forEach(function(t){ var d=t-nowSec; if(d<0) d+=86400; if(d<best) best=d; });
+    var hh=Math.floor(best/3600), mm=Math.floor((best%3600)/60);
+    nb.innerHTML='🧠 Next Daily Trivia in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win 300 / 200 / 100 pts';
+  }
+  function renderTrvPodium(rows, me){
+    var host=el('trv-rank-podium'); if(!host) return;
+    var top=rows.slice(0,3); if(!top.length){ host.innerHTML=''; return; }
+    var order=[top[1],top[0],top[2]];
+    host.innerHTML='<div class="rk-podium">'+order.map(function(p,i){
+      if(!p) return '<div class="rk-pod" style="visibility:hidden;"></div>';
+      var delay=(i===1?0:(i===0?140:240));
+      var first=p.rank===1, mine=String(p.employee_id||'').toLowerCase()===me;
+      var md=['🥇','🥈','🥉'][p.rank-1];
+      var ph=rkPhoto(p.employee_id);
+      var av = ph
+        ? '<div class="rk-av" style="overflow:hidden;background:#0b1020;border:3px solid '+rkRing(p.rank)+';padding:0;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\''+rkAvColor(p.rank)+'\';"></div>'
+        : '<div class="rk-av" style="background:'+rkAvColor(p.rank)+';">'+rkInitial(p.name)+'</div>';
+      return '<div class="rk-pod'+(first?' first':'')+(mine?' me':'')+'" style="animation-delay:'+delay+'ms;">'+
+        '<div class="rk-md">'+md+'</div>'+ av +
+        '<div class="rk-nm">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
+        '<div class="rk-rt">'+(p.avg||0)+' <span style="font-weight:600;color:#9fb0d6;font-size:9px;">AVG PTS</span></div>'+
+      '</div>';
+    }).join('')+'</div>';
+  }
+  window.trvOpenRanking=function(){
+    var m=el('trivia-rank-modal'); if(!m) return;
+    renderTrvNext();
+    el('trv-rank-podium').innerHTML='';
+    el('trv-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:30px;">Loading…</div>';
+    m.classList.add('open');
+    fetch(APPS_SCRIPT_URL+'?action=trivia_ranking&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+      var rows=(d&&d.ranking)||[]; var me=(typeof eid==='function')?String(eid()).toLowerCase():'';
+      if(!rows.length){ el('trv-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:26px;">No one has qualified yet.<br>Play at least <b style="color:#fbbf24;">3</b> Daily Trivia games (2PM & 2AM) to make the board! 🧠</div>'; return; }
+      renderTrvPodium(rows, me);
+      var rest=rows.slice(3);
+      el('trv-rank-body').innerHTML = rest.length ? rest.map(function(p,i){
+        var mine=String(p.employee_id||'').toLowerCase()===me;
+        var ph=rkPhoto(p.employee_id);
+        var av2=ph?'<div class="rk-av2" style="overflow:hidden;padding:0;background:#0b1020;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\'linear-gradient(135deg,#2c3a5c,#1a2438)\';"></div>':'<div class="rk-av2">'+rkInitial(p.name)+'</div>';
+        return '<div class="rk-row'+(mine?' me':'')+'" style="animation-delay:'+Math.min(i*45,500)+'ms;">'+
+          '<div class="rk-pos">'+p.rank+'</div>'+av2+
+          '<div style="flex:1;min-width:0;text-align:left;">'+
+            '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
+            '<div style="font-size:10px;color:#9fb0d6;margin-top:2px;">🏆 '+(p.wins||0)+'W · 🎮 '+(p.games||0)+' games · '+(p.points||0)+' total pts</div>'+
+          '</div>'+
+          '<div style="text-align:right;"><div style="font-size:15px;font-weight:900;color:#fbbf24;">'+(p.avg||0)+'</div><div style="font-size:8px;color:#6b7d90;text-transform:uppercase;letter-spacing:.05em;">avg pts</div></div></div>';
+      }).join('') : '<div style="text-align:center;color:#6b7d90;padding:8px;font-size:12px;">That\'s everyone so far! 🎉</div>';
+    }).catch(function(){ el('trv-rank-body').innerHTML='<div style="text-align:center;color:#f87171;padding:30px;">Couldn\'t load rankings — try again.</div>'; });
   };
 
   // ════════════════ TRAINING / SKILL LADDER (vs Bots) ════════════════
