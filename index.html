@@ -16988,10 +16988,57 @@ body.ovl-open .bio-fab {
 }
 #tet-tourney-fab, #jul4-fab, #buddy-fab { transition: opacity .18s ease, transform .18s ease; }
 
+/* ══════════ FLOATING BUTTONS vs THE BOTTOM NAV ══════════
+   On phones .tabs becomes a fixed bottom nav bar. Its real height is
+   8px + 23px icon + 18px padding + 8px  ≈ 57px, PLUS the iPhone home indicator.
+   Anything floating has to clear that, or it lands on top of the nav. */
+@media (max-width: 768px){
+  :root { --navh: calc(60px + env(safe-area-inset-bottom, 0px)); }
+
+  #jul4-fab        { left: 12px !important; bottom: calc(var(--navh) + 12px) !important; }
+  #tet-tourney-fab { left: 12px !important; bottom: calc(var(--navh) + 62px) !important; }
+  .msg-fab         { bottom: calc(var(--navh) + 12px) !important; }
+  .bio-fab         { bottom: calc(var(--navh) + 76px) !important; }
+
+  /* and make them compact so they stop dominating the screen */
+  #jul4-fab, #tet-tourney-fab {
+    padding: 8px 13px !important; font-size: 11.5px !important; gap: 6px !important;
+    border-radius: 22px !important;
+  }
+  #jul4-fab svg, #tet-tourney-fab svg, #tet-tourney-fab .ttf-ic svg { width: 14px; height: 14px; }
+}
+
+/* ══════════ CHAT: full-screen on mobile ══════════
+   The chat opens as a fixed overlay whose .chat-layout is a 2-column grid with a
+   hard 88vh height. Collapsing it to one column left the sidebar and the chat pane
+   at their old fixed heights (120px + 400px) inside an 88vh box — hence the dead
+   space above and below. Here it becomes a proper full-screen app: a compact,
+   scrollable conversation list on top, and the thread taking everything else. */
 @media (max-width: 720px){
-  /* Give them a little more room from the edge, and keep them clear of the home bar */
-  #jul4-fab       { left: 12px !important; bottom: calc(14px + env(safe-area-inset-bottom)) !important; font-size: 12px; }
-  #tet-tourney-fab{ left: 12px !important; bottom: calc(62px + env(safe-area-inset-bottom)) !important; font-size: 12px; }
+  #tab-messages.msg-open { padding: 0 !important; }
+  #tab-messages.msg-open .chat-layout {
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;          /* dvh: excludes Safari's collapsing URL bar */
+    max-width: none !important;
+    border-radius: 0 !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;   /* list, then the thread fills the rest */
+  }
+  .chat-sidebar {
+    height: auto !important;
+    max-height: 34vh;                    /* scrolls, never eats the thread */
+    overflow-y: auto;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+  .chat-main {
+    height: auto !important;
+    min-height: 0 !important;            /* lets the message list actually shrink + scroll */
+  }
+  .chat-messages { min-height: 0 !important; flex: 1 1 auto !important; overflow-y: auto !important; }
+  /* keep the composer above the home indicator */
+  .chat-input-wrap { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important; flex-shrink: 0; }
 }
 </style>
 
@@ -17003,10 +17050,11 @@ body.ovl-open .bio-fab {
              '#tet-rank-modal','#tet-designs-modal','#trivia-rank-modal','#jul4-modal','#redeem-modal',
              '#appeal-modal','#myappeals-modal','#recent-wl-modal','#daylog-modal','#prod-modal',
              '#avatar-modal','#gc-modal','#qadisp-modal','#assess-modal','#inactive-warn-modal',
-             '#inactive-demerit-modal','#tet-invite-pop','#tet-nightly-pop'];
+             '#inactive-demerit-modal','#tet-invite-pop','#tet-nightly-pop','#tab-messages'];
+  var OPEN_CLASSES = ['open','show','msg-open'];   // the portal opens modals in all three ways
   function visible(el){
     if(!el) return false;
-    if(el.classList && (el.classList.contains('open') || el.classList.contains('show'))) return true;
+    if(el.classList && OPEN_CLASSES.some(function(c){ return el.classList.contains(c); })) return true;
     var d = el.style && el.style.display;
     if(d === 'flex' || d === 'block') return true;
     return false;   // deliberately cheap — no getComputedStyle on every mutation
