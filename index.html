@@ -1368,7 +1368,10 @@
     .brand-logo-badge { width: 34px; height: 34px; border-radius: 11px; }
     .header-logo-img, .header-logo img { width: 22px; height: 22px; }
     .brand-wordmark { font-size: 13px; letter-spacing: .11em; }
-    .main-content { padding: 1.25rem 0.85rem; border-radius: 12px; margin-top: 0.75rem; margin-bottom: 0.75rem; background-size: 230px 230px; }
+    /* NOTE: no background-size here. The panel's background is three no-repeat radial
+       gradients; pinning them to a fixed tile paints a hard-edged square in the corner
+       instead of a soft wash. Let them size to the box (the default). */
+    .main-content { padding: 1.25rem 0.85rem; border-radius: 12px; margin-top: 0.75rem; margin-bottom: 0.75rem; }
     /* Tabs: swipeable strip so they never squish/scatter */
     .tabs { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; flex-wrap: nowrap; }
     .tabs::-webkit-scrollbar { display: none; }
@@ -16967,6 +16970,62 @@ body.light .jul4-lbscore{color:#059669}
   .arc-stage #tet-me { width: 62vw !important; }
   .tet-ctl { padding: 13px 6px !important; font-size: 15px !important; }
 }
+
+/* ══════════ FLOATING BUTTONS vs MODALS ══════════
+   The Daily Trivia and Tetris buttons are fixed to the bottom-left. On a phone a
+   modal fills the screen, so those buttons end up sitting on top of its content.
+   Whenever ANY overlay is open we simply get them out of the way. The body class
+   is toggled by the observer below, so it works regardless of how a given modal
+   is opened (class, inline style, or .show).                                     */
+body.ovl-open #tet-tourney-fab,
+body.ovl-open #jul4-fab,
+body.ovl-open #buddy-fab,
+body.ovl-open .bio-fab {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(14px) scale(.9);
+  transition: opacity .18s ease, transform .18s ease;
+}
+#tet-tourney-fab, #jul4-fab, #buddy-fab { transition: opacity .18s ease, transform .18s ease; }
+
+@media (max-width: 720px){
+  /* Give them a little more room from the edge, and keep them clear of the home bar */
+  #jul4-fab       { left: 12px !important; bottom: calc(14px + env(safe-area-inset-bottom)) !important; font-size: 12px; }
+  #tet-tourney-fab{ left: 12px !important; bottom: calc(62px + env(safe-area-inset-bottom)) !important; font-size: 12px; }
+}
 </style>
+
+<script>
+/* Watch every overlay in the portal; when one is visible, mark the body so the
+   floating buttons hide themselves. Cheap: one observer, attribute-filtered. */
+(function(){
+  var SEL = ['#tet-overlay','#tet-result','#tourney-lobby','#tet-ladder-modal','#solo-result',
+             '#tet-rank-modal','#tet-designs-modal','#trivia-rank-modal','#jul4-modal','#redeem-modal',
+             '#appeal-modal','#myappeals-modal','#recent-wl-modal','#daylog-modal','#prod-modal',
+             '#avatar-modal','#gc-modal','#qadisp-modal','#assess-modal','#inactive-warn-modal',
+             '#inactive-demerit-modal','#tet-invite-pop','#tet-nightly-pop'];
+  function visible(el){
+    if(!el) return false;
+    if(el.classList && (el.classList.contains('open') || el.classList.contains('show'))) return true;
+    var d = el.style && el.style.display;
+    if(d === 'flex' || d === 'block') return true;
+    return false;   // deliberately cheap — no getComputedStyle on every mutation
+  }
+  function sync(){
+    var open = SEL.some(function(s){ return visible(document.querySelector(s)); });
+    document.body.classList.toggle('ovl-open', open);
+  }
+  function boot(){
+    var obs = new MutationObserver(sync);
+    SEL.forEach(function(s){
+      var el = document.querySelector(s);
+      if(el) obs.observe(el, { attributes: true, attributeFilter: ['style','class'] });
+    });
+    sync();
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
 </body>
 </html>
