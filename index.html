@@ -4785,6 +4785,9 @@
         <!-- Main chat area -->
         <div class="chat-main">
           <div class="chat-header" id="chat-header">
+            <button class="chat-back-btn" onclick="chatBackToList()" title="Back to conversations" aria-label="Back to conversations">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
             <div class="chat-header-id">
               <div class="chat-header-ava" id="chat-header-ava">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -11117,6 +11120,13 @@ function selectChat(empId, name) {
   currentChat     = empId;
   currentChatName = name;
 
+  // Mobile: a phone shows EITHER the conversation list OR the thread — never both
+  // stacked. Picking a chat slides the list away; the back arrow brings it back.
+  try{
+    var cl = document.querySelector('.chat-layout');
+    if (cl) cl.classList.add('mob-thread');
+  }catch(e){}
+
   // Voice room is team-only — hide the button in direct messages
   var vbtn = document.getElementById('voice-hdr-btn'); if (vbtn) vbtn.style.display = (empId === 'group') ? '' : 'none';
 
@@ -14441,7 +14451,7 @@ body.light .jul4-lbscore{color:#059669}
 <div id="trivia-rank-modal" class="champ-modal">
   <div class="rk-card">
     <div class="rk-head">
-      <div class="rk-title">🧠 Trivia Champions<small>Ranked by average JMB Points per game · min 3 games to qualify</small></div>
+      <div class="rk-title">🧠 Trivia Champions<small>Ranked by average score per game · min 3 games to qualify</small></div>
       <button class="rk-x" onclick="trvCloseRanking()">✕</button>
     </div>
     <div class="rk-scroll">
@@ -16481,7 +16491,7 @@ body.light .jul4-lbscore{color:#059669}
       return '<div class="rk-pod'+(first?' first':'')+(mine?' me':'')+'" style="animation-delay:'+delay+'ms;">'+
         '<div class="rk-md">'+md+'</div>'+ av +
         '<div class="rk-nm">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
-        '<div class="rk-rt">'+(p.avg||0)+' <span style="font-weight:600;color:#9fb0d6;font-size:9px;">AVG PTS</span></div>'+
+        '<div class="rk-rt">'+(p.avg||0)+' <span style="font-weight:600;color:#9fb0d6;font-size:9px;">AVG SCORE</span></div>'+
       '</div>';
     }).join('')+'</div>';
   }
@@ -16504,9 +16514,9 @@ body.light .jul4-lbscore{color:#059669}
           '<div class="rk-pos">'+p.rank+'</div>'+av2+
           '<div style="flex:1;min-width:0;text-align:left;">'+
             '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
-            '<div style="font-size:10px;color:#9fb0d6;margin-top:2px;">🏆 '+(p.wins||0)+'W · 🎮 '+(p.games||0)+' games · '+(p.points||0)+' total pts</div>'+
+            '<div style="font-size:10px;color:#9fb0d6;margin-top:2px;">🎮 '+(p.games||0)+' games · '+(p.accuracy||0)+'% correct · best '+(p.best||0)+' · 🏆 '+(p.wins||0)+'W · '+(p.points||0)+' pts</div>'+
           '</div>'+
-          '<div style="text-align:right;"><div style="font-size:15px;font-weight:900;color:#c4b5fd;">'+(p.avg||0)+'</div><div style="font-size:8px;color:#7c6da8;text-transform:uppercase;letter-spacing:.05em;">avg pts</div></div></div>';
+          '<div style="text-align:right;"><div style="font-size:15px;font-weight:900;color:#c4b5fd;">'+(p.avg||0)+'</div><div style="font-size:8px;color:#7c6da8;text-transform:uppercase;letter-spacing:.05em;">avg score</div></div></div>';
       }).join('') : '<div style="text-align:center;color:#6b7d90;padding:8px;font-size:12px;">That\'s everyone so far! 🎉</div>';
     }).catch(function(){ el('trv-rank-body').innerHTML='<div style="text-align:center;color:#f87171;padding:30px;">Couldn\'t load rankings — try again.</div>'; });
   };
@@ -16864,6 +16874,31 @@ body.light .jul4-lbscore{color:#059669}
   /* Never let a stray wide element cause a horizontal scrollbar on the whole page. */
   html, body { max-width: 100%; overflow-x: hidden; }
   img, canvas, svg, video { max-width: 100%; }
+
+  /* ── Date / time fields ──
+     iOS Safari gives these its own control chrome: the box stretches vertically and,
+     when empty, renders absolutely nothing — which is why they showed up as tall grey
+     voids. We strip the native appearance, pin a sane height, left-align the value,
+     and paint a calendar icon so an empty field still looks like a date picker. */
+  input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"] {
+    -webkit-appearance: none; appearance: none;
+    min-height: 46px; height: 46px;
+    line-height: normal;
+    display: block; width: 100%;
+    text-align: left;
+    padding: 10px 40px 10px 14px !important;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%238a97b5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+  /* iOS vertically centres and pads the value box, which is what inflates the height */
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value {
+    text-align: left; margin: 0; min-height: 0; line-height: 1.25;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0; }   /* our own icon instead */
+  input[type="date"]::-webkit-inner-spin-button { display: none; }
 }
 
 @media (max-width: 720px){
@@ -17008,41 +17043,87 @@ body.ovl-open .bio-fab {
   #jul4-fab svg, #tet-tourney-fab svg, #tet-tourney-fab .ttf-ic svg { width: 14px; height: 14px; }
 }
 
-/* ══════════ CHAT: full-screen on mobile ══════════
-   The chat opens as a fixed overlay whose .chat-layout is a 2-column grid with a
-   hard 88vh height. Collapsing it to one column left the sidebar and the chat pane
-   at their old fixed heights (120px + 400px) inside an 88vh box — hence the dead
-   space above and below. Here it becomes a proper full-screen app: a compact,
-   scrollable conversation list on top, and the thread taking everything else. */
+/* ══════════ CHAT: full-screen master–detail on mobile ══════════
+   A phone is too small to show the conversation list AND the thread at once —
+   stacking them squeezes both. So it behaves like every real messaging app:
+   the list fills the screen, tapping a person slides in the thread, and the
+   back arrow returns to the list. Both panes occupy the SAME grid cell and we
+   just swap which one is visible.                                            */
+.chat-back-btn { display: none; }   /* desktop has both panes side by side — no back button needed */
+
 @media (max-width: 720px){
   #tab-messages.msg-open { padding: 0 !important; }
   #tab-messages.msg-open .chat-layout {
     width: 100vw !important;
     height: 100vh !important;
-    height: 100dvh !important;          /* dvh: excludes Safari's collapsing URL bar */
+    height: 100dvh !important;           /* dvh: survives Safari's collapsing URL bar */
     max-width: none !important;
     border-radius: 0 !important;
     grid-template-columns: 1fr !important;
-    grid-template-rows: auto minmax(0, 1fr) !important;   /* list, then the thread fills the rest */
+    grid-template-rows: minmax(0, 1fr) !important;   /* ONE cell — both panes share it */
   }
-  .chat-sidebar {
+  /* both panes stack into the same cell */
+  #tab-messages.msg-open .chat-sidebar,
+  #tab-messages.msg-open .chat-main {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
     height: auto !important;
-    max-height: 34vh;                    /* scrolls, never eats the thread */
-    overflow-y: auto;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+  #tab-messages.msg-open .chat-sidebar {
     border-right: none !important;
-    border-bottom: 1px solid var(--border) !important;
+    overflow-y: auto;
   }
-  .chat-main {
-    height: auto !important;
-    min-height: 0 !important;            /* lets the message list actually shrink + scroll */
+
+  /* default = list visible, thread hidden */
+  #tab-messages.msg-open .chat-main { display: none !important; }
+
+  /* a conversation is open = thread visible, list hidden */
+  #tab-messages.msg-open .chat-layout.mob-thread .chat-sidebar { display: none !important; }
+  #tab-messages.msg-open .chat-layout.mob-thread .chat-main {
+    display: flex !important;
+    flex-direction: column !important;
+    animation: chatSlideIn .22s ease both;
   }
+  @keyframes chatSlideIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+
   .chat-messages { min-height: 0 !important; flex: 1 1 auto !important; overflow-y: auto !important; }
-  /* keep the composer above the home indicator */
   .chat-input-wrap { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important; flex-shrink: 0; }
+
+  /* the back arrow, only on phones */
+  .chat-back-btn {
+    display: flex !important; align-items: center; justify-content: center;
+    flex: 0 0 auto; width: 34px; height: 34px; margin-right: 6px;
+    background: none; border: none; color: var(--text-2); cursor: pointer; border-radius: 9px;
+  }
+  .chat-back-btn:active { background: rgba(255,255,255,.07); }
+  .chat-header { align-items: center; }
+}
+@media (prefers-reduced-motion: reduce){
+  #tab-messages.msg-open .chat-layout.mob-thread .chat-main { animation: none; }
 }
 </style>
 
 <script>
+/* Mobile chat: back arrow returns from a thread to the conversation list. */
+function chatBackToList(){
+  var cl = document.querySelector('.chat-layout');
+  if (cl) cl.classList.remove('mob-thread');
+}
+/* Whenever the chat overlay is opened, start on the list (phones only — the class
+   is inert on desktop, where both panes are visible side by side anyway). */
+(function(){
+  var panel = document.getElementById('tab-messages');
+  if (!panel) return;
+  new MutationObserver(function(){
+    if (!panel.classList.contains('msg-open')) {
+      var cl = document.querySelector('.chat-layout');
+      if (cl) cl.classList.remove('mob-thread');   // reset for next open
+    }
+  }).observe(panel, { attributes: true, attributeFilter: ['class'] });
+})();
+
 /* Watch every overlay in the portal; when one is visible, mark the body so the
    floating buttons hide themselves. Cheap: one observer, attribute-filtered. */
 (function(){
