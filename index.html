@@ -4741,6 +4741,14 @@
         <!-- Sidebar: employees list -->
         <div class="chat-sidebar">
           <div class="chat-sidebar-header">
+            <!-- Mobile: the list is full-screen, and the thread's close button isn't on screen,
+                 so the list needs its own way out. Hidden on desktop. -->
+            <div class="chat-list-top">
+              <span class="chat-list-title">Messages</span>
+              <button class="chat-close-btn" onclick="toggleMessages()" title="Close messages" aria-label="Close messages">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
             <input class="chat-search" type="text" id="chat-search" placeholder="Search..." oninput="filterContacts()" />
             <button class="newgroup-btn" id="newgroup-btn" style="display:none;" onclick="openNewGroup()">＋ New group chat</button>
           </div>
@@ -17050,6 +17058,7 @@ body.ovl-open .bio-fab {
    back arrow returns to the list. Both panes occupy the SAME grid cell and we
    just swap which one is visible.                                            */
 .chat-back-btn { display: none; }   /* desktop has both panes side by side — no back button needed */
+.chat-list-top  { display: none; }  /* desktop closes the chat from the thread header */
 
 @media (max-width: 720px){
   #tab-messages.msg-open { padding: 0 !important; }
@@ -17099,6 +17108,19 @@ body.ovl-open .bio-fab {
   }
   .chat-back-btn:active { background: rgba(255,255,255,.07); }
   .chat-header { align-items: center; }
+
+  /* the list's own title bar + close button — the only way out of a full-screen list */
+  .chat-list-top {
+    display: flex !important; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .chat-list-title { font-size: 16px; font-weight: 800; color: var(--text-1); letter-spacing: -.01em; }
+  .chat-close-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 10px; cursor: pointer;
+    background: rgba(255,255,255,.05); border: 1px solid var(--border); color: var(--text-2);
+  }
+  .chat-close-btn:active { background: rgba(255,255,255,.1); }
 }
 @media (prefers-reduced-motion: reduce){
   #tab-messages.msg-open .chat-layout.mob-thread .chat-main { animation: none; }
@@ -17111,6 +17133,40 @@ function chatBackToList(){
   var cl = document.querySelector('.chat-layout');
   if (cl) cl.classList.remove('mob-thread');
 }
+
+/* Make the phone's own Back gesture do the expected thing instead of leaving the site:
+   thread → list → close. We push a history entry when the chat opens (and another when a
+   thread opens), then unwind them on popstate. */
+(function(){
+  if (!window.matchMedia || !window.matchMedia('(max-width: 720px)').matches) return;
+  var panel = document.getElementById('tab-messages');
+  if (!panel) return;
+
+  function chatIsOpen(){ return panel.classList.contains('msg-open'); }
+  function threadIsOpen(){
+    var cl = document.querySelector('.chat-layout');
+    return !!(cl && cl.classList.contains('mob-thread'));
+  }
+  var depth = 0;                        // how many history entries we own
+  function push(){ depth++; try{ history.pushState({ jmbChat: depth }, ''); }catch(e){} }
+
+  // watch our own state and keep the history stack in step
+  var wasOpen = false, wasThread = false;
+  new MutationObserver(function(){
+    var open = chatIsOpen(), thread = threadIsOpen();
+    if (open && !wasOpen)      push();                 // opened the chat
+    if (thread && !wasThread && open) push();          // opened a thread
+    if (!open) depth = 0;                              // closed entirely — stack unwinds itself
+    wasOpen = open; wasThread = thread;
+  }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
+
+  window.addEventListener('popstate', function(){
+    if (!chatIsOpen()) return;
+    if (threadIsOpen()) { chatBackToList(); depth = Math.max(0, depth - 1); return; }  // thread → list
+    if (typeof toggleMessages === 'function') toggleMessages();                        // list → closed
+    depth = 0;
+  });
+})();
 /* Whenever the chat overlay is opened, start on the list (phones only — the class
    is inert on desktop, where both panes are visible side by side anyway). */
 (function(){
