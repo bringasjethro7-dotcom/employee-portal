@@ -14893,12 +14893,11 @@ body.light .jul4-lbscore{color:#059669}
   // puzzle blocks stay exactly where they are. Incoming resets to 0.
   // Remove all garbage cells (value 8) from a grid, then let remaining blocks fall (per-column gravity).
   function stripGarbage(grid){
-    // Remove only the garbage (value 8). The remaining puzzle blocks keep their exact shape and
-    // relative position (holes preserved) and simply drop down by however much garbage was below them.
+    // Remove the garbage (value 8); the remaining blocks fall straight down and SETTLE at the bottom of
+    // their own column (same columns, no floating). Prevents blocks hanging over empty rows after a KO.
     for(var x=0;x<W;x++){
-      var col=[]; for(var y=0;y<H;y++){ var v=grid[y][x]; if(v!==8) col.push(v); }   // drop garbage, keep blocks AND gaps in order
-      var pad=H-col.length;
-      for(var yy=0;yy<H;yy++){ grid[yy][x]=(yy<pad)?0:col[yy-pad]; }
+      var stack=[]; for(var y=H-1;y>=0;y--){ var v=grid[y][x]; if(v && v!==8) stack.push(v); }   // collect blocks bottom-up, drop garbage + gaps
+      for(var yy=H-1,i=0;yy>=0;yy--){ grid[yy][x]=(i<stack.length)?stack[i++]:0; }
     }
   }
   function respawn(){
