@@ -16,13 +16,13 @@
 
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE = 'jmb-portal-v5';
+const CACHE = 'jmb-portal-v7';
 const ASSETS = [
   '/manifest.webmanifest',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/apple-touch-icon.png',
-  '/icons/badge-96.png'
+  '/icons/icon-192-v2.png',
+  '/icons/icon-512-v2.png',
+  '/icons/apple-touch-icon-v2.png',
+  '/icons/badge-96-v2.png'
 ];
 
 self.addEventListener('install', function (e) {
