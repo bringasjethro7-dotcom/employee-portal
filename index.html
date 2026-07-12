@@ -4486,7 +4486,7 @@
               <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;display:flex;align-items:center;gap:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="#fbbf24" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17l-6.2 3.7 1.6-6.8L2.2 8.9l6.9-.6z"/></svg> JMB Points</p>
               <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px;">
                 <span id="points-bal" style="font-size:30px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:#fbbf24;">—</span>
-                <span style="font-size:12px;color:var(--text-3);">points <b id="points-peso" style="color:var(--text-2);"></b>· 300 pts = ₱100 · min 1,000 to redeem</span>
+                <span style="font-size:12px;color:var(--text-3);">points <b id="points-peso" style="color:var(--text-2);"></b>· 300 pts = ₱100 · min 1,000 to redeem · <b style="color:#fbbf24;">cash-out: 5th &amp; 20th</b></span>
               </div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -12080,8 +12080,25 @@ async function unsendMessage(id) {
 }
 function openImgFull(src){
   var o = document.getElementById('img-lightbox');
-  if (!o) { o = document.createElement('div'); o.id='img-lightbox'; o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out;'; o.onclick=function(){ o.style.display='none'; }; o.innerHTML='<img style="max-width:95%;max-height:95%;border-radius:10px;">'; document.body.appendChild(o); }
-  o.querySelector('img').src = src; o.style.display='flex';
+  if (!o) {
+    o = document.createElement('div');
+    o.id = 'img-lightbox';
+    // z-index MUST beat the chat overlay (#tab-messages.msg-open is 11500) — it was 3000,
+    // so tapping a photo in the chat opened the lightbox UNDERNEATH the conversation.
+    o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.94);' +
+      'z-index:13000;display:flex;align-items:center;justify-content:center;' +
+      'padding:calc(20px + env(safe-area-inset-top,0px)) 20px calc(20px + env(safe-area-inset-bottom,0px));' +
+      'cursor:zoom-out;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);';
+    o.onclick = function(){ o.style.display='none'; };
+    o.innerHTML =
+      '<button aria-label="Close" style="position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:14px;' +
+        'width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.2);' +
+        'background:rgba(255,255,255,.1);color:#fff;font-size:17px;cursor:pointer;">✕</button>' +
+      '<img style="max-width:100%;max-height:100%;border-radius:10px;object-fit:contain;">';
+    document.body.appendChild(o);
+  }
+  o.querySelector('img').src = src;
+  o.style.display = 'flex';
 }
 
 // ── SUBSCRIBE TO REAL-TIME MESSAGES ──
@@ -14132,9 +14149,11 @@ window._slingRelease=function(id,el){
     <input id="rd-points" type="number" min="1000" step="1" placeholder="e.g. 1000" oninput="rdCalc()" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 4px;outline:none;">
     <div id="rd-peso" style="font-size:12.5px;color:#fbbf24;font-weight:700;margin:0 0 12px;">= ₱0.00</div>
     <label style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.04em;">Redeem for</label>
-    <select id="rd-type" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 12px;outline:none;">
+    <select id="rd-type" onchange="rdTypeChanged()" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 12px;outline:none;">
       <option value="cash">💵 Cash</option><option value="gift">🎁 Gift</option>
     </select>
+    <!-- Cash-out is only open on the 5th and the 20th (PHT). Filled by loadCashWindow(). -->
+    <div id="rd-cashwin" style="display:none;font-size:11.5px;line-height:1.5;border-radius:10px;padding:9px 11px;margin:-4px 0 12px;"></div>
     <label style="font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.04em;">Details (optional)</label>
     <input id="rd-detail" placeholder="e.g. GCash number, gift preference…" style="width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#eef2ff;padding:10px;font-size:14px;margin:4px 0 14px;outline:none;">
     <button onclick="submitRedeem()" id="rd-submit" style="width:100%;background:linear-gradient(135deg,#fbbf24,#d97706);color:#111;border:none;border-radius:11px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">Request redemption</button>
@@ -14212,6 +14231,44 @@ function redeemItem(id){
       else { if(msg){msg.style.color='#f87171';msg.textContent='Could not request — try again.';} }
     }).catch(function(){ if(msg){msg.style.color='#f87171';msg.textContent='Network error.';} });
 }
+// ── Cash-out window: cash only on the 5th and the 20th (PHT) ──
+// The server decides — this just reflects it, so the button can't promise something
+// the backend will refuse.
+var _cashWin = null;
+function loadCashWindow(){
+  fetch(APPS_SCRIPT_URL+'?action=cashout_window&_='+Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if(d && d.ok){ _cashWin = d; rdTypeChanged(); } })
+    .catch(function(){});
+}
+function rdTypeChanged(){
+  var box  = document.getElementById('rd-cashwin');
+  var type = (document.getElementById('rd-type')||{}).value;
+  var btn  = document.getElementById('rd-submit');
+  if(!box) return;
+
+  if(type !== 'cash' || !_cashWin){
+    box.style.display='none';
+    if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent='Request redemption'; }
+    return;
+  }
+  box.style.display='block';
+  if(_cashWin.open){
+    box.style.background='rgba(52,211,153,.1)';
+    box.style.border='1px solid rgba(52,211,153,.35)';
+    box.style.color='#6ee7b7';
+    box.innerHTML='✓ <b>Cash-out is OPEN today.</b> Requests are processed with payroll.';
+    if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent='Request redemption'; }
+  } else {
+    box.style.background='rgba(251,191,36,.08)';
+    box.style.border='1px solid rgba(251,191,36,.3)';
+    box.style.color='#fbbf24';
+    box.innerHTML='🔒 <b>Cash-out is closed today.</b><br>Points can be cashed out only on the <b>5th</b> and the <b>20th</b> of the month. Next window: <b>'+
+                  (_cashWin.next||'the 5th or 20th')+'</b>.<br><span style="color:#9fb0d6;">Gift redemptions are open any day.</span>';
+    if(btn){ btn.disabled=true; btn.style.opacity='.55'; btn.textContent='Cash-out opens '+(_cashWin.next||'soon'); }
+  }
+}
+
 function openRedeem(){
   document.getElementById('rd-bal').textContent=Number(_pBal).toLocaleString();
   var bp=document.getElementById('rd-bal-peso'); if(bp) bp.textContent='(≈ '+fmtPeso(ptsToPeso(_pBal))+')';
@@ -14221,6 +14278,7 @@ function openRedeem(){
   renderRewards();
   document.getElementById('redeem-modal').style.display='flex';
   loadMyRedemptions();
+  loadCashWindow();
 }
 function closeRedeem(){ document.getElementById('redeem-modal').style.display='none'; }
 function submitRedeem(){
@@ -14237,6 +14295,11 @@ function submitRedeem(){
       b.disabled=false; b.textContent='Request redemption';
       if(d&&d.ok){ msg.style.color='#34d399'; msg.textContent='✓ Requested '+pts+' pts ('+fmtPeso(ptsToPeso(pts))+') — pending admin approval.'; document.getElementById('rd-points').value=''; rdCalc(); loadMyRedemptions(); }
       else if(d&&d.error==='MIN_1000'){ msg.style.color='#f87171'; msg.textContent='Minimum redemption is 1,000 points.'; }
+      else if(d&&d.error==='CASH_WINDOW_CLOSED'){
+        msg.style.color='#fbbf24';
+        msg.textContent='Cash-out is only open on the 5th and the 20th. Next window: '+(d.next||'the 5th or 20th')+'.';
+        loadCashWindow();
+      }
       else if(d&&d.error==='INSUFFICIENT'){ msg.style.color='#f87171'; msg.textContent='Not enough available points ('+d.available+' available).'; }
       else { msg.style.color='#f87171'; msg.textContent='Could not submit'+((d&&d.error)?(': '+d.error):'.'); }
     }).catch(function(){ b.disabled=false; b.textContent='Request redemption'; msg.style.color='#f87171'; msg.textContent='Network error.'; });
