@@ -4765,6 +4765,8 @@
             </div>
             <input class="chat-search" type="text" id="chat-search" placeholder="Search..." oninput="filterContacts()" />
             <button class="newgroup-btn" id="newgroup-btn" style="display:none;" onclick="openNewGroup()">＋ New group chat</button>
+            <!-- Who's online right now — swipe sideways. Populated by renderOnlineStrip(). -->
+            <div class="online-strip" id="online-strip"></div>
           </div>
           <div class="gc-modal" id="gc-modal">
             <div class="gc-card">
@@ -11078,6 +11080,8 @@ function renderContactList(data) {
   var online  = others.filter(function(e){ return e.is_online; }).sort(byName);
   var offline = others.filter(function(e){ return !e.is_online; }).sort(byName);
 
+  renderOnlineStrip(online);   // the swipeable avatar row at the top of the list
+
   if (onlineLbl)  onlineLbl.style.display  = online.length  ? 'block' : 'none';
   offlineLbl.style.display = offline.length ? 'block' : 'none';
   var anchor = onlineLbl;
@@ -11087,6 +11091,41 @@ function renderContactList(data) {
 
   // Re-apply bump order after list rebuild
   setTimeout(applyBumpOrder, 0);
+}
+
+// ── "Online now" strip ──────────────────────────────────────────────────────
+// A horizontally-scrollable row of everyone currently online, as circular avatars.
+// Tap one to open a DM. Fed from the same online[] the contact list already builds.
+function renderOnlineStrip(online) {
+  var strip = document.getElementById('online-strip');
+  if (!strip) return;
+
+  if (!online || !online.length) {
+    strip.innerHTML = '';
+    strip.classList.remove('has-people');
+    return;
+  }
+  strip.classList.add('has-people');
+
+  strip.innerHTML = online.map(function(emp) {
+    var id    = emp.employee_id;
+    var name  = emp.employee_name || id;
+    var photo = presencePhotos[id] || employeePhotos[id];
+    var first = String(name).split(',').pop().trim().split(' ')[0] || name;   // "Dela Cruz, Alieza" → "Alieza"
+    var initials = (id === 'ADMIN') ? 'A'
+      : String(name).split(' ').filter(function(w){ return /^[a-zA-Z]/.test(w); })
+                    .map(function(w){ return w[0]; }).slice(0,2).join('').toUpperCase();
+
+    var av = (id === 'ADMIN')
+      ? '<img src="' + ADMIN_LOGO + '" alt="" style="object-fit:contain;background:#1a1a2e;padding:5px;" />'
+      : (photo ? '<img src="' + photo + '" alt="" />' : '<span>' + escapeHtml(initials) + '</span>');
+
+    return '<button class="ostrip-item" type="button" title="' + escapeHtml(name) + '" ' +
+             'onclick="selectChat(\'' + id + '\', \'' + escapeHtml(name).replace(/'/g, "\\'") + '\')">' +
+             '<span class="ostrip-av">' + av + '<i class="ostrip-dot"></i></span>' +
+             '<span class="ostrip-nm">' + escapeHtml(first) + '</span>' +
+           '</button>';
+  }).join('');
 }
 
 function insertContact(emp, afterEl) {
@@ -17317,6 +17356,15 @@ header {
    Whenever ANY overlay is open we simply get them out of the way. The body class
    is toggled by the observer below, so it works regardless of how a given modal
    is opened (class, inline style, or .show).                                     */
+/* Page frozen while an overlay is open — see lockScroll(). position:fixed is the only
+   thing iOS actually respects; overflow:hidden on its own leaks the scroll through. */
+body.scroll-locked {
+  position: fixed;
+  left: 0; right: 0; width: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body.ovl-open #tet-tourney-fab,
 body.ovl-open #jul4-fab,
 body.ovl-open #buddy-fab,
@@ -17356,6 +17404,7 @@ body.ovl-open .bio-fab {
    just swap which one is visible.                                            */
 .chat-back-btn { display: none; }   /* desktop has both panes side by side — no back button needed */
 .chat-list-top  { display: none; }  /* desktop closes the chat from the thread header */
+.online-strip   { display: none; }  /* phones only — the desktop sidebar is 200px, too narrow for a rail */
 
 @media (max-width: 720px){
   #tab-messages.msg-open { padding: 0 !important; }
@@ -17415,29 +17464,41 @@ body.ovl-open .bio-fab {
   .chat-reply-quote{ max-width: 66vw !important; }
   .chat-date-divider { margin: 10px 0 4px !important; }
 
-  /* ── Composer ──
-     Emoji + photo + GIF + "Send my EOD" + input + send is far more than 390px of
-     controls, so the text field was being crushed off the screen. On mobile the row
-     WRAPS: the buttons sit on the first line and the input + send get a full line
-     of their own underneath. */
+  /* ── Composer: ONE row, always ──
+     Wrapping it dropped the send button onto a line of its own, which looked broken.
+     Instead everything stays on a single line: the buttons are fixed-size, the input
+     takes whatever is left (min-width:0 lets it shrink instead of pushing send out),
+     and "Send my EOD" collapses to just its 📋 icon so it can't blow the row apart. */
   .chat-input-wrap {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
-    gap: 6px !important; flex-shrink: 0; align-items: center;
-    flex-wrap: wrap !important;
+    gap: 5px !important; flex-shrink: 0; align-items: center;
+    flex-wrap: nowrap !important;
   }
-  .chat-send-btn, .chat-emoji-btn { width: 40px !important; height: 40px !important; flex: 0 0 auto; }
-  .chat-media-btn { width: 38px !important; height: 38px !important; flex: 0 0 auto; }
+  .chat-send-btn, .chat-emoji-btn { width: 38px !important; height: 38px !important; flex: 0 0 auto; }
+  .chat-media-btn { width: 34px !important; height: 34px !important; flex: 0 0 auto; }
+
+  /* icon-only EOD button — the label is what made the row overflow */
   .chat-eod-btn {
-    padding: 8px 12px !important; font-size: 12px !important;
-    flex: 0 0 auto; white-space: nowrap; order: 4;
+    flex: 0 0 auto;
+    width: 38px !important; height: 38px !important;
+    padding: 0 !important;
+    font-size: 0 !important;                     /* hides the "Send my EOD" text */
+    border-radius: 50% !important;
+    justify-content: center;
+    overflow: hidden;
   }
-  /* input + send drop to their own row */
+  .chat-eod-btn::before {
+    content: '📋';
+    font-size: 16px;
+    line-height: 1;
+  }
+
   .chat-input {
     font-size: 16px !important;                  /* 16px = iOS won't zoom the page */
-    padding: 11px 15px !important;
-    order: 10; flex: 1 1 60% !important; min-width: 0;
+    padding: 10px 14px !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;                     /* shrink, don't shove `send` off-row */
   }
-  .chat-send-btn { order: 11; }
 
   /* ── Conversation list: bigger rows ── */
   .chat-contact { padding: 12px 14px !important; gap: 11px !important; min-height: 60px; }
@@ -17483,6 +17544,27 @@ body.ovl-open .bio-fab {
   }
   .react-picker { z-index: 6; }
 
+  /* iOS answers a long-press on text with its own selection handles and the
+     Copy / Look Up / Translate callout — which fought our react gesture. Kill both
+     on the bubble. (Copy is given back as a proper button in the action row.) */
+  .chat-msg-bubble, .chat-msg-sender, .chat-msg-time, .chat-msg-unsent, .chat-reply-quote {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* Links stay selectable/tappable — you still want to long-press a URL. */
+  .chat-msg-bubble a { -webkit-user-select: auto; user-select: auto; -webkit-touch-callout: default; }
+
+  /* Copy, offered in the long-press action row since we took the native one away */
+  .chat-copy-btn {
+    display: none; align-items: center; gap: 4px;
+    background: var(--bg-card2); border: 1px solid var(--border); color: var(--text-2);
+    border-radius: 15px; font-size: 11.5px; font-weight: 600;
+    padding: 4px 12px; min-height: 30px; cursor: pointer;
+  }
+  .chat-msg-wrap.acts-open .chat-copy-btn { order: 2; display: inline-flex; }
+  .chat-msg-wrap.acts-open .chat-unsend-btn { order: 3; }
+
   /* Unsend stays reachable: it appears under your own bubble on long-press. */
   .chat-unsend-btn {
     position: static !important; display: none !important; opacity: 1 !important;
@@ -17500,11 +17582,29 @@ body.ovl-open .bio-fab {
   /* the back arrow, only on phones */
   .chat-back-btn {
     display: flex !important; align-items: center; justify-content: center;
-    flex: 0 0 auto; width: 34px; height: 34px; margin-right: 6px;
+    flex: 0 0 auto; width: 34px; height: 34px; margin-right: 4px;
     background: none; border: none; color: var(--text-2); cursor: pointer; border-radius: 9px;
   }
   .chat-back-btn:active { background: rgba(255,255,255,.07); }
-  .chat-header { align-items: center; }
+
+  /* Minimise is meaningless on a full-screen phone chat — the back arrow already
+     goes to the list and ✕ closes it. Drop it, and let the name sit next to the
+     arrow on the left instead of floating in the middle. */
+  .chat-min-btn { display: none !important; }
+  .chat-header {
+    align-items: center;
+    justify-content: flex-start !important;
+    gap: 2px;
+  }
+  .chat-header-id {
+    flex: 1 1 auto; min-width: 0;
+    justify-content: flex-start !important;
+    text-align: left;
+  }
+  .chat-header-name, .chat-header-status {
+    text-align: left;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 
   /* ── The iOS status bar ──
      The chat is a fixed, full-screen overlay, so it paints under the clock and battery.
@@ -17516,6 +17616,60 @@ body.ovl-open .bio-fab {
   #tab-messages.msg-open .chat-sidebar-header {
     padding-top: calc(10px + env(safe-area-inset-top, 0px)) !important;
   }
+
+  /* ── "Online now" strip ──
+     Circular avatars of whoever is online, swipeable left/right. Only shown when
+     someone actually is — an empty rail would just be dead space. */
+  .online-strip {
+    display: none;
+    gap: 12px;
+    margin: 10px -10px 2px;          /* bleed to the panel edges so it scrolls edge-to-edge */
+    padding: 2px 10px 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;   /* don't hand the swipe to the page */
+    scroll-snap-type: x proximity;
+  }
+  .online-strip::-webkit-scrollbar { display: none; }
+  .online-strip.has-people { display: flex; }
+
+  .ostrip-item {
+    flex: 0 0 auto;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    width: 58px; padding: 0; border: none; background: none; cursor: pointer;
+    scroll-snap-align: start;
+  }
+  .ostrip-item:active { transform: scale(.94); }
+  .ostrip-item { transition: transform .12s ease; }
+
+  .ostrip-av {
+    position: relative;
+    width: 54px; height: 54px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-card2);
+    /* the live ring — a gradient border via padding + background-clip */
+    box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px #4ade80;
+  }
+  .ostrip-av img {
+    width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
+  }
+  .ostrip-av span {
+    font-size: 16px; font-weight: 700; color: var(--text-1);
+  }
+  .ostrip-dot {
+    position: absolute; right: 1px; bottom: 1px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #4ade80; border: 2px solid var(--bg-card);
+    animation: ostripPulse 2.2s ease-in-out infinite;
+  }
+  @keyframes ostripPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+  .ostrip-nm {
+    font-size: 10.5px; color: var(--text-2); font-weight: 600;
+    max-width: 58px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
+  }
+  @media (prefers-reduced-motion: reduce) { .ostrip-dot { animation: none; } }
 
   /* the list's own title bar + close button — the only way out of a full-screen list */
   .chat-list-top {
@@ -17541,6 +17695,57 @@ function chatBackToList(){
   var cl = document.querySelector('.chat-layout');
   if (cl) cl.classList.remove('mob-thread');
 }
+
+/* ══════════ THE KEYBOARD ══════════
+   On iOS the on-screen keyboard does NOT shrink the viewport — 100dvh still reports
+   the full screen height, so the chat keeps its size and the composer ends up buried
+   underneath the keys. visualViewport is the only API that reports the space actually
+   left over, so we size the chat to that and re-pin the thread to the bottom. */
+(function(){
+  var vv = window.visualViewport;
+  if (!vv) return;                                  // old browser: nothing we can do
+
+  function isPhone(){ return window.matchMedia('(max-width: 720px)').matches; }
+
+  function fit(){
+    var panel = document.getElementById('tab-messages');
+    var cl    = document.querySelector('.chat-layout');
+    if (!panel || !cl) return;
+
+    if (!panel.classList.contains('msg-open') || !isPhone()) {
+      cl.style.height = '';                         // hand it back to the stylesheet
+      return;
+    }
+    // The space the keyboard has left us.
+    cl.style.height = vv.height + 'px';
+
+    // Keep the newest message visible above the keyboard.
+    var msgs = document.getElementById('chat-messages');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  vv.addEventListener('resize', fit);
+  vv.addEventListener('scroll', fit);               // iOS also pans the viewport
+  window.addEventListener('orientationchange', function(){ setTimeout(fit, 250); });
+
+  // Focusing the input is what summons the keyboard — re-fit once it has animated in.
+  document.addEventListener('focusin', function(e){
+    if (e.target && e.target.closest && e.target.closest('.chat-input-wrap')) {
+      setTimeout(fit, 60);
+      setTimeout(fit, 320);                          // again after the keyboard settles
+    }
+  });
+  document.addEventListener('focusout', function(e){
+    if (e.target && e.target.closest && e.target.closest('.chat-input-wrap')) {
+      setTimeout(fit, 120);                          // keyboard dismissed → grow back
+    }
+  });
+
+  // And whenever the chat itself opens or closes.
+  var panel = document.getElementById('tab-messages');
+  if (panel) new MutationObserver(function(){ setTimeout(fit, 40); })
+    .observe(panel, { attributes: true, attributeFilter: ['class'] });
+})();
 
 /* ══════════════════════════════════════════════════════════════════════════════
    CHAT TOUCH GESTURES (mobile)
@@ -17608,9 +17813,47 @@ function chatBackToList(){
       buzz(12);                                  // a tick of haptic, like iMessage
       wrap.classList.remove('pressing');
       closeActs();
-      wrap.classList.add('acts-open');           // reveals Unsend on your own messages
+      addCopyBtn(wrap);                          // we disabled iOS's native Copy — give it back
+      wrap.classList.add('acts-open');           // + Unsend, on your own messages
       try { if (typeof openPicker === 'function' && mid) openPicker(mid); } catch(err) {}
     }, HOLD_MS);
+  }
+
+  // We suppress the iOS callout menu on bubbles (it hijacked the long-press), so Copy
+  // is offered explicitly instead. Injected once per message, on first long-press.
+  function addCopyBtn(w){
+    if (!w || w.querySelector('.chat-copy-btn')) return;
+    var bubble = w.querySelector('.chat-msg-bubble');
+    if (!bubble) return;
+    var btn = document.createElement('button');
+    btn.className = 'chat-copy-btn';
+    btn.type = 'button';
+    btn.textContent = '⧉ Copy';
+    btn.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      var text = bubble.innerText || bubble.textContent || '';
+      var done = function(){
+        btn.textContent = '✓ Copied';
+        buzz(8);
+        setTimeout(function(){ btn.textContent = '⧉ Copy'; }, 1200);
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(function(){ legacyCopy(text); done(); });
+        } else { legacyCopy(text); done(); }
+      } catch (e) { legacyCopy(text); done(); }
+    });
+    w.appendChild(btn);
+  }
+  function legacyCopy(text){
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {}
   }
 
   function onMove(e){
@@ -17733,9 +17976,30 @@ function chatBackToList(){
     if(d === 'flex' || d === 'block') return true;
     return false;   // deliberately cheap — no getComputedStyle on every mutation
   }
+  // While an overlay is open, FREEZE the page underneath. Without this, dragging inside
+  // the chat once it hits the top/bottom hands the scroll to the body — so the portal
+  // scrolls around behind the chat. `overflow:hidden` alone doesn't hold on iOS; the
+  // body has to be position:fixed, and we stash the scroll offset to restore it after.
+  var _lockedY = 0, _locked = false;
+  function lockScroll(){
+    if (_locked) return;
+    _lockedY = window.scrollY || window.pageYOffset || 0;
+    document.body.style.top = (-_lockedY) + 'px';
+    document.body.classList.add('scroll-locked');
+    _locked = true;
+  }
+  function unlockScroll(){
+    if (!_locked) return;
+    document.body.classList.remove('scroll-locked');
+    document.body.style.top = '';
+    window.scrollTo(0, _lockedY);       // put them back exactly where they were
+    _locked = false;
+  }
+
   function sync(){
     var open = SEL.some(function(s){ return visible(document.querySelector(s)); });
     document.body.classList.toggle('ovl-open', open);
+    if (open) lockScroll(); else unlockScroll();
   }
   function boot(){
     var obs = new MutationObserver(sync);
