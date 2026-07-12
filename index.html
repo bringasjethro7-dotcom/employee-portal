@@ -15514,6 +15514,8 @@ body.light .jul4-lbscore{color:#059669}
           <div class="arc-scan"></div>
         </div>
         <div class="arc-name" id="tet-opp-label">Opponent</div>
+        <!-- Which block design the opponent has equipped, if any -->
+        <div class="skin-tag" id="tet-opp-skin" style="display:none;"></div>
         <div class="arc-orow"><span>Score <b id="tet-opp-score">0</b></span><span>Lines <b id="tet-opp-lines">0</b></span><span class="ko">KO <b id="tet-opp-ko">0</b>/<span id="tet-opp-komax">3</span></span></div>
       </section>
 
@@ -15622,6 +15624,14 @@ body.light .jul4-lbscore{color:#059669}
   .arc-opp{display:flex;flex-direction:column;align-items:center;flex:0 0 auto}
   .arc-frame.small{box-shadow:0 0 26px rgba(0,0,0,.5),0 14px 40px rgba(0,0,0,.5)}
   .arc-orow{display:flex;gap:9px;margin-top:5px;font-size:11px;color:#9fb0d6}
+  /* "🎨 Galaxy" — the opponent's equipped block design, so an unlocked skin is
+     visible to the people you're playing against, not just to you. */
+  .skin-tag{margin-top:4px;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+    color:#d8b4fe;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.35);
+    border-radius:20px;padding:2px 9px;display:inline-block}
+  .sp-skin{margin-top:4px;font-size:9px;font-weight:800;color:#d8b4fe;
+    background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.32);
+    border-radius:20px;padding:2px 7px;display:inline-block}
   .arc-orow b{color:#cdd6f5}
   .arc-orow .ko b{color:#f87171}
   .arc-arena{display:none;flex-direction:column;align-items:center;flex:0 0 auto}
@@ -16379,12 +16389,15 @@ body.light .jul4-lbscore{color:#059669}
     try{ chan.send({type:'broadcast',event:'attack',payload:{from:eid(),lines:n}}); }catch(e){}
   }
   function sendState(){
+    // `sk` = the block design I have equipped. Everyone watching renders MY board with MY
+    // skin, so an unlocked design is something other people actually see — which is the
+    // whole point of buying one.
     if(M.mode==='tourney'){ if(!M.tchan) return;
-      try{ M.tchan.send({type:'broadcast',event:'tstate',payload:{tid:M.matchId,from:eid(),name:ename(),grid:packGrid(),score:M.score,lines:M.lines,alive:M.alive}}); }catch(e){}
+      try{ M.tchan.send({type:'broadcast',event:'tstate',payload:{tid:M.matchId,from:eid(),name:ename(),grid:packGrid(),score:M.score,lines:M.lines,alive:M.alive,sk:EQUIPPED}}); }catch(e){}
       if(M.players&&M.players[eid()]){ M.players[eid()].score=M.score; M.players[eid()].lines=M.lines; }
       return;
     }
-    if(!chan) return; try{ chan.send({type:'broadcast',event:'state',payload:{from:eid(),grid:packGrid(),score:M.score,lines:M.lines,alive:M.alive}}); }catch(e){}
+    if(!chan) return; try{ chan.send({type:'broadcast',event:'state',payload:{from:eid(),grid:packGrid(),score:M.score,lines:M.lines,alive:M.alive,sk:EQUIPPED}}); }catch(e){}
   }
   function packGrid(){ // include current piece so opponent sees live movement
     var g=M.grid.map(function(r){return r.slice();});
@@ -16393,9 +16406,22 @@ body.light .jul4-lbscore{color:#059669}
   }
   function onOppState(p){ if(!M||!p||String(p.from)===String(eid())) return;
     M.oppScore=p.score||0; M.oppLines=p.lines||0; M.oppAlive=p.alive!==false;
+    if(p.sk && DESIGNS[p.sk] && p.sk !== M.oppSkin){   // they've got a design on — show it
+      M.oppSkin = p.sk;
+      showOppSkin(p.sk);
+    }
     if(p.grid){ M.oppGrid=p.grid.split('|').map(function(rw){ return rw.split('').map(Number); }); }
     el('tet-opp-score').textContent=M.oppScore; el('tet-opp-lines').textContent=M.oppLines;
     drawOpp();
+  }
+  // Name the opponent's design under their board, so it's obvious they're wearing one.
+  function showOppSkin(id){
+    var d = DESIGNS[id];
+    var tag = el('tet-opp-skin');
+    if(!tag) return;
+    if(!d || id === 'classic'){ tag.style.display='none'; return; }
+    tag.textContent = '🎨 ' + d.name;
+    tag.style.display = 'inline-block';
   }
 
   // ── Rendering (premium: gradient bevel blocks, glow, ghost piece, clear flash) ──
@@ -16483,6 +16509,11 @@ body.light .jul4-lbscore{color:#059669}
   };
   function _starPath(c,cx,cy,R){ var r=R*0.46; c.beginPath(); for(var i=0;i<10;i++){ var ang=-Math.PI/2+i*Math.PI/5; var rad=(i%2)?r:R; var xx=cx+rad*Math.cos(ang), yy=cy+rad*Math.sin(ang); if(i===0) c.moveTo(xx,yy); else c.lineTo(xx,yy); } c.closePath(); }
   function block(ctx,x,y,cs,color,glow){ (DESIGNS[EQUIPPED]||DESIGNS.classic).cell(ctx,x*cs,y*cs,cs,color,glow); }
+  // Same, but drawn in SOMEONE ELSE'S design — used for the opponent board and for
+  // spectating, so a player's unlocked skin is visible to everyone watching them.
+  function blockAs(ctx,x,y,cs,color,skin,glow){
+    (DESIGNS[skin] || DESIGNS.classic).cell(ctx,x*cs,y*cs,cs,color,glow);
+  }
   function ghostCell(ctx,x,y,cs,color){ var px=x*cs,py=y*cs,r=Math.max(2,cs*0.17);
     ctx.save(); rr(ctx,px+1.5,py+1.5,cs-3,cs-3,r); ctx.globalAlpha=0.14; ctx.fillStyle=color; ctx.fill();
     ctx.globalAlpha=0.55; ctx.lineWidth=1.5; ctx.strokeStyle=color; ctx.stroke(); ctx.restore(); }
@@ -16511,7 +16542,10 @@ body.light .jul4-lbscore{color:#059669}
   }
   function drawOpp(){ var cv=el('tet-opp'); if(!cv||!M) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
     ctx.clearRect(0,0,cv.width,cv.height); grid(ctx,cv,cs);
-    for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(M.oppGrid[y]&&M.oppGrid[y][x])||0; if(v){ block(ctx,x,y,cs, v===8?'#5b6b82':(COLORS[v]||'#5b6b82')); } }
+    // Draw the opponent's board in THEIR equipped design (broadcast as `sk`), not mine.
+    var skin = M.oppSkin || 'classic';
+    for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(M.oppGrid[y]&&M.oppGrid[y][x])||0;
+      if(v){ blockAs(ctx,x,y,cs, v===8?'#5b6b82':(COLORS[v]||'#5b6b82'), skin); } }
   }
 
   // ════════════════ GROUP TOURNAMENT (simultaneous survival) ════════════════
@@ -16649,6 +16683,7 @@ body.light .jul4-lbscore{color:#059669}
   function onTState(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId||String(p.from)===String(eid())) return;
     var pl=M.players[p.from]; if(!pl){ pl=M.players[p.from]={name:p.name,score:0,lines:0,alive:true,grid:null,place:0}; buildArena(); }
     pl.name=p.name||pl.name; pl.score=p.score||0; pl.lines=p.lines||0; pl.alive=p.alive!==false;
+    if(p.sk && DESIGNS[p.sk]) pl.skin=p.sk;
     if(p.grid){ pl.grid=p.grid.split('|').map(function(rw){ return rw.split('').map(Number); }); }
     renderArena();
   }
@@ -16730,7 +16765,7 @@ body.light .jul4-lbscore{color:#059669}
     Object.keys(M.players).forEach(function(id){ if(id===eid()) return;
       var pl=M.players[id]; var cv=el('tacanvas-'+id); if(!cv) return; var ctx=cv.getContext('2d'); var cs=cv.width/W;
       ctx.clearRect(0,0,cv.width,cv.height);
-      if(pl.grid){ for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(pl.grid[y]&&pl.grid[y][x])||0; if(v){ ctx.fillStyle=(v===8?'#5b6b82':(COLORS[v]||'#5b6b82')); ctx.fillRect(x*cs,y*cs,cs-0.5,cs-0.5); } } }
+      if(pl.grid){ var _sk=pl.skin||'classic'; for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=(pl.grid[y]&&pl.grid[y][x])||0; if(v){ blockAs(ctx,x,y,cs,(v===8?'#5b6b82':(COLORS[v]||'#5b6b82')),_sk); } } }
       var sc=el('tascore-'+id); if(sc) sc.textContent=pl.score;
       var kn=el('tako-n-'+id); if(kn) kn.textContent=(pl.kos||0);
       var ko=el('tako-'+id); if(ko) ko.style.display=pl.alive?'none':'flex';   // OUT = eliminated (3 KOs)
@@ -17266,8 +17301,8 @@ body.light .jul4-lbscore{color:#059669}
     spStop();
     var mid='BK-'+TB.tid+'-r'+TB.round+'-m'+idx;
     SP={ idx:idx, a:String(pr[0]), b:String(pr[1]), st:{} };
-    SP.st[SP.a]={ grid:null, score:0, lines:0, alive:true, kos:0 };
-    SP.st[SP.b]={ grid:null, score:0, lines:0, alive:true, kos:0 };
+    SP.st[SP.a]={ grid:null, score:0, lines:0, alive:true, kos:0, skin:'classic' };
+    SP.st[SP.b]={ grid:null, score:0, lines:0, alive:true, kos:0, skin:'classic' };
     try{
       SP.chan=supaClient.channel('tetris-'+mid,{config:{broadcast:{self:false}}})
         .on('broadcast',{event:'state'}, function(p){ spState(p.payload); })
@@ -17288,6 +17323,10 @@ body.light .jul4-lbscore{color:#059669}
     if(!SP || !p) return;
     var s=SP.st[String(p.from)]; if(!s) return;
     s.score=p.score||0; s.lines=p.lines||0; s.alive=(p.alive!==false);
+    if(p.sk && DESIGNS[p.sk] && p.sk !== s.skin){   // they're wearing a design — show it
+      s.skin = p.sk;
+      spRender();                                   // re-label with the design name
+    }
     if(p.grid) s.grid=p.grid.split('|').map(function(rw){ return rw.split('').map(Number); });
     spDraw();
   }
@@ -17305,9 +17344,12 @@ body.light .jul4-lbscore{color:#059669}
     function side(id, side){
       var ph=(typeof rkPhoto==='function')?rkPhoto(id):'';
       var av=ph?('<img src="'+ph+'" alt="">'):'';
+      var sk=(SP.st[id]&&SP.st[id].skin)||'classic';
+      var skName=(sk!=='classic' && DESIGNS[sk]) ? ('<div class="sp-skin">🎨 '+esc(DESIGNS[sk].name)+'</div>') : '';
       return '<div class="sp-p" id="sp-p-'+side+'">'+
         '<div class="sp-nm">'+av+'<span>'+esc(bkName(id))+'</span></div>'+
         '<canvas id="sp-cv-'+side+'" width="100" height="200"></canvas>'+
+        skName+
         '<div class="sp-st"><b id="sp-sc-'+side+'">0</b> pts · <span id="sp-ko-'+side+'">0</span>/'+BK_KOS+' KO</div></div>';
     }
     box.innerHTML='<div class="sp-wrap">'+
@@ -17326,9 +17368,11 @@ body.light .jul4-lbscore{color:#059669}
       var ctx=cv.getContext('2d'), cs=cv.width/W;
       ctx.clearRect(0,0,cv.width,cv.height);
       grid(ctx,cv,cs);
+      // Draw each spectated board in THAT player's equipped design.
+      var skin = st.skin || 'classic';
       if(st.grid){ for(var y=0;y<H;y++) for(var x=0;x<W;x++){
         var v=(st.grid[y]&&st.grid[y][x])||0;
-        if(v){ ctx.fillStyle=(v===8?'#5b6b82':(COLORS[v]||'#5b6b82')); ctx.fillRect(x*cs, y*cs, cs-0.6, cs-0.6); } } }
+        if(v){ blockAs(ctx, x, y, cs, (v===8?'#5b6b82':(COLORS[v]||'#5b6b82')), skin); } } }
       var sc=el('sp-sc-'+side); if(sc) sc.textContent=st.score||0;
       var ko=el('sp-ko-'+side); if(ko) ko.textContent=st.kos||0;
       var pn=el('sp-p-'+side); if(pn) pn.classList.toggle('out', !st.alive);
