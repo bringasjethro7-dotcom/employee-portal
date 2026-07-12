@@ -17968,8 +17968,26 @@ body.light .jul4-lbscore{color:#059669}
     var nb=el('tet-rank-next'); if(!nb) return;
     var np=phtNowParts(); var toS=ntSecsTo(np);
     var hh=Math.floor(toS/3600), mm=Math.floor((toS%3600)/60);
-    nb.innerHTML = ntIsLive(np) ? '🔴 Tournament LIVE now — tap the Tetris button to join!'
-      : ('🏆 Next tournament in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win 400/200/150 pts <span style="color:#6b7d90;">(10 PM Sat/Sun · 11 PM weekdays)</span>');
+
+    // Is the NEXT one the Grand Final? If tonight's start time has already passed we're
+    // counting down to tomorrow, so look at tomorrow's day — not today's.
+    var _h = ntHour(np.dow);
+    var nowSec = np.H*3600 + np.M*60 + np.S;
+    var targetDow = (nowSec < _h*3600) ? np.dow : ((np.dow + 1) % 7);
+    var grandNext = (targetDow === 0);   // Sunday
+
+    if(ntIsLive(np)){
+      nb.innerHTML = bkIsGrand('NT-'+np.date)
+        ? '👑 THE GRAND FINAL IS LIVE — tap the Tetris button to join!'
+        : '🔴 Tournament LIVE now — tap the Tetris button to join!';
+    } else if(grandNext){
+      nb.innerHTML = '👑 <b style="color:#fbbf24;">GRAND FINAL</b> in '+(hh>0?hh+'h ':'')+mm+'m — the week’s championship. ' +
+                     'Top 3 win <b style="color:#fbbf24;">1,200 / 600 / 300</b> pts + the crown ' +
+                     '<span style="color:#6b7d90;">(Sunday, 10 PM)</span>';
+    } else {
+      nb.innerHTML = '🏆 Next tournament in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win 400/200/150 pts ' +
+                     '<span style="color:#6b7d90;">(10 PM Sat/Sun · 11 PM weekdays)</span>';
+    }
   }
   window.tetOpenLadder=function(){
     var m=el('tet-ladder-modal'); if(!m) return;
