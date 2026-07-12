@@ -5699,7 +5699,21 @@ function railStatusLabel(s) {
 }
 // A deactivated employee is hidden everywhere (presence wall, chat contacts).
 // Unknown (directory not loaded yet) is treated as active until proven otherwise.
-function isActiveUser(id){ var d = employeeDir[id]; return !d || d.active !== false; }
+// Statuses that mean "no longer on the team". The old check only caught
+// inactive/deactivated/disabled — so anyone marked Resigned, Terminated or
+// Offboarding sailed through as active and kept showing in the chat list.
+var INACTIVE_STATUS_RE = /^(inactive|deactivated|deactivate|disabled|resigned|terminated|offboarding|offboarded|separated|dismissed|archived|former|ex[- ]?employee)$/i;
+
+var _dirReady = false;   // true once the employee directory has actually loaded
+
+function isActiveUser(id){
+  var d = employeeDir[id];
+  if (d) return d.active !== false;
+  // Not in the employee directory at all → they've been removed from the roster,
+  // but a stale row lingers in Supabase `presence`. Hide them — but only once the
+  // directory has really loaded, or on a slow connection we'd hide the whole team.
+  return !_dirReady;
+}
 // Click a presence card → open a direct message with that teammate
 function railOpenDM(id, name) {
   if (!id || id === chatEmpId) return;
@@ -10573,9 +10587,10 @@ function loadEmployeePhotoDirectory(){
           position: String(emp.position || ''),
           cl: String(emp.career_level || emp.cl || emp.cl_level || emp.level || '').trim(),
           full_name: String(emp.full_name || ''),
-          active: !/^(inactive|deactivated|disabled)$/i.test(String(emp.status || 'active').trim())
+          active: !INACTIVE_STATUS_RE.test(String(emp.status || 'active').trim())
         };
       });
+      if (list.length) _dirReady = true;   // now we can trust "missing from directory = off the roster"
       try { renderRailOnline(); } catch(e) {}
       try { if (typeof loadContacts === 'function' && supaClient) loadContacts(); } catch(e) {}   // re-filter contacts now that we know who's deactivated
       // fill bubbles with real photos as they load — except customized buddies (which keep their mascot)
@@ -17379,8 +17394,108 @@ body.ovl-open .bio-fab {
   }
   @keyframes chatSlideIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 
-  .chat-messages { min-height: 0 !important; flex: 1 1 auto !important; overflow-y: auto !important; }
-  .chat-input-wrap { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important; flex-shrink: 0; }
+  .chat-messages {
+    min-height: 0 !important; flex: 1 1 auto !important; overflow-y: auto !important;
+    padding: 12px 12px 6px !important; gap: 6px !important;
+    overscroll-behavior: contain;                 /* don't drag the page behind the thread */
+  }
+
+  /* ── Bubbles: sized for a thumb and a phone screen ── */
+  .chat-msg { max-width: 88% !important; gap: 7px !important; }
+  .chat-msg-bubble {
+    font-size: 15px !important;                   /* 13px was desktop-small */
+    line-height: 1.45 !important;
+    padding: 9px 13px !important;
+    border-radius: 18px !important;
+  }
+  .chat-avatar { width: 30px !important; height: 30px !important; }
+  .chat-msg-sender { font-size: 11px !important; margin-bottom: 2px !important; }
+  .chat-msg-time  { font-size: 10px !important; margin-top: 2px !important; }
+  .chat-msg-img    { max-width: 66vw !important; max-height: 62vh !important; }
+  .chat-reply-quote{ max-width: 66vw !important; }
+  .chat-date-divider { margin: 10px 0 4px !important; }
+
+  /* ── Composer ──
+     Emoji + photo + GIF + "Send my EOD" + input + send is far more than 390px of
+     controls, so the text field was being crushed off the screen. On mobile the row
+     WRAPS: the buttons sit on the first line and the input + send get a full line
+     of their own underneath. */
+  .chat-input-wrap {
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    gap: 6px !important; flex-shrink: 0; align-items: center;
+    flex-wrap: wrap !important;
+  }
+  .chat-send-btn, .chat-emoji-btn { width: 40px !important; height: 40px !important; flex: 0 0 auto; }
+  .chat-media-btn { width: 38px !important; height: 38px !important; flex: 0 0 auto; }
+  .chat-eod-btn {
+    padding: 8px 12px !important; font-size: 12px !important;
+    flex: 0 0 auto; white-space: nowrap; order: 4;
+  }
+  /* input + send drop to their own row */
+  .chat-input {
+    font-size: 16px !important;                  /* 16px = iOS won't zoom the page */
+    padding: 11px 15px !important;
+    order: 10; flex: 1 1 60% !important; min-width: 0;
+  }
+  .chat-send-btn { order: 11; }
+
+  /* ── Conversation list: bigger rows ── */
+  .chat-contact { padding: 12px 14px !important; gap: 11px !important; min-height: 60px; }
+  .chat-contact .chat-avatar { width: 42px !important; height: 42px !important; }
+  .chat-contact-name { font-size: 14.5px !important; font-weight: 600 !important; }
+  .chat-contact-sub  { font-size: 12px !important; }
+  .chat-search { font-size: 16px !important; padding: 10px 14px !important; }
+
+  /* ══════════ TOUCH GESTURES ══════════
+     React / Reply / Unsend were shown on :hover, which a touchscreen never fires — so
+     on a phone they were unreachable. Rather than bolt buttons onto the bubble (they
+     just cover the text), we use the gestures people already know from every other
+     messaging app:
+
+        swipe a message RIGHT  → reply to it
+        press and HOLD it      → react to it
+
+     The desktop hover buttons are hidden outright on mobile. */
+  .react-btn, .chat-reply-btn { display: none !important; }
+
+  .chat-msg-wrap {
+    touch-action: pan-y;                 /* let vertical scroll through; we own horizontal */
+    transition: transform .18s cubic-bezier(.2,.9,.3,1);
+    will-change: transform;
+  }
+  .chat-msg-wrap.swiping { transition: none; }   /* follow the finger 1:1 */
+
+  /* the ↩ that appears from under the bubble as you drag */
+  .chat-msg-wrap::before {
+    content: '↩';
+    position: absolute; left: -30px; top: 50%;
+    transform: translateY(-50%) scale(.5);
+    opacity: 0; pointer-events: none;
+    font-size: 17px; font-weight: 700; color: var(--orange-1);
+    transition: opacity .12s ease, transform .14s cubic-bezier(.2,1.6,.3,1);
+  }
+  .chat-msg-wrap.swipe-armed::before { opacity: 1; transform: translateY(-50%) scale(1.15); }
+
+  /* long-press: lift the bubble slightly so it's obvious the press registered */
+  .chat-msg-wrap.pressing .chat-msg-bubble {
+    transform: scale(.97);
+    transition: transform .18s ease;
+  }
+  .react-picker { z-index: 6; }
+
+  /* Unsend stays reachable: it appears under your own bubble on long-press. */
+  .chat-unsend-btn {
+    position: static !important; display: none !important; opacity: 1 !important;
+    left: auto !important; right: auto !important; top: auto !important;
+  }
+  .chat-msg-wrap.acts-open { display: flex !important; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+  .chat-msg-wrap.acts-open .chat-msg-bubble { order: 1; flex: 1 0 100%; }
+  .chat-msg-wrap.acts-open .chat-unsend-btn {
+    order: 2; display: inline-flex !important; align-items: center;
+    min-height: 30px; padding: 4px 12px !important; font-size: 11.5px !important;
+    border-radius: 15px !important;
+  }
+  .chat-msg-wrap.acts-open .msg-reactions { order: 3; flex: 1 0 100%; }
 
   /* the back arrow, only on phones */
   .chat-back-btn {
@@ -17390,6 +17505,17 @@ body.ovl-open .bio-fab {
   }
   .chat-back-btn:active { background: rgba(255,255,255,.07); }
   .chat-header { align-items: center; }
+
+  /* ── The iOS status bar ──
+     The chat is a fixed, full-screen overlay, so it paints under the clock and battery.
+     The page header reserves that space for the rest of the app, but this overlay sits
+     ON TOP of the header — so it has to reserve the inset for itself. */
+  #tab-messages.msg-open .chat-header {
+    padding-top: calc(11px + env(safe-area-inset-top, 0px)) !important;
+  }
+  #tab-messages.msg-open .chat-sidebar-header {
+    padding-top: calc(10px + env(safe-area-inset-top, 0px)) !important;
+  }
 
   /* the list's own title bar + close button — the only way out of a full-screen list */
   .chat-list-top {
@@ -17415,6 +17541,135 @@ function chatBackToList(){
   var cl = document.querySelector('.chat-layout');
   if (cl) cl.classList.remove('mob-thread');
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CHAT TOUCH GESTURES (mobile)
+
+     swipe RIGHT on a message  → reply to it
+     press and HOLD a message  → react to it (and Unsend, on your own messages)
+
+   React/Reply/Unsend are desktop hover buttons, which a touchscreen never triggers —
+   so on a phone they were unreachable. Buttons stuck onto the bubble just cover the
+   text, so we use the gestures people already know from every other chat app.
+
+   One delegated listener set on the message list, so it survives re-renders.
+   ══════════════════════════════════════════════════════════════════════════════ */
+(function(){
+  if (!window.matchMedia || !window.matchMedia('(max-width: 720px)').matches) return;
+
+  var HOLD_MS      = 450;   // press-and-hold before the reaction picker opens
+  var SWIPE_ARM    = 18;    // px before we commit to a horizontal swipe
+  var SWIPE_FIRE   = 58;    // px to actually trigger the reply
+  var SWIPE_MAX    = 84;    // how far the bubble can travel
+  var VERT_CANCEL  = 14;    // vertical movement that means "they're scrolling"
+
+  var wrap = null, mid = null;
+  var x0 = 0, y0 = 0, dx = 0;
+  var holdTimer = null, held = false, swiping = false, armed = false;
+
+  function buzz(ms){ try { if (navigator.vibrate) navigator.vibrate(ms); } catch(e) {} }
+
+  function closeActs(){
+    document.querySelectorAll('.chat-msg-wrap.acts-open')
+      .forEach(function(w){ w.classList.remove('acts-open'); });
+  }
+
+  function reset(){
+    if (wrap) {
+      wrap.classList.remove('swiping', 'swipe-armed', 'pressing');
+      wrap.style.transform = '';
+    }
+    clearTimeout(holdTimer);
+    wrap = null; mid = null; dx = 0;
+    held = false; swiping = false; armed = false;
+  }
+
+  function onStart(e){
+    if (e.touches && e.touches.length > 1) return;   // pinch/zoom — not ours
+    var t = e.target;
+    if (!t.closest) return;
+    if (t.closest('a') || t.closest('button') || t.closest('.react-picker')) return;
+
+    var w = t.closest('.chat-msg-wrap');
+    if (!w) { closeActs(); return; }
+
+    wrap = w;
+    mid  = w.getAttribute('data-mid');
+    x0 = e.touches[0].clientX;
+    y0 = e.touches[0].clientY;
+    dx = 0; held = false; swiping = false; armed = false;
+
+    wrap.classList.add('pressing');
+
+    // ── PRESS AND HOLD → react ──
+    holdTimer = setTimeout(function(){
+      if (!wrap || swiping) return;
+      held = true;
+      buzz(12);                                  // a tick of haptic, like iMessage
+      wrap.classList.remove('pressing');
+      closeActs();
+      wrap.classList.add('acts-open');           // reveals Unsend on your own messages
+      try { if (typeof openPicker === 'function' && mid) openPicker(mid); } catch(err) {}
+    }, HOLD_MS);
+  }
+
+  function onMove(e){
+    if (!wrap) return;
+    var x = e.touches[0].clientX, y = e.touches[0].clientY;
+    var mx = x - x0, my = y - y0;
+
+    // Moving vertically → they're scrolling the thread. Bail out of everything.
+    if (!swiping && Math.abs(my) > VERT_CANCEL && Math.abs(my) > Math.abs(mx)) {
+      reset();
+      return;
+    }
+    if (held) return;                            // already opened the picker
+
+    // ── SWIPE RIGHT → reply ──
+    if (!swiping && mx > SWIPE_ARM) {
+      swiping = true;
+      clearTimeout(holdTimer);
+      wrap.classList.remove('pressing');
+      wrap.classList.add('swiping');
+    }
+    if (swiping) {
+      // rubber-band: the further you pull, the more it resists
+      dx = Math.min(SWIPE_MAX, mx * 0.6);
+      if (dx < 0) dx = 0;
+      wrap.style.transform = 'translateX(' + dx + 'px)';
+
+      var nowArmed = dx >= SWIPE_FIRE * 0.6;
+      if (nowArmed !== armed) {
+        armed = nowArmed;
+        wrap.classList.toggle('swipe-armed', armed);
+        if (armed) buzz(8);                      // haptic the moment reply is guaranteed
+      }
+      if (e.cancelable) e.preventDefault();      // stop the page scrolling sideways
+    }
+  }
+
+  function onEnd(){
+    if (!wrap) return;
+    var fire = swiping && dx >= SWIPE_FIRE * 0.6 && mid;
+    var w = wrap, m = mid;
+    reset();
+    if (fire) {
+      buzz(10);
+      try { if (typeof startReply === 'function') startReply(m); } catch(e) {}
+    }
+  }
+
+  var list = document.getElementById('chat-messages') || document;
+  list.addEventListener('touchstart',  onStart, { passive: true });
+  list.addEventListener('touchmove',   onMove,  { passive: false });   // needs preventDefault
+  list.addEventListener('touchend',    onEnd,   { passive: true });
+  list.addEventListener('touchcancel', reset,   { passive: true });
+
+  // Tapping anywhere outside a message closes an open action row.
+  document.addEventListener('click', function(e){
+    if (e.target.closest && !e.target.closest('.chat-msg-wrap')) closeActs();
+  });
+})();
 
 /* Make the phone's own Back gesture do the expected thing instead of leaving the site:
    thread → list → close. We push a history entry when the chat opens (and another when a
