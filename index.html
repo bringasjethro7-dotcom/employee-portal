@@ -2554,6 +2554,15 @@
   .chat-msg.theirs .chat-msg-bubble a.chat-link { color: var(--orange-3); }
   .chat-msg-time { font-size: 9.5px; color: var(--text-3); margin: 3px 4px 0; opacity: .85; }
   .chat-seen { font-size: 9.5px; color: var(--orange-3); margin: 2px 4px 0; font-weight: 600; }
+  /* Group "Seen by" — avatars of everyone who has read the newest message */
+  .seen-by { display: flex; align-items: center; justify-content: flex-end; gap: 3px; padding: 2px 2px 0; min-height: 0; }
+  .seen-by:empty { display: none; }
+  .sb-label { font-size: 9.5px; color: var(--text-3); margin-right: 3px; font-weight: 600; }
+  .sb-av { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; display: block; flex: 0 0 auto;
+           border: 1px solid var(--bg-card); }
+  .sb-ini { display: flex; align-items: center; justify-content: center; font-size: 7.5px; font-weight: 800;
+            background: linear-gradient(135deg,#2c3a5c,#1a2438); color: #eef2ff; }
+  .sb-more { font-size: 9.5px; color: var(--text-3); font-weight: 700; margin-left: 2px; }
   .chat-date-divider { display: flex; justify-content: center; margin: 12px 0 6px; }
   .chat-date-divider span { font-size: 10.5px; color: var(--text-3); background: var(--bg-card2); border: 1px solid var(--border); padding: 3px 12px; border-radius: 20px; }
   .chat-msg-wrap { position: relative; display: inline-block; max-width: 100%; margin-bottom: 0; }
@@ -4768,6 +4777,17 @@
             <!-- Who's online right now — swipe sideways. Populated by renderOnlineStrip(). -->
             <div class="online-strip" id="online-strip"></div>
           </div>
+
+          <!-- Phone: new group chat becomes a floating button in the corner instead of a
+               full-width dashed bar eating a row at the top. Visibility mirrors #newgroup-btn
+               (leads only) — see the chatIsLead() line that toggles them together. -->
+          <button class="newgroup-fab" id="newgroup-fab" type="button" style="display:none;"
+                  onclick="openNewGroup()" title="New group chat" aria-label="New group chat">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/>
+              <path d="M19 8v6M22 11h-6"/>
+            </svg>
+          </button>
           <div class="gc-modal" id="gc-modal">
             <div class="gc-card">
               <h3>New group chat</h3>
@@ -10991,6 +11011,8 @@ async function loadContacts() {
         if (emp.time_in) presenceTimeIn[emp.employee_id] = emp.time_in;
       });
       renderContactList(result.data);
+      try { loadNotes(); subscribeNotes(); } catch(e) {}   // Messenger-style 24h notes
+      try { subscribeReads(); } catch(e) {}                // live "Seen by" in group chats
       try { loadChannels(); } catch(e) {}   // named group chats this user belongs to
       try { renderRailOnline(); } catch(e) {}
       loadDMHistoryOrder();
@@ -11082,10 +11104,19 @@ function renderContactList(data) {
 
   renderOnlineStrip(online);   // the swipeable avatar row at the top of the list
 
-  if (onlineLbl)  onlineLbl.style.display  = online.length  ? 'block' : 'none';
+  // On a phone the strip already shows everyone who's online, so repeating them in an
+  // ONLINE section below is pure duplication. We drop that section — but keep anyone
+  // you've actually exchanged messages with, or they'd disappear from your conversation
+  // list the moment they came online.
+  var _phone = window.matchMedia('(max-width: 720px)').matches;
+  var onlineForList = _phone
+    ? online.filter(function(e){ return bumpedOrder.indexOf(e.employee_id) >= 0; })
+    : online;
+
+  if (onlineLbl)  onlineLbl.style.display  = (!_phone && online.length) ? 'block' : 'none';
   offlineLbl.style.display = offline.length ? 'block' : 'none';
   var anchor = onlineLbl;
-  online.forEach(function(emp){ insertContact(emp, anchor); var el = document.getElementById('contact-'+emp.employee_id); if (el) anchor = el; });
+  onlineForList.forEach(function(emp){ insertContact(emp, anchor); var el = document.getElementById('contact-'+emp.employee_id); if (el) anchor = el; });
   anchor = offlineLbl;
   offline.forEach(function(emp){ insertContact(emp, anchor); var el2 = document.getElementById('contact-'+emp.employee_id); if (el2) anchor = el2; });
 
@@ -11093,39 +11124,268 @@ function renderContactList(data) {
   setTimeout(applyBumpOrder, 0);
 }
 
-// ── "Online now" strip ──────────────────────────────────────────────────────
-// A horizontally-scrollable row of everyone currently online, as circular avatars.
-// Tap one to open a DM. Fed from the same online[] the contact list already builds.
+// ══════════════════════════════════════════════════════════════════════════════
+//  NOTES  (the Messenger idea: a one-line status that hangs over your avatar and
+//  disappears after 24 hours)
+//
+//  The strip at the top of the message list shows YOU first — tap to write or clear
+//  your note — followed by everyone who currently has one, then anyone else online.
+//  Tapping someone's note opens a DM with them, quoting it, exactly like Messenger.
+// ══════════════════════════════════════════════════════════════════════════════
+var NOTE_TTL_MS = 24 * 60 * 60 * 1000;   // notes vanish after a day
+var NOTE_MAX    = 60;                    // characters
+var _notes      = {};                    // employee_id -> { text, created_at }
+var _notesLoaded = false;
+
+function noteIsLive(n) {
+  if (!n || !n.text) return false;
+  var t = new Date(n.created_at).getTime();
+  return isFinite(t) && (Date.now() - t) < NOTE_TTL_MS;
+}
+function myNote() { return _notes[chatEmpId]; }
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  "SEEN BY" for group chats
+//
+//  We store ONE row per person per conversation holding when they last read it —
+//  not one row per message, which would grow without bound. A message counts as
+//  seen by someone if their last_read_at is at or after that message's timestamp.
+// ══════════════════════════════════════════════════════════════════════════════
+var _reads = [];             // [{employee_id, employee_name, photo, last_read_at}] for the open chat
+
+function chatKey() { return String(currentChat || 'group'); }
+function isGroupish() { return currentChat === 'group' || chatIsChannel() || currentChat === 'eod'; }
+
+// Tell everyone else we've read up to now.
+async function markChatRead() {
+  if (!supaClient || !chatEmpId) return;
+  try {
+    await supaClient.from('chat_reads').upsert({
+      chat_key:      chatKey(),
+      employee_id:   chatEmpId,
+      employee_name: chatEmpName,
+      photo:         presencePhotos[chatEmpId] || employeePhotos[chatEmpId] || null,
+      last_read_at:  new Date().toISOString()
+    }, { onConflict: 'chat_key,employee_id' });
+  } catch (e) { /* table not created yet */ }
+}
+
+async function loadReads() {
+  if (!supaClient || !isGroupish()) { _reads = []; return; }
+  try {
+    var res = await supaClient.from('chat_reads').select('*').eq('chat_key', chatKey());
+    if (res.error) throw res.error;
+    _reads = res.data || [];
+    renderSeenBy();
+  } catch (e) { _reads = []; }
+}
+
+// Paint "Seen by …" under the newest message in a group.
+function renderSeenBy() {
+  var host = document.getElementById('seen-by');
+  if (!host) return;
+  if (!isGroupish() || !_reads.length) { host.innerHTML = ''; return; }
+
+  var lastEl = document.querySelector('#chat-messages .chat-msg:last-child');
+  var lastAt = window._lastMsgAt;
+  if (!lastEl || !lastAt) { host.innerHTML = ''; return; }
+
+  var t = new Date(lastAt).getTime();
+  var seers = _reads.filter(function(r) {
+    if (String(r.employee_id) === String(chatEmpId)) return false;          // not you
+    if (String(r.employee_id) === String(window._lastMsgSender)) return false; // not the sender
+    return new Date(r.last_read_at).getTime() >= t - 1500;                  // 1.5s slack for clock skew
+  });
+
+  if (!seers.length) { host.innerHTML = ''; return; }
+
+  var shown = seers.slice(0, 6);
+  var extra = seers.length - shown.length;
+  host.innerHTML =
+    '<span class="sb-label">Seen by</span>' +
+    shown.map(function(r) {
+      var photo = r.photo || presencePhotos[r.employee_id] || employeePhotos[r.employee_id];
+      var initials = String(r.employee_name || '?').split(' ')
+        .filter(function(w){ return /^[a-zA-Z]/.test(w); })
+        .map(function(w){ return w[0]; }).slice(0,2).join('').toUpperCase();
+      return photo
+        ? '<img class="sb-av" src="' + photo + '" title="' + escapeHtml(r.employee_name) + '" alt="" />'
+        : '<span class="sb-av sb-ini" title="' + escapeHtml(r.employee_name) + '">' + escapeHtml(initials) + '</span>';
+    }).join('') +
+    (extra > 0 ? '<span class="sb-more">+' + extra + '</span>' : '');
+}
+
+// Live: someone else opens the chat → their avatar appears under the last message.
+function subscribeReads() {
+  if (!supaClient || window._readsSub) return;
+  try {
+    window._readsSub = supaClient
+      .channel('reads-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reads' }, function(p) {
+        if (p.new && String(p.new.chat_key) === chatKey()) loadReads();
+      })
+      .subscribe();
+  } catch (e) {}
+}
+
+async function loadNotes() {
+  if (!supaClient) return;
+  try {
+    var cutoff = new Date(Date.now() - NOTE_TTL_MS).toISOString();
+    var res = await supaClient.from('notes').select('*').gte('created_at', cutoff);
+    if (res.error) throw res.error;
+    _notes = {};
+    (res.data || []).forEach(function(n) { _notes[n.employee_id] = n; });
+    _notesLoaded = true;
+    renderOnlineStrip(_lastOnline || []);
+  } catch (e) { /* table not created yet — the strip just shows no notes */ }
+}
+
+// Live updates: someone posts a note, everyone's strip refreshes.
+function subscribeNotes() {
+  if (!supaClient || window._notesSub) return;
+  try {
+    window._notesSub = supaClient
+      .channel('notes-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, function() { loadNotes(); })
+      .subscribe();
+  } catch (e) {}
+}
+
+window.openNoteComposer = function() {
+  var m = document.getElementById('note-modal');
+  if (!m) return;
+  var cur = myNote();
+  var ta = document.getElementById('note-text');
+  ta.value = (cur && noteIsLive(cur)) ? cur.text : '';
+  document.getElementById('note-clear').style.display = (cur && noteIsLive(cur)) ? 'block' : 'none';
+  noteCount();
+  m.classList.add('show');
+  setTimeout(function(){ ta.focus(); }, 120);
+};
+window.closeNoteComposer = function() {
+  var m = document.getElementById('note-modal');
+  if (m) m.classList.remove('show');
+};
+window.noteCount = function() {
+  var ta = document.getElementById('note-text');
+  var c  = document.getElementById('note-count');
+  if (!ta || !c) return;
+  if (ta.value.length > NOTE_MAX) ta.value = ta.value.slice(0, NOTE_MAX);
+  c.textContent = ta.value.length + '/' + NOTE_MAX;
+};
+window.saveNote = async function() {
+  var ta = document.getElementById('note-text');
+  var text = (ta.value || '').trim();
+  if (!text) { showToast('Write something first.'); return; }
+  if (!supaClient) return;
+  try {
+    await supaClient.from('notes').upsert({
+      employee_id:   chatEmpId,
+      employee_name: chatEmpName,
+      photo:         presencePhotos[chatEmpId] || employeePhotos[chatEmpId] || null,
+      text:          text,
+      created_at:    new Date().toISOString()
+    }, { onConflict: 'employee_id' });
+    closeNoteComposer();
+    showToast('📝 Note shared — it disappears in 24 hours.');
+    loadNotes();
+  } catch (e) { showToast('Could not save your note.'); }
+};
+window.clearNote = async function() {
+  if (!supaClient) return;
+  try {
+    await supaClient.from('notes').delete().eq('employee_id', chatEmpId);
+    closeNoteComposer();
+    loadNotes();
+  } catch (e) {}
+};
+
+// Tap someone's note → DM them about it, with the note quoted in the box.
+window.replyToNote = function(id, name) {
+  var n = _notes[id];
+  selectChat(id, name);
+  setTimeout(function() {
+    var inp = document.getElementById('chat-input');
+    if (inp && n && noteIsLive(n)) {
+      inp.value = '“' + n.text + '” — ';
+      inp.focus();
+    }
+  }, 180);
+};
+
+// ── The strip ───────────────────────────────────────────────────────────────
+// You first (write/edit your note), then people WITH notes, then everyone else online.
+var _lastOnline = [];
 function renderOnlineStrip(online) {
   var strip = document.getElementById('online-strip');
   if (!strip) return;
+  _lastOnline = online || [];
 
-  if (!online || !online.length) {
-    strip.innerHTML = '';
-    strip.classList.remove('has-people');
-    return;
-  }
-  strip.classList.add('has-people');
-
-  strip.innerHTML = online.map(function(emp) {
-    var id    = emp.employee_id;
-    var name  = emp.employee_name || id;
+  function avatarFor(id, name) {
     var photo = presencePhotos[id] || employeePhotos[id];
-    var first = String(name).split(',').pop().trim().split(' ')[0] || name;   // "Dela Cruz, Alieza" → "Alieza"
-    var initials = (id === 'ADMIN') ? 'A'
-      : String(name).split(' ').filter(function(w){ return /^[a-zA-Z]/.test(w); })
-                    .map(function(w){ return w[0]; }).slice(0,2).join('').toUpperCase();
+    if (id === 'ADMIN') return '<img src="' + ADMIN_LOGO + '" alt="" style="object-fit:contain;background:#1a1a2e;padding:5px;" />';
+    if (photo) return '<img src="' + photo + '" alt="" />';
+    var initials = String(name || id).split(' ').filter(function(w){ return /^[a-zA-Z]/.test(w); })
+                     .map(function(w){ return w[0]; }).slice(0,2).join('').toUpperCase();
+    return '<span>' + escapeHtml(initials) + '</span>';
+  }
+  function firstName(name) { return String(name || '').split(',').pop().trim().split(' ')[0] || name; }
 
-    var av = (id === 'ADMIN')
-      ? '<img src="' + ADMIN_LOGO + '" alt="" style="object-fit:contain;background:#1a1a2e;padding:5px;" />'
-      : (photo ? '<img src="' + photo + '" alt="" />' : '<span>' + escapeHtml(initials) + '</span>');
+  var html = '';
 
-    return '<button class="ostrip-item" type="button" title="' + escapeHtml(name) + '" ' +
-             'onclick="selectChat(\'' + id + '\', \'' + escapeHtml(name).replace(/'/g, "\\'") + '\')">' +
-             '<span class="ostrip-av">' + av + '<i class="ostrip-dot"></i></span>' +
-             '<span class="ostrip-nm">' + escapeHtml(first) + '</span>' +
-           '</button>';
-  }).join('');
+  // 1. You — always first, always present.
+  var mine = myNote();
+  var hasMine = noteIsLive(mine);
+  html += '<button class="ostrip-item me" type="button" onclick="openNoteComposer()" ' +
+            'title="' + (hasMine ? 'Edit your note' : 'Share a note') + '">' +
+            (hasMine
+              ? '<span class="ostrip-note">' + escapeHtml(mine.text) + '</span>'
+              : '<span class="ostrip-note add">Note</span>') +
+            '<span class="ostrip-av">' + avatarFor(chatEmpId, chatEmpName) +
+              (hasMine ? '' : '<i class="ostrip-plus">+</i>') +
+            '</span>' +
+            '<span class="ostrip-nm">Your note</span>' +
+          '</button>';
+
+  // 2. Everyone with a live note (most recent first), 3. then the rest of the online crowd.
+  var withNotes = [], plain = [];
+  (_lastOnline || []).forEach(function(emp) {
+    if (emp.employee_id === chatEmpId) return;
+    (noteIsLive(_notes[emp.employee_id]) ? withNotes : plain).push(emp);
+  });
+  // people who left a note but aren't online right now still deserve to show
+  Object.keys(_notes).forEach(function(id) {
+    if (id === chatEmpId) return;
+    if (!noteIsLive(_notes[id])) return;
+    if (withNotes.some(function(e){ return e.employee_id === id; })) return;
+    if (!isActiveUser(id)) return;
+    withNotes.push({ employee_id: id, employee_name: _notes[id].employee_name || id, is_online: false });
+  });
+  withNotes.sort(function(a, b) {
+    return new Date(_notes[b.employee_id].created_at) - new Date(_notes[a.employee_id].created_at);
+  });
+
+  withNotes.concat(plain).forEach(function(emp) {
+    var id = emp.employee_id, name = emp.employee_name || id;
+    var n  = _notes[id];
+    var live = noteIsLive(n);
+    var safeName = escapeHtml(name).replace(/'/g, "\\'");
+    var action = live
+      ? 'replyToNote(\'' + id + '\', \'' + safeName + '\')'
+      : 'selectChat(\'' + id + '\', \'' + safeName + '\')';
+
+    html += '<button class="ostrip-item" type="button" title="' + escapeHtml(name) + '" onclick="' + action + '">' +
+              (live ? '<span class="ostrip-note">' + escapeHtml(n.text) + '</span>' : '<span class="ostrip-note ghost"></span>') +
+              '<span class="ostrip-av' + (emp.is_online ? ' on' : '') + '">' + avatarFor(id, name) +
+                (emp.is_online ? '<i class="ostrip-dot"></i>' : '') +
+              '</span>' +
+              '<span class="ostrip-nm">' + escapeHtml(firstName(name)) + '</span>' +
+            '</button>';
+  });
+
+  strip.innerHTML = html;
+  strip.classList.add('has-people');   // always shown now — "your note" lives here
 }
 
 function insertContact(emp, afterEl) {
@@ -11140,7 +11400,11 @@ function insertContact(emp, afterEl) {
   var isAdmin  = emp.employee_id === 'ADMIN';
   var initials = isAdmin ? 'A' : (emp.employee_name||'?').split(' ').filter(function(w){return /^[a-zA-Z]/.test(w);}).map(function(w){return w[0];}).slice(0,2).join('').toUpperCase();
   var div = document.createElement('div');
-  div.className = 'chat-contact';
+  // .no-history = we've never exchanged messages. Hidden on phones (the notes strip
+  // covers who's around) but revealed the moment you search, so you can still start
+  // a conversation with anyone.
+  var hasHistory = (typeof bumpedOrder !== 'undefined') && bumpedOrder.indexOf(emp.employee_id) >= 0;
+  div.className = 'chat-contact' + (hasHistory ? '' : ' no-history');
   div.id = 'contact-' + emp.employee_id;
   div.setAttribute('data-name', (emp.employee_name||'').toLowerCase());
   div.onclick = function() { selectChat(emp.employee_id, emp.employee_name); };
@@ -11165,6 +11429,10 @@ function insertContact(emp, afterEl) {
 
 function filterContacts() {
   var q = (document.getElementById('chat-search').value||'').toLowerCase();
+  // Searching temporarily un-hides the people you've never messaged, so you can start
+  // a new conversation with anyone on the team.
+  var box = document.getElementById('chat-contacts');
+  if (box) box.classList.toggle('searching', !!q);
   document.querySelectorAll('#chat-contacts .chat-contact').forEach(function(el) {
     if (el.id === 'contact-group') return;
     var name = el.getAttribute('data-name') || '';
@@ -11450,6 +11718,11 @@ function renderMessages(msgs) {
     for (var k = msgs.length - 1; k >= 0; k--) { if (msgs[k].sender_id === chatEmpId) { window._lastMineMsgId = msgs[k].id; break; } }
   }
 
+  // For group "Seen by": the newest message's time + who sent it.
+  var _lastM = msgs.length ? msgs[msgs.length - 1] : null;
+  window._lastMsgAt     = _lastM ? _lastM.created_at : null;
+  window._lastMsgSender = _lastM ? _lastM.sender_id  : null;
+
   var lastDate = '';
   var html = '';
   _msgById = {};
@@ -11520,6 +11793,18 @@ function renderMessages(msgs) {
   }
   var force = window._forceChatBottom; window._forceChatBottom = false;
   msgEl.innerHTML = html;
+
+  // Group "Seen by" strip under the newest message + tell everyone we've read it.
+  if (isGroupish()) {
+    var sb = document.createElement('div');
+    sb.id = 'seen-by';
+    sb.className = 'seen-by';
+    msgEl.appendChild(sb);
+    renderSeenBy();
+    markChatRead();
+    loadReads();
+  }
+
   if (force || wasNear) { msgEl.scrollTop = msgEl.scrollHeight; clearScrollDownBadge(); }
   updateScrollDownBtn();
 }
@@ -11939,6 +12224,8 @@ function gifPick(url){ _pendingImage=url; var g=document.getElementById('gif-pan
 function eodChannelObj(){ return { id:'eod', name:'EOD Reports', members:[], created_by:'', _eod:true }; }
 async function loadChannels(){
   var btn=document.getElementById('newgroup-btn'); if(btn) btn.style.display = chatIsLead() ? 'block' : 'none';
+  // the phone's floating version — same permission, CSS decides which one is visible
+  var fab=document.getElementById('newgroup-fab'); if(fab) fab.style.display = chatIsLead() ? 'flex' : 'none';
   _myChannels=[eodChannelObj()];                       // pin EOD first, under Group Chat
   if(supaClient && chatEmpId){
     try{
@@ -14735,6 +15022,63 @@ body.light .jul4-lbscore{color:#059669}
   </div>
 </div>
 
+<!-- ══════════════ NOTE COMPOSER ══════════════ -->
+<div id="note-modal">
+  <div class="note-card">
+    <div class="note-head">
+      <div class="note-ttl">Share a note<small>Everyone sees it for 24 hours</small></div>
+      <button class="note-x" onclick="closeNoteComposer()" aria-label="Close">✕</button>
+    </div>
+    <textarea id="note-text" maxlength="60" rows="2" placeholder="What's on your mind?" oninput="noteCount()"></textarea>
+    <div class="note-foot">
+      <span id="note-count">0/60</span>
+      <div class="note-actions">
+        <button id="note-clear" class="note-clear" onclick="clearNote()" style="display:none;">Delete</button>
+        <button class="note-save" onclick="saveNote()">Share</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  #note-modal{
+    display: none; position: fixed; inset: 0; z-index: 12500;
+    background: rgba(4,7,16,.82); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    align-items: center; justify-content: center; padding: 18px;
+  }
+  #note-modal.show{ display: flex; }
+  .note-card{
+    width: 380px; max-width: 100%;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 18px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6);
+    animation: noteIn .26s cubic-bezier(.2,1.1,.3,1) both;
+  }
+  @keyframes noteIn{ from{ opacity:0; transform: translateY(16px) scale(.97);} to{ opacity:1; transform:none; } }
+  .note-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; }
+  .note-ttl{ font-size:16px; font-weight:800; color:var(--text-1); }
+  .note-ttl small{ display:block; font-size:11px; font-weight:500; color:var(--text-3); margin-top:2px; }
+  .note-x{ background:none; border:none; color:var(--text-3); font-size:16px; cursor:pointer; padding:4px; }
+  #note-text{
+    width:100%; resize:none; font-family:inherit; font-size:16px; line-height:1.45;
+    background: var(--bg-deep); border:1px solid var(--border); border-radius:14px;
+    color: var(--text-1); padding:12px 14px; outline:none;
+  }
+  #note-text:focus{ border-color: var(--orange-1); box-shadow:0 0 0 3px rgba(255,107,26,.16); }
+  .note-foot{ display:flex; align-items:center; justify-content:space-between; margin-top:12px; }
+  #note-count{ font-size:11px; color:var(--text-3); }
+  .note-actions{ display:flex; gap:8px; }
+  .note-clear{
+    background:none; border:1px solid var(--border); color:#f87171;
+    border-radius:11px; padding:9px 14px; font-weight:700; font-size:12.5px; cursor:pointer;
+  }
+  .note-save{
+    background: linear-gradient(135deg,var(--orange-1),var(--orange-2)); color:#fff; border:none;
+    border-radius:11px; padding:9px 20px; font-weight:800; font-size:13px; cursor:pointer;
+  }
+  @media (prefers-reduced-motion: reduce){ .note-card{ animation:none; } }
+</style>
+
 <!-- ══════════════ PWA: install banner + notification opt-in ══════════════ -->
 <div id="install-banner">
   <img src="/icons/icon-192-v2.png" alt="" class="ib-icon" />
@@ -17406,6 +17750,13 @@ body.ovl-open .bio-fab {
 .chat-list-top  { display: none; }  /* desktop closes the chat from the thread header */
 .online-strip   { display: none; }  /* phones only — the desktop sidebar is 200px, too narrow for a rail */
 
+/* The FAB is phones-only. It must NOT be `!important` at base — chatIsLead() sets an
+   inline display:flex, and !important here would outrank it and the button would never
+   appear. So we only force it off on desktop, where the dashed bar does the job. */
+@media (min-width: 721px) {
+  .newgroup-fab { display: none !important; }
+}
+
 @media (max-width: 720px){
   #tab-messages.msg-open { padding: 0 !important; }
   #tab-messages.msg-open .chat-layout {
@@ -17429,7 +17780,31 @@ body.ovl-open .bio-fab {
   #tab-messages.msg-open .chat-sidebar {
     border-right: none !important;
     overflow-y: auto;
+    position: relative;                 /* anchor for the floating new-group button */
   }
+
+  /* ── New group chat: a floating button, not a full-width bar ── */
+  .newgroup-btn { display: none !important; }   /* the dashed bar is desktop-only now */
+
+  .newgroup-fab {
+    /* no `display` here — chatIsLead() sets it inline (flex for leads, none otherwise) */
+    position: fixed;
+    right: 16px;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    z-index: 20;
+    width: 54px; height: 54px; border-radius: 50%;
+    align-items: center; justify-content: center;
+    border: none; cursor: pointer;
+    background: linear-gradient(135deg, var(--orange-1), var(--orange-2));
+    color: #fff;
+    box-shadow: 0 12px 28px -8px rgba(255,107,26,.85), 0 2px 8px rgba(0,0,0,.4);
+    transition: transform .12s ease, filter .15s ease;
+  }
+  .newgroup-fab:active { transform: scale(.92); }
+  .newgroup-fab:hover  { filter: brightness(1.06); }
+
+  /* Only meaningful on the conversation list — hide it once a thread is open. */
+  #tab-messages.msg-open .chat-layout.mob-thread .newgroup-fab { display: none !important; }
 
   /* default = list visible, thread hidden */
   #tab-messages.msg-open .chat-main { display: none !important; }
@@ -17624,7 +17999,10 @@ body.ovl-open .bio-fab {
     display: none;
     gap: 12px;
     margin: 10px -10px 2px;          /* bleed to the panel edges so it scrolls edge-to-edge */
-    padding: 2px 10px 6px;
+    /* The live ring is a box-shadow, which paints OUTSIDE the element's box. Setting
+       overflow-x:auto forces overflow-y:hidden, so without this padding the top of
+       every ring gets sliced flat. 8px clears the 4px ring with room to spare. */
+    padding: 8px 14px 8px;
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
@@ -17637,19 +18015,43 @@ body.ovl-open .bio-fab {
 
   .ostrip-item {
     flex: 0 0 auto;
-    display: flex; flex-direction: column; align-items: center; gap: 5px;
-    width: 58px; padding: 0; border: none; background: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    width: 66px; padding: 0; border: none; background: none; cursor: pointer;
     scroll-snap-align: start;
+    transition: transform .12s ease;
   }
   .ostrip-item:active { transform: scale(.94); }
-  .ostrip-item { transition: transform .12s ease; }
+
+  /* the note bubble that hangs above the avatar */
+  .ostrip-note {
+    max-width: 66px; min-height: 20px;
+    padding: 4px 8px; border-radius: 11px 11px 11px 3px;
+    background: var(--bg-card2); border: 1px solid var(--border);
+    font-size: 9.5px; line-height: 1.25; font-weight: 600; color: var(--text-1);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; text-align: center;
+  }
+  .ostrip-note.add { color: var(--orange-3); border-color: rgba(255,107,26,.4); background: rgba(255,107,26,.1); }
+  .ostrip-note.ghost { visibility: hidden; }   /* keeps every avatar on the same baseline */
+  .ostrip-item.me .ostrip-av { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--orange-1); }
+
+  .ostrip-plus {
+    position: absolute; right: -2px; bottom: -2px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--orange-1); color: #fff;
+    font-size: 13px; font-weight: 800; font-style: normal; line-height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--bg-card);
+  }
 
   .ostrip-av {
     position: relative;
-    width: 54px; height: 54px; border-radius: 50%;
+    width: 52px; height: 52px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     background: var(--bg-card2);
-    /* the live ring — a gradient border via padding + background-clip */
+    box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 3px rgba(255,255,255,.12);
+  }
+  .ostrip-av.on {   /* online → the live green ring */
     box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px #4ade80;
   }
   .ostrip-av img {
@@ -17666,9 +18068,16 @@ body.ovl-open .bio-fab {
   }
   @keyframes ostripPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
   .ostrip-nm {
-    font-size: 10.5px; color: var(--text-2); font-weight: 600;
-    max-width: 58px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
+    font-size: 10px; color: var(--text-2); font-weight: 600;
+    max-width: 66px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
   }
+
+  /* ── Only conversations you've actually had ──
+     The full staff roster in the list was noise: the notes strip covers who's around,
+     and search still finds anyone. Contacts with no message history are hidden — until
+     you type in the search box, when they come back so you can start a new chat. */
+  #chat-contacts .chat-contact.no-history { display: none; }
+  #chat-contacts.searching .chat-contact.no-history { display: flex; }
   @media (prefers-reduced-motion: reduce) { .ostrip-dot { animation: none; } }
 
   /* the list's own title bar + close button — the only way out of a full-screen list */
