@@ -16025,16 +16025,21 @@ body.light .jul4-lbscore{color:#059669}
       if(e0<DUR && alive){ _confRAF=requestAnimationFrame(frame); } else { ctx.clearRect(0,0,w,h); cv.style.display='none'; _confRAF=null; }
     })(performance.now());
   }
+  var SOLO_MODES=['sprint','ultra','combo','cheese','survival','zen'];
+  function isSolo(m){ return SOLO_MODES.indexOf(m)>=0; }
   window.tetrisQuit=function(){
     if(M && M.playing && !M.ended){
+      if(M.mode==='zen'){ soloEnd('quit'); return; }   // Zen: show the session summary rather than just bailing out
       if(M.mode==='tourney'){ try{ M.tchan.send({type:'broadcast',event:'tover',payload:{tid:M.matchId,from:eid(),name:ename(),score:M.score||0,place:tourneyAliveIds().length}}); }catch(e){} }
-      else { try{ chan.send({type:'broadcast',event:'over',payload:{from:eid(),score:M.score||0,forfeit:true}}); }catch(e){} }
+      else if(!isSolo(M.mode)){ try{ chan.send({type:'broadcast',event:'over',payload:{from:eid(),score:M.score||0,forfeit:true}}); }catch(e){} }
     }
     cleanup(); bkCleanup(); el('tet-overlay').style.display='none'; var r=el('tet-result'); if(r) r.style.display='none';
   };
   function cleanup(){
     stopMusic(); stopAllRepeat(); cancelRender(); clearLockTimer();
     var _me=el('tet-me'); if(_me) _me.classList.remove('tet-danger');
+    var _fr=(typeof _meFrame==='function')?_meFrame():null;
+    if(_fr){ _fr.classList.remove('danger'); _fr.classList.remove('hit'); _fr.classList.remove('recv'); }
     if(BOT && BOT.loop){ clearInterval(BOT.loop); } BOT=null;
     if(M){ if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net);
       if(M.tchan){ try{ supaClient.removeChannel(M.tchan); }catch(e){} } }
@@ -16239,7 +16244,11 @@ body.light .jul4-lbscore{color:#059669}
       // Garbage cancellation: your outgoing cancels incoming first, remainder goes out.
       if(M.pendingGarbage>0 && sent>0){ var cx=Math.min(M.pendingGarbage,sent); M.pendingGarbage-=cx; sent-=cx; updateIncoming(); }
       if(sent>0){ sfxAttack(); sendAttack(sent); }
-      var ns=Math.max(120,700-(M.level-1)*55); if(ns!==M.dropMs){ M.dropMs=ns; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); }
+      // Survival drives its own gravity off the clock, so leave it alone. Zen stays comfortably slow.
+      if(M.mode!=='survival'){
+        var _floor=(M.mode==='zen')?340:120;
+        var ns=Math.max(_floor,700-(M.level-1)*55); if(ns!==M.dropMs){ M.dropMs=ns; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); }
+      }
     } else {
       M.combo=0;
       // A T-spin with no line clear still scores (and preserves back-to-back), then garbage dumps.
@@ -16248,6 +16257,7 @@ body.light .jul4-lbscore{color:#059669}
     }
     statBump('tet-me-score', M.score); statBump('tet-me-lines', M.lines);
     if(M.mode==='sprint' && M.lines>=40){ soloEnd('done'); return; }   // Sprint 40 reached
+    if(M.mode==='cheese' && garbageRows()===0){ soloEnd('done'); return; }   // Cheese Race: board is dug out
     spawn();
   }
   function announce(txt){ if(!txt) return; var e=el('tet-announce'); if(!e) return; e.textContent=txt; e.style.animation='none'; void e.offsetWidth; e.style.animation='tetPop 1.15s ease forwards'; }
@@ -16350,7 +16360,7 @@ body.light .jul4-lbscore{color:#059669}
   // Skill-Ladder bot practice keeps the old 3:00 / 3-KO rules.
   var BK_TIME=150, BK_KOS=5;
   // Build stamp — lets us tell instantly whether a browser is running the current file or a cached one.
-  var TET_BUILD='TET-2026.07.13-koFX';
+  var TET_BUILD='TET-2026.07.13-modes';
   try{
     var _bs=Math.floor(BK_TIME/60)+':'+(BK_TIME%60<10?'0':'')+(BK_TIME%60);
     console.log('%c'+TET_BUILD+'%c  duel & bracket: '+_bs+' · '+BK_KOS+' KO · combo ['+COMBO_TABLE.join(',')+'] · cap '+MAX_SEND,
@@ -16389,6 +16399,8 @@ body.light .jul4-lbscore{color:#059669}
   function topOut(){
     if(!M.alive) return; M.alive=false;
     if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='combo'){ soloEnd('topout'); return; }   // solo run ends on top-out
+    if(M.mode==='zen'){ zenReset(); return; }                                  // Zen: no death, just a clean board
+    if(M.mode==='cheese'||M.mode==='survival'){ soloEnd('topout'); return; }
     boardHit(); koStamp();   // shake + KO stamp on my board
     M.kos=(M.kos||0)+1; M.myKos=M.kos; updateKoDisplay();
     var elim=(M.kos>=koMax());
@@ -16491,7 +16503,7 @@ body.light .jul4-lbscore{color:#059669}
 
   // ── Networking: broadcast my board so the opponent can watch ──
   function sendAttack(n){
-    if(M.mode==='sprint'||M.mode==='ultra') return;   // solo modes have no opponent
+    if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='cheese'||M.mode==='survival'||M.mode==='zen') return;   // solo modes have no opponent
     attackPop(n);   // green "＋N SENT" pop on my board
     if(M.mode==='training'){ if(BOT){ BOT.pending+=n; } return; }
     if(M.mode==='tourney'){
@@ -18009,7 +18021,10 @@ body.light .jul4-lbscore{color:#059669}
     duel:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4H20v5.5M20 4l-9 9M4 15.5V20h4.5M4 20l9-9M15 15l5 5M9 9 4 4"/></svg>',
     cup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2 2 0 0 0 0 4H7M17 6h2.5a2 2 0 0 1 0 4H17M9.5 20h5M12 14v3"/></svg>',
     design:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>',
-    combo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c1 3-1 4-2 6a5 5 0 1 0 8 3c0-2-1-3-2-4 0 1-.5 2-1.6 2C13 10 14 6 12 3z"/></svg>'
+    combo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c1 3-1 4-2 6a5 5 0 1 0 8 3c0-2-1-3-2-4 0 1-.5 2-1.6 2C13 10 14 6 12 3z"/></svg>',
+    cheese:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12.5 14 5a5.5 5.5 0 0 1 7 5v9H3z"/><circle cx="8" cy="16" r="1.4"/><circle cx="15" cy="13.5" r="1.4"/><circle cx="17.5" cy="17" r="1"/></svg>',
+    survival:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>',
+    zen:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a4.5 4.5 0 0 0 0 9 4.5 4.5 0 0 1 0 9"/></svg>'
   };
   var ACHIC={
     first:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="8 6 18 12 8 18"/></svg>',
@@ -18059,6 +18074,9 @@ body.light .jul4-lbscore{color:#059669}
       b(HUBIC.combo,'Combo Rush','Best combo in 1:30',"tetHubGo('combo')")+
       b(HUBIC.sprint,'Sprint 40','Fastest 40 lines',"tetHubGo('sprint')")+
       b(HUBIC.ultra,'Ultra','2-min score attack',"tetHubGo('ultra')")+
+      b(HUBIC.cheese,'Cheese Race','Dig 10 garbage rows fast',"tetHubGo('cheese')")+
+      b(HUBIC.survival,'Survival','Speed ramps till you fall',"tetHubGo('survival')")+
+      b(HUBIC.zen,'Zen','Endless. No timer, no death.',"tetHubGo('zen')")+
       b(HUBIC.duel,'1v1 Duel','Challenge a teammate',"tetHubDuel()")+
       b(HUBIC.cup,'Tournament','Knockout bracket → final',"tetHubGo('tourney')")+
       b(HUBIC.design,'Block Designs','Skins & shop',"tetOpenDesigns()");
@@ -18071,6 +18089,9 @@ body.light .jul4-lbscore{color:#059669}
     if(mode==='combo'){ if(window.tetrisCombo) tetrisCombo(); }
     else if(mode==='sprint'){ if(window.tetrisSprint) tetrisSprint(); }
     else if(mode==='ultra'){ if(window.tetrisUltra) tetrisUltra(); }
+    else if(mode==='cheese'){ if(window.tetrisCheese) tetrisCheese(); }
+    else if(mode==='survival'){ if(window.tetrisSurvival) tetrisSurvival(); }
+    else if(mode==='zen'){ if(window.tetrisZen) tetrisZen(); }
     else if(mode==='tourney'){ if(window.tourneyStart) tourneyStart(); }
   };
   window.tetHubDuel=function(){
@@ -18288,6 +18309,32 @@ body.light .jul4-lbscore{color:#059669}
   window.tetrisSprint=function(){ startSolo('sprint'); };
   window.tetrisUltra=function(){ startSolo('ultra'); };
   window.tetrisCombo=function(){ startSolo('combo'); };
+  window.tetrisCheese=function(){ startSolo('cheese'); };
+  window.tetrisSurvival=function(){ startSolo('survival'); };
+  window.tetrisZen=function(){ startSolo('zen'); };
+  var CHEESE_ROWS=10;
+  // Cheese Race: seed the bottom of the board with N garbage rows, each with a single hole.
+  // Consecutive rows never share the same hole column — that's what forces real digging.
+  function seedCheese(n){
+    var hole=-1;
+    for(var i=0;i<n;i++){
+      var h; do{ h=Math.floor(Math.random()*W); } while(h===hole && W>1);
+      hole=h;
+      var row=new Array(W).fill(8); row[hole]=0;
+      M.grid.shift(); M.grid.push(row);
+    }
+    M.cheeseTotal=n;
+  }
+  function garbageRows(){ if(!M) return 0; var c=0;
+    for(var y=0;y<H;y++){ if(M.grid[y].some(function(v){ return v===8; })) c++; }
+    return c; }
+  // Zen never kills you: the board wipes and you keep going.
+  function zenReset(){
+    M.grid=empty(); M.pendingGarbage=0; M.combo=0; M.b2b=false; M.canHold=true; M.particles=[];
+    M.alive=true; M.zenResets=(M.zenResets||0)+1;
+    updateIncoming(); boardHit(); announce('🧘 Board reset — keep going');
+    spawn(); draw();
+  }
   function startSolo(mode){
     if(M && M.playing) return;
     if(!canPlayGame()) return; ac();
@@ -18300,14 +18347,42 @@ body.light .jul4-lbscore{color:#059669}
     openOverlay(); el('tet-controls').style.display='block';
     el('tet-me-score').textContent='0'; el('tet-me-lines').textContent='0';
     attachControls();
-    var title=(mode==='sprint'?'🏁 Sprint 40':(mode==='combo'?'🔥 Combo Rush 1:30':'⏱ Ultra 2:00'));
+    var title=soloTitle(mode);
     var n=3; status(title+' — starting in '+n+'…'); sfxTick();
     var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); goSolo(mode); } }, 800);
   }
+  function soloTitle(mode){
+    return mode==='sprint'   ? '🏁 Sprint 40'
+         : mode==='combo'    ? '🔥 Combo Rush 1:30'
+         : mode==='cheese'   ? '🧀 Cheese Race'
+         : mode==='survival' ? '⚡ Survival'
+         : mode==='zen'      ? '🧘 Zen'
+         : '⏱ Ultra 2:00';
+  }
   function goSolo(mode){
+    if(mode==='cheese') seedCheese(CHEESE_ROWS);
     sfxGo(); startMusic(); spawn(); draw(); updateIncoming(); startRender(); renderHold();
-    M.dropMs=700; M.loop=setInterval(tick,M.dropMs); M._t0=Date.now();
-    if(mode==='sprint'){
+    M.dropMs=(mode==='zen'?620:700); M.loop=setInterval(tick,M.dropMs); M._t0=Date.now();
+    if(mode==='cheese'){
+      status('🧀 0.0s · '+CHEESE_ROWS+' rows to dig');
+      M.timer=setInterval(function(){ if(!M||M.ended) return;
+        var s=(Date.now()-M._t0)/1000, left=garbageRows();
+        status('🧀 '+s.toFixed(1)+'s · '+left+' row'+(left===1?'':'s')+' left'); }, 100);
+    } else if(mode==='survival'){
+      // Every 5 seconds the gravity gets 30ms faster. Bottoms out at 70ms — pure reflex by then.
+      status('⚡ 0:00 · speed 1');
+      M.timer=setInterval(function(){ if(!M||M.ended) return;
+        var t=Math.floor((Date.now()-M._t0)/1000);
+        var ns=Math.max(70, 700 - Math.floor(t/5)*30);
+        if(ns!==M.dropMs){ M.dropMs=ns; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs);
+          if(ns>70) announce('⚡ Speed up!'); }
+        var spd=1+Math.floor(t/5);
+        status('⚡ '+fmtT(t)+' · speed '+spd+' · '+(M.lines||0)+' lines'); }, 1000);
+    } else if(mode==='zen'){
+      status('🧘 Zen — no timer, no game over. Quit whenever.');
+      M.timer=setInterval(function(){ if(!M||M.ended) return;
+        status('🧘 Zen · '+(M.lines||0)+' lines · '+Number(M.score||0).toLocaleString()+' pts'); }, 1000);
+    } else if(mode==='sprint'){
       status('🏁 0.0s · 0/40 lines');
       M.timer=setInterval(function(){ if(!M||M.ended) return; var s=(Date.now()-M._t0)/1000; status('🏁 '+s.toFixed(1)+'s · '+Math.min(M.lines,40)+'/40 lines'); }, 100);
     } else if(mode==='combo'){
@@ -18327,12 +18402,21 @@ body.light .jul4-lbscore{color:#059669}
     clearLockTimer(); if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer);
     cancelRender(); stopMusic(); detachControls();
     var mode=M.mode, elapsed=Date.now()-(M._t0||Date.now());
-    var win = (mode==='sprint') ? (how==='done') : (how==='time');
+    var timeMode=(mode==='sprint'||mode==='cheese'||mode==='survival'||mode==='zen');
+    var win = (mode==='sprint'||mode==='cheese') ? (how==='done')
+            : (mode==='survival') ? (elapsed>=60000)      // lasting a full minute counts as a good run
+            : (mode==='zen') ? false
+            : (how==='time');
     var soloScore = (mode==='combo') ? (M.maxCombo||0) : (M.score||0);
-    var res={ mode:mode, win:win, time_ms:(mode==='sprint'?elapsed:(mode==='combo'?90000:120000)), score:soloScore, lines:M.lines||0 };
-    if(win){ try{ sfxWin(); }catch(_){} } else { try{ sfxLose(); }catch(_){} }
+    var res={ mode:mode, win:win, time_ms:(timeMode?elapsed:(mode==='combo'?90000:120000)), score:soloScore, lines:M.lines||0 };
+    if(mode!=='zen'){ if(win){ try{ sfxWin(); }catch(_){} } else { try{ sfxLose(); }catch(_){} } }
     showSoloResult(how, res);
-    if((mode==='sprint'&&win) || ((mode==='ultra'||mode==='combo')&&how==='time')){   // only record valid finishes
+    // Only record valid finishes. Zen is practice — it never touches the leaderboard.
+    var record = (mode==='sprint' && win)
+              || (mode==='cheese' && win)
+              || (mode==='survival' && how==='topout')
+              || ((mode==='ultra'||mode==='combo') && how==='time');
+    if(record){
       fetch(APPS_SCRIPT_URL+'?action=solo_result&mode='+mode+'&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())
         +'&time_ms='+res.time_ms+'&score='+res.score+'&lines='+res.lines+'&_='+Date.now()).catch(function(){});
     }
@@ -18340,9 +18424,18 @@ body.light .jul4-lbscore{color:#059669}
   window.soloClose=function(){ var m=el('solo-result'); if(m) m.classList.remove('open'); try{ cleanup(); }catch(_){} var ov=el('tet-overlay'); if(ov) ov.style.display='none'; };
   function showSoloResult(how, r){
     var m=el('solo-result'); if(!m) return;
-    el('solo-res-title').textContent = r.mode==='sprint' ? '🏁 Sprint 40' : (r.mode==='combo' ? '🔥 Combo Rush' : '⏱ Ultra 2:00');
+    el('solo-res-title').textContent = soloTitle(r.mode);
     var hero;
-    if(r.mode==='combo'){
+    if(r.mode==='cheese'){
+      hero = r.win
+        ? '<div style="font-size:12px;color:#9fb0d6;">You dug out '+CHEESE_ROWS+' rows in</div><div style="font-size:44px;font-weight:900;color:#fbbf24;line-height:1.1;">'+(r.time_ms/1000).toFixed(2)+'<span style="font-size:20px;">s</span></div><div style="font-size:11.5px;color:#9fb0d6;">'+r.lines+' lines cleared</div>'
+        : '<div style="font-size:26px;font-weight:900;color:#f87171;">Buried</div><div style="font-size:12.5px;color:#9fb0d6;margin-top:5px;">'+garbageRows()+' garbage rows still standing.</div>';
+    } else if(r.mode==='survival'){
+      var secs=r.time_ms/1000;
+      hero = '<div style="font-size:12px;color:#9fb0d6;">You survived</div><div style="font-size:44px;font-weight:900;color:'+(r.win?'#fbbf24':'#f87171')+';line-height:1.1;">'+fmtT(Math.floor(secs))+'</div><div style="font-size:11.5px;color:#9fb0d6;">reached speed '+(1+Math.floor(secs/5))+' · '+r.lines+' lines</div>';
+    } else if(r.mode==='zen'){
+      hero = '<div style="font-size:12px;color:#9fb0d6;">Zen session</div><div style="font-size:44px;font-weight:900;color:#7bf5a8;line-height:1.1;">'+r.lines+'<span style="font-size:20px;"> lines</span></div><div style="font-size:11.5px;color:#9fb0d6;">'+Number(r.score).toLocaleString()+' pts · not ranked</div>';
+    } else if(r.mode==='combo'){
       hero = '<div style="font-size:12px;color:#9fb0d6;">Best combo in 1:30</div><div style="font-size:44px;font-weight:900;color:#fbbf24;line-height:1.1;">'+Number(r.score).toLocaleString()+'<span style="font-size:20px;"> combo</span></div><div style="font-size:11.5px;color:#9fb0d6;">'+r.lines+' lines cleared</div>';
     } else if(r.mode==='sprint'){
       hero = r.win
@@ -18357,6 +18450,10 @@ body.light .jul4-lbscore{color:#059669}
     el('solo-res-board').innerHTML='<div style="text-align:center;color:#6b7d90;padding:20px;">Loading…</div>';
     m.classList.add('open');
     if(r.win){ try{ tetConfetti({count:160,dur:2800}); }catch(_){} }
+    if(r.mode==='zen'){   // Zen is off the record on purpose — no board, no pressure.
+      el('solo-res-board').innerHTML='<div style="text-align:center;color:#6b7d90;padding:16px;font-size:12px;">Zen runs aren\'t ranked. Come back any time. 🧘</div>';
+      return;
+    }
     loadSoloBoard(r.mode);
   }
   function loadSoloBoard(mode){
@@ -18366,7 +18463,10 @@ body.light .jul4-lbscore{color:#059669}
       el('solo-res-board').innerHTML=rows.slice(0,10).map(function(p){
         var mine=String(p.employee_id||'').toLowerCase()===me;
         var medal=p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:('<span style="color:#6b7d90;">'+p.rank+'</span>');
-        var val = mode==='sprint' ? ((p.time_ms/1000).toFixed(2)+'s') : (mode==='combo' ? (Number(p.score).toLocaleString()+' combo') : (Number(p.score).toLocaleString()+' pts'));
+        var val = (mode==='sprint'||mode==='cheese') ? ((p.time_ms/1000).toFixed(2)+'s')
+                : (mode==='survival') ? fmtT(Math.floor((p.time_ms||0)/1000))
+                : (mode==='combo') ? (Number(p.score).toLocaleString()+' combo')
+                : (Number(p.score).toLocaleString()+' pts');
         var ph=rkPhoto(p.employee_id);
         var av=ph?'<div class="rk-av2" style="overflow:hidden;padding:0;background:#0b1020;"><img src="'+ph+'" style="width:100%;height:100%;object-fit:cover;"></div>':'<div class="rk-av2">'+rkInitial(p.name)+'</div>';
         return '<div class="rk-row'+(mine?' me':'')+'"><div class="rk-pos">'+medal+'</div>'+av+'<div style="flex:1;min-width:0;text-align:left;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div><div style="font-weight:900;color:#fbbf24;font-size:14px;">'+val+'</div></div>';
