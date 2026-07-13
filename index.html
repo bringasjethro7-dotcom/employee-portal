@@ -15560,6 +15560,8 @@ body.light .jul4-lbscore{color:#059669}
           <canvas id="tet-me" width="270" height="540"></canvas>
           <div class="arc-scan"></div>
           <div id="tet-announce"></div>
+          <div id="tet-koflash">KO</div>
+          <div id="tet-sent"></div>
         </div>
         <div class="arc-name you">You</div>
       </section>
@@ -15668,6 +15670,42 @@ body.light .jul4-lbscore{color:#059669}
   .arc-frame canvas{display:block;border-radius:12px;background:linear-gradient(180deg,#0b1122,#070b16);
     box-shadow:inset 0 0 34px rgba(0,0,0,.65)}
   #tet-me{border:0}
+  /* ── Competitive feedback: danger / hit / KO / attack ── */
+  .arc-frame.danger{ animation:tetDanger .62s ease-in-out infinite }
+  @keyframes tetDanger{
+    0%,100%{ box-shadow:0 0 44px rgba(80,120,255,.22),0 20px 60px rgba(0,0,0,.55) }
+    50%{ box-shadow:0 0 4px 2px rgba(248,80,80,.85),0 0 40px rgba(248,80,80,.55),0 20px 60px rgba(0,0,0,.55) }
+  }
+  .arc-frame.danger::after{ content:'';position:absolute;inset:3px;border-radius:12px;pointer-events:none;
+    box-shadow:inset 0 0 34px rgba(248,60,60,.42);animation:tetDanger .62s ease-in-out infinite }
+  .arc-frame.hit{ animation:tetShake .42s cubic-bezier(.36,.07,.19,.97) }
+  @keyframes tetShake{
+    10%,90%{ transform:translate(-2px,0) } 20%,80%{ transform:translate(4px,0) }
+    30%,50%,70%{ transform:translate(-7px,0) } 40%,60%{ transform:translate(7px,0) }
+  }
+  .arc-frame.recv canvas{ animation:tetRecv .3s ease }
+  @keyframes tetRecv{ 0%{ filter:brightness(1) } 35%{ filter:brightness(1.5) saturate(1.4) } 100%{ filter:brightness(1) } }
+  #tet-koflash{ position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font:900 84px/1 system-ui,sans-serif;letter-spacing:4px;color:#fff;pointer-events:none;opacity:0;
+    text-shadow:0 0 18px rgba(248,60,60,.95),0 4px 0 #7a1010;z-index:6;
+    -webkit-text-stroke:2px rgba(120,0,0,.7) }
+  #tet-koflash.show{ animation:tetKO 1s ease forwards }
+  @keyframes tetKO{
+    0%{ opacity:0;transform:scale(.3) rotate(-14deg) }
+    18%{ opacity:1;transform:scale(1.18) rotate(-6deg) }
+    30%{ transform:scale(1) rotate(-6deg) }
+    75%{ opacity:1 } 100%{ opacity:0;transform:scale(1.05) rotate(-6deg) }
+  }
+  #tet-sent{ position:absolute;top:8px;right:8px;padding:5px 11px;border-radius:999px;
+    font:900 14px/1 system-ui,sans-serif;color:#052b12;background:linear-gradient(180deg,#7bf5a8,#25c368);
+    box-shadow:0 4px 14px rgba(20,190,90,.5);pointer-events:none;opacity:0;z-index:6;white-space:nowrap }
+  #tet-sent.show{ animation:tetSent .95s ease forwards }
+  @keyframes tetSent{
+    0%{ opacity:0;transform:translateY(8px) scale(.7) }
+    22%{ opacity:1;transform:translateY(0) scale(1.08) }
+    35%{ transform:translateY(0) scale(1) }
+    72%{ opacity:1 } 100%{ opacity:0;transform:translateY(-14px) scale(1) }
+  }
   /* CRT scanline sweep — one translateY, compositor only */
   .arc-scan{position:absolute;inset:3px;border-radius:12px;overflow:hidden;pointer-events:none;opacity:.5}
   .arc-scan::before{content:"";position:absolute;left:0;right:0;height:34%;top:-34%;will-change:transform;
@@ -16098,7 +16136,14 @@ body.light .jul4-lbscore{color:#059669}
       f.style.height=pct;                      // desktop: the tube is vertical
       f.style.setProperty('--inc', pct);       // mobile: the tube lies flat, CSS reads this for width
     }
+    var fr=_meFrame(); if(fr) fr.classList.toggle('danger', n>=4);   // pulse the board red when garbage piles up
   }
+  // ── Competitive feedback helpers (my board only) ──
+  function _meFrame(){ var c=el('tet-me'); return c ? (c.closest ? c.closest('.arc-frame') : c.parentNode) : null; }
+  function boardHit(){ var fr=_meFrame(); if(!fr) return; fr.classList.remove('hit'); void fr.offsetWidth; fr.classList.add('hit'); }
+  function boardRecv(){ var fr=_meFrame(); if(!fr) return; fr.classList.remove('recv'); void fr.offsetWidth; fr.classList.add('recv'); }
+  function koStamp(){ var e=el('tet-koflash'); if(!e) return; e.classList.remove('show'); void e.offsetWidth; e.classList.add('show'); }
+  function attackPop(n){ var e=el('tet-sent'); if(!e||n<=0) return; e.textContent='＋'+n+' SENT'; e.classList.remove('show'); void e.offsetWidth; e.classList.add('show'); }
   function collide(m,x,y){ for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(!m[r][c]) continue; var gx=x+c, gy=y+r; if(gx<0||gx>=W||gy>=H) return true; if(gy>=0 && M.grid[gy][gx]) return true; } } return false; }
   function rotCW(m){ var R=m.length, C=m[0].length; var o=[]; for(var c=0;c<C;c++){ o.push([]); for(var r=R-1;r>=0;r--){ o[c].push(m[r][c]); } } return o; }
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
@@ -16143,7 +16188,7 @@ body.light .jul4-lbscore{color:#059669}
       try{ if(typeof eid==='function') fetch(APPS_SCRIPT_URL+'?action=tetris_pc&employee_id='+encodeURIComponent(eid())+'&_='+Date.now()).catch(function(){}); }catch(_p){}
     }catch(_e){}
   }
-  function addGarbage(n){ if(n<=0) return; sfxGarbage(); var hole=Math.floor(Math.random()*W);
+  function addGarbage(n){ if(n<=0) return; sfxGarbage(); if(n>=2) boardRecv(); var hole=Math.floor(Math.random()*W);
     for(var i=0;i<n;i++){
       // If a block already sits on the top row, more garbage would push it off → KO
       // (don't destroy the puzzle row — just knock out; respawn() then clears the garbage).
@@ -16344,6 +16389,7 @@ body.light .jul4-lbscore{color:#059669}
   function topOut(){
     if(!M.alive) return; M.alive=false;
     if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='combo'){ soloEnd('topout'); return; }   // solo run ends on top-out
+    boardHit(); koStamp();   // shake + KO stamp on my board
     M.kos=(M.kos||0)+1; M.myKos=M.kos; updateKoDisplay();
     var elim=(M.kos>=koMax());
     if(M.mode==='tourney'){
@@ -16446,6 +16492,7 @@ body.light .jul4-lbscore{color:#059669}
   // ── Networking: broadcast my board so the opponent can watch ──
   function sendAttack(n){
     if(M.mode==='sprint'||M.mode==='ultra') return;   // solo modes have no opponent
+    attackPop(n);   // green "＋N SENT" pop on my board
     if(M.mode==='training'){ if(BOT){ BOT.pending+=n; } return; }
     if(M.mode==='tourney'){
       var others=tourneyAliveIds().filter(function(id){ return id!==eid(); });
