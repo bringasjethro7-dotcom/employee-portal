@@ -4923,6 +4923,7 @@
           <div style="height:6px;background:var(--card2);border-radius:3px;overflow:hidden;">
             <div id="sc-overall-bar" style="height:100%;width:0%;background:var(--orange-3);border-radius:3px;transition:width 0.6s;"></div>
           </div>
+          <p id="sc-coverage" style="font-size:11px;color:var(--text-3);margin:7px 0 0;display:none;"></p>
         </div>
         <div id="sc-delta" style="text-align:right;flex-shrink:0;display:none;">
           <p style="font-size:11px;color:var(--text-3);margin:0 0 2px;">vs last month</p>
@@ -6477,8 +6478,10 @@ async function loadScorecard() {
     // Total Hours now comes from worklog productive hours (setMonthlyTrackedHours); only overtime here.
     var otH  = (ab.overtime !== undefined && ab.overtime !== null) ? (parseFloat(ab.overtime)||0) : null;
     var ovEl = document.getElementById('sum-overtime'); if (ovEl && otH  !== null) ovEl.textContent = otH.toFixed(1) + 'h';
+    // setMonthlyTrackedHours() fills BOTH #sum-hours and #sum-regular from the worklog.
+    // There used to be a line here referencing an undeclared `totH`, which threw a ReferenceError
+    // and dumped the whole function into the catch — that's why every card sat on a dash.
     setMonthlyTrackedHours();
-    var rgEl = document.getElementById('sum-regular');  if (rgEl && totH !== null) rgEl.textContent = Math.max(0, totH - (otH||0)).toFixed(1) + 'h';
 
     if (!data || !data.scorecard) {
       // No published scorecard yet — Attendance, QA & Demerit are still LIVE running scores, so show them.
@@ -6503,6 +6506,9 @@ async function loadScorecard() {
     setScCard('dem', (data.demerit_score!=null && data.demerit_score!=='') ? data.demerit_score : (sc.demerit_score!==undefined?sc.demerit_score:null));   // live running score
     _renderAssessValue((sc.assessment!==null&&sc.assessment!==undefined&&sc.assessment!=='') ? sc.assessment : assessScore);
     setScOverall(sc.overall);
+    // The overall is a weighted average of whatever HAS been scored. Early in the month that may
+    // be only Attendance + Demerit — so say so, or a "100" looks like a final grade.
+    setScCoverage(sc, (data.attendance!=null?data.attendance:sc.attendance), (data.demerit_score!=null?data.demerit_score:sc.demerit_score));
 
     // Violation points card
     var vp = parseFloat(sc.violation_points) || 0;
@@ -6527,6 +6533,9 @@ async function loadScorecard() {
     }
 
   } catch(e) {
+    // Log it. A silent catch here hid a hard ReferenceError and made a code bug look like
+    // "no data for this month" — every card stuck on a dash with nothing in the console.
+    try{ console.error('loadScorecard failed:', e); }catch(_){}
     document.getElementById('sc-empty').style.display = 'block';
     document.getElementById('sc-overall-card').style.display = 'flex';
   }
@@ -6884,6 +6893,31 @@ async function assessFinish(){
   }catch(e){ if(s){ s.textContent='Couldn’t save (network) — please try again.'; s.style.color='#f87171'; } }
 }
 
+// Tell the employee how complete the overall actually is. A score built from 30% of the weights
+// is a provisional read, not a verdict — and the blank cards are what's still missing.
+var SC_WEIGHTS = { productivity:30, quality:20, attendance:20, assessment:10, team_sales:10, demerit:10 };
+function setScCoverage(sc, liveAtt, liveDem) {
+  var el = document.getElementById('sc-coverage'); if (!el) return;
+  var has = function(v){ return v !== null && v !== undefined && v !== ''; };
+  var vals = {
+    productivity: sc.productivity,
+    quality:      sc.quality,
+    attendance:   has(liveAtt) ? liveAtt : sc.attendance,
+    assessment:   sc.assessment,
+    team_sales:   sc.team_sales,
+    demerit:      has(liveDem) ? liveDem : sc.demerit_score
+  };
+  var covered = 0, missing = [];
+  var LABEL = { productivity:'Productivity', quality:'QA', attendance:'Attendance',
+                assessment:'Assessment', team_sales:'Team Sales', demerit:'Demerit' };
+  Object.keys(SC_WEIGHTS).forEach(function(k){
+    if (has(vals[k])) covered += SC_WEIGHTS[k];
+    else missing.push(LABEL[k]);
+  });
+  if (covered >= 100 || !missing.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = 'Based on <b>' + covered + '%</b> of the weighting — still to come: ' + missing.join(' · ');
+}
 function setScCard(type, score) {
   var num   = document.getElementById('sc-' + type + '-num');
   var bar   = document.getElementById('sc-' + type + '-bar');
