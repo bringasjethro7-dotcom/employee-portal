@@ -15177,6 +15177,12 @@ body.light .jul4-lbscore{color:#059669}
   .rk-next-banner::after{content:"";position:absolute;top:0;left:0;width:35%;height:100%;pointer-events:none;will-change:transform;
     background:linear-gradient(100deg,transparent,rgba(251,191,36,.22),transparent);
     transform:translateX(-250%) skewX(-18deg);animation:hubSheen 4s ease-in-out infinite}
+  /* collapsible section headers */
+  .rk-sec.sec-toggle{cursor:pointer;user-select:none;transition:color .15s}
+  .rk-sec.sec-toggle:hover{color:#ff8a4a}
+  .rk-sec .sec-caret{margin-left:auto;font-size:11px;transition:transform .22s ease;display:inline-block}
+  .rk-sec.sec-toggle.closed .sec-caret{transform:rotate(-90deg)}
+  .sec-hide{display:none !important}
   /* shop cards */
   .thm-card{transition:transform .14s,border-color .18s,box-shadow .18s}
   .thm-card:hover{transform:translateY(-3px);border-color:rgba(255,107,26,.45);box-shadow:0 14px 30px -16px rgba(255,107,26,.6)}
@@ -15225,8 +15231,8 @@ body.light .jul4-lbscore{color:#059669}
       <div id="tet-hub-profile"></div>
       <div id="tet-champ-show"></div>
       <div id="tet-hub-badges"></div>
-      <div class="rk-sec"><svg class="secic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="9 7 17 12 9 17"/></svg> Play</div>
-      <div id="tet-hub-play"></div>
+      <div class="rk-sec sec-toggle closed" id="tet-play-sec" onclick="tetTogglePlay()"><svg class="secic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="9 7 17 12 9 17"/></svg> Play <span class="sec-caret">▾</span></div>
+      <div id="tet-hub-play" class="sec-hide"></div>
       <div class="rk-sec"><svg class="secic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2 2 0 0 0 0 4H7M17 6h2.5a2 2 0 0 1 0 4H17M9.5 20h5M12 14v3"/></svg> Leaderboard</div>
       <div id="tet-rank-podium"></div>
       <div id="tet-rank-body"><div style="text-align:center;color:#6b7d90;padding:30px;">Loading…</div></div>
@@ -16066,9 +16072,17 @@ body.light .jul4-lbscore{color:#059669}
   var M=null; // current match state
   var BOT=null; // training bot state
   // Games are only allowed when idle or with no task running (not while actively tracking)
+  // Running the IDLE project on the time tracker is downtime — that's precisely what the
+  // games are for. Only a real, billable task blocks play.
+  function onIdleTask(){
+    try{
+      return !!(typeof trkRunning!=='undefined' && trkRunning &&
+                typeof isIdleProject==='function' && isIdleProject(trkRunning.project));
+    }catch(e){ return false; }
+  }
   function canPlayGame(){
     var s=(typeof myWorkStatus==='function')?myWorkStatus():'online';
-    if(s==='idle'||s==='online') return true;
+    if(s==='idle' || s==='online' || onIdleTask()) return true;
     showToast('You can only play while idle or with no task running. Stop your current task first. ⏱️');
     return false;
   }
@@ -18342,6 +18356,19 @@ body.light .jul4-lbscore{color:#059669}
     try{ tetCosTab(_cosTab||'blocks'); }catch(_){}
   };
   window.renderHubPlayBack=function(){ renderHubPlay(); };
+  // Play is collapsed by default — the hub leads with your rank and the board, not a wall of buttons.
+  window.tetTogglePlay=function(){
+    var sec=el('tet-play-sec'), body=el('tet-hub-play'); if(!sec||!body) return;
+    var nowHidden=body.classList.toggle('sec-hide');
+    sec.classList.toggle('closed', nowHidden);
+    if(!nowHidden) renderHubPlay();          // always reopen on the mode list, not a sub-view
+    try{ sfxRot(); }catch(_){}
+  };
+  function collapsePlay(){
+    var sec=el('tet-play-sec'), body=el('tet-hub-play');
+    if(sec) sec.classList.add('closed');
+    if(body) body.classList.add('sec-hide');
+  }
   window.tetHubGo=function(mode){
     tetCloseRanking();
     if(mode==='combo'){ if(window.tetrisCombo) tetrisCombo(); }
@@ -18441,7 +18468,9 @@ body.light .jul4-lbscore{color:#059669}
 
     var go='<button class="hub-btn" style="grid-column:1/-1;justify-content:center;background:linear-gradient(135deg,rgba(255,107,26,.28),rgba(232,61,0,.14));border-color:rgba(255,107,26,.6);" '+
       'onclick="'+fight(best)+'">'+
-      '<span class="hi">⚔</span><span>Challenge '+esc(best.name)+'<small>'+(best.cpu?'Ranked match · Rank '+best.R.rank+' opponent':'Live duel · winner takes +12 ★')+'</small></span></button>';
+      '<span class="hi">⚔</span><span>Challenge '+esc(best.name)+'<small>'+
+      (best.cpu ? ('Ranked match · first win banks +'+poolStars(best.R.rank)+' ★')
+                : 'Live duel · winner takes +12 ★')+'</small></span></button>';
 
     var others=cands.slice(1,8);
     var rest = others.length
@@ -18453,7 +18482,9 @@ body.light .jul4-lbscore{color:#059669}
                    :'<span class="hi" style="'+rr+'">'+rkInitial(c.name)+'</span>';
           return '<button class="hub-btn" style="grid-column:1/-1;" onclick="'+fight(c)+'">'+a2+
             '<span>'+esc(c.name)+(c.cpu?'':' <span style="color:#22c55e;">●</span>')+
-            '<small>Rank '+c.R.rank+' · '+esc(c.R.tier)+' · '+(c.gap===0?'dead level':c.gap+' apart')+'</small></span></button>';
+            '<small>Rank '+c.R.rank+' · '+esc(c.R.tier)+
+            (c.cpu?(' · <b style="color:#fbbf24;">+'+poolStars(c.R.rank)+' ★</b>'):(' · '+(c.gap===0?'dead level':c.gap+' apart')))+
+            '</small></span></button>';
         }).join('')
       : '';
     host.innerHTML = card + go + rest + back;
@@ -18583,6 +18614,8 @@ body.light .jul4-lbscore{color:#059669}
                    'Master':'#a855f7','Grandmaster':'#c084fc','Elite':'#fbbf24','Legend':'#fcd34d',
                    'Demi-god':'#f43f5e','God of Tetris':'#fde047' };
   function tierColor(t){ return TIER_COLOR[t]||'#8a97b5'; }
+  // Must match the server: Rank 1 → 1 ★ · Rank 82 → 6 ★ · Rank 110 → 8 ★
+  function poolStars(rank){ rank=parseInt(rank,10)||0; return rank<=0 ? 1 : (1+Math.floor(rank/15)); }
   function ringStyle(tier,w){
     var c=tierColor(tier), god=(tier==='God of Tetris');
     return 'border:'+(w||3)+'px solid '+c+';box-shadow:0 0 '+(god?22:14)+'px '+c+(god?'':'aa')+';';
@@ -18774,7 +18807,7 @@ body.light .jul4-lbscore{color:#059669}
   window.tetOpenRanking=function(){
     var m=el('tet-rank-modal'); if(!m) return;
     renderRankNext(); renderRankBots(); renderHubPlay(); renderHubProfile(null); loadBadges();
-    loadCosmetics(); loadChampShowcase();
+    loadCosmetics(); loadChampShowcase(); collapsePlay();
     el('tet-rank-podium').innerHTML='';
     el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:30px;">Loading…</div>';
     m.classList.add('open');
@@ -18933,7 +18966,7 @@ body.light .jul4-lbscore{color:#059669}
     var b=null; rankedPool().forEach(function(x){ if(x.id===id) b=x; });
     if(!b) return;
     tetCloseRanking();
-    window.tetrisTraining(b.lv, { name:b.name, rank:b.rank, bypass:true, ranked:true });
+    window.tetrisTraining(b.lv, { name:b.name, rank:b.rank, id:b.id, bypass:true, ranked:true });
   };
 
   window.tetrisTraining=function(level, opts){
@@ -18949,7 +18982,8 @@ body.light .jul4-lbscore{color:#059669}
     var arc=el('tet-arena-col'); if(arc) arc.style.display='none';
     el('tet-opp-label').textContent = opts.ranked ? (botName+' · Rank '+opts.rank) : ('🤖 '+botName+' · Lv'+level);
     var id='train-'+Date.now();
-    M={ matchId:id, mode:'training', playing:true, ended:false, alive:true, oppName:botName, botLevel:level, ranked:!!opts.ranked, _oppRank:opts.rank||0,
+    M={ matchId:id, mode:'training', playing:true, ended:false, alive:true, oppName:botName, botLevel:level,
+        ranked:!!opts.ranked, _oppRank:opts.rank||0, _oppId:opts.id||'',
         rng:mulberry32(hashStr(id)), bag:[], grid:empty(), score:0, lines:0, level:1, pendingGarbage:0, nextT:null, hold:null, canHold:true, combo:0, b2b:false,
         kos:0, myKos:0, oppKos:0, oppGrid:empty(), oppScore:0, oppLines:0, oppAlive:true };
     BOT={ grid:empty(), rng:mulberry32(hashStr(id+'-bot')), bag:[], score:0, lines:0, alive:true, pending:0, combo:0, kos:0,
@@ -19305,9 +19339,30 @@ body.light .jul4-lbscore{color:#059669}
     // free farm. They exist so there's always a fair fight available, not to inflate ranks.
     if(M.ranked){
       var rp=el('tr-points'); showDuelResult(!!win);
-      if(rp) rp.textContent = win
-        ? '🏆 You beat '+bname+' — a Rank '+(M._oppRank||'?')+' opponent. No stars: ranked pool matches are practice.'
-        : bname+' took that one. Ranked pool matches cost you nothing — run it back.';
+      var orank=M._oppRank||0, oid=M._oppId||'', worth=poolStars(orank);
+      if(!win){
+        if(rp) rp.textContent = bname+' (Rank '+orank+') took that one. A loss here costs you nothing — run it back.';
+        return;
+      }
+      if(rp) rp.textContent='🏆 You beat '+bname+' — Rank '+orank+'. Banking '+worth+' ★…';
+      // ONE-TIME CONQUEST: the match_id is keyed to this opponent, so the backend physically
+      // cannot record a second win against them. Beating them again is worth nothing.
+      fetch(APPS_SCRIPT_URL+'?action=game_result&solo=1&mode=pool'+
+            '&match_id='+encodeURIComponent('pool-'+eid()+'-'+oid)+
+            '&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())+
+            '&result=win&score='+(M.score||0)+'&lines='+(M.lines||0)+
+            '&opponent='+encodeURIComponent(bname)+'&opp_rank='+orank+'&_='+Date.now())
+        .then(function(r){ return r.json(); }).then(function(d){
+          if(!rp) return;
+          if(d && d.already){
+            rp.textContent='🏆 You beat '+bname+' (Rank '+orank+') again — but you already claimed their '+worth+' ★. Find someone new.';
+          } else if(d && d.ok){
+            rp.innerHTML='🏆 First win over <b>'+esc(bname)+'</b> (Rank '+orank+') — <b style="color:#fbbf24;">+'+worth+' ★</b> banked!';
+            try{ tetConfetti({count:120,dur:2400}); }catch(_){}
+          } else {
+            rp.textContent='🏆 You beat '+bname+' (Rank '+orank+').';
+          }
+        }).catch(function(){ if(rp) rp.textContent='🏆 You beat '+bname+' (Rank '+orank+').'; });
       return;
     }
     if(lv) recordBotGame(win, lv, M.score||0, M.lines||0, bname);   // grade skill + log lines
