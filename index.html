@@ -14719,7 +14719,7 @@ body.light .jul4-lbscore{color:#059669}
   <div id="tet-nightly-cd" style="font-size:12.5px;font-weight:800;color:#fbbf24;margin-bottom:10px;">Starting soon — join now!</div>
   <div style="display:flex;gap:8px;">
     <button onclick="tetNightlyJoin()" style="flex:1;background:linear-gradient(135deg,#fbbf24,#d97706);color:#111;border:none;border-radius:10px;padding:9px;font-weight:800;font-size:12.5px;cursor:pointer;">Join now</button>
-    <button onclick="tetNightlyDismiss()" style="flex:1;background:#1b2233;color:#cdd6f5;border:none;border-radius:10px;padding:9px;font-weight:700;font-size:12.5px;cursor:pointer;">Later</button>
+    <button onclick="tetNightlyDecline()" style="flex:1;background:#1b2233;color:#cdd6f5;border:none;border-radius:10px;padding:9px;font-weight:700;font-size:12.5px;cursor:pointer;">No thanks</button>
   </div>
 </div>
 
@@ -17286,21 +17286,27 @@ body.light .jul4-lbscore{color:#059669}
     TL.players[p.from]=p.fromName;
     openLobby(); sfxInvite();
   }
-  // Scheduled 11 PM tournament — no idle-gate, everyone converges on the same tid.
+  // ── SCHEDULED TOURNAMENT (3 PM day bracket · nightly · Grand Final) ──
+  // NO HOST. Nobody "runs" it. Every client builds the bracket itself from the same roster
+  // using the tid as the shuffle seed (see beginBracket), so all of them land on an identical
+  // draw with no one in charge. Previously every joiner set host=themselves, which is why the
+  // lobby showed several HOSTs.
+  // You are NOT auto-entered either — opening the lobby just shows you the field. You're in the
+  // bracket only if you press Join.
   window.tourneyStartNightly=function(sid){
     if(M && M.playing) return;
     if(TB && !TB.done) return;
     if(typeof supaClient==='undefined' || !supaClient) return;
     window.tetrisSetupLobby(); ac();
-    var tid=sid;   // "NT-<date>"
-    TL={ tid:tid, groupKey:'group', groupName:'🏆 Nightly Tournament', host:eid(), hostName:ename(), players:{}, started:false, nightly:true };
-    TL.players[eid()]=ename();
+    var nm = bkIsGrand(sid) ? '👑 Grand Final' : bkIsDay(sid) ? '☀️ Day Tournament' : '🏆 Nightly Tournament';
+    TL={ tid:sid, groupKey:'group', groupName:nm, host:null, hostName:'',
+         players:{}, started:false, nightly:true, scheduled:true };
     openLobby();
+    // Re-announce our entry for the whole window so every client's roster converges on the
+    // same field — that's what keeps the independently-built brackets identical.
     var tries=0;
-    // announce for the whole 45s window so every joiner's roster converges
     (function resend(){ if(!TL || TL.started) return;
-      lobbySend('tinvite',{tid:tid, groupKey:'group', groupName:'🏆 Nightly Tournament', from:eid(), fromName:ename(), nightly:true});
-      lobbySend('tjoin',{tid:tid, id:eid(), name:ename()});
+      if(TL.players[eid()]) lobbySend('tjoin',{tid:sid, id:eid(), name:ename()});
       if(++tries<32) setTimeout(resend,1400); })();
   };
   function onTJoin(p){ if(!TL || p.tid!==TL.tid) return; TL.players[p.id]=p.name; renderLobby();
@@ -17308,8 +17314,10 @@ body.light .jul4-lbscore{color:#059669}
     if(TL.host===eid()){ Object.keys(TL.players).forEach(function(id){ }); }
   }
   window.tourneyJoin=function(){
-    if(!TL) return; if(!TL.nightly && !canPlayGame()) return; TL.players[eid()]=ename(); ac();
-    var tries=0; (function r(){ if(!TL||TL.started) return; lobbySend('tjoin',{tid:TL.tid, id:eid(), name:ename()}); if(++tries<3) setTimeout(r,900); })();
+    if(!TL) return;
+    if(!canPlayGame()) return;                 // scheduled events already pass this — timer keeps running
+    TL.players[eid()]=ename(); ac();
+    var tries=0; (function r(){ if(!TL||TL.started) return; lobbySend('tjoin',{tid:TL.tid, id:eid(), name:ename()}); if(++tries<6) setTimeout(r,900); })();
     renderLobby();
   };
   window.tourneyLaunch=function(){
@@ -17331,20 +17339,23 @@ body.light .jul4-lbscore{color:#059669}
     el('tl-title').textContent='🏆 Tetris Tournament — '+esc(TL.groupName||'Group');
     var ids=Object.keys(TL.players);
     el('tl-roster').innerHTML=ids.map(function(id){ return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0d1117;border:1px solid rgba(255,255,255,.1);border-radius:9px;font-size:12.5px;">'+
-      '<span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;"></span>'+esc(TL.players[id])+(id===TL.host?' <span style="color:#fbbf24;font-size:10px;">HOST</span>':'')+(id===eid()?' <span style="color:#6b7d90;font-size:10px;">(you)</span>':'')+'</div>'; }).join('');
+      '<span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;"></span>'+esc(TL.players[id])+((TL.host && id===TL.host)?' <span style="color:#fbbf24;font-size:10px;">HOST</span>':'')+(id===eid()?' <span style="color:#6b7d90;font-size:10px;">(you)</span>':'')+'</div>'; }).join('');
     el('tl-count').textContent=ids.length+' player'+(ids.length!==1?'s':'');
     var joined=!!TL.players[eid()];
     if(TL.nightly){
-      // Nightly = auto-invite + 45s countdown + auto-start (no manual launcher).
-      var _gr = bkIsGrand(TL.tid);
-      el('tl-title').textContent = _gr ? '👑 THE GRAND FINAL' : '🏆 Nightly Tetris Tournament';
+      // Scheduled = no host, no launcher. You either Join, or you don't and it starts without you.
+      var _gr = bkIsGrand(TL.tid), _dy = bkIsDay(TL.tid);
+      el('tl-title').textContent = _gr ? '👑 THE GRAND FINAL' : _dy ? '☀️ Day Tetris Tournament' : '🏆 Nightly Tetris Tournament';
       el('tl-sub').innerHTML = (_gr
         ? 'The week\'s championship. Knockout bracket → final. 👑1,200 · 🥈600 · 🥉300 JMB Points — and the crown. · '
+        : _dy
+        ? 'Knockout bracket — shuffled 1v1s → semis → final. Top 3 win JMB Points: 🥇250 · 🥈150 · 🥉100 · '
         : 'Knockout bracket — shuffled 1v1s → semis → final. Top 3 win JMB Points: 🥇400 · 🥈200 · 🥉150 · ')
         + '<span id="tl-count">'+ids.length+' player'+(ids.length!==1?'s':'')+'</span>';
-      el('tl-join').style.display='none';
-      el('tl-launch').style.display='none';
-      el('tl-auto').style.display='block';   // text driven by the nightly scheduler
+      el('tl-launch').style.display='none';          // never a human launcher — it starts itself
+      el('tl-join').style.display = joined?'none':'block';
+      el('tl-join').textContent   = '✋ Join now';
+      el('tl-auto').style.display = joined?'block':'none';
     } else {
       el('tl-auto').style.display='none';
       el('tl-join').style.display=joined?'none':'block';
@@ -17359,7 +17370,7 @@ body.light .jul4-lbscore{color:#059669}
     el('tet-opp-col').style.display='none';
     el('tet-arena-col').style.display='block';
     var mine=players.filter(function(x){ return x.id===eid(); }).length?ename():ename();
-    M={ matchId:tid, mode:'tourney', playing:true, ended:false, alive:true, oppName:'', nightly:(String(tid).indexOf('NT-')===0) };
+    M={ matchId:tid, mode:'tourney', playing:true, ended:false, alive:true, oppName:'', nightly:bkIsScheduled(tid) };
     M.tchan=supaClient.channel('tourney-'+tid,{config:{broadcast:{self:false}}})
       .on('broadcast',{event:'tstate'}, function(p){ onTState(p.payload); })
       .on('broadcast',{event:'tattack'},function(p){ onTAttack(p.payload); })
@@ -17529,6 +17540,9 @@ body.light .jul4-lbscore{color:#059669}
 
   // Is tonight the Grand Final? (Sunday — must match GRAND_DOW in the Apps Script.)
   function bkIsDay(tid){ return String(tid||'').indexOf('DT-')===0; }   // the 3 PM bracket
+  // A SCHEDULED tournament — the 3 PM day bracket or the nightly. These pay JMB Points,
+  // need no human host, and never require you to stop your timer.
+  function bkIsScheduled(tid){ var t=String(tid||''); return t.indexOf('NT-')===0 || t.indexOf('DT-')===0; }
   function bkIsGrand(tid){
     try{
       if(bkIsDay(tid)) return false;                 // the day bracket is never the Grand Final
@@ -17549,7 +17563,8 @@ body.light .jul4-lbscore{color:#059669}
     var names={}, ids=[];
     (players||[]).forEach(function(p){ var id=String(p.id); if(ids.indexOf(id)<0){ ids.push(id); names[id]=p.name||id; } });
     ids.sort();                                   // same starting list on every client…
-    TB={ tid:tid, nightly:(String(tid).indexOf('NT-')===0), grand:bkIsGrand(tid), names:names,
+    // "nightly" means SCHEDULED (pays JMB Points) — both the nightly NT- and the 3 PM DT- bracket.
+    TB={ tid:tid, nightly:bkIsScheduled(tid), grand:bkIsGrand(tid), names:names,
          order:bkShuffle(ids, tid),               // …then the same seeded shuffle
          alive:[], round:0, roundLabel:'', pairs:[], botId:null, botRes:null,
          results:{}, out:[], stats:{}, done:false };
@@ -19265,6 +19280,7 @@ body.light .jul4-lbscore{color:#059669}
   }
   // ── Nightly tournament trigger (poll the backend; prompt everyone at 11 PM) ──
   function showNightlyPrompt(sid){
+    if(tourneyDeclined(sid)) return;              // they said no — don't nag
     var e=el('tet-nightly-pop'); if(!e) return;
     e.setAttribute('data-sid', sid);
     // Sunday reads differently — it's the championship.
@@ -19281,7 +19297,18 @@ body.light .jul4-lbscore{color:#059669}
     try{ sfxInvite(); }catch(_){}
   }
   window.tetNightlyJoin=function(){ var e=el('tet-nightly-pop'); var sid=e?e.getAttribute('data-sid'):''; if(e) e.style.display='none'; if(sid) window.tourneyStartNightly(sid); };
-  window.tetNightlyDismiss=function(){ var e=el('tet-nightly-pop'); if(e) e.style.display='none'; };
+  // DECLINE — you're out for THIS tournament and won't be nagged again about it. Playing is
+  // never mandatory; the bracket goes ahead without you.
+  var _tourneyDeclined={};
+  window.tetNightlyDecline=function(){
+    var e=el('tet-nightly-pop'); var sid=e?e.getAttribute('data-sid'):'';
+    if(sid) _tourneyDeclined[sid]=true;
+    if(e) e.style.display='none';
+    if(TL && TL.tid===sid){ TL=null; el('tourney-lobby').style.display='none'; }
+    try{ showToast('Sat out this one. You can still jump in from the Tetris button while the doors are open.'); }catch(_){}
+  };
+  window.tetNightlyDismiss=window.tetNightlyDecline;   // legacy name
+  function tourneyDeclined(sid){ return !!_tourneyDeclined[sid]; }
   (function(){ var base=null;
     setInterval(function(){
       if(document.hidden || typeof APPS_SCRIPT_URL==='undefined') return;
@@ -19299,24 +19326,25 @@ body.light .jul4-lbscore{color:#059669}
   // Invite everyone online at the top of that hour → 45s lobby → bracket auto-starts.
   function phtNowParts(){ var d=new Date(Date.now()+8*3600*1000);
     return { H:d.getUTCHours(), M:d.getUTCMinutes(), S:d.getUTCSeconds(), date:d.toISOString().slice(0,10), dow:d.getUTCDay() }; }
-  var DAY_HOUR=15;                                                 // 3 PM PHT day tournament, daily
+  var DAY_HOUR=15, DAY_MIN=30;                                     // 3:30 PM PHT day tournament, daily
   function ntHour(dow){ return (dow===0 || dow===6) ? 22 : 23; }   // 0=Sun, 6=Sat → 10 PM; else 11 PM
-  // Seconds until the NEXT tournament of ANY kind — the 3 PM day bracket or tonight's nightly.
+  function daySec(){ return DAY_HOUR*3600 + DAY_MIN*60; }
+  // Seconds until the NEXT tournament of ANY kind — the 3:30 PM day bracket or tonight's nightly.
   function ntSecsTo(p){
     var now=p.H*3600+p.M*60+p.S;
-    var day=DAY_HOUR*3600, night=ntHour(p.dow)*3600;
+    var day=daySec(), night=ntHour(p.dow)*3600;
     if(now < day)   return day-now;
     if(now < night) return night-now;
-    return (86400-now) + DAY_HOUR*3600;                            // tomorrow's 3 PM comes first
+    return (86400-now) + daySec();                                 // tomorrow's 3:30 PM comes first
   }
   // Which one is next? Returns 'day' or 'night'.
   function ntNextKind(p){
     var now=p.H*3600+p.M*60+p.S;
-    if(now < DAY_HOUR*3600) return 'day';
+    if(now < daySec()) return 'day';
     if(now < ntHour(p.dow)*3600) return 'night';
-    return 'day';                                                  // past tonight → tomorrow's 3 PM
+    return 'day';                                                  // past tonight → tomorrow's 3:30 PM
   }
-  function ntIsDayLive(p){ return p.H===DAY_HOUR && p.M<5; }              // 5-min join window
+  function ntIsDayLive(p){ return p.H===DAY_HOUR && p.M>=DAY_MIN && p.M<DAY_MIN+5; }   // 5-min join window
   function ntIsLive(p){ var h=ntHour(p.dow); return (p.H===h && p.M<5) || ntIsDayLive(p); }
   function ntLiveSid(p){ return ntIsDayLive(p) ? ('DT-'+p.date) : ('NT-'+p.date); }
   var _ntInvitedDate=null;
@@ -19346,14 +19374,20 @@ body.light .jul4-lbscore{color:#059669}
       else { fab.classList.remove('live'); if(lbl) lbl.textContent='Tetris'; }   // no timer → just "Tetris"
     }
     // ── DOORS OPEN FOR A FULL MINUTE ──
-    // The whole of minute :00 is the lobby. At :01:00 the doors close and the show starts.
+    // The lobby is the opening minute (nightly :00, day :30). One minute later the doors shut
+    // and the bracket begins — every client builds it independently. No host, nobody to wait for.
     var _h = ntHour(p.dow);
-    var inLobby = (p.H === _h && p.M === 0);
-    var doorsShut = (p.H === _h && p.M >= 1 && p.M < 5);
+    var nightMinute = (p.H === _h && p.M === 0);
+    var dayMinute   = (p.H === DAY_HOUR && p.M === DAY_MIN);
+    var inLobby = nightMinute || dayMinute;
+    var doorsShut = (p.H === _h && p.M >= 1 && p.M < 5) ||
+                    (p.H === DAY_HOUR && p.M >= DAY_MIN+1 && p.M < DAY_MIN+5);
+    var openSid = dayMinute ? ('DT-'+p.date) : ('NT-'+p.date);
+    var _invKey = p.date + (dayMinute ? '-day' : '-night');   // day and night invite separately
 
     if(inLobby){
-      // Auto-invite everyone online once, at the top of the scheduled hour
-      if(_ntInvitedDate!==p.date && !(M&&M.playing) && !TL && !TB){ _ntInvitedDate=p.date; showNightlyPrompt('NT-'+p.date); }
+      // Auto-invite everyone online once, at the top of the scheduled minute
+      if(_ntInvitedDate!==_invKey && !(M&&M.playing) && !TL && !TB){ _ntInvitedDate=_invKey; showNightlyPrompt(openSid); }
       var rem = Math.max(0, 60 - p.S);
       var cd=el('tet-nightly-cd'), pop=el('tet-nightly-pop');
       if(cd && pop && pop.style.display==='block'){ cd.textContent = rem>0 ? ('Doors close in '+rem+'s — tap Join!') : 'Doors closing…'; }
@@ -19367,16 +19401,19 @@ body.light .jul4-lbscore{color:#059669}
     if(doorsShut && TL && TL.nightly && !TL.started){
       var ids=Object.keys(TL.players||{});
       var pe=el('tet-nightly-pop'); if(pe) pe.style.display='none';
-      if(ids.length>=2){
+      if(!TL.players[eid()]){
+        // You never joined — the tournament runs without you. Just close the lobby.
+        TL=null; el('tourney-lobby').style.display='none';
+      } else if(ids.length>=2){
         TL.started=true;
         var pls=ids.map(function(id){return {id:id,name:TL.players[id]};});
-        beginBracket(TL.tid, pls);
+        beginBracket(TL.tid, pls);   // every client builds the SAME bracket — no host required
       } else {
         TL=null; el('tourney-lobby').style.display='none';
-        try{ showToast('Tournament — not enough players joined tonight.'); }catch(_){}
+        try{ showToast('Tournament — not enough players joined.'); }catch(_){}
       }
     }
-    if(!inLobby && !doorsShut && p.H!==_h){ _ntInvitedDate=null; }
+    if(!inLobby && !doorsShut && p.H!==_h && p.H!==DAY_HOUR){ _ntInvitedDate=null; }
   }, 1000);
 
   function botKO(){ if(!BOT) return; BOT.kos=(BOT.kos||0)+1; M.oppKos=BOT.kos; updateKoDisplay();
@@ -19508,7 +19545,7 @@ body.light .jul4-lbscore{color:#059669}
     } else if(kind==='day'){
       nb.innerHTML = '☀️ <b style="color:#fbbf24;">Day Tournament</b> in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win ' +
                      '<b style="color:#fbbf24;">250 / 150 / 100</b> pts ' +
-                     '<span style="color:#6b7d90;">(3 PM daily)</span>';
+                     '<span style="color:#6b7d90;">(3:30 PM daily)</span>';
     } else if(grandNext){
       nb.innerHTML = '👑 <b style="color:#fbbf24;">GRAND FINAL</b> in '+(hh>0?hh+'h ':'')+mm+'m — the week’s championship. ' +
                      'Top 3 win <b style="color:#fbbf24;">1,200 / 600 / 300</b> pts + the crown ' +
