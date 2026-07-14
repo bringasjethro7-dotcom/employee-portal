@@ -18234,19 +18234,18 @@ body.light .jul4-lbscore{color:#059669}
       if(!p) return '<div class="rk-pod" style="visibility:hidden;"></div>';
       var delay=(i===1?0:(i===0?140:240));
       var first=p.rank===1, mine=String(p.employee_id||'').toLowerCase()===me;
-      var md=['🥇','🥈','🥉'][p.rank-1];
       var PR=rankFromStars(p.stars||0);
-      var sk=(p.skill_level||0)>0?'<div class="rk-sk">🎖 Lv'+p.skill_level+'</div>':'';
+      var ring=ringStyle(PR.tier, first?4:3);
       var ph=rkPhoto(p.employee_id);
       var av = ph
-        ? '<div class="rk-av" style="overflow:hidden;background:#0b1020;border:3px solid '+rkRing(p.rank)+';padding:0;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\''+rkAvColor(p.rank)+'\';"></div>'
-        : '<div class="rk-av" style="background:'+rkAvColor(p.rank)+';">'+rkInitial(p.name)+'</div>';
+        ? '<div class="rk-av" style="overflow:hidden;background:#0b1020;'+ring+'padding:0;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\''+rkAvColor(p.rank)+'\';"></div>'
+        : '<div class="rk-av" style="background:'+rkAvColor(p.rank)+';'+ring+'">'+rkInitial(p.name)+'</div>';
       return '<div class="rk-pod'+(first?' first':'')+(mine?' me':'')+'" style="animation-delay:'+delay+'ms;">'+
-        '<div class="rk-md">'+md+'</div>'+ av +
+        av +
         '<div class="rk-nm">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
-        '<div class="rk-rt">RANK '+PR.rank+'</div>'+
-        '<div class="rk-sk" style="color:'+(PR.god?'#fde047':'#c4b5fd')+';">'+esc(PR.tier)+(PR.god?' 👑':'')+'</div>'+
-        '<div style="font-size:9px;color:#6b7d90;margin-top:2px;">'+Number(PR.stars).toLocaleString()+' ★</div>'+ sk +
+        '<div class="rk-rt" style="color:'+tierColor(PR.tier)+';">RANK '+PR.rank+'</div>'+
+        '<div class="rk-sk" style="color:'+tierColor(PR.tier)+';font-weight:800;">'+esc(PR.tier)+(PR.god?' 👑':'')+'</div>'+
+        '<div style="font-size:9px;color:#6b7d90;margin-top:2px;">'+Number(PR.stars).toLocaleString()+' ★</div>'+
       '</div>';
     }).join('')+'</div>';
   }
@@ -18291,13 +18290,14 @@ body.light .jul4-lbscore{color:#059669}
     host.className='hub-prof';
     var name=(typeof ename==='function')?ename():'', id=(typeof eid==='function')?eid():'';
     var ph=rkPhoto(id);
-    // Equipped avatar frame + title — the flair you earned or bought.
-    var fr=(COS.frame&&COS.frame!=='none')?(' fr-'+COS.frame):'';
-    var ttl=''; if(_tetCos&&_tetCos.titles){ _tetCos.titles.forEach(function(t){ if(t.id===(_tetCos.equipped&&_tetCos.equipped.title)) ttl=t.name; }); }
-    var av=ph?'<div class="hp-av'+fr+'"><img src="'+ph+'" alt=""></div>':'<div class="hp-av'+fr+'">'+rkInitial(name)+'</div>';
     var rating=me?(me.rating||0):0, rank=me?me.rank:null, skill=me?(me.skill_level||0):0, wins=me?(me.wins||0):0, best=me?(me.best||0):0;
     // Star rank — the visible ladder. Rating stays as the quiet, precise number behind it.
     var R = rankFromStars(me?(me.stars||0):0);
+    // Equipped cosmetic frame wins if you bought one; otherwise your RANK is your ring.
+    var fr=(COS.frame&&COS.frame!=='none')?(' fr-'+COS.frame):'';
+    var rs=fr?'':ringStyle(R.tier,2);
+    var ttl=''; if(_tetCos&&_tetCos.titles){ _tetCos.titles.forEach(function(t){ if(t.id===(_tetCos.equipped&&_tetCos.equipped.title)) ttl=t.name; }); }
+    var av=ph?'<div class="hp-av'+fr+'" style="'+rs+'"><img src="'+ph+'" alt=""></div>':'<div class="hp-av'+fr+'" style="'+rs+'">'+rkInitial(name)+'</div>';
     var nextTier = R.god ? '' : tierName(R.rank+1, false);
     var toNextLbl = R.god ? 'The ceiling. Nobody is above you.'
                   : (R.to_next+' ★ to Rank '+(R.rank+1)+(nextTier!==R.tier?(' · '+nextTier):''));
@@ -18307,7 +18307,7 @@ body.light .jul4-lbscore{color:#059669}
         (ttl?('<div class="hp-title">'+esc(ttl)+'</div>'):'')+
         '<div class="hp-stars">'+starMeter(R)+'<em>'+esc(toNextLbl)+'</em></div>'+
         '<div class="hub-chips">'+
-          '<span class="hub-chip">Rating <b>'+rating+'</b></span>'+
+          '<span class="hub-chip"><b>'+Number(R.stars).toLocaleString()+'</b> ★ total</span>'+
           (rank?('<span class="hub-chip">#<b>'+rank+'</b> on team</span>'):'')+
           ((me&&(me.duel_wins>0||me.duel_losses>0))?('<span class="hub-chip" title="Duel win +5 ★ · loss -3 ★ (max +10 ★ per opponent per day)">Duels <b>'+(me.duel_wins||0)+'W</b>–<b>'+(me.duel_losses||0)+'L</b></span>'):'')+
           ((me&&me.solo_stars>0)?('<span class="hub-chip" title="Banked from your BEST result in each solo mode. Beat your record to raise it."><b>'+me.solo_stars+'</b> ★ milestones</span>'):'')+
@@ -18394,31 +18394,44 @@ body.light .jul4-lbscore{color:#059669}
     var host=el('tet-hub-play'); if(!host) return;
     var back='<button class="hub-btn" style="grid-column:1/-1;justify-content:center;" onclick="renderHubPlayBack()"><span>← Back to modes</span></button>';
     var myR=myStarRank();
-    var ids=onlineOpponents();
-    if(!ids.length){
-      host.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#9fb0d6;font-size:12.5px;padding:16px;line-height:1.6;">'+
-        'No teammates online right now.<br><span style="color:#6b7d90;font-size:11.5px;">Ranked needs a live opponent — try the bot ladder or a solo mode meanwhile.</span></div>'+back;
-      return;
-    }
-    // Rank every candidate by how close they are to you.
-    var cands=ids.map(function(id){
+    // Live teammates first — a real opponent always beats a standing one.
+    var cands=onlineOpponents().map(function(id){
       var row=boardRowFor(id);
       var R=rankFromStars(row?(row.stars||0):0);
-      return { id:id, name:(presenceNames&&presenceNames[id])||id, R:R, row:row, gap:Math.abs(R.rank-myR) };
-    }).sort(function(a,b){ return a.gap-b.gap; });
+      return { id:id, name:(presenceNames&&presenceNames[id])||id, R:R, row:row,
+               gap:Math.abs(R.rank-myR), cpu:false };
+    });
+    // Then the standing pool, so there's ALWAYS a fight at your level. Take the closest few.
+    var pool=rankedPool().map(function(b){
+      return { id:b.id, name:b.name, R:{rank:b.rank, tier:b.tier, god:false, stars:0},
+               row:{ duel_wins:b.wins, duel_losses:b.losses },
+               gap:Math.abs(b.rank-myR), cpu:true, lv:b.lv };
+    }).sort(function(a,b){ return a.gap-b.gap; }).slice(0,6);
+
+    cands = cands.concat(pool).sort(function(a,b){
+      if(a.gap!==b.gap) return a.gap-b.gap;
+      return (a.cpu?1:0)-(b.cpu?1:0);      // dead tie → the human gets it
+    });
+    if(!cands.length){ host.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#9fb0d6;font-size:12.5px;padding:16px;">No opponents available.</div>'+back; return; }
 
     var best=cands[0];
     var quality = best.gap<=3 ? {t:'PERFECT MATCH', c:'#22c55e'}
                 : best.gap<=10 ? {t:'CLOSE MATCH',  c:'#38bdf8'}
                 : best.gap<=25 ? {t:'ROUGH MATCH',  c:'#fbbf24'}
                 : {t:'MISMATCH', c:'#f87171'};
-    var ph=rkPhoto(best.id);
-    var av=ph?'<div class="hp-av"><img src="'+ph+'" alt=""></div>':'<div class="hp-av">'+rkInitial(best.name)+'</div>';
+    var fight=function(c){
+      return c.cpu ? ('tetRankedFight(\''+encodeURIComponent(c.id)+'\')')
+                   : ('tetHubChallenge(\''+encodeURIComponent(c.id)+'\',\''+encodeURIComponent(c.name)+'\')');
+    };
+    var ph=best.cpu?null:rkPhoto(best.id);
+    var bring=ringStyle(best.R.tier,3);
+    var av=ph?'<div class="hp-av" style="'+bring+'"><img src="'+ph+'" alt=""></div>':'<div class="hp-av" style="'+bring+'">'+rkInitial(best.name)+'</div>';
     var wl=best.row?((best.row.duel_wins||0)+'W–'+(best.row.duel_losses||0)+'L'):'no duels yet';
+    var live=best.cpu?'':'<span style="color:#22c55e;font-size:9.5px;font-weight:800;"> ● ONLINE NOW</span>';
 
     var card='<div style="grid-column:1/-1;" class="hub-prof">'+av+
       '<div style="flex:1;min-width:0;">'+
-        '<div style="font-size:9.5px;font-weight:900;letter-spacing:1px;color:'+quality.c+';">'+quality.t+'</div>'+
+        '<div style="font-size:9.5px;font-weight:900;letter-spacing:1px;color:'+quality.c+';">'+quality.t+live+'</div>'+
         '<div class="hp-name">'+esc(best.name)+'</div>'+
         '<div class="hp-stars"><em>Rank '+best.R.rank+' · '+esc(best.R.tier)+' · '+wl+'</em></div>'+
         '<div class="hp-stars"><em style="color:#6b7d90;">You are Rank '+myR+' — '+(best.gap===0?'dead level':(best.gap+' rank'+(best.gap===1?'':'s')+' apart'))+'</em></div>'+
@@ -18427,18 +18440,20 @@ body.light .jul4-lbscore{color:#059669}
     '</div>';
 
     var go='<button class="hub-btn" style="grid-column:1/-1;justify-content:center;background:linear-gradient(135deg,rgba(255,107,26,.28),rgba(232,61,0,.14));border-color:rgba(255,107,26,.6);" '+
-      'onclick="tetHubChallenge(\''+encodeURIComponent(best.id)+'\',\''+encodeURIComponent(best.name)+'\')">'+
-      '<span class="hi">⚔</span><span>Challenge '+esc(best.name)+'<small>Ranked duel · winner takes +5 ★</small></span></button>';
+      'onclick="'+fight(best)+'">'+
+      '<span class="hi">⚔</span><span>Challenge '+esc(best.name)+'<small>'+(best.cpu?'Ranked match · Rank '+best.R.rank+' opponent':'Live duel · winner takes +12 ★')+'</small></span></button>';
 
-    // Everyone else who's online, still sorted by closeness — in case you want a different fight.
-    var others=cands.slice(1);
+    var others=cands.slice(1,8);
     var rest = others.length
-      ? '<div style="grid-column:1/-1;font-size:10px;font-weight:800;color:#8a97b5;letter-spacing:.6px;text-transform:uppercase;margin-top:4px;">Other opponents online</div>'+
+      ? '<div style="grid-column:1/-1;font-size:10px;font-weight:800;color:#8a97b5;letter-spacing:.6px;text-transform:uppercase;margin-top:4px;">Other opponents at your level</div>'+
         others.map(function(c){
-          var p2=rkPhoto(c.id);
-          var a2=p2?'<span class="hi" style="padding:0;overflow:hidden;background:#0b1020;"><img src="'+p2+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:9px;"></span>':'<span class="hi">'+rkInitial(c.name)+'</span>';
-          return '<button class="hub-btn" style="grid-column:1/-1;" onclick="tetHubChallenge(\''+encodeURIComponent(c.id)+'\',\''+encodeURIComponent(c.name)+'\')">'+a2+
-            '<span>'+esc(c.name)+'<small>Rank '+c.R.rank+' · '+esc(c.R.tier)+' · '+c.gap+' apart</small></span></button>';
+          var p2=c.cpu?null:rkPhoto(c.id);
+          var rr=ringStyle(c.R.tier,2)+'border-radius:9px;';
+          var a2=p2?'<span class="hi" style="padding:0;overflow:hidden;background:#0b1020;'+rr+'"><img src="'+p2+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:7px;"></span>'
+                   :'<span class="hi" style="'+rr+'">'+rkInitial(c.name)+'</span>';
+          return '<button class="hub-btn" style="grid-column:1/-1;" onclick="'+fight(c)+'">'+a2+
+            '<span>'+esc(c.name)+(c.cpu?'':' <span style="color:#22c55e;">●</span>')+
+            '<small>Rank '+c.R.rank+' · '+esc(c.R.tier)+' · '+(c.gap===0?'dead level':c.gap+' apart')+'</small></span></button>';
         }).join('')
       : '';
     host.innerHTML = card + go + rest + back;
@@ -18464,10 +18479,10 @@ body.light .jul4-lbscore{color:#059669}
 
       if(t.req){
         // EARNED, NOT BOUGHT. No amount of coins unlocks this — you have to be good enough.
-        tag = '<span class="thm-cost req">★ '+t.req+'+</span>';
+        tag = '<span class="thm-cost req">Rank '+t.req+'+</span>';
         if(on)        btn='<button class="thm-btn on">Equipped</button>';
         else if(own)  btn='<button class="thm-btn equip" onclick="tetEquipTheme(\''+id+'\')">Equip</button>';
-        else          btn='<button class="thm-btn locked" disabled>Rating '+rating+' / '+t.req+'</button>';
+        else          btn='<button class="thm-btn locked" disabled>Rank '+rating+' / '+t.req+'</button>';
       } else {
         tag = (t.cost>0 ? '<span class="thm-cost">'+t.cost+'</span>'
                         : '<span class="thm-cost" style="color:#34d399;">Free</span>');
@@ -18561,6 +18576,17 @@ body.light .jul4-lbscore{color:#059669}
   function tierName(rank,god){ if(god) return 'God of Tetris';
     var n='Tenderfoot'; for(var i=0;i<RANK_TIERS.length;i++){ if(rank>=RANK_TIERS[i][0]) n=RANK_TIERS[i][1]; } return n; }
   function tierCls(tier){ return 'tr-'+String(tier).toLowerCase().replace(/[^a-z]+/g,''); }
+  // Your rank IS your ring. The border round every avatar is coloured by tier — one glance
+  // at the board tells you who's dangerous, no medals required.
+  var TIER_COLOR={ 'Tenderfoot':'#8a97b5','Rookie':'#94a3b8','Amateur':'#cbd5e1',
+                   'Contender':'#22c55e','Challenger':'#4ade80','Veteran':'#38bdf8','Expert':'#22d3ee',
+                   'Master':'#a855f7','Grandmaster':'#c084fc','Elite':'#fbbf24','Legend':'#fcd34d',
+                   'Demi-god':'#f43f5e','God of Tetris':'#fde047' };
+  function tierColor(t){ return TIER_COLOR[t]||'#8a97b5'; }
+  function ringStyle(tier,w){
+    var c=tierColor(tier), god=(tier==='God of Tetris');
+    return 'border:'+(w||3)+'px solid '+c+';box-shadow:0 0 '+(god?22:14)+'px '+c+(god?'':'aa')+';';
+  }
   var RANK_STEP=15, RANK_STEP_HI=150, RANK_HI_AT=1500;   // must match the server
   function rankFromStars(stars){
     stars=Math.max(0,parseInt(stars,10)||0);
@@ -18772,9 +18798,10 @@ body.light .jul4-lbscore{color:#059669}
         if((p.duel_wins||0)+(p.duel_losses||0)>0) bits.push((p.duel_wins||0)+'W–'+(p.duel_losses||0)+'L');
         if(p.combo_best>0) bits.push(p.combo_best+' combo');
         if(p.sprint_ms>0) bits.push('Sprint '+(p.sprint_ms/1000).toFixed(1)+'s');
-        bits.push('rating '+(p.rating||0));
+        if(p.ultra_score>0) bits.push('Ultra '+Number(p.ultra_score).toLocaleString());
         var ph=rkPhoto(p.employee_id);
-        var av2=ph?'<div class="rk-av2" style="overflow:hidden;padding:0;background:#0b1020;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\'linear-gradient(135deg,#2c3a5c,#1a2438)\';"></div>':'<div class="rk-av2">'+rkInitial(p.name)+'</div>';
+        var ring2=ringStyle(PR.tier,2)+'border-radius:50%;';   // the ring IS the rank
+        var av2=ph?'<div class="rk-av2" style="overflow:hidden;padding:0;background:#0b1020;'+ring2+'"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\'linear-gradient(135deg,#2c3a5c,#1a2438)\';"></div>':'<div class="rk-av2" style="'+ring2+'">'+rkInitial(p.name)+'</div>';
         return '<div class="rk-row'+(mine?' me':'')+'" style="animation-delay:'+Math.min(i*45,500)+'ms;">'+
           '<div class="rk-pos">'+p.rank+'</div>'+
           av2+
@@ -18854,25 +18881,84 @@ body.light .jul4-lbscore{color:#059669}
   ];
   var _mySkill=0, _ladderNext=0;
   function collideOn(grid,m,x,y){ for(var r=0;r<m.length;r++)for(var c=0;c<m[r].length;c++){ if(!m[r][c]) continue; var gx=x+c,gy=y+r; if(gx<0||gx>=W||gy>=H) return true; if(gy>=0&&grid[gy][gx]) return true; } return false; }
-  window.tetrisTraining=function(level){
+  // ══════════════ THE RANKED POOL ══════════════
+  // 120 standing opponents so Ranked Match always has someone at your exact level, even at
+  // 3am when nobody else is online. Each has a fixed rank; their play strength is derived
+  // from it, so a Rank 12 opponent really does play like a Rank 12.
+  var BOT_FIRST=['James','Michael','Robert','John','David','William','Richard','Joseph','Thomas','Charles',
+    'Christopher','Daniel','Matthew','Anthony','Mark','Donald','Steven','Andrew','Kenneth','Joshua',
+    'Kevin','Brian','George','Timothy','Ronald','Jason','Edward','Jeffrey','Ryan','Jacob',
+    'Mary','Patricia','Jennifer','Linda','Elizabeth','Barbara','Susan','Jessica','Sarah','Karen',
+    'Lisa','Nancy','Betty','Margaret','Sandra','Ashley','Kimberly','Emily','Donna','Michelle',
+    'Carol','Amanda','Melissa','Deborah','Stephanie','Rebecca','Laura','Sharon','Cynthia','Kathleen',
+    'Tyler','Brandon','Justin','Scott','Eric','Stephen','Adam','Nathan','Zachary','Aaron',
+    'Austin','Sean','Jordan','Cody','Derek','Travis','Trevor','Blake','Chase','Dustin',
+    'Megan','Rachel','Heather','Amber','Brittany','Danielle','Katie','Christina','Vanessa','Erica',
+    'Marcus','Tony','Vince','Dean','Wade','Cole','Ross','Grant','Bryce','Reed',
+    'Hailey','Sierra','Jenna','Paige','Kelsey','Tara','Monica','Renee','Gina','Alexis',
+    'Logan','Hunter','Colton','Garrett','Preston','Spencer','Dalton','Bryan','Curtis','Shane'];
+  var BOT_LAST=['Smith','Johnson','Williams','Brown','Jones','Miller','Davis','Wilson','Anderson','Taylor',
+    'Thomas','Moore','Jackson','Martin','Lee','Thompson','White','Harris','Clark','Lewis',
+    'Walker','Hall','Allen','Young','King','Wright','Scott','Green','Baker','Adams',
+    'Nelson','Hill','Campbell','Mitchell','Roberts','Carter','Phillips','Evans','Turner','Parker',
+    'Collins','Edwards','Stewart','Morris','Murphy','Cook','Rogers','Morgan','Peterson','Cooper',
+    'Reed','Bailey','Bell','Kelly','Howard','Ward','Cox','Richardson','Wood','Watson',
+    'Brooks','Bennett','Gray','James','Price','Myers','Long','Foster','Sanders','Ross',
+    'Powell','Sullivan','Russell','Ortiz','Jenkins','Perry','Butler','Barnes','Fisher','Henderson',
+    'Coleman','Simmons','Patterson','Jordan','Reynolds','Hamilton','Graham','Wallace','Woods','Cole',
+    'West','Owens','Harrison','Fox','Riley','Armstrong','Carpenter','Weaver','Greene','Lawrence',
+    'Elliott','Chavez','Sims','Austin','Peters','Kelley','Franklin','Lawson','Fields','Gutierrez',
+    'Ryan','Schmidt','Carr','Vasquez','Castillo','Wheeler','Chapman','Oliver','Montgomery','Richards'];
+  // Deterministic — the same roster every session, so "Marcus Bell" is always Rank 47.
+  function buildRankedPool(){
+    var pool=[], rnd=mulberry32(20260713);
+    for(var i=0;i<120;i++){
+      var first=BOT_FIRST[i % BOT_FIRST.length];
+      var last =BOT_LAST[(i*7+3) % BOT_LAST.length];
+      // Spread ranks 2..108 across the roster so every band has opponents.
+      var rank = 2 + Math.round((i/119) * 106);
+      rank = Math.max(1, Math.min(110, rank + Math.floor(rnd()*5) - 2));
+      // Rank → play strength (bot level 1-10). Rank 110 ≈ Lv10, Rank 1 ≈ Lv1.
+      var lv = Math.max(1, Math.min(10, Math.round(1 + (rank/110)*9)));
+      var R  = rankFromStars(0); R.rank=rank; R.tier=tierName(rank,false);
+      pool.push({ id:'cpu-'+i, name:first+' '+last, rank:rank, lv:lv, tier:R.tier, cpu:true,
+                  wins:Math.floor(rnd()*90)+rank, losses:Math.floor(rnd()*70)+5 });
+    }
+    return pool.sort(function(a,b){ return a.rank-b.rank; });
+  }
+  var RANKED_POOL=null;
+  function rankedPool(){ if(!RANKED_POOL) RANKED_POOL=buildRankedPool(); return RANKED_POOL; }
+  window.tetRankedFight=function(idEnc){
+    var id=decodeURIComponent(idEnc);
+    var b=null; rankedPool().forEach(function(x){ if(x.id===id) b=x; });
+    if(!b) return;
+    tetCloseRanking();
+    window.tetrisTraining(b.lv, { name:b.name, rank:b.rank, bypass:true, ranked:true });
+  };
+
+  window.tetrisTraining=function(level, opts){
     if(M && M.playing) return;
     if(!canPlayGame()) return; ac();
+    opts=opts||{};
     level=parseInt(level,10)||1; if(level<1) level=1; if(level>10) level=10;
-    if(level>_mySkill+1){ try{ showToast('🔒 Locked — beat Lv'+_mySkill+' first to unlock Lv'+level+'.'); }catch(_){} return; }
+    // Ranked opponents aren't gated by the practice ladder — they're matched to YOUR rank.
+    if(!opts.bypass && level>_mySkill+1){ try{ showToast('🔒 Locked — beat Lv'+_mySkill+' first to unlock Lv'+level+'.'); }catch(_){} return; }
     var bot=BOTS[level-1];
+    var botName=opts.name || bot.name;
     var oc=el('tet-opp-col'); if(oc) oc.style.display='';
     var arc=el('tet-arena-col'); if(arc) arc.style.display='none';
-    el('tet-opp-label').textContent='🤖 '+bot.name+' · Lv'+level;
+    el('tet-opp-label').textContent = opts.ranked ? (botName+' · Rank '+opts.rank) : ('🤖 '+botName+' · Lv'+level);
     var id='train-'+Date.now();
-    M={ matchId:id, mode:'training', playing:true, ended:false, alive:true, oppName:bot.name, botLevel:level,
+    M={ matchId:id, mode:'training', playing:true, ended:false, alive:true, oppName:botName, botLevel:level, ranked:!!opts.ranked, _oppRank:opts.rank||0,
         rng:mulberry32(hashStr(id)), bag:[], grid:empty(), score:0, lines:0, level:1, pendingGarbage:0, nextT:null, hold:null, canHold:true, combo:0, b2b:false,
         kos:0, myKos:0, oppKos:0, oppGrid:empty(), oppScore:0, oppLines:0, oppAlive:true };
     BOT={ grid:empty(), rng:mulberry32(hashStr(id+'-bot')), bag:[], score:0, lines:0, alive:true, pending:0, combo:0, kos:0,
-        level:level, name:bot.name, mistake:Math.max(0,(10-level)/13), interval:Math.max(240, 1150-(level-1)*100) };
+        level:level, name:botName, mistake:Math.max(0,(10-level)/13), interval:Math.max(240, 1150-(level-1)*100) };
     openOverlay(); el('tet-controls').style.display='block';
     el('tet-me-score').textContent='0'; el('tet-me-lines').textContent='0'; el('tet-opp-score').textContent='0'; el('tet-opp-lines').textContent='0';
     attachControls();
-    var n=3; status('Lv'+level+' '+bot.name+' — starting in '+n+'…'); sfxTick();
+    var lead = opts.ranked ? botName : ('Lv'+level+' '+botName);
+    var n=3; status(lead+' — starting in '+n+'…'); sfxTick();
     var cd=setInterval(function(){ n--; if(n>0){ status('Starting in '+n+'…'); sfxTick(); } else { clearInterval(cd); goTraining(); } }, 800);
   };
   function goTraining(){
@@ -19214,6 +19300,16 @@ body.light .jul4-lbscore{color:#059669}
     // Bracket bot match (odd player out) → report to the bracket, skip the Skill Ladder entirely.
     if(M.bk){ bkBotDone(win, M.score||0); return; }
     var lv=M.botLevel||0, bname=(BOT&&BOT.name)||'the Bot';
+    // ── Ranked pool match ── separate from the Skill Ladder: it doesn't climb levels, and it
+    // awards NO stars. Standing opponents are replayable, so paying stars for them would be a
+    // free farm. They exist so there's always a fair fight available, not to inflate ranks.
+    if(M.ranked){
+      var rp=el('tr-points'); showDuelResult(!!win);
+      if(rp) rp.textContent = win
+        ? '🏆 You beat '+bname+' — a Rank '+(M._oppRank||'?')+' opponent. No stars: ranked pool matches are practice.'
+        : bname+' took that one. Ranked pool matches cost you nothing — run it back.';
+      return;
+    }
     if(lv) recordBotGame(win, lv, M.score||0, M.lines||0, bname);   // grade skill + log lines
     // Skill Ladder: on a WIN, climb to the next level automatically until you lose (or clear Lv10).
     if(lv && win && lv<10){
