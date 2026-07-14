@@ -16083,9 +16083,22 @@ body.light .jul4-lbscore{color:#059669}
                 typeof isIdleProject==='function' && isIdleProject(trkRunning.project));
     }catch(e){ return false; }
   }
+  // The SCHEDULED tournaments (3 PM day bracket, nightly, Grand Final) are company events that
+  // land inside people's shifts by design. Nobody should have to stop their timer to take part —
+  // and once you're IN a bracket, a mid-tournament check must never lock you out of your own
+  // match (the bot round would otherwise eliminate anyone who happens to be clocked in).
+  function inScheduledTourney(){
+    try{
+      if(typeof TB!=='undefined' && TB && (TB.nightly || TB.grand)) return true;   // bracket in progress
+      if(typeof TL!=='undefined' && TL && TL.nightly) return true;                 // in the lobby
+      if(typeof ntIsLive==='function' && ntIsLive(phtNowParts())) return true;     // the join window is open
+    }catch(e){}
+    return false;
+  }
   function canPlayGame(){
     var s=(typeof myWorkStatus==='function')?myWorkStatus():'online';
     if(s==='idle' || s==='online' || onIdleTask()) return true;
+    if(inScheduledTourney()) return true;   // sanctioned event — your timer keeps running
     showToast('You can only play while idle or with no task running. Stop your current task first. ⏱️');
     return false;
   }
@@ -19257,11 +19270,12 @@ body.light .jul4-lbscore{color:#059669}
     // Sunday reads differently — it's the championship.
     try{
       var bl = el('tet-nightly-blurb');
-      if(bl) bl.innerHTML = bkIsGrand(sid)
+      var _keep = '<div style="margin-top:6px;font-size:11px;color:#22c55e;font-weight:700;">⏱️ Your timer keeps running — no need to stop your task.</div>';
+      if(bl) bl.innerHTML = (bkIsGrand(sid)
         ? '👑 <b style="color:#fbbf24;">THE GRAND FINAL</b> — the week\'s championship. Top 3 earn 1,200 · 600 · 300 JMB Points, and the winner wears the crown all week.'
         : bkIsDay(sid)
         ? '☀️ <b style="color:#fbbf24;">Day Tournament</b> — knockout bracket. Top 3 earn JMB Points: 🥇250 · 🥈150 · 🥉100.'
-        : 'Tournament time! Knockout bracket — top 3 earn JMB Points: 🥇400 · 🥈200 · 🥉150.';
+        : 'Tournament time! Knockout bracket — top 3 earn JMB Points: 🥇400 · 🥈200 · 🥉150.') + _keep;
     }catch(_g){}
     e.style.display='block';
     try{ sfxInvite(); }catch(_){}
