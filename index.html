@@ -4492,8 +4492,6 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="prod-open-btn" style="margin:0;" onclick="if(window.jul4Open)jul4Open();"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polygon points="10 8 16 12 10 16" fill="currentColor" stroke="none"/></svg></span> Play Daily Trivia</button>
               <button class="prod-open-btn" style="margin:0;" onclick="openRedeem()"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v9H4v-9"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></span> Redeem</button>
-              <button class="prod-open-btn" style="margin:0;" onclick="if(window.trvOpenRanking)trvOpenRanking()"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;font-size:14px;">🏆</span> Trivia Champions</button>
-              <button class="prod-open-btn tarot-btn" style="margin:0;" onclick="openTarot()"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;font-size:14px;">🔮</span> Daily Tarot</button>
             </div>
           </div>
           <div id="points-hist" style="margin-top:8px;font-size:11.5px;color:var(--text-3);"></div>
@@ -6618,6 +6616,97 @@ function tarotDraw(){
 function _tarotSeenKey(){ return 'tarotSeen:'+_tarotToday(); }
 function tarotSeenToday(){ try{ return localStorage.getItem(_tarotSeenKey())==='1'; }catch(e){ return false; } }
 
+/* ── 🔊 The sound of the ritual (Web Audio — no files, nothing to host) ──
+   A soft bell-like shimmer on open, a papery riffle while it shuffles, then a chord that
+   RESOLVES MAJOR for an upright card and MINOR for a reversed one — so you can hear the
+   verdict a half-second before you can read it. */
+var _trAC=null, _trMuted=false;
+try{ _trMuted = localStorage.getItem('tarotMuted')==='1'; }catch(e){}
+function _trCtx(){
+  try{
+    if(!_trAC) _trAC = new (window.AudioContext||window.webkitAudioContext)();
+    if(_trAC.state==='suspended') _trAC.resume();
+  }catch(e){ _trAC=null; }
+  return _trAC;
+}
+// One voice: freq, start offset, duration, peak gain, waveform, optional pitch glide.
+function _trTone(f, t0, dur, vol, type, glideTo){
+  if(_trMuted) return;
+  var a=_trCtx(); if(!a) return;
+  try{
+    var t=a.currentTime+t0;
+    var o=a.createOscillator(), g=a.createGain();
+    o.type=type||'sine';
+    o.frequency.setValueAtTime(f, t);
+    if(glideTo) o.frequency.exponentialRampToValueAtTime(glideTo, t+dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t+Math.min(0.12, dur*0.25));   // soft swell, never a click
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t+dur+0.05);
+  }catch(e){}
+}
+// Filtered noise — the riffle of a deck being shuffled.
+function _trNoise(t0, dur, vol){
+  if(_trMuted) return;
+  var a=_trCtx(); if(!a) return;
+  try{
+    var n=Math.floor(a.sampleRate*dur);
+    var buf=a.createBuffer(1, n, a.sampleRate), d=buf.getChannelData(0);
+    for(var i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n, 1.6);   // decaying hiss
+    var src=a.createBufferSource(); src.buffer=buf;
+    var bp=a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2600; bp.Q.value=0.9;
+    var g=a.createGain(); g.gain.value=vol;
+    src.connect(bp); bp.connect(g); g.connect(a.destination);
+    src.start(a.currentTime+t0);
+  }catch(e){}
+}
+function tarotSfxOpen(){        // arriving — a distant, mesmerising shimmer
+  _trTone(523.25, 0,    2.6, 0.05, 'sine');
+  _trTone(783.99, 0.10, 2.4, 0.035,'sine');
+  _trTone(1046.5, 0.22, 2.0, 0.022,'triangle');
+  _trTone(130.81, 0,    3.2, 0.045,'sine');            // low drone underneath
+}
+function tarotSfxShuffle(){     // three riffles, quickening
+  _trNoise(0,    0.16, 0.10);
+  _trNoise(0.20, 0.14, 0.085);
+  _trNoise(0.38, 0.12, 0.07);
+  _trTone(220, 0.05, 0.5, 0.02, 'triangle', 330);
+}
+function tarotSfxFlip(reversed){
+  _trNoise(0, 0.10, 0.12);                              // the card lands
+  _trTone(1318.5, 0.02, 0.7, 0.05, 'triangle', 1975.5); // rising sparkle
+  // The chord. Major = C E G (settled). Minor = C Eb G + a flattened 6th (unsettled).
+  var root=261.63, base=0.5;
+  if(!reversed){
+    _trTone(root,        base, 2.4, 0.055,'sine');
+    _trTone(root*1.2599, base+0.06, 2.3, 0.045,'sine');   // major 3rd
+    _trTone(root*1.4983, base+0.12, 2.2, 0.04, 'sine');   // 5th
+    _trTone(root*2,      base+0.18, 2.0, 0.03, 'triangle');
+  } else {
+    _trTone(root,        base, 2.6, 0.055,'sine');
+    _trTone(root*1.1892, base+0.06, 2.5, 0.05, 'sine');   // MINOR 3rd — the tell
+    _trTone(root*1.4983, base+0.12, 2.4, 0.04, 'sine');
+    _trTone(root*1.5874, base+0.30, 1.8, 0.028,'sine');   // b6, hanging unresolved
+  }
+}
+window.tarotToggleMute = function(){
+  _trMuted=!_trMuted;
+  try{ localStorage.setItem('tarotMuted', _trMuted?'1':'0'); }catch(e){}
+  var b=document.getElementById('tarot-mute'); if(b) b.textContent=_trMuted?'🔇':'🔊';
+};
+// Sprinkle a drifting starfield behind the ritual.
+function _tarotStars(){
+  var host=document.getElementById('tarot-stars'); if(!host || host.childElementCount) return;
+  var h='';
+  for(var i=0;i<44;i++){
+    h += '<i style="left:'+(Math.random()*100).toFixed(2)+'%;top:'+(Math.random()*100).toFixed(2)+'%;'+
+         '--tw:'+(2.5+Math.random()*4).toFixed(1)+'s;--td:'+(Math.random()*4).toFixed(1)+'s;'+
+         'transform:scale('+(0.6+Math.random()*1.4).toFixed(2)+');"></i>';
+  }
+  host.innerHTML=h;
+}
+
 var _tarotDrawn = null;
 window.openTarot = function(){
   var m=document.getElementById('tarot-modal'); if(!m) return;
@@ -6654,20 +6743,62 @@ window.openTarot = function(){
   flip.classList.toggle('revealed', seen);
   read.classList.toggle('show', seen);
   tap.style.display = seen ? 'none' : 'block';
+  document.getElementById('tarot-front').classList.toggle('landed', false);
 
+  // Reset the theatre. If they already drew today, skip straight to the settled state —
+  // the ritual is a once-a-day thing, not something to replay on every open.
+  document.getElementById('tarot-front').classList.remove('landed');
+  document.getElementById('tarot-burst').classList.remove('go');
+  flip.classList.remove('shuffling','flipping');
+  tap.textContent = 'Tap the card';
+  _tarotBusy = false;
+  var mb=document.getElementById('tarot-mute'); if(mb) mb.textContent=_trMuted?'🔇':'🔊';
+
+  _tarotStars();
   m.classList.add('open');
-  var btn=document.querySelector('.tarot-btn'); if(btn) btn.classList.remove('unread');
+  if(!seen) tarotSfxOpen();                      // the shimmer, only on a fresh draw
+  var fab=document.getElementById('tarot-fab'); if(fab) fab.classList.remove('unread');
 };
+var _tarotBusy = false;
 window.revealTarot = function(){
   var flip=document.getElementById('tarot-flip');
-  if(!flip || flip.classList.contains('revealed')) return;
-  flip.classList.add('revealed');
-  document.getElementById('tarot-tap').style.display='none';
+  if(!flip || flip.classList.contains('revealed') || _tarotBusy) return;
+  _tarotBusy = true;
+
+  var front = document.getElementById('tarot-front');
+  var burst = document.getElementById('tarot-burst');
+  var tap   = document.getElementById('tarot-tap');
+
+  // ── ACT I: the deck shuffles. The card rocks; you hear the riffle. ──
+  flip.classList.add('shuffling');
+  if(tap) tap.textContent = 'Consulting the cards…';
+  tarotSfxShuffle();
+
   setTimeout(function(){
-    var r=document.getElementById('tarot-read'); if(r) r.classList.add('show');
-  }, 620);
+    // ── ACT II: the flip. It lifts off the table and turns. ──
+    flip.classList.remove('shuffling');
+    flip.classList.add('flipping','revealed');
+    if(tap) tap.style.display='none';
+    tarotSfxFlip(_tarotDrawn.reversed);
+
+    // ── ACT III: it lands. Light bursts out; the face glows and settles. ──
+    setTimeout(function(){
+      if(burst){ burst.classList.remove('go'); void burst.offsetWidth; burst.classList.add('go'); }
+      if(front) front.classList.add('landed');
+      try{
+        if(typeof tetConfetti==='function' && !_tarotDrawn.reversed) tetConfetti({count:90, dur:2200});
+      }catch(e){}
+    }, 620);
+
+    // ── ACT IV: the reading fades up, line by line. ──
+    setTimeout(function(){
+      var r=document.getElementById('tarot-read'); if(r) r.classList.add('show');
+      _tarotBusy=false;
+    }, 1000);
+  }, 900);   // let them hear the shuffle before the card turns
+
   try{ localStorage.setItem(_tarotSeenKey(),'1'); }catch(e){}
-  try{ if(typeof tetConfetti==='function' && !_tarotDrawn.reversed) tetConfetti({count:70, dur:1800}); }catch(e){}
+  try{ tarotMarkUnread(); }catch(e){}   // FAB stops glowing / relabels the moment it's drawn
 };
 window.closeTarot = function(){ var m=document.getElementById('tarot-modal'); if(m) m.classList.remove('open'); };
 window.shareTarot = function(){
@@ -6679,10 +6810,13 @@ window.shareTarot = function(){
     navigator.clipboard.writeText(txt).then(function(){ showToast('Reading copied — paste it in chat 🔮'); });
   }catch(e){ showToast('Copy failed.'); }
 };
-// A quiet pulse on the button until they\'ve drawn today\'s card.
+// The floating button glows until today's card has been drawn, then settles down.
 function tarotMarkUnread(){
-  var btn=document.querySelector('.tarot-btn'); if(!btn) return;
-  btn.classList.toggle('unread', !tarotSeenToday());
+  var fab=document.getElementById('tarot-fab'); if(!fab) return;
+  var fresh=!tarotSeenToday();
+  fab.classList.toggle('unread', fresh);
+  var lbl=document.getElementById('tarot-fab-label');
+  if(lbl) lbl.textContent = fresh ? 'Draw your card' : 'Daily Tarot';
 }
 
 function loadMyDemerits() {
@@ -14761,10 +14895,20 @@ body.light .jul4-lbscore{color:#059669}
 
 <!-- ══════════════════ 🔮 DAILY TAROT ══════════════════ -->
 <style>
-  .tarot-btn{position:relative;overflow:hidden}
-  .tarot-btn.unread::after{content:'';position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%;
-    background:#c084fc;box-shadow:0 0 0 0 rgba(192,132,252,.7);animation:tarotPing 1.8s ease-out infinite}
-  @keyframes tarotPing{0%{box-shadow:0 0 0 0 rgba(192,132,252,.6)}70%{box-shadow:0 0 0 7px rgba(192,132,252,0)}100%{box-shadow:0 0 0 0 rgba(192,132,252,0)}}
+  /* Floating tarot button — stacked directly above the Tetris FAB (left:18px), same pill shape. */
+  #tarot-fab{position:fixed;left:18px;bottom:122px;z-index:9000;display:none;align-items:center;gap:8px;
+    background:linear-gradient(135deg,#a855f7,#6d28d9);color:#fff;border:1px solid rgba(255,255,255,.28);
+    border-radius:40px;padding:11px 18px;font:800 13px/1 'Inter',sans-serif;cursor:pointer;
+    box-shadow:0 10px 30px rgba(0,0,0,.4)}
+  #tarot-fab:hover{filter:brightness(1.08)}
+  #tarot-fab .tf-ic{display:inline-flex;font-size:15px;line-height:1}
+  /* Pulse until today's card has been drawn. */
+  #tarot-fab.unread{animation:tarotLive 1.6s ease-in-out infinite}
+  @keyframes tarotLive{0%,100%{box-shadow:0 10px 30px rgba(0,0,0,.4)}
+    50%{box-shadow:0 10px 34px rgba(168,85,247,.75)}}
+  #tarot-fab.unread .tf-ic{animation:tarotSpin 2.6s ease-in-out infinite}
+  @keyframes tarotSpin{0%,100%{transform:rotate(0) scale(1)}50%{transform:rotate(9deg) scale(1.12)}}
+  @media(max-width:640px){ #tarot-fab{padding:10px 14px;font-size:12px} }
 
   #tarot-modal{position:fixed;inset:0;z-index:9600;display:none;align-items:center;justify-content:center;padding:18px;
     background:radial-gradient(ellipse at 50% 0%,rgba(88,28,135,.55),rgba(7,6,17,.9) 65%);backdrop-filter:blur(6px)}
@@ -14822,17 +14966,89 @@ body.light .jul4-lbscore{color:#059669}
   .tr-share button{flex:1;border-radius:11px;padding:10px;font:700 12.5px/1 inherit;cursor:pointer;border:none}
   .tr-share .p{background:linear-gradient(135deg,#a855f7,#7c3aed);color:#fff}
   .tr-share .s{background:rgba(255,255,255,.07);color:#cfc6e6;border:1px solid rgba(192,132,252,.28)}
+  /* ══════════ THE THEATRE ══════════ */
+  /* Drifting starfield behind the whole ritual. */
+  #tarot-stars{position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:0}
+  #tarot-stars i{position:absolute;width:2px;height:2px;border-radius:50%;background:#fff;opacity:0;
+    animation:trTwinkle var(--tw,4s) ease-in-out infinite;animation-delay:var(--td,0s)}
+  @keyframes trTwinkle{0%,100%{opacity:0;transform:scale(.6)}50%{opacity:.9;transform:scale(1.3)}}
+
+  /* Slow mist rolling across the card. */
+  .tr-card::after{content:'';position:absolute;inset:0;border-radius:24px;pointer-events:none;z-index:1;
+    background:radial-gradient(60% 40% at 20% 20%,rgba(192,132,252,.12),transparent 70%),
+               radial-gradient(50% 35% at 80% 70%,rgba(56,189,248,.10),transparent 70%);
+    animation:trMist 14s ease-in-out infinite alternate}
+  @keyframes trMist{0%{transform:translate(-8px,-6px) scale(1)}100%{transform:translate(10px,8px) scale(1.08)}}
+  .tr-card>*{position:relative;z-index:2}
+
+  /* The modal itself irises open. */
+  #tarot-modal.open .tr-card{animation:trOpen .6s cubic-bezier(.2,1.05,.3,1) both}
+  @keyframes trOpen{0%{opacity:0;transform:translateY(22px) scale(.94)}100%{opacity:1;transform:none}}
+
+  /* Face-down card breathes and casts an aura. */
+  .tr-stage{position:relative}
+  .tr-stage::before{content:'';position:absolute;left:50%;top:50%;width:230px;height:230px;margin:-115px 0 0 -115px;
+    border-radius:50%;pointer-events:none;z-index:0;
+    background:radial-gradient(circle,rgba(168,85,247,.36),transparent 62%);
+    animation:trAura 3.6s ease-in-out infinite}
+  @keyframes trAura{0%,100%{transform:scale(.86);opacity:.55}50%{transform:scale(1.14);opacity:1}}
+  .tr-flip{animation:trBreathe 3.6s ease-in-out infinite}
+  .tr-flip.revealed{animation:none}
+  @keyframes trBreathe{0%,100%{transform:translateY(0) rotateY(0)}50%{transform:translateY(-6px) rotateY(0)}}
+
+  /* SHUFFLING — the card rocks while the deck "decides". */
+  .tr-flip.shuffling{animation:trShuffle .42s ease-in-out infinite}
+  @keyframes trShuffle{0%,100%{transform:translateY(0) rotate(0) scale(1)}
+    25%{transform:translateY(-4px) rotate(-3.5deg) scale(1.02)}
+    75%{transform:translateY(-4px) rotate(3.5deg) scale(1.02)}}
+
+  /* THE FLIP — slower, weightier, with a lift through the middle. */
+  .tr-flip.revealed{transform:rotateY(180deg)!important}
+  .tr-flip{transition:transform 1.25s cubic-bezier(.32,.9,.25,1)}
+  .tr-flip.flipping{animation:trLift 1.25s ease-in-out}
+  @keyframes trLift{0%,100%{translate:0 0}50%{translate:0 -26px}}
+
+  /* Light bursts out of the card as it lands. */
+  .tr-burst{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;
+    pointer-events:none;z-index:3;background:#fff;opacity:0}
+  .tr-burst.go{animation:trBurst .9s cubic-bezier(.15,.9,.3,1) forwards}
+  @keyframes trBurst{0%{opacity:.95;transform:scale(1);box-shadow:0 0 30px 10px rgba(233,213,255,.9)}
+    100%{opacity:0;transform:scale(26);box-shadow:0 0 80px 30px rgba(168,85,247,0)}}
+
+  /* Front face glows on arrival; reversed cards get an ominous red cast instead of gold. */
+  .tr-front.landed{animation:trLand .8s ease both}
+  @keyframes trLand{0%{filter:brightness(2.4) saturate(.4)}100%{filter:none}}
+  .tr-front.reversed{background:linear-gradient(165deg,#f6e6e0,#e9cfc4);border-color:#c39a86}
+  .tr-front.reversed .tr-name{color:#5b2d1c}
+
+  /* The reading types itself in, line by line. */
+  .tr-read.show .tr-key{animation:trIn .5s .05s both}
+  .tr-read.show .tr-msg{animation:trIn .55s .22s both}
+  .tr-read.show .tr-sec{animation:trIn .55s .4s both}
+  .tr-read.show .tr-sign{animation:trIn .55s .58s both}
+  .tr-read.show .tr-share{animation:trIn .55s .72s both}
+
+  /* Mute toggle. */
+  .tr-mute{position:absolute;top:12px;left:14px;background:none;border:none;color:#7c6da8;font-size:15px;
+    cursor:pointer;z-index:3;line-height:1}
+  .tr-mute:hover{color:#e9d5ff}
+
   @media(prefers-reduced-motion:reduce){
-    .tr-flip,.tr-back .tr-sigil,.tr-tap,.tarot-btn.unread::after{animation:none;transition:none}
+    .tr-flip,.tr-back .tr-sigil,.tr-tap,#tarot-fab.unread,#tarot-fab.unread .tf-ic,
+    .tr-card::after,.tr-stage::before,#tarot-stars i,.tr-read.show>*{animation:none!important}
+    .tr-flip{transition:transform .35s ease}
   }
 </style>
 <div id="tarot-modal" onclick="if(event.target===this)closeTarot()">
+  <div id="tarot-stars"></div>
   <div class="tr-card">
+    <button class="tr-mute" id="tarot-mute" onclick="tarotToggleMute()" title="Sound on/off">🔊</button>
     <button class="tr-x" onclick="closeTarot()">✕</button>
     <div class="tr-eyebrow">🔮 Your card for today</div>
     <div class="tr-date" id="tarot-date">—</div>
 
     <div class="tr-stage">
+      <div class="tr-burst" id="tarot-burst"></div>
       <div class="tr-flip" id="tarot-flip" onclick="revealTarot()">
         <div class="tr-face tr-back">
           <div class="tr-sigil">🌙</div>
@@ -14863,6 +15079,8 @@ body.light .jul4-lbscore{color:#059669}
     </div>
   </div>
 </div>
+
+<button id="tarot-fab" onclick="openTarot()"><span class="tf-ic">🔮</span> <span id="tarot-fab-label">Daily Tarot</span></button>
 
 <button id="tet-tourney-fab" onclick="tetTourneyFabClick()"><span class="ttf-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2 2 0 0 0 0 4H7M17 6h2.5a2 2 0 0 1 0 4H17M9.5 20h5M12 14v3"/></svg></span> <span id="ttf-label">Tetris</span></button>
 <button id="jul4-fab" onclick="jul4Open()">🎯 Daily Trivia</button>
@@ -19815,6 +20033,9 @@ body.light .jul4-lbscore{color:#059669}
     var dash=document.getElementById('dashboard-screen');
     var onDash = !!dash && getComputedStyle(dash).display!=='none';
     var fab=document.getElementById('tet-tourney-fab');
+    // 🔮 Tarot rides the same visibility loop — it lives on the dashboard only, stacked above Tetris.
+    var tfab=document.getElementById('tarot-fab');
+    if(tfab) tfab.style.display = onDash ? 'inline-flex' : 'none';
     var toStart=ntSecsTo(p);
     var inMinute=(p.H===ntHour(p.dow) && p.M===0);
     var live=ntIsLive(p) || (TL&&TL.nightly) || (TB&&TB.nightly&&!TB.done) || (M&&M.nightly&&M.playing);
