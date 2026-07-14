@@ -14772,7 +14772,8 @@ body.light .jul4-lbscore{color:#059669}
   .crown{display:inline-block;filter:drop-shadow(0 0 6px rgba(251,191,36,.9));animation:crownBob 2.4s ease-in-out infinite}
   @keyframes crownBob{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-2px) rotate(6deg)}}
   @media(prefers-reduced-motion:reduce){.crown{animation:none}}
-  .rk-row .rk-pos{width:24px;text-align:center;font-weight:800;font-size:14px;color:#8a97b5;flex:0 0 auto}
+  /* Left column = the player's RANK on the ladder (not a row number). */
+  .rk-row .rk-pos{width:34px;text-align:center;font-weight:900;font-size:19px;color:#8a97b5;flex:0 0 auto;line-height:1}
   .rk-row .rk-av2{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#eef2ff;flex:0 0 auto;background:linear-gradient(135deg,#2c3a5c,#1a2438)}
   .rk-next-banner{background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(255,107,26,.08));border:1px solid rgba(251,191,36,.32);border-radius:13px;padding:11px 13px;font-size:12px;font-weight:700;color:#fdd98a;text-align:center;position:relative;overflow:hidden}
   .champ-modal .rk-sec .secic{width:13px;height:13px;flex:0 0 auto;color:#8a97b5}
@@ -14859,12 +14860,14 @@ body.light .jul4-lbscore{color:#059669}
   .hp-rank.tr-godoftetris b{color:#fff;text-shadow:0 0 12px rgba(253,224,71,.9)}
   .hp-rank.tr-godoftetris span{color:#fde047}
   @keyframes godPulse{0%,100%{box-shadow:0 0 24px rgba(253,224,71,.5)}50%{box-shadow:0 0 40px rgba(253,224,71,.95)}}
-  /* Compact rank badge for leaderboard rows — inherits the same tier colours as .hp-rank */
-  .rk-rank{flex:0 0 auto;text-align:center;min-width:54px;padding:5px 7px;border-radius:11px;
+  /* Tier badge for leaderboard rows. FIXED width so every box is identical, whatever the tier.
+     The rank NUMBER lives in .rk-pos on the left — this is purely the tier. */
+  .rk-rank{flex:0 0 auto;width:94px;box-sizing:border-box;text-align:center;padding:8px 4px;border-radius:11px;
+    display:flex;align-items:center;justify-content:center;min-height:40px;
     background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.02));
     border:1px solid rgba(255,255,255,.13)}
-  .rk-rank b{display:block;font-size:17px;font-weight:900;line-height:1;color:#fff}
-  .rk-rank span{display:block;font-size:7.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;margin-top:2px;color:#9fb0d6}
+  .rk-rank span{display:block;font-size:9px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;
+    color:#9fb0d6;line-height:1.15}
   .rk-rank.tr-rookie,.rk-rank.tr-amateur{border-color:rgba(148,163,184,.5)}
   .rk-rank.tr-contender,.rk-rank.tr-challenger{border-color:rgba(34,197,94,.55)}
   .rk-rank.tr-contender span,.rk-rank.tr-challenger span{color:#86efac}
@@ -17475,7 +17478,7 @@ body.light .jul4-lbscore{color:#059669}
     var box=el('tet-arena'); if(!box) return;
     box.style.maxHeight='560px';
     var rank=finalRanking(); var myRank=0; rank.forEach(function(p){ if(p.id===eid()) myRank=p.rank; });
-    var NP=[400,200,150];
+    var NP=bkPrizes((TL&&TL.tid)||(M&&M.matchId)||'');
     box.innerHTML='<div style="width:320px;">'+ rank.map(function(p){
       var medal=p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:(p.rank+'.');
       var mine=p.id===eid();
@@ -17512,12 +17515,20 @@ body.light .jul4-lbscore{color:#059669}
   }
 
   // Is tonight the Grand Final? (Sunday — must match GRAND_DOW in the Apps Script.)
+  function bkIsDay(tid){ return String(tid||'').indexOf('DT-')===0; }   // the 3 PM bracket
   function bkIsGrand(tid){
     try{
+      if(bkIsDay(tid)) return false;                 // the day bracket is never the Grand Final
       var ds=String(tid||'').replace(/^NT-/,'').split('-').map(Number);
       if(ds.length!==3) return false;
       return new Date(Date.UTC(ds[0], ds[1]-1, ds[2])).getUTCDay() === 0;
     }catch(e){ return false; }
+  }
+  // Must mirror the server's _prizesFor_.
+  function bkPrizes(tid){
+    if(bkIsDay(tid))   return [250,150,100];
+    if(bkIsGrand(tid)) return [1200,600,300];
+    return [400,200,150];
   }
 
   function beginBracket(tid, players){
@@ -18207,7 +18218,7 @@ body.light .jul4-lbscore{color:#059669}
   function bkShowFinal(final, myRank, champ){
     var box=bkPanel(); if(!box) return;
     var lbl=el('tet-arena-label'); if(lbl) lbl.textContent='🏆 Final Ranking';
-    var NP=[400,200,150], me=String(eid());
+    var NP=bkPrizes((TB&&TB.tid)||''), me=String(eid());
     box.innerHTML='<div style="width:320px;">'+final.map(function(p){
       var medal=p.placement<=3?['🥇','🥈','🥉'][p.placement-1]:(p.placement+'.');
       var mine=String(p.employee_id)===me;
@@ -18408,14 +18419,20 @@ body.light .jul4-lbscore{color:#059669}
     try{ return Object.keys(presenceNames||{}).filter(function(id){
       return String(id)!==String(meId) && (typeof isUserOnline!=='function' || isUserOnline(id)); }); }catch(e){ return []; }
   }
+  var _poolBeaten=[];   // ids of pool opponents already put away — they're done, don't offer them again
   window.tetHubRanked=function(){
     var host=el('tet-hub-play'); if(!host) return;
     var back='<button class="hub-btn" style="grid-column:1/-1;justify-content:center;" onclick="renderHubPlayBack()"><span>← Back to modes</span></button>';
     host.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#9fb0d6;font-size:12.5px;padding:18px;">⚔ Finding an opponent at your level…</div>'+back;
-    // Make sure we have a fresh board before we judge who's "at your level".
-    fetch(APPS_SCRIPT_URL+'?action=tetris_ranking&_='+Date.now()).then(function(r){return r.json();})
-      .then(function(d){ _tetBoard=(d&&d.ranking)||[]; renderRankedMatch(); })
-      .catch(function(){ renderRankedMatch(); });
+    // Fetch the board AND your conquest list before judging who's worth offering.
+    Promise.all([
+      fetch(APPS_SCRIPT_URL+'?action=tetris_ranking&_='+Date.now()).then(function(r){return r.json();}).catch(function(){ return null; }),
+      fetch(APPS_SCRIPT_URL+'?action=tetris_pool_beaten&employee_id='+encodeURIComponent(eid())+'&_='+Date.now()).then(function(r){return r.json();}).catch(function(){ return null; })
+    ]).then(function(res){
+      if(res[0] && res[0].ranking) _tetBoard=res[0].ranking;
+      if(res[1] && res[1].beaten)  _poolBeaten=res[1].beaten;
+      renderRankedMatch();
+    });
   };
   function renderRankedMatch(){
     var host=el('tet-hub-play'); if(!host) return;
@@ -18428,8 +18445,9 @@ body.light .jul4-lbscore{color:#059669}
       return { id:id, name:(presenceNames&&presenceNames[id])||id, R:R, row:row,
                gap:Math.abs(R.rank-myR), cpu:false };
     });
-    // Then the standing pool, so there's ALWAYS a fight at your level. Take the closest few.
-    var pool=rankedPool().map(function(b){
+    // Then the standing pool. Anyone you've already beaten is SKIPPED — their stars are claimed
+    // and there's nothing left to win, so offering them again would just be noise.
+    var pool=rankedPool().filter(function(b){ return _poolBeaten.indexOf(b.id)<0; }).map(function(b){
       return { id:b.id, name:b.name, R:{rank:b.rank, tier:b.tier, god:false, stars:0},
                row:{ duel_wins:b.wins, duel_losses:b.losses },
                gap:Math.abs(b.rank-myR), cpu:true, lv:b.lv };
@@ -18439,7 +18457,18 @@ body.light .jul4-lbscore{color:#059669}
       if(a.gap!==b.gap) return a.gap-b.gap;
       return (a.cpu?1:0)-(b.cpu?1:0);      // dead tie → the human gets it
     });
-    if(!cands.length){ host.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#9fb0d6;font-size:12.5px;padding:16px;">No opponents available.</div>'+back; return; }
+    var beat=_poolBeaten.length, tot=rankedPool().length;
+    var prog='<div style="grid-column:1/-1;font-size:10.5px;color:#8a97b5;text-align:center;margin-bottom:2px;">'+
+      '⚔ <b style="color:#fbbf24;">'+beat+'</b> / '+tot+' ranked opponents defeated'+
+      (beat>=tot?' — <b style="color:#fde047;">roster cleared 👑</b>':'')+'</div>';
+    if(!cands.length){
+      host.innerHTML=prog+'<div style="grid-column:1/-1;text-align:center;color:#9fb0d6;font-size:12.5px;padding:16px;line-height:1.6;">'+
+        (beat>=tot
+          ? 'You have beaten <b>every ranked opponent</b>. Nothing left to conquer here — 👑<br><span style="color:#6b7d90;font-size:11.5px;">Only live duels and tournaments can take you higher now.</span>'
+          : 'No opponents online and no unbeaten opponents left near your rank.')+
+        '</div>'+back;
+      return;
+    }
 
     var best=cands[0];
     var quality = best.gap<=3 ? {t:'PERFECT MATCH', c:'#22c55e'}
@@ -18487,7 +18516,7 @@ body.light .jul4-lbscore{color:#059669}
             '</small></span></button>';
         }).join('')
       : '';
-    host.innerHTML = card + go + rest + back;
+    host.innerHTML = prog + card + go + rest + back;
   }
 
   // ── Block designs shop ──
@@ -18835,8 +18864,9 @@ body.light .jul4-lbscore{color:#059669}
         var ph=rkPhoto(p.employee_id);
         var ring2=ringStyle(PR.tier,2)+'border-radius:50%;';   // the ring IS the rank
         var av2=ph?'<div class="rk-av2" style="overflow:hidden;padding:0;background:#0b1020;'+ring2+'"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\'linear-gradient(135deg,#2c3a5c,#1a2438)\';"></div>':'<div class="rk-av2" style="'+ring2+'">'+rkInitial(p.name)+'</div>';
+        // The left column is the RANK, not a row number. Position on the board is implied by order.
         return '<div class="rk-row'+(mine?' me':'')+'" style="animation-delay:'+Math.min(i*45,500)+'ms;">'+
-          '<div class="rk-pos">'+p.rank+'</div>'+
+          '<div class="rk-pos" style="color:'+tierColor(PR.tier)+';">'+PR.rank+'</div>'+
           av2+
           '<div style="flex:1;min-width:0;text-align:left;">'+
             '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+
@@ -18844,7 +18874,7 @@ body.light .jul4-lbscore{color:#059669}
               esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
             '<div style="font-size:10px;color:#9fb0d6;margin-top:2px;">'+bits.join(' · ')+'</div>'+
           '</div>'+
-          '<div class="rk-rank '+tierCls(PR.tier)+'"><b>'+PR.rank+'</b><span>'+esc(PR.tier)+'</span></div></div>';
+          '<div class="rk-rank '+tierCls(PR.tier)+'"><span>'+esc(PR.tier)+'</span></div></div>';
       }).join('') : '<div style="text-align:center;color:#6b7d90;padding:8px;font-size:12px;">That\'s everyone so far — climb the ranks! 🎮</div>';
     }).catch(function(){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#f87171;padding:30px;">Couldn\'t load rankings — try again.</div>'; });
   };
@@ -19229,6 +19259,8 @@ body.light .jul4-lbscore{color:#059669}
       var bl = el('tet-nightly-blurb');
       if(bl) bl.innerHTML = bkIsGrand(sid)
         ? '👑 <b style="color:#fbbf24;">THE GRAND FINAL</b> — the week\'s championship. Top 3 earn 1,200 · 600 · 300 JMB Points, and the winner wears the crown all week.'
+        : bkIsDay(sid)
+        ? '☀️ <b style="color:#fbbf24;">Day Tournament</b> — knockout bracket. Top 3 earn JMB Points: 🥇250 · 🥈150 · 🥉100.'
         : 'Tournament time! Knockout bracket — top 3 earn JMB Points: 🥇400 · 🥈200 · 🥉150.';
     }catch(_g){}
     e.style.display='block';
@@ -19253,13 +19285,26 @@ body.light .jul4-lbscore{color:#059669}
   // Invite everyone online at the top of that hour → 45s lobby → bracket auto-starts.
   function phtNowParts(){ var d=new Date(Date.now()+8*3600*1000);
     return { H:d.getUTCHours(), M:d.getUTCMinutes(), S:d.getUTCSeconds(), date:d.toISOString().slice(0,10), dow:d.getUTCDay() }; }
+  var DAY_HOUR=15;                                                 // 3 PM PHT day tournament, daily
   function ntHour(dow){ return (dow===0 || dow===6) ? 22 : 23; }   // 0=Sun, 6=Sat → 10 PM; else 11 PM
-  function ntSecsTo(p){                                            // seconds until the NEXT start
-    var now=p.H*3600+p.M*60+p.S, today=ntHour(p.dow)*3600;
-    if(now < today) return today-now;
-    return (86400-now) + ntHour((p.dow+1)%7)*3600;                 // tomorrow's hour may differ
+  // Seconds until the NEXT tournament of ANY kind — the 3 PM day bracket or tonight's nightly.
+  function ntSecsTo(p){
+    var now=p.H*3600+p.M*60+p.S;
+    var day=DAY_HOUR*3600, night=ntHour(p.dow)*3600;
+    if(now < day)   return day-now;
+    if(now < night) return night-now;
+    return (86400-now) + DAY_HOUR*3600;                            // tomorrow's 3 PM comes first
   }
-  function ntIsLive(p){ var h=ntHour(p.dow); return p.H===h && p.M<5; }   // 5-min join window
+  // Which one is next? Returns 'day' or 'night'.
+  function ntNextKind(p){
+    var now=p.H*3600+p.M*60+p.S;
+    if(now < DAY_HOUR*3600) return 'day';
+    if(now < ntHour(p.dow)*3600) return 'night';
+    return 'day';                                                  // past tonight → tomorrow's 3 PM
+  }
+  function ntIsDayLive(p){ return p.H===DAY_HOUR && p.M<5; }              // 5-min join window
+  function ntIsLive(p){ var h=ntHour(p.dow); return (p.H===h && p.M<5) || ntIsDayLive(p); }
+  function ntLiveSid(p){ return ntIsDayLive(p) ? ('DT-'+p.date) : ('NT-'+p.date); }
   var _ntInvitedDate=null;
   window.tetTourneyFabClick=function(){
     var p=phtNowParts();
@@ -19267,7 +19312,7 @@ body.light .jul4-lbscore{color:#059669}
     var live=ntIsLive(p) || (TL&&TL.nightly) || (M&&M.nightly&&M.playing);
     if(TL&&TL.nightly){ el('tourney-lobby').style.display='flex'; return; }
     if(M&&M.playing){ try{ showToast('You are already in a game.'); }catch(_){} return; }
-    if(live){ window.tourneyStartNightly('NT-'+p.date); return; }
+    if(live){ window.tourneyStartNightly(ntLiveSid(p)); return; }
     // No timer / not live → open the Tetris dashboard (current rankings)
     if(typeof tetOpenRanking==='function') tetOpenRanking();
   };
@@ -19353,6 +19398,7 @@ body.light .jul4-lbscore{color:#059669}
             '&result=win&score='+(M.score||0)+'&lines='+(M.lines||0)+
             '&opponent='+encodeURIComponent(bname)+'&opp_rank='+orank+'&_='+Date.now())
         .then(function(r){ return r.json(); }).then(function(d){
+          if(oid && _poolBeaten.indexOf(oid)<0) _poolBeaten.push(oid);   // never offer them again
           if(!rp) return;
           if(d && d.already){
             rp.textContent='🏆 You beat '+bname+' (Rank '+orank+') again — but you already claimed their '+worth+' ★. Find someone new.';
@@ -19430,23 +19476,31 @@ body.light .jul4-lbscore{color:#059669}
     var np=phtNowParts(); var toS=ntSecsTo(np);
     var hh=Math.floor(toS/3600), mm=Math.floor((toS%3600)/60);
 
-    // Is the NEXT one the Grand Final? If tonight's start time has already passed we're
-    // counting down to tomorrow, so look at tomorrow's day — not today's.
-    var _h = ntHour(np.dow);
+    // Which tournament are we counting down to — the 3 PM day bracket or tonight's nightly?
+    var kind = ntNextKind(np);
     var nowSec = np.H*3600 + np.M*60 + np.S;
+    var _h = ntHour(np.dow);
+    // If the nightly is next it's tonight; if we've rolled past it, the next Grand Final check
+    // must look at tomorrow's day, not today's.
     var targetDow = (nowSec < _h*3600) ? np.dow : ((np.dow + 1) % 7);
-    var grandNext = (targetDow === 0);   // Sunday
+    var grandNext = (kind==='night' && targetDow === 0);   // Sunday night only
 
     if(ntIsLive(np)){
-      nb.innerHTML = bkIsGrand('NT-'+np.date)
-        ? '👑 THE GRAND FINAL IS LIVE — tap the Tetris button to join!'
-        : '🔴 Tournament LIVE now — tap the Tetris button to join!';
+      nb.innerHTML = ntIsDayLive(np)
+        ? '☀️ <b style="color:#fbbf24;">DAY TOURNAMENT LIVE</b> — tap the Tetris button to join!'
+        : (bkIsGrand('NT-'+np.date)
+            ? '👑 THE GRAND FINAL IS LIVE — tap the Tetris button to join!'
+            : '🔴 Tournament LIVE now — tap the Tetris button to join!');
+    } else if(kind==='day'){
+      nb.innerHTML = '☀️ <b style="color:#fbbf24;">Day Tournament</b> in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win ' +
+                     '<b style="color:#fbbf24;">250 / 150 / 100</b> pts ' +
+                     '<span style="color:#6b7d90;">(3 PM daily)</span>';
     } else if(grandNext){
       nb.innerHTML = '👑 <b style="color:#fbbf24;">GRAND FINAL</b> in '+(hh>0?hh+'h ':'')+mm+'m — the week’s championship. ' +
                      'Top 3 win <b style="color:#fbbf24;">1,200 / 600 / 300</b> pts + the crown ' +
                      '<span style="color:#6b7d90;">(Sunday, 10 PM)</span>';
     } else {
-      nb.innerHTML = '🏆 Next tournament in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win 400/200/150 pts ' +
+      nb.innerHTML = '🏆 Nightly tournament in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win 400/200/150 pts ' +
                      '<span style="color:#6b7d90;">(10 PM Sat/Sun · 11 PM weekdays)</span>';
     }
   }
