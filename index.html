@@ -4493,6 +4493,7 @@
               <button class="prod-open-btn" style="margin:0;" onclick="if(window.jul4Open)jul4Open();"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polygon points="10 8 16 12 10 16" fill="currentColor" stroke="none"/></svg></span> Play Daily Trivia</button>
               <button class="prod-open-btn" style="margin:0;" onclick="openRedeem()"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v9H4v-9"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></span> Redeem</button>
               <button class="prod-open-btn" style="margin:0;" onclick="if(window.trvOpenRanking)trvOpenRanking()"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;font-size:14px;">🏆</span> Trivia Champions</button>
+              <button class="prod-open-btn tarot-btn" style="margin:0;" onclick="openTarot()"><span style="display:inline-flex;vertical-align:middle;margin-right:2px;font-size:14px;">🔮</span> Daily Tarot</button>
             </div>
           </div>
           <div id="points-hist" style="margin-top:8px;font-size:11.5px;color:var(--text-3);"></div>
@@ -4898,10 +4899,18 @@
           <p class="section-eyebrow" style="margin-bottom:2px;">Performance Scorecard</p>
           <p id="sc-month-label" style="font-size:17px;font-weight:600;color:var(--text-1);margin:0;">—</p>
         </div>
-        <div style="display:flex;gap:6px;">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <!-- Admins / leads (CL7–CL9) can look at anyone's scorecard. Hidden for everyone else. -->
+          <select id="sc-emp-picker" onchange="scPickEmployee(this.value)" style="display:none;background:var(--card2);border:1px solid var(--border);color:var(--text-1);border-radius:9px;padding:7px 10px;font:600 12.5px/1 inherit;cursor:pointer;max-width:210px;">
+            <option value="">Loading team…</option>
+          </select>
           <button class="btn-sm" onclick="scPrevMonth()">← Prev</button>
           <button class="btn-sm" onclick="scNextMonth()">Next →</button>
         </div>
+      </div>
+      <div id="sc-viewing-note" style="display:none;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.35);border-radius:10px;padding:9px 13px;margin-bottom:1rem;font-size:12.5px;color:var(--text-2);">
+        👁 Viewing <b id="sc-viewing-name" style="color:#c084fc;"></b>’s scorecard.
+        <button onclick="scPickEmployee('')" style="background:none;border:none;color:#c084fc;font:600 12.5px/1 inherit;cursor:pointer;text-decoration:underline;margin-left:6px;">back to mine</button>
       </div>
 
       <!-- OVERALL SCORE -->
@@ -5036,6 +5045,7 @@
         <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:10px;flex-wrap:wrap;">
           <span><span id="mydem-month" style="font-size:26px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">0</span><span id="mydem-monthcap" style="font-size:13px;color:var(--text-3);"> / 10 this month</span></span>
           <span style="font-size:12px;color:var(--text-3);">·&nbsp; <b id="mydem-total" style="color:var(--text-2);">0</b> rolling total</span>
+          <div id="mydem-split" style="display:none;flex-basis:100%;font-size:11.5px;color:var(--text-3);line-height:1.5;margin-top:6px;"></div>
         </div>
         <div id="mydem-list"></div>
       </div>
@@ -6004,6 +6014,7 @@ function renderDashboard(data) {
   // ── PAYSLIPS ──
   window._currentEmpData = data;
   try { maybeShowTeamLive(data); } catch(e) {}   // CL7–CL9 get the read-only Team Live view
+  try { tarotMarkUnread(); } catch(e) {}         // 🔮 pulse the Daily Tarot button until it's drawn
   try { applySavedBg(); } catch(e) {}   // restore the chosen background on every load (not only on Profile tab)
   try { setTimeout(maybeShowWhatsNew, 900); } catch(e) {}   // show the update changelog once per version
   try { setTimeout(maybeResetReminder, 1400); } catch(e) {}   // July-1 month-reset reminder (8 AM & 8 PM PHT)
@@ -6383,8 +6394,61 @@ var scYear    = parseInt(_scMK[0], 10);
 var scMonth   = parseInt(_scMK[1], 10) - 1;
 var scPrevData = null;
 
+// ── Whose scorecard are we looking at? ──
+// Normally your own. Admins / leads (CL7–CL9) get a picker and can open anyone's.
+var scMyEmpId = null;      // always the logged-in user — the "back to mine" anchor
+var scIsBoss  = false;
+var _scRoster = null;
+
 function initScorecard(data) {
-  scEmpId = data.employee_id;
+  scMyEmpId = data.employee_id;
+  if (!scEmpId) scEmpId = data.employee_id;          // don't clobber a picked employee on re-init
+  var r = _clRank(data);
+  scIsBoss = (r === 7 || r === 8 || r === 9);
+  if (scIsBoss) scLoadRoster();
+  loadScorecard();
+}
+function scLoadRoster() {
+  var sel = document.getElementById('sc-emp-picker'); if (!sel) return;
+  sel.style.display = '';
+  if (_scRoster) { scRenderRoster(); return; }
+  fetch(APPS_SCRIPT_URL + '?action=get_all_employees&_=' + Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var list = (d && (d.employees || d.rows || d)) || [];
+      if (!Array.isArray(list)) list = [];
+      _scRoster = list
+        .filter(function(e){ return e && e.employee_id; })
+        .filter(function(e){                                  // hide anyone offboarded
+          return !(typeof INACTIVE_STATUS_RE !== 'undefined' && INACTIVE_STATUS_RE.test(String(e.status || '')));
+        })
+        .sort(function(a,b){ return String(a.full_name||'').localeCompare(String(b.full_name||'')); });
+      scRenderRoster();
+    })
+    .catch(function(){ var s=document.getElementById('sc-emp-picker'); if(s) s.style.display='none'; });
+}
+function scRenderRoster() {
+  var sel = document.getElementById('sc-emp-picker'); if (!sel || !_scRoster) return;
+  sel.innerHTML = '<option value="">👤 My scorecard</option>' +
+    _scRoster.map(function(e){
+      var me = String(e.employee_id) === String(scMyEmpId);
+      return '<option value="' + escapeHtml(e.employee_id) + '"' +
+             (String(e.employee_id) === String(scEmpId) && !me ? ' selected' : '') + '>' +
+             escapeHtml(e.full_name || e.employee_id) + (me ? ' (me)' : '') + '</option>';
+    }).join('');
+}
+function scPickEmployee(empId) {
+  scEmpId = empId || scMyEmpId;
+  var viewingOther = !!empId && String(empId) !== String(scMyEmpId);
+  var note = document.getElementById('sc-viewing-note');
+  var nm   = document.getElementById('sc-viewing-name');
+  if (note) note.style.display = viewingOther ? 'block' : 'none';
+  if (viewingOther && nm && _scRoster) {
+    var e = _scRoster.filter(function(x){ return String(x.employee_id) === String(empId); })[0];
+    nm.textContent = e ? (e.full_name || empId) : empId;
+  }
+  var sel = document.getElementById('sc-emp-picker');
+  if (sel && !empId) sel.value = '';
   loadScorecard();
 }
 
@@ -6410,6 +6474,217 @@ function scNextMonth() {
   loadScorecard();
 }
 
+/* ═══════════════════════ 🔮 DAILY TAROT ═══════════════════════
+   Entertainment, not prophecy — and the copy is written to stay on the right side of that line:
+   every reading is framed as a prompt to think about your day, never as a prediction, and never
+   as advice about health, money or anything consequential.
+
+   The draw is DETERMINISTIC: seeded from (birthday + employee id + today's PHT date). That means
+   your card is the same all day no matter how often you open it or which device you're on — you
+   can't reroll until you like the answer — and two people almost never share a card. It needs no
+   backend at all: the birthday already rides along on the employee record.                     */
+var TAROT_DECK = [
+  { n:'The Fool',            e:'🎒', up:['Fresh start','Leap of faith','Openness'],  rev:['Hesitation','Recklessness','Second-guessing'],
+    u:'Something new is in front of you and you don\'t have the whole map yet. That\'s allowed. Begin anyway.',
+    r:'You\'re circling the edge of something instead of stepping in. Either commit or set it down — the circling is what\'s tiring you out.',
+    wu:'A good day to volunteer for the thing you\'ve never done before.',
+    wr:'Don\'t start a fourth thing before you finish the first three.' },
+  { n:'The Magician',        e:'🪄', up:['Resourcefulness','Focus','Skill'],         rev:['Scattered energy','Untapped talent','Bluffing'],
+    u:'You already have what the task needs. Today is about using it, not acquiring more of it.',
+    r:'The tools are there but the aim is off. Pick one target before you pick up anything else.',
+    wu:'Your best hour today is your first — spend it on the hardest thing, not the easiest.',
+    wr:'Beware of looking busy. Ask what actually moved.' },
+  { n:'The High Priestess',  e:'🌙', up:['Intuition','Patience','Inner knowing'],    rev:['Ignored instinct','Noise','Secrets'],
+    u:'You know something you haven\'t said out loud yet. Sit with it before you act on it.',
+    r:'You had a hunch and talked yourself out of it. It\'s worth a second look.',
+    wu:'Listen more than you speak in today\'s call. The useful thing will be said quietly.',
+    wr:'If something feels off in the numbers, check it. That itch is data.' },
+  { n:'The Empress',         e:'🌷', up:['Abundance','Nurture','Creativity'],        rev:['Depletion','Neglect','Creative block'],
+    u:'Growth is happening, even where you can\'t see it yet. Tend it, don\'t yank at it.',
+    r:'You\'ve been pouring out and not refilling. The block isn\'t a talent problem, it\'s a fuel problem.',
+    wu:'Help someone junior today. It compounds.',
+    wr:'Take the actual break. Working through it is costing you more than it saves.' },
+  { n:'The Emperor',         e:'🏛️', up:['Structure','Discipline','Authority'],     rev:['Rigidity','Control','Stubbornness'],
+    u:'Structure is your friend today. Write the list. Follow the list.',
+    r:'The rule you\'re defending may no longer be serving the goal it was written for.',
+    wu:'Block your calendar and defend it.',
+    wr:'Being right is not the same as being effective. Let someone else\'s way work.' },
+  { n:'The Hierophant',      e:'📜', up:['Tradition','Mentorship','The proven way'], rev:['Rule-breaking','Unconventional','Questioning'],
+    u:'There\'s an established way to do this and it works. Use it before you reinvent it.',
+    r:'The standard process is the bottleneck today. Say so — out loud, to the right person.',
+    wu:'Ask the person who\'s done it before. It\'ll save you two hours.',
+    wr:'Propose the better way instead of quietly working around the worse one.' },
+  { n:'The Lovers',          e:'💞', up:['Alignment','Choice','Partnership'],        rev:['Misalignment','Avoidance','Conflict'],
+    u:'A choice is clearer than you\'re pretending it is. Pick the one that matches your values.',
+    r:'Two things you want are pulling opposite ways. Naming the trade-off is most of the work.',
+    wu:'Good day to align with someone before you both build the same thing twice.',
+    wr:'That small disagreement will not resolve itself. Have the short conversation now.' },
+  { n:'The Chariot',         e:'🏇', up:['Momentum','Willpower','Drive'],            rev:['Spinning wheels','Scattered','Stalled'],
+    u:'Momentum is on your side. Push while the wind is behind you.',
+    r:'You\'re pushing hard in several directions at once, which is the same as standing still.',
+    wu:'Ship it today. Perfect can come in version two.',
+    wr:'Close the tabs. One thing, start to finish.' },
+  { n:'Strength',            e:'🦁', up:['Courage','Patience','Quiet power'],        rev:['Self-doubt','Impatience','Burnout'],
+    u:'Strength today looks like staying calm, not going loud.',
+    r:'You\'re being harder on yourself than you\'d ever be on a teammate. Notice that.',
+    wu:'Handle the difficult conversation gently. Gentle still counts as handled.',
+    wr:'If you\'re running on empty, say so early rather than late.' },
+  { n:'The Hermit',          e:'🏮', up:['Reflection','Solitude','Clarity'],         rev:['Isolation','Overthinking','Withdrawal'],
+    u:'Step back far enough to see the shape of it. The answer needs quiet, not more input.',
+    r:'You\'ve been alone with this too long. Say it out loud to one person and watch it shrink.',
+    wu:'Take the deep-work block. Turn the notifications off.',
+    wr:'Ask for help. Genuinely — today is the day.' },
+  { n:'Wheel of Fortune',    e:'🎡', up:['Turning point','Luck','Cycles'],           rev:['Resistance','Bad timing','Repetition'],
+    u:'Things are turning. Position yourself rather than bracing.',
+    r:'You keep landing in the same spot. The loop is the message.',
+    wu:'Say yes to the unexpected ask — it goes somewhere.',
+    wr:'If this is the third time the same problem appeared, fix the cause, not the instance.' },
+  { n:'Justice',             e:'⚖️', up:['Fairness','Truth','Accountability'],      rev:['Imbalance','Avoidance','Unfairness'],
+    u:'Be straight today, even where it costs you a little. It pays back.',
+    r:'Something isn\'t fair and you\'ve been letting it slide. It won\'t settle on its own.',
+    wu:'Own the mistake before someone finds it. It always lands better.',
+    wr:'If the load is lopsided, raise it — quietly, factually, once.' },
+  { n:'The Hanged Man',      e:'🙃', up:['New perspective','Pause','Surrender'],     rev:['Stalling','Martyrdom','Stuck'],
+    u:'Turn the problem upside down. The obvious approach is the one that isn\'t working.',
+    r:'Waiting has stopped being patience and started being avoidance.',
+    wu:'Explain the problem to someone outside your team. You\'ll solve it mid-sentence.',
+    wr:'Stop suffering nobly. Escalate it.' },
+  { n:'Death',               e:'🦋', up:['Endings','Transformation','Letting go'],   rev:['Clinging','Fear of change','Stagnation'],
+    u:'Something has run its course. Ending it isn\'t failure — it\'s making room.',
+    r:'You\'re holding onto a way of working that stopped fitting a while ago.',
+    wu:'Kill the task that no longer matters. Nobody will miss it.',
+    wr:'Change is coming whether or not you\'re braced for it. Go first.' },
+  { n:'Temperance',          e:'🌊', up:['Balance','Patience','Moderation'],         rev:['Excess','Impatience','Burnout'],
+    u:'Steady beats heroic. The middle path is genuinely the fast one today.',
+    r:'You\'re at one extreme — too fast, too slow, too much. Aim for the middle.',
+    wu:'Pace yourself. This is a marathon week, not a sprint day.',
+    wr:'The all-nighter will cost you two days. Don\'t.' },
+  { n:'The Devil',           e:'⛓️', up:['Temptation','Attachment','Habit'],        rev:['Breaking free','Awareness','Release'],
+    u:'Something has more hold on you than you\'d like to admit. Naming it loosens it.',
+    r:'You\'re already breaking the pattern. Keep going — the hard part is behind you.',
+    wu:'Notice the busywork you hide in. It feels productive and isn\'t.',
+    wr:'You dropped a bad habit recently. Don\'t quietly pick it back up.' },
+  { n:'The Tower',           e:'⚡', up:['Sudden change','Upheaval','Revelation'],   rev:['Averted disaster','Fear','Delay'],
+    u:'Something may get knocked over today. What survives it was the part worth keeping.',
+    r:'You can feel the wobble. Shore it up now while it\'s still cheap to fix.',
+    wu:'If a plan collapses, don\'t rebuild the same plan.',
+    wr:'Back up your work. Check the thing you\'ve been meaning to check.' },
+  { n:'The Star',            e:'⭐', up:['Hope','Renewal','Inspiration'],            rev:['Doubt','Discouragement','Dim faith'],
+    u:'The hard stretch is easing. Look up — you\'re further along than you feel.',
+    r:'You\'ve lost sight of why you started. It\'s still there; you\'re just tired.',
+    wu:'Share the idea you\'ve been sitting on.',
+    wr:'Count what\'s actually gone right this month. It\'s more than you think.' },
+  { n:'The Moon',            e:'🌗', up:['Uncertainty','Intuition','Illusion'],      rev:['Clarity','Truth revealed','Fog lifting'],
+    u:'Not everything is as it appears. Don\'t make the big call on partial light.',
+    r:'The fog is lifting. What confused you last week will make sense this one.',
+    wu:'Ask the clarifying question. Assume nothing today.',
+    wr:'Now\'s the moment to make the decision you\'ve been deferring.' },
+  { n:'The Sun',             e:'☀️', up:['Joy','Success','Clarity'],                rev:['Dimmed shine','Delay','Small clouds'],
+    u:'A good day. Take the win, say it out loud, and let it be simple.',
+    r:'The good thing is coming, just not on your schedule. It hasn\'t been cancelled.',
+    wu:'Celebrate someone else\'s win properly today.',
+    wr:'Don\'t let one small setback colour a genuinely fine day.' },
+  { n:'Judgement',           e:'📯', up:['Reckoning','Awakening','A calling'],       rev:['Self-doubt','Avoidance','Harsh self-judgement'],
+    u:'Time to be honest with yourself about something. Not brutal — honest.',
+    r:'You\'re judging yourself by a standard you\'d never apply to anyone else. Ease off.',
+    wu:'Review your own work before someone else has to.',
+    wr:'One bad week is not a verdict on you.' },
+  { n:'The World',           e:'🌍', up:['Completion','Wholeness','Achievement'],    rev:['Almost there','Loose ends','Unfinished'],
+    u:'Something is finishing. Let it finish properly — the last 5% is the part people remember.',
+    r:'So close. Tie off the loose ends instead of starting the next thing.',
+    wu:'Close the oldest open item on your list today.',
+    wr:'Finish before you flourish. The nearly-done pile is heavy.' }
+];
+// Deterministic 32-bit hash → the same person, same day, always draws the same card.
+function _tarotHash(s){ var h=2166136261; s=String(s);
+  for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); }
+  return (h>>>0);
+}
+function _tarotToday(){ var d=new Date(Date.now()+8*3600*1000); return d.toISOString().slice(0,10); }  // PHT
+function _tarotSeed(){
+  var d = window._currentEmpData || {};
+  var bday = String(d.birthday||'').slice(0,10) || 'unknown';
+  var id   = String(d.employee_id||'anon');
+  return bday + '|' + id + '|' + _tarotToday();
+}
+function tarotDraw(){
+  var h = _tarotHash(_tarotSeed());
+  var card = TAROT_DECK[h % TAROT_DECK.length];
+  // A second, independent bit decides the orientation, so it isn't correlated with the card.
+  var reversed = (_tarotHash('rev:'+_tarotSeed()) % 100) < 35;   // ~35% reversed
+  return { card:card, reversed:reversed, idx:(h % TAROT_DECK.length) };
+}
+// Has today's card already been turned over? (Purely cosmetic — the reveal animation.)
+function _tarotSeenKey(){ return 'tarotSeen:'+_tarotToday(); }
+function tarotSeenToday(){ try{ return localStorage.getItem(_tarotSeenKey())==='1'; }catch(e){ return false; } }
+
+var _tarotDrawn = null;
+window.openTarot = function(){
+  var m=document.getElementById('tarot-modal'); if(!m) return;
+  _tarotDrawn = tarotDraw();
+  var c=_tarotDrawn.card, rev=_tarotDrawn.reversed;
+
+  var dt=new Date(Date.now()+8*3600*1000);
+  document.getElementById('tarot-date').textContent =
+    dt.toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric', timeZone:'UTC'});
+
+  document.getElementById('tarot-num').textContent   = 'ARCANA ' + _tarotDrawn.idx;
+  document.getElementById('tarot-emoji').textContent = c.e;
+  document.getElementById('tarot-name').textContent  = c.n;
+
+  var or=document.getElementById('tarot-orient');
+  or.textContent = rev ? 'Reversed' : 'Upright';
+  or.className   = 'tr-orient ' + (rev ? 'rev' : 'up');
+  document.getElementById('tarot-front').classList.toggle('reversed', rev);
+
+  document.getElementById('tarot-keys').innerHTML =
+    (rev ? c.rev : c.up).map(function(k){ return '<span>'+escapeHtml(k)+'</span>'; }).join('');
+  document.getElementById('tarot-msg').innerHTML  = escapeHtml(rev ? c.r : c.u);
+  document.getElementById('tarot-work').textContent = rev ? c.wr : c.wu;
+
+  var nm=(window._currentEmpData && window._currentEmpData.full_name) || '';
+  var first=String(nm).split(' ')[0] || 'you';
+  document.getElementById('tarot-sign').innerHTML =
+    'Drawn for <b>'+escapeHtml(first)+'</b> from your birthday and today\'s date — '+
+    'the same card all day, on every device.<br><span style="opacity:.7;">For fun. Not advice.</span>';
+
+  // Reset the flip, unless they've already turned it over today.
+  var flip=document.getElementById('tarot-flip'), read=document.getElementById('tarot-read'), tap=document.getElementById('tarot-tap');
+  var seen=tarotSeenToday();
+  flip.classList.toggle('revealed', seen);
+  read.classList.toggle('show', seen);
+  tap.style.display = seen ? 'none' : 'block';
+
+  m.classList.add('open');
+  var btn=document.querySelector('.tarot-btn'); if(btn) btn.classList.remove('unread');
+};
+window.revealTarot = function(){
+  var flip=document.getElementById('tarot-flip');
+  if(!flip || flip.classList.contains('revealed')) return;
+  flip.classList.add('revealed');
+  document.getElementById('tarot-tap').style.display='none';
+  setTimeout(function(){
+    var r=document.getElementById('tarot-read'); if(r) r.classList.add('show');
+  }, 620);
+  try{ localStorage.setItem(_tarotSeenKey(),'1'); }catch(e){}
+  try{ if(typeof tetConfetti==='function' && !_tarotDrawn.reversed) tetConfetti({count:70, dur:1800}); }catch(e){}
+};
+window.closeTarot = function(){ var m=document.getElementById('tarot-modal'); if(m) m.classList.remove('open'); };
+window.shareTarot = function(){
+  if(!_tarotDrawn) return;
+  var c=_tarotDrawn.card, rev=_tarotDrawn.reversed;
+  var txt='🔮 My card today: '+c.e+' '+c.n+(rev?' (reversed)':'')+'\n'+
+          (rev?c.r:c.u)+'\n\nAt work: '+(rev?c.wr:c.wu);
+  try{
+    navigator.clipboard.writeText(txt).then(function(){ showToast('Reading copied — paste it in chat 🔮'); });
+  }catch(e){ showToast('Copy failed.'); }
+};
+// A quiet pulse on the button until they\'ve drawn today\'s card.
+function tarotMarkUnread(){
+  var btn=document.querySelector('.tarot-btn'); if(!btn) return;
+  btn.classList.toggle('unread', !tarotSeenToday());
+}
+
 function loadMyDemerits() {
   var id = scEmpId || attEmpId || (window._currentEmpData && window._currentEmpData.employee_id) || '';
   if (!id) return;
@@ -6430,6 +6705,30 @@ function loadMyDemerits() {
       if(mEl){ var mp=d.month_points||0, cap=d.month_cap||10; mEl.textContent=mp; mEl.style.color=mp>=cap?'#f87171':'var(--text-1)'; if(mcEl) mcEl.textContent=' / '+cap+' this month'; }
       if(totEl) totEl.textContent = d.total||0;
       var rows=(d.rows||[]).filter(function(x){ return x.status!=='void'; });
+
+      // ── Explain the split. Attendance-type infractions (late / absent / no-call) are already
+      //    punished in the Attendance score, so they're EXCLUDED from the Demerit score. Without
+      //    saying so, "2.5 this month" next to "Demerit 100/100" just looks broken.
+      (function(){
+        var note=document.getElementById('mydem-split'); if(!note) return;
+        var mk=monthKeyPHT(), att=0, con=0;
+        rows.forEach(function(x){
+          if(String(x.date||'').slice(0,7)!==mk) return;
+          var p=parseFloat(x.points)||0;
+          if(/late|absent|no-?call/i.test(String(x.infraction||''))) att+=p; else con+=p;
+        });
+        att=Math.round(att*100)/100; con=Math.round(con*100)/100;
+        if(!att && !con){ note.style.display='none'; return; }
+        note.style.display='block';
+        var demScore=Math.max(0, Math.round((100-Math.min(con,10)*10)*100)/100);
+        note.innerHTML =
+          '<b style="color:var(--text-2);">'+con+'</b> conduct '+(con===1?'point':'points')+
+          ' → your <b>Demerit score is '+demScore+'/100</b>.'+
+          (att ? ' The other <b>'+att+'</b> '+(att===1?'point is':'points are')+
+                 ' from lateness/absence, which already hit your <b>Attendance</b> score — they are not counted twice here.'
+               : '');
+      })();
+
       if(!rows.length){ listEl.innerHTML='<div class="cfy-no-entries" style="padding:10px 0;font-size:12.5px;">No demerits — keep it up! 🎉</div>'; return; }
       listEl.innerHTML=rows.map(function(x){
         var disp=dispBy[x.id];
@@ -6668,10 +6967,23 @@ function assessMonthKey(){ var d=new Date(); return d.getFullYear()+'-'+String(d
 function assessMonthName(){ return new Date().toLocaleString('en-US', { month:'long' }); }
 function _fmtMSS(sec){ sec=Math.max(0,Math.floor(sec)); return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0'); }
 function _asClearTimers(){ ['typeTimer','quizTimer','sectionTimer'].forEach(function(k){ if(_asState[k]){ clearInterval(_asState[k]); _asState[k]=null; } }); }
-function _assessEmpId(){ return (window._currentEmpData&&window._currentEmpData.employee_id) || (typeof scEmpId!=='undefined'&&scEmpId) || (typeof attEmpId!=='undefined'&&attEmpId) || ''; }
+// scEmpId FIRST — when an admin is viewing someone else's scorecard, the assessment card must
+// show THAT person's assessment, not the admin's own. It used to prefer _currentEmpData (always
+// the logged-in user), which would have quietly shown your score on their card.
+function _assessEmpId(){ return (typeof scEmpId!=='undefined'&&scEmpId) || (window._currentEmpData&&window._currentEmpData.employee_id) || (typeof attEmpId!=='undefined'&&attEmpId) || ''; }
 function applyAssessGate(){
   var btn=document.getElementById('sc-assess-btn'), st=document.getElementById('sc-assess-status');
   if(!btn) return;
+  // Viewing someone else's scorecard — you can SEE their assessment result, but you obviously
+  // can't sit the test for them.
+  if(typeof scMyEmpId!=='undefined' && scMyEmpId && scEmpId && String(scEmpId)!==String(scMyEmpId)){
+    btn.disabled=true; btn.style.opacity='0.45'; btn.style.cursor='not-allowed';
+    btn.textContent = assessTaken ? 'Completed ✓' : 'Not taken';
+    if(st){ st.textContent = assessTaken && assessScore!=null
+      ? ('Recorded: '+parseFloat(assessScore).toFixed(2)+' / 100')
+      : 'Only they can take it.'; st.style.color='var(--text-3)'; }
+    return;
+  }
   if(assessTaken){
     btn.disabled=true; btn.style.opacity='0.55'; btn.style.cursor='not-allowed'; btn.textContent='Completed ✓';
     if(st){ st.textContent = (assessScore!=null) ? ('Recorded: '+parseFloat(assessScore).toFixed(2)+' / 100') : 'Already completed this month.'; st.style.color='var(--text-3)'; }
@@ -10209,7 +10521,8 @@ function syncLeaveFromServer() {
 // Total hours card = sum of productive worklog hours for the active month (8 AM-PHT rollover).
 function setMonthlyTrackedHours() {
   var el = document.getElementById('sum-hours'); if (!el) return;
-  var id = attEmpId || (trkEmpData && trkEmpData.employee_id) || (window._currentEmpData && window._currentEmpData.employee_id) || '';
+  // Follow the scorecard's selected employee when an admin is viewing someone else.
+  var id = (typeof scEmpId !== 'undefined' && scEmpId) || attEmpId || (trkEmpData && trkEmpData.employee_id) || (window._currentEmpData && window._currentEmpData.employee_id) || '';
   if (!id) return;
   var mk = monthKeyPHT();
   jGet(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now())
@@ -14445,6 +14758,111 @@ body.light .jul4-lbname{color:#1a1a1a}
 body.light .jul4-lbscore{color:#059669}
 /* (the 10s alarm countdown overlay stays dark by design — its white text is kept) */
 </style>
+
+<!-- ══════════════════ 🔮 DAILY TAROT ══════════════════ -->
+<style>
+  .tarot-btn{position:relative;overflow:hidden}
+  .tarot-btn.unread::after{content:'';position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%;
+    background:#c084fc;box-shadow:0 0 0 0 rgba(192,132,252,.7);animation:tarotPing 1.8s ease-out infinite}
+  @keyframes tarotPing{0%{box-shadow:0 0 0 0 rgba(192,132,252,.6)}70%{box-shadow:0 0 0 7px rgba(192,132,252,0)}100%{box-shadow:0 0 0 0 rgba(192,132,252,0)}}
+
+  #tarot-modal{position:fixed;inset:0;z-index:9600;display:none;align-items:center;justify-content:center;padding:18px;
+    background:radial-gradient(ellipse at 50% 0%,rgba(88,28,135,.55),rgba(7,6,17,.9) 65%);backdrop-filter:blur(6px)}
+  #tarot-modal.open{display:flex}
+  .tr-card{position:relative;width:100%;max-width:430px;border-radius:24px;padding:26px 24px 22px;text-align:center;
+    background:linear-gradient(170deg,#1b1035,#120c24 55%,#0b0817);
+    border:1px solid rgba(192,132,252,.35);
+    box-shadow:0 40px 90px rgba(0,0,0,.7),0 0 70px rgba(147,51,234,.28) inset;
+    max-height:92vh;overflow:auto}
+  .tr-card::before{content:'';position:absolute;inset:0;border-radius:24px;pointer-events:none;
+    background:radial-gradient(circle at 50% 0%,rgba(192,132,252,.18),transparent 60%)}
+  .tr-x{position:absolute;top:12px;right:14px;background:none;border:none;color:#9d8bbd;font-size:20px;cursor:pointer;line-height:1;z-index:2}
+  .tr-x:hover{color:#e9d5ff}
+  .tr-eyebrow{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#a78bfa;font-weight:800}
+  .tr-date{font-size:11.5px;color:#7c6da8;margin-top:2px}
+
+  /* the card itself — flips on reveal */
+  .tr-stage{perspective:1100px;margin:16px auto 4px;width:172px;height:266px}
+  .tr-flip{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform 1s cubic-bezier(.2,.8,.25,1);cursor:pointer}
+  .tr-flip.revealed{transform:rotateY(180deg)}
+  .tr-face{position:absolute;inset:0;border-radius:16px;backface-visibility:hidden;-webkit-backface-visibility:hidden;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px}
+  .tr-back{background:linear-gradient(150deg,#3b1d6e,#1e1140);border:1px solid rgba(192,132,252,.5);
+    box-shadow:0 18px 44px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.05) inset}
+  .tr-back .tr-sigil{font-size:52px;filter:drop-shadow(0 0 16px rgba(192,132,252,.9));animation:trFloat 3.4s ease-in-out infinite}
+  @keyframes trFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+  .tr-back small{margin-top:12px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#c4b5fd;font-weight:700}
+  .tr-front{transform:rotateY(180deg);background:linear-gradient(165deg,#fdf6e3,#f2e4c9);
+    border:1px solid #d6bf8f;box-shadow:0 18px 44px rgba(0,0,0,.6)}
+  .tr-front .tr-num{font-size:10px;letter-spacing:.16em;color:#8a6d3b;font-weight:800}
+  .tr-front .tr-emoji{font-size:60px;line-height:1;margin:10px 0 8px}
+  .tr-front .tr-name{font-family:'Sora','Inter',sans-serif;font-size:16px;font-weight:800;color:#3b2a12;line-height:1.2}
+  .tr-front .tr-orient{margin-top:7px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:800;
+    padding:3px 9px;border-radius:20px}
+  .tr-front .tr-orient.up{background:rgba(21,128,61,.14);color:#15803d;border:1px solid rgba(21,128,61,.35)}
+  .tr-front .tr-orient.rev{background:rgba(180,83,9,.14);color:#b45309;border:1px solid rgba(180,83,9,.35)}
+  .tr-front.reversed .tr-emoji{transform:rotate(180deg)}
+
+  .tr-tap{font-size:11.5px;color:#a78bfa;margin-top:10px;animation:trPulse 1.8s ease-in-out infinite}
+  @keyframes trPulse{0%,100%{opacity:.55}50%{opacity:1}}
+  .tr-read{display:none;margin-top:14px;text-align:left}
+  .tr-read.show{display:block;animation:trIn .5s ease both}
+  @keyframes trIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .tr-key{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-bottom:12px}
+  .tr-key span{font-size:10.5px;font-weight:700;color:#ddd6fe;background:rgba(147,51,234,.22);
+    border:1px solid rgba(192,132,252,.35);border-radius:20px;padding:3px 9px}
+  .tr-msg{font-size:13.5px;line-height:1.65;color:#e9e2f8}
+  .tr-msg b{color:#e9d5ff}
+  .tr-sec{margin-top:12px;padding-top:12px;border-top:1px solid rgba(192,132,252,.18)}
+  .tr-sec .tr-lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:#a78bfa;font-weight:800;margin-bottom:4px}
+  .tr-sec p{font-size:12.5px;line-height:1.6;color:#cfc6e6;margin:0}
+  .tr-sign{margin-top:14px;font-size:11px;color:#7c6da8;text-align:center;line-height:1.5}
+  .tr-sign b{color:#c4b5fd}
+  .tr-share{margin-top:14px;display:flex;gap:8px}
+  .tr-share button{flex:1;border-radius:11px;padding:10px;font:700 12.5px/1 inherit;cursor:pointer;border:none}
+  .tr-share .p{background:linear-gradient(135deg,#a855f7,#7c3aed);color:#fff}
+  .tr-share .s{background:rgba(255,255,255,.07);color:#cfc6e6;border:1px solid rgba(192,132,252,.28)}
+  @media(prefers-reduced-motion:reduce){
+    .tr-flip,.tr-back .tr-sigil,.tr-tap,.tarot-btn.unread::after{animation:none;transition:none}
+  }
+</style>
+<div id="tarot-modal" onclick="if(event.target===this)closeTarot()">
+  <div class="tr-card">
+    <button class="tr-x" onclick="closeTarot()">✕</button>
+    <div class="tr-eyebrow">🔮 Your card for today</div>
+    <div class="tr-date" id="tarot-date">—</div>
+
+    <div class="tr-stage">
+      <div class="tr-flip" id="tarot-flip" onclick="revealTarot()">
+        <div class="tr-face tr-back">
+          <div class="tr-sigil">🌙</div>
+          <small>Tap to draw</small>
+        </div>
+        <div class="tr-face tr-front" id="tarot-front">
+          <div class="tr-num" id="tarot-num">—</div>
+          <div class="tr-emoji" id="tarot-emoji">✨</div>
+          <div class="tr-name" id="tarot-name">—</div>
+          <div class="tr-orient up" id="tarot-orient">Upright</div>
+        </div>
+      </div>
+    </div>
+    <div class="tr-tap" id="tarot-tap">Tap the card</div>
+
+    <div class="tr-read" id="tarot-read">
+      <div class="tr-key" id="tarot-keys"></div>
+      <div class="tr-msg" id="tarot-msg"></div>
+      <div class="tr-sec">
+        <div class="tr-lbl">At work today</div>
+        <p id="tarot-work"></p>
+      </div>
+      <div class="tr-sign" id="tarot-sign"></div>
+      <div class="tr-share">
+        <button class="p" onclick="shareTarot()">📋 Copy my reading</button>
+        <button class="s" onclick="closeTarot()">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <button id="tet-tourney-fab" onclick="tetTourneyFabClick()"><span class="ttf-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2 2 0 0 0 0 4H7M17 6h2.5a2 2 0 0 1 0 4H17M9.5 20h5M12 14v3"/></svg></span> <span id="ttf-label">Tetris</span></button>
 <button id="jul4-fab" onclick="jul4Open()">🎯 Daily Trivia</button>
