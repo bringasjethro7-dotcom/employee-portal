@@ -14859,6 +14859,27 @@ body.light .jul4-lbscore{color:#059669}
   .hp-rank.tr-godoftetris b{color:#fff;text-shadow:0 0 12px rgba(253,224,71,.9)}
   .hp-rank.tr-godoftetris span{color:#fde047}
   @keyframes godPulse{0%,100%{box-shadow:0 0 24px rgba(253,224,71,.5)}50%{box-shadow:0 0 40px rgba(253,224,71,.95)}}
+  /* Compact rank badge for leaderboard rows — inherits the same tier colours as .hp-rank */
+  .rk-rank{flex:0 0 auto;text-align:center;min-width:54px;padding:5px 7px;border-radius:11px;
+    background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.02));
+    border:1px solid rgba(255,255,255,.13)}
+  .rk-rank b{display:block;font-size:17px;font-weight:900;line-height:1;color:#fff}
+  .rk-rank span{display:block;font-size:7.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;margin-top:2px;color:#9fb0d6}
+  .rk-rank.tr-rookie,.rk-rank.tr-amateur{border-color:rgba(148,163,184,.5)}
+  .rk-rank.tr-contender,.rk-rank.tr-challenger{border-color:rgba(34,197,94,.55)}
+  .rk-rank.tr-contender span,.rk-rank.tr-challenger span{color:#86efac}
+  .rk-rank.tr-veteran,.rk-rank.tr-expert{border-color:rgba(56,189,248,.6)}
+  .rk-rank.tr-veteran span,.rk-rank.tr-expert span{color:#7dd3fc}
+  .rk-rank.tr-master,.rk-rank.tr-grandmaster{border-color:rgba(168,85,247,.65);box-shadow:0 0 12px rgba(168,85,247,.25)}
+  .rk-rank.tr-master span,.rk-rank.tr-grandmaster span{color:#d8b4fe}
+  .rk-rank.tr-elite,.rk-rank.tr-legend{border-color:rgba(251,191,36,.7);box-shadow:0 0 14px rgba(251,191,36,.3)}
+  .rk-rank.tr-elite span,.rk-rank.tr-legend span{color:#fcd34d}
+  .rk-rank.tr-demigod{border-color:rgba(244,63,94,.75);box-shadow:0 0 16px rgba(244,63,94,.4);
+    background:linear-gradient(180deg,rgba(244,63,94,.2),rgba(120,20,40,.08))}
+  .rk-rank.tr-demigod span{color:#fda4af}
+  .rk-rank.tr-godoftetris{border-color:#fde047;background:linear-gradient(180deg,rgba(253,224,71,.28),rgba(251,146,60,.1));
+    box-shadow:0 0 22px rgba(253,224,71,.6)}
+  .rk-rank.tr-godoftetris span{color:#fde047}
   .hp-stars{display:flex;align-items:center;gap:7px;margin-top:5px;flex-wrap:wrap}
   .star-pips{display:inline-flex;gap:2px}
   .star-pips .pip{font-style:normal;font-size:13px;color:#3d4763;line-height:1}
@@ -18214,6 +18235,7 @@ body.light .jul4-lbscore{color:#059669}
       var delay=(i===1?0:(i===0?140:240));
       var first=p.rank===1, mine=String(p.employee_id||'').toLowerCase()===me;
       var md=['🥇','🥈','🥉'][p.rank-1];
+      var PR=rankFromStars(p.stars||0);
       var sk=(p.skill_level||0)>0?'<div class="rk-sk">🎖 Lv'+p.skill_level+'</div>':'';
       var ph=rkPhoto(p.employee_id);
       var av = ph
@@ -18222,7 +18244,9 @@ body.light .jul4-lbscore{color:#059669}
       return '<div class="rk-pod'+(first?' first':'')+(mine?' me':'')+'" style="animation-delay:'+delay+'ms;">'+
         '<div class="rk-md">'+md+'</div>'+ av +
         '<div class="rk-nm">'+esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
-        '<div class="rk-rt">'+(p.rating||0)+' <span style="font-weight:600;color:#9fb0d6;font-size:9px;">RATING</span></div>'+ sk +
+        '<div class="rk-rt">RANK '+PR.rank+'</div>'+
+        '<div class="rk-sk" style="color:'+(PR.god?'#fde047':'#c4b5fd')+';">'+esc(PR.tier)+(PR.god?' 👑':'')+'</div>'+
+        '<div style="font-size:9px;color:#6b7d90;margin-top:2px;">'+Number(PR.stars).toLocaleString()+' ★</div>'+ sk +
       '</div>';
     }).join('')+'</div>';
   }
@@ -18743,11 +18767,12 @@ body.light .jul4-lbscore{color:#059669}
         var apg=(p.avg_lines!=null)?p.avg_lines:0;
         var PR=rankFromStars(p.stars||0);
         var bits=[];
+        bits.push(Number(PR.stars).toLocaleString()+' ★');
+        if(p.wins>0) bits.push(p.wins+' cups');
+        if((p.duel_wins||0)+(p.duel_losses||0)>0) bits.push((p.duel_wins||0)+'W–'+(p.duel_losses||0)+'L');
         if(p.combo_best>0) bits.push(p.combo_best+' combo');
         if(p.sprint_ms>0) bits.push('Sprint '+(p.sprint_ms/1000).toFixed(1)+'s');
-        if(p.ultra_score>0) bits.push('Ultra '+Number(p.ultra_score).toLocaleString());
-        if(p.wins>0) bits.push((p.wins)+' cups');
-        bits.push(apg+' l/game');
+        bits.push('rating '+(p.rating||0));
         var ph=rkPhoto(p.employee_id);
         var av2=ph?'<div class="rk-av2" style="overflow:hidden;padding:0;background:#0b1020;"><img src="'+ph+'" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\''+rkInitial(p.name)+'\';this.parentNode.style.background=\'linear-gradient(135deg,#2c3a5c,#1a2438)\';"></div>':'<div class="rk-av2">'+rkInitial(p.name)+'</div>';
         return '<div class="rk-row'+(mine?' me':'')+'" style="animation-delay:'+Math.min(i*45,500)+'ms;">'+
@@ -18756,11 +18781,10 @@ body.light .jul4-lbscore{color:#059669}
           '<div style="flex:1;min-width:0;text-align:left;">'+
             '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+
               (p.crown?'<span class="crown" title="Reigning Grand Final champion">👑</span> ':'')+
-              esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+
-              ' <span class="tier-chip" title="Rank '+PR.rank+' · '+esc(PR.tier)+'">R'+PR.rank+' '+esc(PR.tier)+'</span></div>'+
+              esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:10px;">(you)</span>':'')+'</div>'+
             '<div style="font-size:10px;color:#9fb0d6;margin-top:2px;">'+bits.join(' · ')+'</div>'+
           '</div>'+
-          '<div style="text-align:right;"><div style="font-size:15px;font-weight:900;color:#fbbf24;">'+(p.rating||0)+'</div><div style="font-size:8px;color:#6b7d90;text-transform:uppercase;letter-spacing:.05em;">rating</div></div></div>';
+          '<div class="rk-rank '+tierCls(PR.tier)+'"><b>'+PR.rank+'</b><span>'+esc(PR.tier)+'</span></div></div>';
       }).join('') : '<div style="text-align:center;color:#6b7d90;padding:8px;font-size:12px;">That\'s everyone so far — climb the ranks! 🎮</div>';
     }).catch(function(){ el('tet-rank-body').innerHTML='<div style="text-align:center;color:#f87171;padding:30px;">Couldn\'t load rankings — try again.</div>'; });
   };
