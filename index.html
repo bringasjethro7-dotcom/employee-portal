@@ -4023,6 +4023,29 @@
 </div>
 <div class="confetti-wrap" id="confetti-wrap"></div>
 
+<!-- ══════════ PROMOTION CELEBRATION ══════════ -->
+<div id="promo-cele" style="display:none;position:fixed;inset:0;z-index:99000;align-items:center;justify-content:center;background:radial-gradient(1200px 700px at 50% -10%,rgba(255,107,26,.28),rgba(10,10,14,.82));backdrop-filter:blur(6px);padding:18px;">
+  <div id="promo-letter" style="width:520px;max-width:100%;max-height:88vh;overflow:auto;background:linear-gradient(180deg,#fffdf8,#fff6ec);border:1px solid rgba(234,88,12,.35);border-radius:20px;box-shadow:0 40px 120px rgba(0,0,0,.5),0 0 0 6px rgba(255,255,255,.06);padding:0;transform:translateY(14px) scale(.96);opacity:0;transition:transform .5s cubic-bezier(.2,.8,.2,1),opacity .5s;">
+    <div style="background:linear-gradient(135deg,#ff8a45,#ea580c);padding:26px 24px 20px;text-align:center;border-radius:20px 20px 0 0;color:#fff;">
+      <div style="font-size:44px;line-height:1;margin-bottom:6px;">🎉</div>
+      <div style="font-size:13px;letter-spacing:.22em;text-transform:uppercase;opacity:.9;font-weight:700;">Congratulations</div>
+      <div id="promo-title" style="font-size:23px;font-weight:800;margin-top:4px;">You've been promoted!</div>
+    </div>
+    <div style="padding:22px 26px 6px;">
+      <p id="promo-greet" style="font-size:15px;color:#3a2a1e;margin:0 0 12px;font-weight:600;"></p>
+      <p style="font-size:14px;color:#5b4636;line-height:1.65;margin:0 0 14px;">It's our pleasure to recognize your hard work and growth with the team. Effective immediately, the following updates have been made to your role:</p>
+      <div id="promo-changes" style="display:flex;flex-direction:column;gap:9px;margin-bottom:16px;"></div>
+      <div id="promo-effect" style="font-size:12.5px;color:#8a6d55;margin-bottom:6px;"></div>
+      <div id="promo-note" style="display:none;font-size:13.5px;color:#5b4636;font-style:italic;background:rgba(234,88,12,.06);border-left:3px solid #ea580c;border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:12px;"></div>
+      <p style="font-size:14px;color:#5b4636;line-height:1.65;margin:0 0 4px;">Thank you for everything you bring to JMB Virtuals. Here's to your continued success! 💙</p>
+      <p style="font-size:13px;color:#8a6d55;margin:12px 0 0;font-weight:600;">— The JMB Virtuals Team</p>
+    </div>
+    <div style="padding:14px 26px 24px;text-align:center;">
+      <button onclick="closePromoCele()" style="background:linear-gradient(135deg,#ff8a45,#ea580c);color:#fff;border:none;border-radius:14px;padding:13px 34px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 10px 26px rgba(234,88,12,.4);">Thank you! 🙌</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════ DASHBOARD ══════════ -->
 <div id="dashboard-screen">
   <header>
@@ -6015,6 +6038,7 @@ function renderDashboard(data) {
   try { maybeShowTeamLive(data); } catch(e) {}   // CL7–CL9 get the read-only Team Live view
   try { tarotMarkUnread(); } catch(e) {}         // 🔮 pulse the Daily Tarot button until it's drawn
   try { applySavedBg(); } catch(e) {}   // restore the chosen background on every load (not only on Profile tab)
+  try { setTimeout(function(){ maybePromotionCelebrate(data.employee_id); }, 1100); } catch(e) {}   // 🎉 one-time promotion confetti + letter
   try { setTimeout(maybeShowWhatsNew, 900); } catch(e) {}   // show the update changelog once per version
   try { setTimeout(maybeResetReminder, 1400); } catch(e) {}   // July-1 month-reset reminder (8 AM & 8 PM PHT)
   renderPayslipList(data);
@@ -10456,6 +10480,63 @@ function launchConfetti() {
       }, i * 30);
     })(i);
   }
+}
+
+// ── PROMOTION CELEBRATION — confetti + congratulations letter, shown once ──
+var _promoAckId = '';
+async function maybePromotionCelebrate(empId){
+  if(!empId) return;
+  try{
+    var r = await fetch(APPS_SCRIPT_URL + '?action=get_pending_promotion&employee_id=' + encodeURIComponent(empId) + '&_=' + Date.now());
+    var d = await r.json();
+    var p = d && d.promotion;
+    if(!p) return;
+    _promoAckId = p.id || '';
+    var first = String(p.full_name||'').trim().split(' ')[0] || 'there';
+    document.getElementById('promo-greet').textContent = 'Dear ' + first + ',';
+    var icon = { 'Position':'💼', 'Career Level':'⭐', 'Salary':'💰' };
+    var box = document.getElementById('promo-changes');
+    box.innerHTML = (p.changes||[]).map(function(c){
+      return '<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid rgba(234,88,12,.2);border-radius:12px;padding:10px 13px;box-shadow:0 2px 8px rgba(234,88,12,.06);">' +
+        '<span style="font-size:20px;">' + (icon[c.f]||'✨') + '</span>' +
+        '<div style="flex:1;"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#a97b53;font-weight:700;">' + esc(c.f) + '</div>' +
+        '<div style="font-size:14.5px;color:#3a2a1e;font-weight:700;"><span style="color:#9a8574;text-decoration:line-through;font-weight:500;">' + esc(c.from) + '</span> &nbsp;→&nbsp; <span style="color:#ea580c;">' + esc(c.to) + '</span></div></div></div>';
+    }).join('');
+    var eff = document.getElementById('promo-effect');
+    eff.textContent = p.effective_date ? ('Effective: ' + p.effective_date) : '';
+    var noteEl = document.getElementById('promo-note');
+    if(p.note){ noteEl.style.display='block'; noteEl.textContent = '“' + p.note + '”'; } else { noteEl.style.display='none'; }
+    var overlay = document.getElementById('promo-cele');
+    overlay.style.display = 'flex';
+    requestAnimationFrame(function(){ var L=document.getElementById('promo-letter'); L.style.transform='translateY(0) scale(1)'; L.style.opacity='1'; });
+    try{ launchConfetti(); }catch(e){}
+    setTimeout(function(){ try{ launchConfetti(); }catch(e){} }, 900);
+    try{ playPromoChime(); }catch(e){}
+  }catch(e){}
+}
+function closePromoCele(){
+  var overlay = document.getElementById('promo-cele');
+  var L = document.getElementById('promo-letter');
+  L.style.transform='translateY(14px) scale(.96)'; L.style.opacity='0';
+  setTimeout(function(){ overlay.style.display='none'; document.getElementById('confetti-wrap').innerHTML=''; }, 300);
+  // Mark seen so it never shows again.
+  if(_promoAckId){ try{ fetch(APPS_SCRIPT_URL + '?action=ack_promotion&id=' + encodeURIComponent(_promoAckId) + '&_=' + Date.now()); }catch(e){} }
+}
+function playPromoChime(){
+  try{
+    var Ctx = window.AudioContext || window.webkitAudioContext; if(!Ctx) return;
+    var ac = new Ctx();
+    [523.25, 659.25, 783.99, 1046.5].forEach(function(f, i){
+      var o = ac.createOscillator(), g = ac.createGain();
+      o.type='triangle'; o.frequency.value=f;
+      o.connect(g); g.connect(ac.destination);
+      var t = ac.currentTime + i*0.12;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.22, t+0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+0.5);
+      o.start(t); o.stop(t+0.55);
+    });
+  }catch(e){}
 }
 
 // ══════════════════════════════════════════

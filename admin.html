@@ -1022,8 +1022,6 @@ thead tr{background:var(--card2)}
             <th>Assessment</th>
             <th>Overall</th>
             <th>Demerit</th>
-            <th>Note</th>
-            <th>Actions</th>
           </tr></thead>
           <tbody id="sc-body"><tr><td colspan="8" class="es">Loading…</td></tr></tbody>
         </table>
@@ -1331,6 +1329,27 @@ thead tr{background:var(--card2)}
       <span id="qrmgr-bulk-status" style="font-size:11.5px;color:var(--t3);margin-left:8px;"></span>
     </div>
     <div id="qrmgr-list" style="max-height:52vh;overflow:auto;"></div>
+  </div>
+</div>
+
+<!-- PROMOTE MODAL — salary / CL / position change + auto-notify the employee -->
+<div id="promote-modal" style="display:none;position:fixed;inset:0;z-index:9600;align-items:center;justify-content:center;background:rgba(0,0,0,.62);backdrop-filter:blur(4px);padding:16px;overflow:auto;">
+  <div style="width:420px;max-width:100%;background:#ffffff;border:1px solid rgba(15,23,42,.12);border-radius:18px;padding:20px;box-shadow:0 30px 90px rgba(15,23,42,0.18);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+      <div style="font-size:16px;font-weight:800;color:var(--t1);">★ Promote employee</div>
+      <button class="bsm" onclick="closePromote()">✕ Close</button>
+    </div>
+    <div id="promote-who" style="font-size:12.5px;color:var(--t3);margin-bottom:14px;"></div>
+    <input type="hidden" id="promote-eid">
+    <div class="fg" style="margin-bottom:10px;"><label class="lbl">New position</label><input class="inp" type="text" id="promote-pos" placeholder="leave blank to keep current"></div>
+    <div class="fg" style="margin-bottom:10px;"><label class="lbl">New career level (CL)</label><input class="inp" type="text" id="promote-cl" placeholder="e.g. CL5 — blank to keep"></div>
+    <div class="fg" style="margin-bottom:10px;"><label class="lbl">New salary / rate (₱)</label><input class="inp" type="number" step="0.01" id="promote-rate" placeholder="blank to keep current"></div>
+    <div class="fg" style="margin-bottom:10px;"><label class="lbl">Effective date</label><input class="inp" type="date" id="promote-eff"></div>
+    <div class="fg" style="margin-bottom:14px;"><label class="lbl">Note to employee (optional)</label><input class="inp" type="text" id="promote-note" placeholder="e.g. Great work this quarter!"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="bsm" onclick="closePromote()">Cancel</button>
+      <button class="bsm" id="promote-go" onclick="submitPromote()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:700;">★ Promote &amp; notify</button>
+    </div>
   </div>
 </div>
 
@@ -3557,7 +3576,8 @@ function renderTable(){
     var purgeBtn=inactive
       ? '<button class="bsm danger" style="background:rgba(248,113,113,.14);" onclick="purgeEmp('+ri+')">🗑 Delete permanently</button>'
       : '';
-    return'<tr'+(inactive?' style="opacity:.55"':'')+'><td style="font-weight:500;color:var(--t1);">'+nameCell+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button>'+toggleBtn+purgeBtn+'</div></td></tr>';
+    var promoteBtn=inactive?'':'<button class="bsm" style="border-color:rgba(234,88,12,.4);color:#ea580c;" onclick="openPromote('+ri+')">★ Promote</button>';
+    return'<tr'+(inactive?' style="opacity:.55"':'')+'><td style="font-weight:500;color:var(--t1);">'+nameCell+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button>'+promoteBtn+toggleBtn+purgeBtn+'</div></td></tr>';
   }).join('');
 }
 function toggleActive(idx){
@@ -3569,6 +3589,52 @@ function toggleActive(idx){
   fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(e.employee_id)+'&status='+encodeURIComponent(e.status))
     .then(function(r){return r.json();}).then(function(d){ if(d&&d.not_found) toast(e.employee_id+' isn’t in the sheet yet.'); }).catch(function(){});
   toast(nowInactive?'Account reactivated.':'Account deactivated.');
+}
+// ── PROMOTIONS: change salary / CL / position and notify the employee ──
+function openPromote(idx){
+  var e=emps[idx]; if(!e) return;
+  document.getElementById('promote-eid').value=e.employee_id||'';
+  document.getElementById('promote-who').innerHTML='<b style="color:var(--t1)">'+escAdmin(e.full_name||e.employee_id)+'</b> · '+escAdmin(e.employee_id||'')+
+    '<br>Current: '+escAdmin(e.position||'—')+' · '+escAdmin((e.career_level||e.cl||'—'))+' · '+(e.rate?('₱'+Number(e.rate).toLocaleString()):'—');
+  document.getElementById('promote-pos').value='';
+  document.getElementById('promote-cl').value='';
+  document.getElementById('promote-rate').value='';
+  document.getElementById('promote-note').value='';
+  var t=new Date(); document.getElementById('promote-eff').value=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+  document.getElementById('promote-modal').style.display='flex';
+}
+function closePromote(){ document.getElementById('promote-modal').style.display='none'; }
+async function submitPromote(){
+  var eid=document.getElementById('promote-eid').value;
+  var pos=document.getElementById('promote-pos').value.trim();
+  var cl=document.getElementById('promote-cl').value.trim();
+  var rate=document.getElementById('promote-rate').value.trim();
+  var eff=document.getElementById('promote-eff').value;
+  var note=document.getElementById('promote-note').value.trim();
+  if(!eid){ return; }
+  if(!pos && !cl && !rate){ alert('Enter at least one change — position, career level, or salary.'); return; }
+  var btn=document.getElementById('promote-go'); btn.disabled=true; var _t=btn.textContent; btn.textContent='Saving…';
+  try{
+    var u=API+'?action=promote_employee&employee_id='+encodeURIComponent(eid)+
+      '&position='+encodeURIComponent(pos)+
+      '&career_level='+encodeURIComponent(cl)+
+      '&rate='+encodeURIComponent(rate)+
+      '&effective_date='+encodeURIComponent(eff)+
+      '&note='+encodeURIComponent(note)+
+      '&by=Admin&_='+Date.now();
+    var r=await fetch(u); var d=await r.json();
+    if(d&&d.ok){
+      if(typeof toast==='function') toast('Promoted '+(d.full_name||eid)+' — employee notified. 🎉');
+      // reflect locally so the table updates without a full refetch
+      var e=emps.filter(function(x){return String(x.employee_id)===String(eid);})[0];
+      if(e){ if(pos)e.position=pos; if(cl)e.career_level=cl; if(rate)e.rate=rate; try{persist();}catch(_p){} renderTable(); }
+      closePromote();
+      // Pull authoritative data back from the sheet.
+      try{ jBust(); var rr=await jGet(API+'?action=get_all_employees&_='+Date.now(),0); var dd=await rr.json(); if(dd&&dd.employees){ emps=dd.employees; try{persist();}catch(_p2){} renderTable(); } }catch(_re){}
+    } else if(d&&d.no_change){ alert('No changes were made — the new values match the current ones.'); }
+    else { alert('Could not promote'+(d&&d.error?(': '+d.error):'.')); }
+  }catch(e){ alert('Network error.'); }
+  finally{ btn.disabled=false; btn.textContent=_t; }
 }
 
 function openModal(idx){
@@ -4434,28 +4500,29 @@ async function loadAdminScorecard() {
   tbody.innerHTML = '<tr><td colspan="8" class="es">Loading…</td></tr>';
 
   try {
-    var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '');
+    var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '') + '&_=' + Date.now();
     var res  = await fetch(url);
     var data = await res.json();
     var rows = data.scorecards || [];
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="es">No scorecards found.</td></tr>'; return; }
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="es">No scorecards found.</td></tr>'; return; }
+    var dash = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v).toFixed(0) : '—'; };
     tbody.innerHTML = rows.map(function(sc) {
-      var overall = sc.overall ? parseFloat(sc.overall).toFixed(2) : (Math.round(((parseFloat(sc.productivity||0)+parseFloat(sc.quality||0)+parseFloat(sc.attendance||0))/3)*100)/100).toFixed(2);
+      var overall = (sc.overall!==''&&sc.overall!=null) ? parseFloat(sc.overall).toFixed(2) : '—';
+      var dem = (sc.demerit_score!==''&&sc.demerit_score!=null&&!isNaN(parseFloat(sc.demerit_score))) ? parseFloat(sc.demerit_score).toFixed(0) : '—';
+      var demCol = dem==='—' ? 'var(--t3)' : (parseFloat(sc.demerit_score) >= 100 ? '#16a34a' : '#dc2626');
       return '<tr>' +
         '<td><strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
         '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
-        '<td><span style="color:#378add;font-weight:600;">' + (sc.productivity||'—') + '</span></td>' +
-        '<td><span style="color:#1d9e75;font-weight:600;">' + (sc.quality||'—') + '</span></td>' +
-        '<td><span style="color:#ef9f27;font-weight:600;">' + (sc.attendance||'—') + '</span></td>' +
-        '<td><span style="color:#a855f7;font-weight:600;">' + ((sc.assessment!==''&&sc.assessment!=null) ? parseFloat(sc.assessment).toFixed(0) : '—') + '</span></td>' +
+        '<td><span style="color:#2563eb;font-weight:600;">' + dash(sc.productivity) + '</span></td>' +
+        '<td><span style="color:#0d9488;font-weight:600;">' + dash(sc.quality) + '</span></td>' +
+        '<td><span style="color:#d97706;font-weight:600;">' + dash(sc.attendance) + '</span></td>' +
+        '<td><span style="color:#9333ea;font-weight:600;">' + dash(sc.assessment) + '</span></td>' +
         '<td><strong style="color:var(--o3);">' + overall + '</strong></td>' +
-        '<td><span style="color:#f87171;font-weight:600;">' + (sc.violation_points && parseFloat(sc.violation_points) > 0 ? '-' + parseFloat(sc.violation_points).toFixed(2) : '—') + '</span></td>' +
-        '<td style="font-size:12px;color:var(--t3);">' + (sc.note||'—') + '</td>' +
-        '<td><button onclick="editScorecard(' + JSON.stringify(sc).replace(/"/g,"'") + ')" style="background:rgba(255,107,26,0.1);border:1px solid rgba(255,107,26,0.3);color:var(--o3);padding:3px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;">Edit</button></td>' +
+        '<td><span style="color:' + demCol + ';font-weight:600;">' + dem + '</span></td>' +
       '</tr>';
     }).join('');
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="9" class="es">Error loading scorecards.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="es">Error loading scorecards.</td></tr>';
   }
 }
 
