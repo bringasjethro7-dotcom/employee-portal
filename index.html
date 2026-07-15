@@ -4952,6 +4952,7 @@
             <div id="sc-prod-bar" style="height:100%;width:0%;background:#378add;border-radius:2px;transition:width 0.6s;"></div>
           </div>
           <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">30% weight · Tasks · Hours</p>
+          <div id="sc-prod-cutoffs" style="display:none;margin-top:9px;padding-top:9px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);line-height:1.55;"></div>
         </div>
 
         <!-- QA -->
@@ -6933,6 +6934,7 @@ async function loadScorecard() {
     var sc = data.scorecard;
     document.getElementById('sc-overall-card').style.display = 'flex';
       setScCard('prod', sc.productivity);
+    loadProdCutoffs(scEmpId, key);   // the two cutoff scores behind the Productivity number
     setScCard('qual', sc.quality);
     setScCard('att',  (data.attendance!=null && data.attendance!=='') ? data.attendance : sc.attendance);       // live running score
     setScCard('sales', (sc.team_sales!==undefined?sc.team_sales:null));
@@ -7363,6 +7365,27 @@ function setScCoverage(sc, liveAtt, liveDem) {
   if (covered >= 100 || !missing.length) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   el.innerHTML = 'Based on <b>' + covered + '%</b> of the weighting — still to come: ' + missing.join(' · ');
+}
+// Show the two payroll-cutoff productivity scores under the Productivity card.
+function loadProdCutoffs(empId, month){
+  var box=document.getElementById('sc-prod-cutoffs'); if(!box || !empId) return;
+  box.style.display='none';
+  fetch(APPS_SCRIPT_URL+'?action=prod_cutoffs&employee_id='+encodeURIComponent(empId)+'&month='+encodeURIComponent(month)+'&_='+Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(!d || !d.ok || !d.cutoffs) return;
+      var any=d.cutoffs.some(function(c){ return c.score!=null; });
+      if(!any) return;
+      var col=function(s){ return s==null?'var(--text-3)':(s>=95?'#4ade80':(s>=80?'#fbbf24':'#f87171')); };
+      var parts=d.cutoffs.map(function(c){
+        var tag=c.score==null?'<span style="color:var(--text-3);">not yet</span>'
+              :('<b style="color:'+col(c.score)+';">'+c.score+'</b><span style="color:var(--text-3);">/100</span>'+
+                (c.final?' 🔒':(c.closed?'':' <span style="color:var(--text-3);">·live</span>')));
+        return esc(c.label)+': '+tag;
+      });
+      box.innerHTML = 'Finalized per cutoff — '+parts.join(' &nbsp;·&nbsp; ')+
+        '<br><span style="opacity:.75;">Productivity = average of both. 🔒 = locked.</span>';
+      box.style.display='block';
+    }).catch(function(){});
 }
 function setScCard(type, score) {
   var num   = document.getElementById('sc-' + type + '-num');
