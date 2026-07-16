@@ -733,6 +733,14 @@ thead tr{background:var(--card2)}
           </div>
           <div id="bc-result" style="font-size:12px;color:var(--t3);margin-top:6px;"></div>
         </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 4px;">
+          <span style="font-size:12px;font-weight:700;color:var(--t2);">View sales for:</span>
+          <select class="sinp" id="sales-period-filter" onchange="applySalesFilter()" style="width:220px;"><option value="">All cutoffs</option></select>
+          <span style="font-size:11px;color:var(--t3);">or date range</span>
+          <input class="sinp" id="sales-from" type="date" onchange="applySalesFilter()" style="width:150px;" title="Recorded from">
+          <input class="sinp" id="sales-to" type="date" onchange="applySalesFilter()" style="width:150px;" title="Recorded to">
+          <button class="bsm" onclick="clearSalesFilter()" style="color:var(--t2)">Clear</button>
+        </div>
         <div class="live-summary" id="sales-summary"></div>
         <div class="tw"><table id="sales-table"><thead><tr><th>Invoice #</th><th>Project</th><th>Period</th><th>Invoice (USD)</th><th>Rate</th><th>Via</th><th>Revenue (₱)</th><th>Salary (₱)</th><th>Net (₱)</th><th>Status</th><th>Client</th><th>Note</th><th>Recorded</th><th></th></tr></thead><tbody id="sales-tbody"><tr><td colspan="14" class="es">Loading…</td></tr></tbody></table></div>
         <div style="margin-top:10px;text-align:right;"><button class="bsm" id="sales-recompute" onclick="recomputeSalesFx()" style="color:#34d399;border-color:rgba(52,211,153,.35)" title="Fill rate + revenue for rows that have a method + invoice but no rate yet">⚡ Compute FX for method rows</button> <button class="bsm" onclick="salesLock()" style="color:var(--t2)">🔒 Lock again</button> <button class="bsm" onclick="loadSalesData()" style="color:var(--o3);border-color:rgba(255,107,26,.3)">↻ Refresh</button></div>
@@ -1600,20 +1608,51 @@ function salesRecompute(){
     '<span>− Payroll for period: <b>'+_peso(_salesPayroll)+'</b></span>'+
     '<span>= Net revenue: <span class="net'+(net<0?' neg':'')+'">'+_peso(net)+'</span></span>';
 }
+var _salesAllRows=[];
 async function loadSalesData(){
   var tb=document.getElementById('sales-tbody'); tb.innerHTML='<tr><td colspan="10" class="es">Loading…</td></tr>';
   try{
     var r=await jGet(API+'?action=get_sales&token='+encodeURIComponent(_salesToken())+'&_='+Date.now()); var d=await r.json();
     if(d&&d.error==='LOCKED'){ salesLock(); return; }
     var rows=(d&&d.sales)||[];
+    _salesAllRows=rows;
     if(!rows.length){ tb.innerHTML='<tr><td colspan="14" class="es">No sales recorded yet.</td></tr>'; document.getElementById('sales-summary').innerHTML=''; return; }
-    var tRev=0,tPay=0,tNet=0; rows.forEach(function(x){ tRev+=x.revenue_php||0; tPay+=x.payroll_php||0; tNet+=x.net_php||0; });
-    document.getElementById('sales-summary').innerHTML=
-      '<div class="ls"><b>'+_peso(tRev)+'</b><span>Gross revenue</span></div>'+
-      '<div class="ls"><b>'+_peso(tPay)+'</b><span>Payroll paid</span></div>'+
-      '<div class="ls"><b style="color:'+(tNet<0?'#f87171':'#34d399')+'">'+_peso(tNet)+'</b><span>Net revenue</span></div>'+
-      '<div class="ls"><b>'+rows.length+'</b><span>Records</span></div>';
-    tb.innerHTML=rows.map(function(x){
+    // Populate the cutoff/period dropdown from the distinct periods present.
+    var sel=document.getElementById('sales-period-filter');
+    if(sel){
+      var cur=sel.value, periods=[];
+      rows.forEach(function(x){ var p=(x.period||'').trim(); if(p && periods.indexOf(p)<0) periods.push(p); });
+      periods.sort();
+      sel.innerHTML='<option value="">All cutoffs</option>'+periods.map(function(p){ return '<option value="'+escAdmin(p)+'">'+escAdmin(p)+'</option>'; }).join('');
+      sel.value=cur;   // keep selection across refreshes
+    }
+    renderSalesRows();
+  }catch(e){ tb.innerHTML='<tr><td colspan="14" class="es" style="color:#f87171">Could not load.</td></tr>'; }
+}
+function clearSalesFilter(){ var s=document.getElementById('sales-period-filter'); if(s)s.value=''; var f=document.getElementById('sales-from'); if(f)f.value=''; var t=document.getElementById('sales-to'); if(t)t.value=''; renderSalesRows(); }
+function applySalesFilter(){ renderSalesRows(); }
+function renderSalesRows(){
+  var tb=document.getElementById('sales-tbody'); if(!tb) return;
+  var period=(document.getElementById('sales-period-filter')||{}).value||'';
+  var from=(document.getElementById('sales-from')||{}).value||'';
+  var to=(document.getElementById('sales-to')||{}).value||'';
+  var rows=_salesAllRows.filter(function(x){
+    if(period && (x.period||'')!==period) return false;
+    var d=String(x.created_at||'').slice(0,10);   // yyyy-MM-dd
+    if(from && d && d<from) return false;
+    if(to && d && d>to) return false;
+    return true;
+  });
+  var scope = period ? (' · '+period) : ((from||to) ? (' · '+(from||'…')+' → '+(to||'…')) : '');
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="14" class="es">No sales for this selection.</td></tr>'; document.getElementById('sales-summary').innerHTML='<div class="ls"><b>—</b><span>No records'+scope+'</span></div>'; return; }
+  var tRev=0,tPay=0,tNet=0; rows.forEach(function(x){ tRev+=x.revenue_php||0; tPay+=x.payroll_php||0; tNet+=x.net_php||0; });
+  document.getElementById('sales-summary').innerHTML=
+    '<div class="ls"><b>'+_peso(tRev)+'</b><span>Gross revenue'+scope+'</span></div>'+
+    '<div class="ls"><b>'+_peso(tPay)+'</b><span>Payroll paid</span></div>'+
+    '<div class="ls"><b style="color:'+(tNet<0?'#f87171':'#34d399')+'">'+_peso(tNet)+'</b><span>Net revenue</span></div>'+
+    '<div class="ls"><b>'+rows.length+'</b><span>Records</span></div>';
+  var tb2=document.getElementById('sales-tbody');
+  tb2.innerHTML=rows.map(function(x){
       return '<tr><td style="font-weight:600;color:var(--o3)">'+escAdmin(x.invoice_no||'—')+'</td>'+
         '<td>'+escAdmin(x.project||'—')+'</td>'+
         '<td>'+escAdmin(x.period)+'</td>'+
@@ -1628,7 +1667,6 @@ async function loadSalesData(){
         '<td style="color:var(--t3);font-size:12px">'+escAdmin(x.created_at||'')+(x.by?(' · '+escAdmin(x.by)):'')+'</td>'+
         '<td><button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')">✕</button></td></tr>';
     }).join('');
-  }catch(e){ tb.innerHTML='<tr><td colspan="14" class="es" style="color:#f87171">Could not load.</td></tr>'; }
 }
 async function bookCutoff(){
   var from=document.getElementById('bc-from').value, to=document.getElementById('bc-to').value;
@@ -3181,10 +3219,45 @@ async function generateInvoice(){
     var r=(rateByCat[ck]!==undefined)?rateByCat[ck]:(projRate[pk]!==undefined?projRate[pk]:0);
     l.hours=Math.round(l.hours*mult*100)/100; l.rate=r; l.amount=Math.round(l.hours*r*100)/100; subtotal+=l.amount;
   });
-  openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100);
+  // Prior invoices for this project → the invoice window shows an amount trend.
+  var history=[];
+  try{ var rh=await fetch(API+'?action=invoice_history&project='+encodeURIComponent(project)+'&_='+Date.now()); var dh=await rh.json(); history=(dh&&dh.history)||[]; }catch(e){}
+  openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100, history);
 }
-function openInvoiceWindow(project, from, to, lines, subtotal){
+// Build a no-print comparative trend panel (bars of prior invoice amounts + % change vs last).
+function buildInvoiceTrend(history, subtotal, project){
+  history=history||[];
+  if(!history.length){
+    return '<div class="no-print" style="margin:0 0 22px;padding:12px 14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;font-size:12.5px;color:#6b7280;">📊 No prior invoices recorded for '+escAdmin(project)+' yet — this will be the first. Future invoices will chart the trend here.</div>';
+  }
+  var series=history.map(function(h){ return {label:(h.invoice_no||h.period||''), amt:Number(h.amount)||0, cur:false, status:h.status}; });
+  series.push({label:'This', amt:Number(subtotal)||0, cur:true});
+  var last=Number(history[history.length-1].amount)||0;
+  var pct=last?((subtotal-last)/last*100):0; var up=pct>=0;
+  var amts=series.map(function(s){return s.amt;}); var max=Math.max.apply(null,amts)||1;
+  var priorAmts=amts.slice(0,-1); var avg=priorAmts.reduce(function(a,b){return a+b;},0)/(priorAmts.length||1);
+  var bars=series.map(function(s){
+    var hpx=Math.max(6, Math.round((s.amt/max)*84));
+    var col=s.cur?'#FF6B1A':(s.status==='paid'?'#16a34a':'#94a3b8');
+    return '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0;">'+
+      '<div style="font-size:10px;color:#374151;font-weight:700;white-space:nowrap;">$'+s.amt.toLocaleString(undefined,{maximumFractionDigits:0})+'</div>'+
+      '<div style="width:70%;max-width:34px;height:'+hpx+'px;background:'+col+';border-radius:4px 4px 0 0;"'+(s.cur?' title="This invoice"':'')+'></div>'+
+      '<div style="font-size:9.5px;color:'+(s.cur?'#FF6B1A':'#9ca3af')+';font-weight:'+(s.cur?'700':'400')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52px;">'+escAdmin(s.label)+'</div>'+
+    '</div>';
+  }).join('');
+  var arrow=up?'▲':'▼'; var ccol=up?'#16a34a':'#dc2626';
+  return '<div class="no-print" style="margin:0 0 22px;padding:14px 16px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;">'+
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'+
+      '<span style="font-size:13px;font-weight:800;color:#1f2430;">📊 Invoice trend — '+escAdmin(project)+'</span>'+
+      '<span style="font-size:12.5px;color:'+ccol+';font-weight:700;">'+arrow+' '+(up?'+':'')+pct.toFixed(1)+'% vs last ($'+last.toLocaleString(undefined,{maximumFractionDigits:2})+')</span>'+
+    '</div>'+
+    '<div style="display:flex;align-items:flex-end;gap:6px;height:120px;">'+bars+'</div>'+
+    '<div style="font-size:11px;color:#9ca3af;margin-top:8px;">Prior average $'+avg.toLocaleString(undefined,{maximumFractionDigits:2})+' · '+history.length+' prior invoice'+(history.length!==1?'s':'')+' · amounts in USD · this panel is not printed</div>'+
+  '</div>';
+}
+function openInvoiceWindow(project, from, to, lines, subtotal, history){
   var invNo='';   // no number until the invoice is RECORDED (assigned server-side, starts at 762)
+  var trendHtml=buildInvoiceTrend(history||[], subtotal, project);
   var today=new Date(); var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
   var logo='<svg width="58" height="58" viewBox="76 82 360 360" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="ilM" x1="0" y1="0.05" x2="0" y2="0.95"><stop offset="0%" stop-color="#FFE0BE"/><stop offset="16%" stop-color="#FFB16A"/><stop offset="46%" stop-color="#FF7A29"/><stop offset="78%" stop-color="#F1560F"/><stop offset="100%" stop-color="#C3380A"/></linearGradient><linearGradient id="ilB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF8E45"/><stop offset="55%" stop-color="#E64C10"/><stop offset="100%" stop-color="#A52E08"/></linearGradient></defs><rect x="241" y="110" width="30" height="304" rx="15" fill="url(#ilM)"/><path d="M256 226 Q341 264 398 320 Q341 376 256 414 Q171 376 114 320 Q171 264 256 226 Z" fill="none" stroke="url(#ilB)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/><path d="M256 110 Q341 148 398 204 Q341 260 256 298 Q171 260 114 204 Q171 148 256 110 Z" fill="none" stroke="url(#ilM)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   var rowsHtml=lines.map(function(l){
@@ -3228,9 +3301,10 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
     '.shint{font-size:11.5px;color:#6b7280;flex-basis:100%;}'+
     '[contenteditable]:hover{outline:1px dashed #FF6B1A;border-radius:3px;}.val:empty:before{content:"Client name";color:#cbd5e1;}'+
     '@media print{body{background:#fff;padding:0;}.sheet{box-shadow:none;max-width:none;padding:20px 28px;}.no-print{display:none!important;}[contenteditable]:hover{outline:none;}}';
-  var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+invNo+' - '+escAdmin(project)+'</title><style>'+css+'</style></head><body><div class="sheet">'+
+  var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+(invNo?invNo+' - ':'INVOICE - ')+escAdmin(project)+'</title><style>'+css+'</style></head><body><div class="sheet">'+
     '<div class="topbar no-print"><select id="rec-method" style="padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;font-family:inherit;"><option value="wise">Wise</option><option value="binance">Binance</option><option value="paypal">PayPal</option></select><button class="rbtn" id="rec-btn" onclick="recordInvoice()">Record &amp; assign #</button><button class="pbtn" onclick="window.print()">Print / Save as PDF</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Preview only — no invoice # until you Record. Rate = live market − the method\'s ₱ margin.</span><span id="rec-status" class="recstat"></span></div>'+
     '<div class="sendbar no-print"><span class="slbl">Send to client:</span><input id="inv-contact" class="sinp" placeholder="Phone incl. country code, e.g. 447911123456" /><button class="wabtn" onclick="sendWA()">WhatsApp</button><button class="tgbtn" onclick="sendTG()">Telegram</button><span class="shint">Tip: Save the PDF first (Print &rarr; Save as PDF), then attach it in the chat. The greeting message is filled in for you.</span></div>'+
+    trendHtml+
     '<div class="head"><div class="brand">'+logo+'<div><div class="cname">JMB Virtuals</div><div class="caddr">Philippines</div><div class="cweb">jmbvirtuals.com</div></div></div><div class="invtitle">INVOICE</div></div>'+
     '<div class="meta"><div class="billto"><div class="lbl">BILL TO</div><div class="val" contenteditable="true"></div>'+
       '<div class="period">Payout for period from <b contenteditable="true">'+invDate(from)+'</b> to <b contenteditable="true">'+invDate(to)+'</b></div></div>'+
@@ -3255,7 +3329,7 @@ function openInvoiceWindow(project, from, to, lines, subtotal){
         'btn.disabled=true;btn.textContent="Recording…";if(st){st.textContent="";}'+
         'fetch(API+"?action=record_invoice&project="+encodeURIComponent(PROJ)+"&from="+encodeURIComponent(PFROM)+"&to="+encodeURIComponent(PTO)+"&invoice_usd="+encodeURIComponent(PSUB)+"&method="+encodeURIComponent(method)+"&client="+encodeURIComponent(client)+"&by=Admin&_="+Date.now())'+
         '.then(function(r){return r.json();}).then(function(d){'+
-          'if(d&&d.ok){var b=document.getElementById("inv-no");if(b)b.textContent=d.invoice_no;btn.textContent="Recorded \\u2713 "+d.invoice_no;'+
+          'if(d&&d.ok){var b=document.getElementById("inv-no");if(b)b.textContent=d.invoice_no;try{document.title=d.invoice_no+" - "+PROJ;}catch(e){}btn.textContent="Recorded \\u2713 "+d.invoice_no;'+
             'if(st){st.style.color="#15803d";st.textContent="Booked to Sales \\u2014 Net \\u20b1"+Number(d.net_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+"  (Revenue \\u20b1"+Number(d.revenue_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+" \\u2212 Salary \\u20b1"+Number(d.payroll_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+" @ FX "+d.fx_rate+")";}'+
           '}else{btn.disabled=false;btn.textContent="Record & assign #";if(st){st.style.color="#dc2626";st.textContent="Record failed: "+((d&&d.error)||"error");}}'+
         '}).catch(function(){btn.disabled=false;btn.textContent="Record & assign #";if(st){st.style.color="#dc2626";st.textContent="Record failed (network).";}});'+
