@@ -5885,7 +5885,8 @@ async function renderKPIs(data) {
     var res = await jGet(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk));
     var j = await res.json();
     var sc = j.scorecard || {}, ab = j.attendance_breakdown || {};
-    if (sc.overall != null && sc.overall !== '') countUp(document.getElementById('kpi-score'), Math.round(parseFloat(sc.overall))); else set('kpi-score', '—');
+    // Overall/final score is hidden on the dashboard too — it's the current month, revealed at the meeting.
+    var kEl = document.getElementById('kpi-score'); if (kEl) { kEl.textContent = '🔒'; kEl.title = 'Revealed at the monthly meeting'; kEl.style.filter = ''; }
     set('kpi-att', (ab.expected != null) ? ((ab.present != null ? ab.present : 0) + '/' + ab.expected) : '—');
     if (sc.assessment != null && sc.assessment !== '') countUp(document.getElementById('kpi-assess'), Math.round(parseFloat(sc.assessment)), { suffix: '%' }); else set('kpi-assess', '—');
   } catch (e) {}
@@ -6907,6 +6908,9 @@ async function loadScorecard() {
   if (!scEmpId) return;
   loadMyDemerits();
   var key = scMonthKey(scYear, scMonth);
+  // Hide the OVERALL / final score for the current (running) month — it's revealed at the
+  // monthly meeting. Past months (already announced) show normally.
+  window._scHideFinal = (key === monthKeyPHT());
   document.getElementById('sc-month-label').textContent = scMonthLabel(scYear, scMonth);
   await updateAssessmentGate();   // resolves assessOpen/assessTaken/assessScore (direct from the assessment data)
 
@@ -6981,8 +6985,8 @@ async function loadScorecard() {
       document.getElementById('sc-note-text').textContent = sc.note;
     }
 
-    // Delta vs previous month
-    if (data.prev_overall !== undefined && data.prev_overall !== null) {
+    // Delta vs previous month — hidden while the running month's final score is under wraps.
+    if (!window._scHideFinal && data.prev_overall !== undefined && data.prev_overall !== null) {
       var delta = Math.round((sc.overall || 0) - data.prev_overall);
       var deltaEl = document.getElementById('sc-delta');
       var deltaVal = document.getElementById('sc-delta-val');
@@ -7021,6 +7025,7 @@ async function renderScoreTrend(empId, year, month) {
   try {
     var vals = await Promise.all(months.map(function(mo) {
       var k = mo.y + '-' + String(mo.m).padStart(2, '0');
+      if (k === monthKeyPHT()) return Promise.resolve(null);   // don't plot the running month's final score
       return jGet(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(empId) + '&month=' + encodeURIComponent(k))
         .then(function(r){ return r.json(); })
         .then(function(j){ var sc = j && j.scorecard; return (sc && sc.overall != null && sc.overall !== '') ? parseFloat(sc.overall) : null; })
@@ -7492,6 +7497,19 @@ function setScOverall(score) {
   var labelEl = document.getElementById('sc-overall-label');
   var arcEl   = document.getElementById('sc-gauge-arc');
   var CIRC = 326.7;   // 2πr, r=52
+  // Running (current) month: keep the final score hidden/blurred until the monthly meeting.
+  if (window._scHideFinal) {
+    if (numEl) { numEl.textContent = '••'; numEl.style.filter = 'blur(6px)'; numEl.style.userSelect = 'none'; }
+    if (labelEl) { labelEl.innerHTML = '🔒 Revealed at the monthly meeting'; labelEl.style.filter = ''; }
+    if (barEl) { barEl.style.width = '66%'; barEl.style.filter = 'blur(4px)'; barEl.style.opacity = '0.45'; }
+    if (arcEl) { arcEl.style.strokeDashoffset = (CIRC * 0.34).toFixed(1); arcEl.style.filter = 'blur(3px)'; arcEl.style.opacity = '0.5'; }
+    var delH = document.getElementById('sc-delta'); if (delH) delH.style.display = 'none';
+    return;
+  }
+  // Past (announced) month: clear any blur and show the real score.
+  if (numEl) numEl.style.filter = '';
+  if (barEl) { barEl.style.filter = ''; barEl.style.opacity = ''; }
+  if (arcEl) { arcEl.style.filter = ''; arcEl.style.opacity = ''; }
   if (score === null || score === undefined) {
     numEl.textContent = '—';
     if (barEl) barEl.style.width = '0%';
