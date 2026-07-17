@@ -20165,7 +20165,20 @@ body.light .jul4-lbscore{color:#059669}
   // ── Nightly scheduler + tournament FAB ──
   // Start time (PHT): 10:00 PM on Saturday & Sunday, 11:00 PM Monday–Friday.
   // Invite everyone online at the top of that hour → 45s lobby → bracket auto-starts.
-  function phtNowParts(){ var d=new Date(Date.now()+8*3600*1000);
+  // Tournament timing must use a TRUSTED clock — a player whose computer time is wrong used to
+  // join/miss the bracket at the wrong moment. We sync an offset to the Apps Script server time
+  // and apply it everywhere the schedule is read, so everyone's window lines up regardless of
+  // their device clock.
+  function syncTetClock(){
+    try{
+      var t0=Date.now();
+      fetch(APPS_SCRIPT_URL+'?action=server_time&_='+t0).then(function(r){return r.json();}).then(function(x){
+        if(x&&x.now){ var t1=Date.now(); window._tetClockOffset=(Number(x.now)+(t1-t0)/2)-t1; }
+      }).catch(function(){});
+    }catch(e){}
+  }
+  syncTetClock(); setInterval(syncTetClock, 240000);   // re-sync every 4 min
+  function phtNowParts(){ var d=new Date(Date.now()+(window._tetClockOffset||0)+8*3600*1000);
     return { H:d.getUTCHours(), M:d.getUTCMinutes(), S:d.getUTCSeconds(), date:d.toISOString().slice(0,10), dow:d.getUTCDay() }; }
   var DAY_HOUR=13, DAY_MIN=5;                                      // 1:05 PM PHT day tournament, daily
   function ntHour(dow){ return (dow===0 || dow===6) ? 22 : 23; }   // 0=Sun, 6=Sat → 10 PM; else 11 PM
