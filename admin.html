@@ -2583,7 +2583,11 @@ function adminBeat(on){try{bubbleSupa.from('presence').upsert({employee_id:ADMIN
 adminBeat(true);setInterval(function(){adminBeat(true);},30000);window.addEventListener('beforeunload',function(){adminBeat(false);});
 try{ callChannel=bubbleSupa.channel('team-call',{config:{broadcast:{self:false}}}).on('broadcast',{event:'call-start'},handleIncomingCall).subscribe(); }catch(e){}
 try{ initBubbleCam(); }catch(e){}
-try{ initVoice(); }catch(e){}bubbleSupa.from('presence').select('*').then(function(r){(r.data||[]).forEach(function(e){adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);});syncBubbles({silent:true});});bubbleSupa.channel('admin-bubbles').on('postgres_changes',{event:'*',schema:'public',table:'presence'},function(p){if(!p.new)return;var e=p.new,was=adminOnlineUsers[e.employee_id];adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);if(was!==e.is_online)syncBubbles();else if(e.employee_id!==ADMIN_ID&&_bubbleEls[e.employee_id])applyBubbleStatus(_bubbleEls[e.employee_id],statusFor(e.employee_id));}).subscribe();pollActiveTracker();setInterval(function(){if(Object.keys(_bubbleEls).length)syncBubbles({silent:true});},30000);setInterval(function(){if(Object.keys(_bubbleEls).length)pollActiveTracker();},20000);}
+try{ initVoice(); }catch(e){}bubbleSupa.from('presence').select('*').then(function(r){(r.data||[]).forEach(function(e){adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);});syncBubbles({silent:true});
+  // Auto-prune stale presence: delete rows for anyone no longer in the ACTIVE roster (removed/deactivated).
+  try{ if(emps&&emps.length>3){ var _act={}; emps.forEach(function(x){ if(x.employee_id && String(x.status||'active').toLowerCase()!=='inactive' && String(x.status||'').toLowerCase()!=='deactivated') _act[String(x.employee_id).trim().toLowerCase()]=1; });
+    (r.data||[]).forEach(function(e){ var id=String(e.employee_id||''); if(id && id!==ADMIN_ID && !_act[id.trim().toLowerCase()]){ try{ bubbleSupa.from('presence').delete().eq('employee_id', id); }catch(_d){} } }); } }catch(_pp){}
+});bubbleSupa.channel('admin-bubbles').on('postgres_changes',{event:'*',schema:'public',table:'presence'},function(p){if(!p.new)return;var e=p.new,was=adminOnlineUsers[e.employee_id];adminOnlineUsers[e.employee_id]=e.is_online;presenceNames[e.employee_id]=e.employee_name;presenceLastSeen[e.employee_id]=e.last_seen?new Date(e.last_seen).getTime():Date.now();if(e.status)presenceStatus[e.employee_id]=e.status;if(e.photo)employeePhotos[e.employee_id]=convertDrive(e.photo);if(was!==e.is_online)syncBubbles();else if(e.employee_id!==ADMIN_ID&&_bubbleEls[e.employee_id])applyBubbleStatus(_bubbleEls[e.employee_id],statusFor(e.employee_id));}).subscribe();pollActiveTracker();setInterval(function(){if(Object.keys(_bubbleEls).length)syncBubbles({silent:true});},30000);setInterval(function(){if(Object.keys(_bubbleEls).length)pollActiveTracker();},20000);}
 
 // ── EXPECTED DAYS CALENDAR ──
 var edState = {};   // employee_id -> Set of ticked day numbers
@@ -2964,7 +2968,7 @@ async function loadPayslipsAdmin(){
         var paid=!!p.paid;
         if(fStatus==='paid'&&!paid) return;
         if(fStatus==='pending'&&paid) return;
-        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||''});
+        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0)});
       });
     });
     // Ready-to-pay (invoice paid) pending first, then other pending, then paid — newest period within each.
@@ -2976,8 +2980,12 @@ async function loadPayslipsAdmin(){
     var sumEl=document.getElementById('pay-summary');
     if(!rows.length){ body.innerHTML='<tr><td colspan="7" class="es">No payslips found. Add payslips in the Employees tab.</td></tr>'; if(sumEl) sumEl.textContent=''; return; }
     var paidN=rows.filter(function(r){return r.paid;}).length;
-    var readyN=rows.filter(function(r){return !r.paid && r.funded;}).length;
-    if(sumEl) sumEl.innerHTML=rows.length+' payslip'+(rows.length>1?'s':'')+' · '+paidN+' paid · '+(rows.length-paidN)+' pending'+(readyN?' · <b style="color:#16a34a;">'+readyN+' ready to pay</b>':'');
+    var readyRows=rows.filter(function(r){return !r.paid && r.funded;});
+    var readyN=readyRows.length;
+    var readyTotal=readyRows.reduce(function(s,r){ return s+payNet(r); },0);
+    var readyTotalStr='₱'+readyTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    if(sumEl) sumEl.innerHTML=rows.length+' payslip'+(rows.length>1?'s':'')+' · '+paidN+' paid · '+(rows.length-paidN)+' pending'+
+      (readyN?' · <b style="color:#16a34a;">'+readyN+' ready to pay</b> · <b style="color:#16a34a;">'+readyTotalStr+' total</b>':'');
     window._payRows=rows;
     body.innerHTML=rows.map(function(r,ri){
       var status=r.paid?'<span style="color:#16a34a;font-weight:600;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><polyline points="20 6 9 17 4 12"/></svg>Paid</span>':'<span style="color:#f59e0b;font-weight:600;">● Pending</span>';
@@ -3040,20 +3048,34 @@ function removeEmpQr(){
 
 /* ── Pay modal: amount + bank QR for fast manual payment ── */
 function payAmt(r){ var a=parseFloat(r.amount); if(!isNaN(a)&&a>0) return a; var rate=parseFloat(r.rate)||0,hours=parseFloat(r.hours)||0,basic=hours*rate/240,night=(String(r.shift).toLowerCase()==='night')?basic*0.05:0,inc=parseFloat(r.incentives)||0; return basic+night+inc; }
+function payMoney(n){ return '₱'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function payNet(r){ return Math.max(0, payAmt(r)-(parseFloat(r.deductions)||0)); }
 function openPayModal(idx){
   var r=(window._payRows||[])[idx]; if(!r) return; window._payCur=r;
-  var amt=payAmt(r); var amtStr='₱'+amt.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  var gross=payAmt(r), ded=parseFloat(r.deductions)||0, net=Math.max(0,gross-ded);
+  var amtStr=payMoney(net);
   var qrImg = r.qr
     ? '<img src="'+convertDrive(r.qr)+'" alt="QR" style="width:230px;height:230px;object-fit:contain;border-radius:12px;background:#fff;padding:8px;">'
     : '<div style="width:230px;height:230px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--t3);font-size:12.5px;border:1px dashed var(--line);border-radius:12px;padding:16px;margin:auto;">No bank QR on file.<br><br>Add one via Employees → Edit → Bank QR.</div>';
   var gotyme = r.gotyme
     ? '<div style="margin-top:4px;font-size:13px;">GoTyme: <b style="font-family:monospace;">'+payEsc(r.gotyme)+'</b> <button class="bsm" onclick="pgCopy(\''+payEsc(r.gotyme)+'\')">⧉</button></div>'
     : '<div style="margin-top:4px;color:var(--t3);font-size:12px;">No GoTyme number on file.</div>';
+  // Deduction breakdown — shown only when a deduction is on file. The payslip itself keeps the gross.
+  var breakdown = ded>0
+    ? '<div style="margin:10px auto 2px;max-width:236px;font-size:12.5px;text-align:left;background:#f8fafc;border:1px solid rgba(15,23,42,.10);border-radius:10px;padding:9px 12px;">'+
+        '<div style="display:flex;justify-content:space-between;color:var(--t2);"><span>Payslip (gross)</span><span style="font-family:monospace;">'+payMoney(gross)+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;color:#dc2626;margin-top:3px;"><span>Deductions</span><span style="font-family:monospace;">− '+payMoney(ded)+'</span></div>'+
+        '<div style="border-top:1px dashed rgba(15,23,42,.18);margin:6px 0;"></div>'+
+        '<div style="display:flex;justify-content:space-between;font-weight:800;color:var(--t1);"><span>Net to pay</span><span style="font-family:monospace;">'+amtStr+'</span></div>'+
+      '</div>'+
+      '<div style="font-size:10.5px;color:var(--t3);margin-top:3px;">Deduction applied here only — the employee\'s payslip still shows the gross.</div>'
+    : '';
   document.getElementById('pay-modal-body').innerHTML=
     '<div style="text-align:center;">'+qrImg+'</div>'+
     '<div style="margin-top:14px;text-align:center;">'+
-      '<div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;">Amount to pay</div>'+
-      '<div style="font-size:32px;font-weight:800;color:#16a34a;line-height:1.15;">'+amtStr+' <button class="bsm" style="vertical-align:middle;font-size:11px;" onclick="pgCopy(\''+amt.toFixed(2)+'\')">⧉ Copy</button></div>'+
+      '<div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;">Amount to pay'+(ded>0?' (net)':'')+'</div>'+
+      '<div style="font-size:32px;font-weight:800;color:#16a34a;line-height:1.15;">'+amtStr+' <button class="bsm" style="vertical-align:middle;font-size:11px;" onclick="pgCopy(\''+net.toFixed(2)+'\')">⧉ Copy</button></div>'+
+      breakdown+
       '<div style="font-size:13px;color:var(--t1);margin-top:6px;"><b>'+payEsc(r.name)+'</b> · '+payEsc(r.period)+'</div>'+
       '<div style="font-size:12px;color:var(--t2);">'+(r.hours?payEsc(String(r.hours))+' hrs':'')+(r.project?(' · '+payEsc(r.project)):'')+'</div>'+
       gotyme+
@@ -3663,6 +3685,8 @@ function toggleActive(idx){
   persist(); renderTable();
   fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(e.employee_id)+'&status='+encodeURIComponent(e.status))
     .then(function(r){return r.json();}).then(function(d){ if(d&&d.not_found) toast(e.employee_id+' isn’t in the sheet yet.'); }).catch(function(){});
+  // Deactivating → clear their live presence row so they vanish from the wallboard/portal at once.
+  if(!nowInactive){ try{ var _sb=(typeof bubbleSupa!=='undefined'&&bubbleSupa)||(typeof adminSupaClient!=='undefined'&&adminSupaClient); if(_sb) _sb.from('presence').delete().eq('employee_id', e.employee_id); }catch(_pe){} }
   toast(nowInactive?'Account reactivated.':'Account deactivated.');
 }
 // ── PROMOTIONS: change salary / CL / position and notify the employee ──
