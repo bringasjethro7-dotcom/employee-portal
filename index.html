@@ -14840,7 +14840,7 @@ function loadPoints(retry){
       var pe=document.getElementById('points-peso'); if(pe) pe.textContent='(≈ '+fmtPeso(ptsToPeso(_pBal))+') ';
       var h=document.getElementById('points-hist');
       if(h){ var led=(d&&d.ledger)||[];
-        h.innerHTML = led.length ? ('Recent: '+led.slice(0,3).map(function(x){ return (x.delta>0?'+':'')+x.delta+' '+String(x.reason||'').replace(/ —.*$/,''); }).join(' · ')) : 'Play Daily Trivia (2PM & 2AM) — top 3 win points!';
+        h.innerHTML = led.length ? ('Recent: '+led.slice(0,3).map(function(x){ return (x.delta>0?'+':'')+x.delta+' '+String(x.reason||'').replace(/ —.*$/,''); }).join(' · ')) : 'Play Daily Trivia (Mon/Wed/Fri/Sun · 2PM & 2AM) — top 3 win points!';
       }
     }).catch(function(){ if(!retry) setTimeout(function(){ loadPoints(true); }, 1200); });
 }
@@ -15356,7 +15356,7 @@ body.light .jul4-lbscore{color:#059669}
     body().innerHTML=
       '<div class="jul4-flag">🕒</div>'+
       '<div class="jul4-h">No trivia running right now</div>'+
-      '<div class="jul4-sub">The next <b>Daily Trivia</b> starts at<br><b style="color:#fbbf24">'+esc(next)+'</b>.<br>Games run every day at <b>2:00 PM</b> and <b>2:00 AM</b>.</div>'+
+      '<div class="jul4-sub">The next <b>Daily Trivia</b> starts at<br><b style="color:#fbbf24">'+esc(next)+'</b>.<br>Games run <b>Mon · Wed · Fri · Sun</b> at <b>2:00 PM</b> and <b>2:00 AM</b>.</div>'+
       '<button class="jul4-btn blue" onclick="showLeaderboard()">📊 View latest results</button>'+
       '<button class="jul4-btn" onclick="jul4Close(); if(window.trvOpenRanking) trvOpenRanking();" style="margin-top:8px">🏆 Trivia Champions</button>'+
       '<button class="jul4-btn ghost" onclick="jul4Close()" style="margin-top:8px">Close</button>';
@@ -19750,12 +19750,17 @@ body.light .jul4-lbscore{color:#059669}
 
   // ════════════════ TRIVIA CHAMPIONS (avg points/game) ════════════════
   window.trvCloseRanking=function(){ var m=el('trivia-rank-modal'); if(m) m.classList.remove('open'); };
+  function trivDayOK(dow){ return dow===0 || dow===1 || dow===3 || dow===5; }   // Sun·Mon·Wed·Fri (match server)
   function renderTrvNext(){
     var nb=el('trv-rank-next'); if(!nb) return;
     var np=phtNowParts(); var nowSec=np.H*3600+np.M*60+np.S, best=1e9;
-    [2*3600,14*3600].forEach(function(t){ var d=t-nowSec; if(d<0) d+=86400; if(d<best) best=d; });
-    var hh=Math.floor(best/3600), mm=Math.floor((best%3600)/60);
-    nb.innerHTML='🧠 Next Daily Trivia in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win 300 / 200 / 100 pts';
+    for(var add=0; add<=7 && best===1e9; add++){
+      if(!trivDayOK((np.dow+add)%7)) continue;
+      [2*3600,14*3600].forEach(function(t){ var d=t-nowSec+add*86400; if(d>=0 && d<best) best=d; });
+    }
+    if(best===1e9){ nb.innerHTML='🧠 Daily Trivia — Mon · Wed · Fri · Sun'; return; }
+    var dd=Math.floor(best/86400), hh=Math.floor((best%86400)/3600), mm=Math.floor((best%3600)/60);
+    nb.innerHTML='🧠 Next Daily Trivia in '+(dd>0?dd+'d ':'')+(hh>0?hh+'h ':'')+mm+'m — top 3 win 300 / 200 / 100 pts';
   }
   function renderTrvPodium(rows, me){
     var host=el('trv-rank-podium'); if(!host) return;
@@ -20180,26 +20185,30 @@ body.light .jul4-lbscore{color:#059669}
   syncTetClock(); setInterval(syncTetClock, 240000);   // re-sync every 4 min
   function phtNowParts(){ var d=new Date(Date.now()+(window._tetClockOffset||0)+8*3600*1000);
     return { H:d.getUTCHours(), M:d.getUTCMinutes(), S:d.getUTCSeconds(), date:d.toISOString().slice(0,10), dow:d.getUTCDay() }; }
-  var DAY_HOUR=13, DAY_MIN=5;                                      // 1:05 PM PHT day tournament, daily
+  var DAY_HOUR=13, DAY_MIN=5;                                      // 1:05 PM PHT day tournament
+  // Tournaments run only on Tue · Thu · Sun (Sunday night = Grand Final). Must match _tetDayOK_ server-side.
+  function tetDayOK(dow){ return dow===0 || dow===2 || dow===4; }
   function ntHour(dow){ return (dow===0 || dow===6) ? 22 : 23; }   // 0=Sun, 6=Sat → 10 PM; else 11 PM
   function daySec(){ return DAY_HOUR*3600 + DAY_MIN*60; }
-  // Seconds until the NEXT tournament of ANY kind — the 3:30 PM day bracket or tonight's nightly.
+  // Seconds until the NEXT tournament of ANY kind — skips days with no tournament.
   function ntSecsTo(p){
     var now=p.H*3600+p.M*60+p.S;
-    var day=daySec(), night=ntHour(p.dow)*3600;
-    if(now < day)   return day-now;
-    if(now < night) return night-now;
-    return (86400-now) + daySec();                                 // tomorrow's 3:30 PM comes first
+    for(var add=0; add<=7; add++){
+      var dow=(p.dow+add)%7; if(!tetDayOK(dow)) continue;
+      var day=daySec(), night=ntHour(dow)*3600;
+      if(add===0){ if(now<day) return day-now; if(now<night) return night-now; continue; }
+      return add*86400 - now + day;                                // next tournament day starts with the 1:05 PM bracket
+    }
+    return 0;
   }
   // Which one is next? Returns 'day' or 'night'.
   function ntNextKind(p){
     var now=p.H*3600+p.M*60+p.S;
-    if(now < daySec()) return 'day';
-    if(now < ntHour(p.dow)*3600) return 'night';
-    return 'day';                                                  // past tonight → tomorrow's 3:30 PM
+    if(tetDayOK(p.dow)){ if(now < daySec()) return 'day'; if(now < ntHour(p.dow)*3600) return 'night'; }
+    return 'day';                                                  // next tournament day opens with the day bracket
   }
-  function ntIsDayLive(p){ return p.H===DAY_HOUR && p.M>=DAY_MIN && p.M<DAY_MIN+5; }   // 5-min join window
-  function ntIsLive(p){ var h=ntHour(p.dow); return (p.H===h && p.M<5) || ntIsDayLive(p); }
+  function ntIsDayLive(p){ return tetDayOK(p.dow) && p.H===DAY_HOUR && p.M>=DAY_MIN && p.M<DAY_MIN+5; }   // 5-min join window
+  function ntIsLive(p){ if(!tetDayOK(p.dow)) return false; var h=ntHour(p.dow); return (p.H===h && p.M<5) || ntIsDayLive(p); }
   function ntLiveSid(p){ return ntIsDayLive(p) ? ('DT-'+p.date) : ('NT-'+p.date); }
   var _ntInvitedDate=null;
   window.tetTourneyFabClick=function(){
@@ -20234,11 +20243,12 @@ body.light .jul4-lbscore{color:#059669}
     // The lobby is the opening minute (nightly :00, day :30). One minute later the doors shut
     // and the bracket begins — every client builds it independently. No host, nobody to wait for.
     var _h = ntHour(p.dow);
-    var nightMinute = (p.H === _h && p.M === 0);
-    var dayMinute   = (p.H === DAY_HOUR && p.M === DAY_MIN);
+    var _tetOK = tetDayOK(p.dow);   // tournaments run Tue · Thu · Sun only
+    var nightMinute = _tetOK && (p.H === _h && p.M === 0);
+    var dayMinute   = _tetOK && (p.H === DAY_HOUR && p.M === DAY_MIN);
     var inLobby = nightMinute || dayMinute;
-    var doorsShut = (p.H === _h && p.M >= 1 && p.M < 5) ||
-                    (p.H === DAY_HOUR && p.M >= DAY_MIN+1 && p.M < DAY_MIN+5);
+    var doorsShut = _tetOK && ((p.H === _h && p.M >= 1 && p.M < 5) ||
+                    (p.H === DAY_HOUR && p.M >= DAY_MIN+1 && p.M < DAY_MIN+5));
     var openSid = dayMinute ? ('DT-'+p.date) : ('NT-'+p.date);
     var _invKey = p.date + (dayMinute ? '-day' : '-night');   // day and night invite separately
 
