@@ -833,6 +833,11 @@ body{background-attachment:initial !important}
         <div class="dash-card" onclick="goTab('worklog')"><div class="dc-top"><span class="dc-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span><span class="dc-count" id="dc-appeals">—</span></div><div class="dc-label">Hour appeals</div></div>
         <div class="dash-card" onclick="goTab('demerits')"><div class="dc-top"><span class="dc-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/><circle cx="18" cy="6" r="3" fill="currentColor" stroke="none"/></svg></span><span class="dc-count" id="dc-demdisp">—</span></div><div class="dc-label">Demerit disputes</div></div>
       </div>
+      <div class="toolbar" style="margin-top:1.75rem;">
+        <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Payslips — this cutoff</span> <span id="dash-pay-count" style="font-size:12px;color:var(--t3);margin-left:6px;"></span></div>
+        <button class="bsm" onclick="goTab('payslips')" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Open payslips →</button>
+      </div>
+      <div class="tw"><table><thead><tr><th>Employee</th><th>Period</th><th>Amount</th><th>Status</th><th></th></tr></thead><tbody id="dash-pay-body"><tr><td colspan="5" class="es">Loading…</td></tr></tbody></table></div>
       <div class="toolbar" style="margin-top:1.5rem;">
         <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Needs your attention</span> <span id="dash-total" style="font-size:12px;color:var(--t3);margin-left:6px;"></span></div>
         <div style="display:flex;gap:8px;"><button class="bsm" onclick="openNotify()" style="color:#60a5fa;border-color:rgba(96,165,250,.4);">Send notification</button><button class="bsm" onclick="loadDashboard()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button></div>
@@ -1904,6 +1909,28 @@ function playRequestChime(){
     note(880,0.13,0.34);   // A5 — rising = "new arrival"
   }catch(e){}
 }
+async function loadDashPayslips(){
+  var body=document.getElementById('dash-pay-body'); if(!body) return;
+  try{
+    var res=await jGet(API+'?action=get_all_employees'); var d=await res.json();
+    var emps=(d&&d.employees)||[]; var rows=[];
+    emps.forEach(function(e){ (e.payslips||[]).forEach(function(pp){
+      rows.push({name:e.full_name||e.employee_id,id:e.employee_id,period:pp.period||'',amount:pp.amount||'',hours:pp.hours||'',paid:!!pp.paid,link:pp.link||''});
+    }); });
+    rows.sort(function(a,b){ if(a.paid!==b.paid) return a.paid?1:-1; try{ return _payPeriodTime(b.period)-_payPeriodTime(a.period); }catch(e){ return 0; } });
+    var cnt=document.getElementById('dash-pay-count'); if(cnt) cnt.textContent=rows.length?('· '+rows.length+' total'):'';
+    if(!rows.length){ body.innerHTML='<tr><td colspan="5" class="es">No payslips yet.</td></tr>'; return; }
+    var AV=['#ff6b1a','#3b6ef5','#12a150','#7c5cff','#d98a00'];
+    body.innerHTML=rows.slice(0,8).map(function(r,i){
+      var ini=String(r.name).trim().split(/\s+/).map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+      var amt=r.amount?('₱'+Number((''+r.amount).replace(/[^\d.]/g,'')||0).toLocaleString()):(r.hours?(r.hours+'h'):'—');
+      var pill=r.paid?'<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;background:#e7f6ee;color:#12a150;">Paid</span>':'<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;background:#fdf3e2;color:#d98a00;">Pending</span>';
+      var act=r.paid?(r.link?'<a class="bsm" href="'+r.link+'" target="_blank" rel="noopener" style="color:var(--t2);text-decoration:none;">View</a>':''):'<button class="bsm" onclick="goTab(\''+'payslips'+'\')" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Pay</button>';
+      return '<tr><td><div style="display:flex;align-items:center;gap:11px;"><div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,'+AV[i%5]+',#00000022);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;">'+ini+'</div><div><div style="font-weight:700;font-size:13px;color:var(--t1);">'+payEsc(r.name)+'</div><div style="font-size:11px;color:var(--t3);">'+payEsc(r.id)+'</div></div></div></td>'+
+        '<td class="muted">'+payEsc(r.period)+'</td><td style="font-weight:700;">'+amt+'</td><td>'+pill+'</td><td style="text-align:right;">'+act+'</td></tr>';
+    }).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="5" class="es">Could not load payslips.</td></tr>'; }
+}
 async function loadDashboard(opts){
   opts=opts||{};
   var list=document.getElementById('dash-list');
@@ -1930,6 +1957,7 @@ async function loadDashboard(opts){
     _dashPrevTotal=total;
     if(typeof mirrorAdminBadges==='function') mirrorAdminBadges();
     loadDashAppeals();
+    try{ loadDashPayslips(); }catch(e){}
     loadDashInvoices();
     var items=[];
     leave.forEach(function(r){ items.push({chip:'Leave',cls:'chip-leave',name:r.full_name||r.employee_id,detail:({vacation:'Vacation',sick:'Sick',emergency:'Emergency'}[r.type]||r.type)+' · '+fmtLeaveDate(r.start||r.start_date)+' → '+fmtLeaveDate(r.end||r.end_date),
