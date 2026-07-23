@@ -1063,6 +1063,21 @@ body{background-attachment:initial !important}
         </div>
         <button class="bsm" id="assess-open-toggle" onclick="toggleAssessmentOpen()" style="white-space:nowrap;">Toggle</button>
       </div>
+
+      <!-- Client Feedback links (per project/client CSAT) -->
+      <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 16px;cursor:pointer;" onclick="toggleCfPanel()">
+          <div style="font-size:13px;color:var(--t1);">
+            <b>Client Feedback links</b> <span style="color:var(--t3);font-size:11px;">· CSAT 1–10 · one rating per project each month</span>
+            <div style="font-size:11px;color:var(--t3);margin-top:3px;">Share each project's link with the client. Their rating becomes the Client Feedback score (10%) for everyone on that project.</div>
+          </div>
+          <button class="bsm" id="cf-panel-toggle" style="white-space:nowrap;" onclick="event.stopPropagation();toggleCfPanel()">Manage</button>
+        </div>
+        <div id="cf-panel-body" style="display:none;border-top:1px solid var(--border);padding:12px 16px;">
+          <div id="cf-links-body" style="font-size:13px;color:var(--t3);">Loading…</div>
+        </div>
+      </div>
+
       <div class="tw">
         <table id="sc-table">
           <thead><tr>
@@ -1074,9 +1089,10 @@ body{background-attachment:initial !important}
             <th>Assessment</th>
             <th>Team Sales</th>
             <th>Demerit</th>
+            <th>Client FB</th>
             <th>Overall</th>
           </tr></thead>
-          <tbody id="sc-body"><tr><td colspan="9" class="es">Loading…</td></tr></tbody>
+          <tbody id="sc-body"><tr><td colspan="10" class="es">Loading…</td></tr></tbody>
         </table>
       </div>
 
@@ -4681,7 +4697,7 @@ async function _scRenderRows() {
     var res  = await fetch(url);
     var data = await res.json();
     var rows = data.scorecards || [];
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="es">No scorecards found.</td></tr>'; return; }
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="es">No scorecards found.</td></tr>'; return; }
     // Rank by final Overall, highest first. Blank/unscored rows sink to the bottom.
     var _ov = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v) : -Infinity; };
     rows.sort(function(a,b){ return _ov(b.overall) - _ov(a.overall); });
@@ -4701,12 +4717,68 @@ async function _scRenderRows() {
         '<td><span style="color:#9333ea;font-weight:600;">' + dash(sc.assessment) + '</span></td>' +
         '<td><span style="color:#0891b2;font-weight:600;">' + dash(sc.team_sales) + '</span></td>' +
         '<td><span style="color:' + demCol + ';font-weight:600;">' + dem + '</span></td>' +
+        '<td><span style="color:#0ea5a4;font-weight:600;">' + dash(sc.csat) + '</span></td>' +
         '<td><strong style="color:var(--o3);">' + overall + '</strong></td>' +
       '</tr>';
     }).join('');
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="9" class="es">Error loading scorecards.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="es">Error loading scorecards.</td></tr>';
   }
+}
+
+// ── Client Feedback links panel (per-project CSAT) ──
+var _cfLoaded = false;
+function toggleCfPanel(){
+  var b = document.getElementById('cf-panel-body'); if(!b) return;
+  var show = b.style.display==='none';
+  b.style.display = show ? 'block' : 'none';
+  var tg = document.getElementById('cf-panel-toggle'); if(tg) tg.textContent = show ? 'Hide' : 'Manage';
+  if(show && !_cfLoaded) loadCfLinks();
+}
+async function loadCfLinks(){
+  var box = document.getElementById('cf-links-body'); if(!box) return;
+  box.innerHTML = 'Loading…';
+  try{
+    var r = await fetch(API + '?action=cf_links&_=' + Date.now());
+    var d = await r.json();
+    var links = (d && d.links) || [];
+    if(!links.length){ box.innerHTML = '<div style="color:var(--t3);">No projects found yet. Projects appear here once they exist in Sales.</div>'; _cfLoaded = true; return; }
+    var head = '<div style="font-size:11px;color:var(--t3);margin-bottom:8px;">Rating month: <b>'+ (d.month||'') +'</b></div>';
+    box.innerHTML = head + links.map(function(L){
+      var sc = (L.score!=null && !isNaN(L.score)) ? Math.round(L.score) : null;
+      var badge = sc!=null
+        ? '<span style="color:#0ea5a4;font-weight:700;">'+sc+'/100</span> <span style="color:var(--t3);font-size:11px;">('+(L.source==='admin'?'admin':'client')+')</span>'
+        : '<span style="color:var(--t3);">no rating yet</span>';
+      var pj = (L.project||'').replace(/</g,'&lt;');
+      return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;border-top:1px solid var(--border);">'+
+        '<div style="flex:1;min-width:150px;"><b style="color:var(--t1);">'+pj+'</b><div style="font-size:11px;">'+badge+'</div></div>'+
+        '<button class="bsm" onclick="copyCfLink(this,\''+encodeURIComponent(L.url)+'\')">Copy link</button>'+
+        '<input class="sinp" id="cf-ov-'+L.project.replace(/[^a-zA-Z0-9]/g,'_')+'" type="number" min="0" max="100" placeholder="0–100" style="width:92px;" />'+
+        '<button class="bsm" onclick="saveCfOverride(\''+encodeURIComponent(L.project)+'\',this)" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Override</button>'+
+        '</div>';
+    }).join('');
+    _cfLoaded = true;
+  }catch(e){ box.innerHTML = '<div style="color:#dc2626;">Could not load links.</div>'; }
+}
+function copyCfLink(btn, encUrl){
+  var url = decodeURIComponent(encUrl);
+  try{ navigator.clipboard.writeText(url); }catch(e){}
+  var old = btn.textContent; btn.textContent = 'Copied!';
+  setTimeout(function(){ btn.textContent = old; }, 1400);
+}
+async function saveCfOverride(encProject, btn){
+  var project = decodeURIComponent(encProject);
+  var inp = document.getElementById('cf-ov-'+project.replace(/[^a-zA-Z0-9]/g,'_'));
+  var val = inp ? inp.value : '';
+  if(val===''||isNaN(parseFloat(val))){ alert('Enter a score 0–100.'); return; }
+  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Saving…';
+  try{
+    var r = await fetch(API + '?action=cf_set&project=' + encodeURIComponent(project) + '&score=' + encodeURIComponent(val) + '&_=' + Date.now());
+    var d = await r.json();
+    if(d && d.ok){ if(typeof toast==='function') toast('Client Feedback saved.'); _cfLoaded=false; loadCfLinks(); loadAdminScorecard(); }
+    else alert('Could not save.');
+  }catch(e){ alert('Network error.'); }
+  finally{ btn.disabled = false; btn.textContent = old; }
 }
 
 // Live ranking — refresh the scorecard table on an interval while its tab is showing.
