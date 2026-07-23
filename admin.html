@@ -1058,7 +1058,11 @@ body{background-attachment:initial !important}
           </select>
           <select class="sinp" id="sc-month-filter" onchange="loadAdminScorecard()" style="width:160px;margin-left:8px;"></select>
         </div>
-        <button class="bsm" onclick="openScorecardForm()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add / Edit</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="bsm" id="sc-ppt-btn" onclick="exportRankingsPptx()" style="color:#c2410c;border-color:rgba(255,107,26,.3);">▤ Rankings PPT</button>
+          <button class="bsm" id="sc-cert-btn" onclick="printTopCertificates()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏆 Top-5 Certificates</button>
+          <button class="bsm" onclick="openScorecardForm()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add / Edit</button>
+        </div>
       </div>
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 16px;margin-bottom:14px;">
         <div style="font-size:13px;color:var(--t1);">
@@ -4866,6 +4870,130 @@ async function cfRemoveVA(encProject, encEmp){
 var scLiveTimer = null;
 function startScLive(){ stopScLive(); scLiveTimer = setInterval(function(){ _scRenderRows(); }, 20000); }
 function stopScLive(){ if (scLiveTimer){ clearInterval(scLiveTimer); scLiveTimer = null; } }
+
+// ── Rankings export (PPTX) + Top-5 printable certificates ──
+async function _scRanked(){
+  var month=document.getElementById('sc-month-filter').value;
+  var url=API+'?action=get_all_scorecards'+(month?'&month='+encodeURIComponent(month):'')+'&_='+Date.now();
+  var d=await (await fetch(url)).json();
+  var rows=((d&&d.scorecards)||[]).slice();
+  var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; };
+  rows.sort(function(a,b){ return ov(b.overall)-ov(a.overall); });
+  return { rows:rows, month:month };
+}
+function _scMonthLabel(m){
+  if(!m) return '';
+  var p=String(m).split('-'); if(p.length<2) return m;
+  var names=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return (names[parseInt(p[1],10)-1]||'')+' '+p[0];
+}
+function _loadScript(src){
+  return new Promise(function(res,rej){
+    if(document.querySelector('script[data-lib="'+src+'"]')) return res();
+    var s=document.createElement('script'); s.src=src; s.setAttribute('data-lib',src);
+    s.onload=function(){ res(); }; s.onerror=function(){ rej(new Error('Could not load '+src)); };
+    document.head.appendChild(s);
+  });
+}
+async function exportRankingsPptx(){
+  var btn=document.getElementById('sc-ppt-btn'); var old=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Building…'; }
+  try{
+    await _loadScript('https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js');
+    var data=await _scRanked();
+    var rows=data.rows.filter(function(r){ return r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); });
+    if(!rows.length){ alert('No ranked scorecards for this month yet.'); return; }
+    var label=_scMonthLabel(data.month)||'This month';
+    var ORANGE='E8590C', DARK='1F2430', GREY='6B7280', LIGHT='F3F4F6';
+    var pptx=new PptxGenJS(); pptx.layout='LAYOUT_WIDE';
+
+    var t=pptx.addSlide(); t.background={color:'FFFFFF'};
+    t.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:0.28,fill:{color:ORANGE}});
+    t.addShape(pptx.ShapeType.rect,{x:0,y:7.22,w:'100%',h:0.28,fill:{color:ORANGE}});
+    t.addText('JMB VIRTUALS',{x:0,y:2.4,w:'100%',h:0.6,fontSize:20,bold:true,color:ORANGE,align:'center',charSpacing:4});
+    t.addText('Monthly Scorecard Rankings',{x:0,y:3.0,w:'100%',h:1.0,fontSize:40,bold:true,color:DARK,align:'center'});
+    t.addText(label,{x:0,y:4.1,w:'100%',h:0.6,fontSize:22,color:GREY,align:'center'});
+
+    var p=pptx.addSlide(); p.background={color:'FFFFFF'};
+    p.addText('Top Performers',{x:0.6,y:0.4,w:12,h:0.7,fontSize:30,bold:true,color:DARK});
+    var medals=['1st Place','2nd Place','3rd Place']; var mcol=['C79A1E','7C8590','B45309'];
+    for(var i=0;i<Math.min(3,rows.length);i++){
+      var r=rows[i]; var y=1.55+i*1.7;
+      p.addShape(pptx.ShapeType.roundRect,{x:0.9,y:y,w:11.5,h:1.4,fill:{color:LIGHT},line:{color:mcol[i],width:2.5},rectRadius:0.12});
+      p.addText(medals[i],{x:1.15,y:y+0.15,w:2.6,h:1.1,fontSize:20,bold:true,color:mcol[i],align:'center',valign:'middle'});
+      p.addText(String(r.full_name||r.employee_id),{x:3.9,y:y+0.15,w:6.2,h:1.1,fontSize:24,bold:true,color:DARK,valign:'middle'});
+      p.addText(parseFloat(r.overall).toFixed(2),{x:10.1,y:y+0.15,w:2.1,h:1.1,fontSize:32,bold:true,color:ORANGE,align:'right',valign:'middle'});
+    }
+
+    var head=['#','Employee','Prod','QA','Att','Assess','Sales','Dem','CSAT','Overall'].map(function(h){ return {text:h,options:{bold:true,color:'FFFFFF',fill:{color:ORANGE},align:'center',valign:'middle'}}; });
+    var dash=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?String(Math.round(parseFloat(v))):'—'; };
+    var body=rows.map(function(r,i){
+      return [ {text:String(i+1),options:{align:'center'}},
+               {text:String(r.full_name||r.employee_id)},
+               {text:dash(r.productivity),options:{align:'center'}},
+               {text:dash(r.quality),options:{align:'center'}},
+               {text:dash(r.attendance),options:{align:'center'}},
+               {text:dash(r.assessment),options:{align:'center'}},
+               {text:dash(r.team_sales),options:{align:'center'}},
+               {text:dash(r.demerit_score),options:{align:'center'}},
+               {text:dash(r.csat),options:{align:'center'}},
+               {text:(r.overall!==''&&r.overall!=null?parseFloat(r.overall).toFixed(2):'—'),options:{align:'center',bold:true,color:ORANGE}} ];
+    });
+    var ts=pptx.addSlide(); ts.background={color:'FFFFFF'};
+    ts.addText('Full Rankings — '+label,{x:0.5,y:0.3,w:12.3,h:0.6,fontSize:22,bold:true,color:DARK});
+    ts.addTable([head].concat(body),{ x:0.5,y:1.0, colW:[0.6,3.3,1.0,0.9,0.9,1.1,0.9,0.9,1.1,1.6],
+      fontSize:11, color:DARK, border:{type:'solid',color:'E5E7EB',pt:1}, valign:'middle',
+      autoPage:true, autoPageRepeatHeader:true, autoPageHeaderRows:1, autoPageSlideStartY:0.6, rowH:0.3 });
+
+    await pptx.writeFile({ fileName:'JMB_Rankings_'+(data.month||'month')+'.pptx' });
+    if(typeof toast==='function') toast('Rankings PPT downloaded.');
+  }catch(e){ alert('Could not build the PPT: '+(e&&e.message||e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
+}
+async function printTopCertificates(){
+  var btn=document.getElementById('sc-cert-btn'); var old=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Preparing…'; }
+  try{
+    var data=await _scRanked();
+    var rows=data.rows.filter(function(r){ return r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); }).slice(0,5);
+    if(!rows.length){ alert('No ranked scorecards for this month yet.'); return; }
+    var w=window.open('','_blank');
+    if(!w){ alert('Please allow pop-ups for this site to print certificates.'); return; }
+    w.document.write(_certHTML(rows, _scMonthLabel(data.month)));
+    w.document.close();
+  }catch(e){ alert('Could not create certificates: '+(e&&e.message||e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
+}
+function _certHTML(rows, label){
+  var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var ord=['First','Second','Third','Fourth','Fifth'];
+  var pages=rows.map(function(r,i){
+    var name=esc(r.full_name||r.employee_id); var score=parseFloat(r.overall).toFixed(2);
+    return '<div class="cert"><div class="frame">'+
+      '<div class="brand">JMB VIRTUALS</div>'+
+      '<div class="sub">Certificate of Excellence</div>'+
+      '<div class="rank">'+ord[i]+' Place</div>'+
+      '<div class="pres">This certificate is proudly presented to</div>'+
+      '<div class="name">'+name+'</div>'+
+      '<div class="body">in recognition of an outstanding overall scorecard of <b>'+score+'</b>'+(label?(' for <b>'+esc(label)+'</b>'):'')+', ranking among the company’s top performers. Your dedication, consistency, and professionalism set the standard for the team.</div>'+
+      '<div class="sigrow"><div class="sig"><div class="line"></div>Management</div><div class="sig"><div class="line"></div>Date</div></div>'+
+      '</div></div>';
+  }).join('');
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>JMB Virtuals — Certificates</title><style>'+
+    '@page{size:landscape;margin:0}'+
+    '*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:Georgia,\'Times New Roman\',serif;color:#1f2430}'+
+    '.cert{width:100vw;height:100vh;padding:26px;page-break-after:always;display:flex}'+
+    '.frame{flex:1;border:3px solid #E8590C;border-radius:14px;padding:26px 52px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 0 0 2px #F5C9A8}'+
+    '.brand{font-size:20px;font-weight:bold;letter-spacing:6px;color:#E8590C;margin-bottom:6px}'+
+    '.sub{font-size:34px;font-weight:bold;letter-spacing:1px;margin-bottom:6px}'+
+    '.rank{font-size:15px;color:#a16207;letter-spacing:3px;text-transform:uppercase;margin-bottom:20px}'+
+    '.pres{font-size:14px;color:#555;margin-bottom:8px}'+
+    '.name{font-size:40px;font-weight:bold;color:#0f172a;border-bottom:2px solid #E8590C;padding:0 30px 8px;margin-bottom:16px}'+
+    '.body{font-size:15px;line-height:1.7;max-width:660px;color:#374151;margin-bottom:32px}'+
+    '.sigrow{display:flex;gap:110px;margin-top:8px}'+
+    '.sig{font-size:12px;color:#555}.line{width:190px;border-top:1px solid #333;margin-bottom:5px}'+
+    '</style></head><body onload="setTimeout(function(){window.focus();window.print();},150);">'+pages+'</body></html>';
+}
 
 function openScorecardForm() {
   document.getElementById('sc-form-wrap').style.display = 'block';
