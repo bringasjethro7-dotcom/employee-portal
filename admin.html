@@ -2186,6 +2186,7 @@ function goTab(name){
     if(p) p.style.display=n===name?'block':'none';
   });
   if(name!=='live'){ try{ stopLive(); }catch(e){} }   // pause live polling when leaving the tab
+  if(name!=='scorecard'){ try{ stopScLive(); }catch(e){} }   // pause scorecard live-ranking too
   if(name==='att')  loadAtt();
   if(name==='leave')loadLeave();
   if(name==='chat') { initAdminChat(); }
@@ -4663,21 +4664,36 @@ async function loadAdminScorecard() {
   var empId = document.getElementById('sc-emp-filter').value;
   var month = document.getElementById('sc-month-filter').value;
   var tbody = document.getElementById('sc-body');
-  tbody.innerHTML = '<tr><td colspan="8" class="es">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="9" class="es">Loading…</td></tr>';
+  await _scRenderRows();     // initial paint
+  startScLive();             // keep the ranking live while this tab is open
+}
 
+// Fetch → rank highest→lowest by final Overall → render. Reused by the live poller,
+// so it never shows the "Loading…" flash on its own.
+async function _scRenderRows() {
+  var tbody = document.getElementById('sc-body');
+  if (!tbody) return;
+  var empId = document.getElementById('sc-emp-filter').value;
+  var month = document.getElementById('sc-month-filter').value;
   try {
     var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '') + '&_=' + Date.now();
     var res  = await fetch(url);
     var data = await res.json();
     var rows = data.scorecards || [];
     if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="es">No scorecards found.</td></tr>'; return; }
+    // Rank by final Overall, highest first. Blank/unscored rows sink to the bottom.
+    var _ov = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v) : -Infinity; };
+    rows.sort(function(a,b){ return _ov(b.overall) - _ov(a.overall); });
     var dash = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v).toFixed(0) : '—'; };
-    tbody.innerHTML = rows.map(function(sc) {
+    tbody.innerHTML = rows.map(function(sc, i) {
       var overall = (sc.overall!==''&&sc.overall!=null) ? parseFloat(sc.overall).toFixed(2) : '—';
       var dem = (sc.demerit_score!==''&&sc.demerit_score!=null&&!isNaN(parseFloat(sc.demerit_score))) ? parseFloat(sc.demerit_score).toFixed(0) : '—';
       var demCol = dem==='—' ? 'var(--t3)' : (parseFloat(sc.demerit_score) >= 100 ? '#16a34a' : '#dc2626');
+      var rankCol = i===0 ? 'var(--o3)' : 'var(--t3)';
+      var rk = '<span style="display:inline-block;min-width:22px;color:'+rankCol+';font-weight:700;">' + (i+1) + '.</span>';
       return '<tr>' +
-        '<td><strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
+        '<td>' + rk + '<strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
         '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
         '<td><span style="color:#2563eb;font-weight:600;">' + dash(sc.productivity) + '</span></td>' +
         '<td><span style="color:#0d9488;font-weight:600;">' + dash(sc.quality) + '</span></td>' +
@@ -4692,6 +4708,11 @@ async function loadAdminScorecard() {
     tbody.innerHTML = '<tr><td colspan="9" class="es">Error loading scorecards.</td></tr>';
   }
 }
+
+// Live ranking — refresh the scorecard table on an interval while its tab is showing.
+var scLiveTimer = null;
+function startScLive(){ stopScLive(); scLiveTimer = setInterval(function(){ _scRenderRows(); }, 20000); }
+function stopScLive(){ if (scLiveTimer){ clearInterval(scLiveTimer); scLiveTimer = null; } }
 
 function openScorecardForm() {
   document.getElementById('sc-form-wrap').style.display = 'block';
