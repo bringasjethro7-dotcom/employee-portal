@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rate your team — JMB Virtuals</title>
+<link rel="icon" href="data:,">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f6f7f9;color:#1f2430;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:20px}
+  .card{background:#fff;border:1px solid #e6e8ee;border-radius:16px;max-width:520px;width:100%;padding:28px 26px;box-shadow:0 12px 40px rgba(20,30,60,.08);text-align:center}
+  .brand{font-size:13px;font-weight:800;letter-spacing:.18em;color:#ff6b1a;text-transform:uppercase;margin-bottom:16px}
+  .lead{font-size:18px;font-weight:700;margin:0 0 4px;line-height:1.4}
+  .sub{font-size:12.5px;color:#7a8194;margin:0 0 8px}
+  .va{border-top:1px solid #eef0f4;padding:13px 0;text-align:left}
+  .va-name{font-size:14px;font-weight:700;color:#1f2430;margin-bottom:8px}
+  .pills{display:grid;grid-template-columns:repeat(10,1fr);gap:5px}
+  .pill{display:block;text-align:center;padding:9px 0;border:1px solid #e6e8ee;border-radius:8px;font-weight:700;font-size:12.5px;background:#fbfcfe;color:#1f2430;cursor:pointer;transition:.1s;user-select:none}
+  .pill:hover{border-color:#ff6b1a}
+  .pill.sel{background:#ff6b1a;border-color:#ff6b1a;color:#fff}
+  textarea{width:100%;min-height:64px;border:1px solid #e6e8ee;border-radius:10px;padding:10px 12px;font:inherit;font-size:13px;resize:vertical;margin-top:14px}
+  .submitb{margin-top:14px;width:100%;background:#ff6b1a;color:#fff;border:none;border-radius:10px;padding:13px;font-weight:700;font-size:14px;cursor:pointer}
+  .submitb:hover{background:#e85f10}
+  .submitb:disabled{opacity:.6;cursor:default}
+  .msg{font-size:15px;line-height:1.6;color:#37424f}
+  .ok{font-size:46px;margin:4px 0 10px}
+  .skl{height:52px;border-radius:10px;background:linear-gradient(90deg,#eceef2,#f4f5f7,#eceef2);background-size:200% 100%;animation:sh 1.2s infinite;margin:10px 0}
+  @keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
+</style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="brand">JMB Virtuals</div>
+    <div id="content">
+      <div class="skl"></div><div class="skl"></div><div class="skl"></div>
+    </div>
+  </div>
+
+<script>
+const API = "https://script.google.com/macros/s/AKfycbxbOUn-0xO4r8H4bw4nA7YMfVb0yByOLL4TuRPKvtPh2rjY-b3rOJ5aBoIc8sOmO9kP/exec";
+const params = new URLSearchParams(location.search);
+const TOKEN = params.get('t') || '';
+const ratings = {};      // employee_id -> 1..10
+let PROJECT = '';
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function el(id){ return document.getElementById(id); }
+
+async function jget(url){
+  // simple GET (works cross-origin with Apps Script). Retry once on failure.
+  for(let a=0;a<2;a++){
+    try{ const r = await fetch(url); return await r.json(); }
+    catch(e){ if(a===1) throw e; await new Promise(r=>setTimeout(r,600)); }
+  }
+}
+
+function selectPill(empId, n, node){
+  ratings[empId] = n;
+  const wrap = node.parentNode;
+  Array.prototype.forEach.call(wrap.children, function(c){ c.classList.remove('sel'); });
+  node.classList.add('sel');
+}
+
+async function load(){
+  if(!TOKEN){ return showMsg('Invalid link', 'This rating link is missing its code.'); }
+  let d;
+  try{ d = await jget(API + '?action=cf_rate_data&t=' + encodeURIComponent(TOKEN) + '&_=' + Date.now()); }
+  catch(e){ return showMsg('Connection problem', 'Could not load the page. Please check your connection and refresh.'); }
+  if(!d || !d.ok){ return showMsg('Invalid link', 'This rating link is not valid or has expired.'); }
+  PROJECT = d.project || 'your team';
+  const vas = d.vas || [];
+  if(!vas.length){ return showMsg('Rate ' + esc(PROJECT), 'No team members are assigned to this project yet. Please check back soon.'); }
+
+  let rows = vas.map(function(v){
+    const cur = (v.current!=null) ? Math.round(v.current/10) : 0;
+    let pills = '';
+    for(let i=1;i<=10;i++){ pills += '<span class="pill' + (cur===i?' sel':'') + '" data-emp="' + esc(v.employee_id) + '" data-n="' + i + '">' + i + '</span>'; }
+    if(cur) ratings[v.employee_id] = cur;
+    return '<div class="va"><div class="va-name">' + esc(v.full_name) + '</div><div class="pills">' + pills + '</div></div>';
+  }).join('');
+
+  el('content').innerHTML =
+    '<p class="lead">How would you rate your team on<br><b>' + esc(PROJECT) + '</b>?</p>' +
+    '<p class="sub">1 = poor · 10 = excellent · please rate each VA</p>' +
+    rows +
+    '<textarea id="comment" placeholder="Optional comment for the team…"></textarea>' +
+    '<button class="submitb" id="submitb">Submit ratings</button>';
+
+  Array.prototype.forEach.call(document.querySelectorAll('.pill'), function(p){
+    p.addEventListener('click', function(){ selectPill(p.getAttribute('data-emp'), parseInt(p.getAttribute('data-n'),10), p); });
+  });
+  el('submitb').addEventListener('click', submit);
+}
+
+async function submit(){
+  const ids = Object.keys(ratings);
+  if(!ids.length){ alert('Please pick a rating for at least one team member.'); return; }
+  const btn = el('submitb'); btn.disabled = true; btn.textContent = 'Submitting…';
+  let url = API + '?action=cf_submit&t=' + encodeURIComponent(TOKEN) + '&comment=' + encodeURIComponent(el('comment').value||'');
+  ids.forEach(function(id){ url += '&r_' + encodeURIComponent(id) + '=' + ratings[id]; });
+  url += '&_=' + Date.now();
+  let d;
+  try{ d = await jget(url); }
+  catch(e){ btn.disabled=false; btn.textContent='Submit ratings'; alert('Could not submit — please try again.'); return; }
+  if(d && d.ok){
+    showMsg('Thank you!', 'Your ratings for <b>' + esc(PROJECT) + '</b> (' + d.count + ' team member' + (d.count>1?'s':'') + ') have been recorded for this month.', true);
+  } else {
+    btn.disabled=false; btn.textContent='Submit ratings';
+    alert('Could not submit: ' + ((d&&d.error)||'unknown error'));
+  }
+}
+
+function showMsg(lead, msg, ok){
+  el('content').innerHTML = (ok?'<div class="ok">✓</div>':'') + '<p class="lead">' + esc(lead) + '</p><p class="msg">' + msg + '</p>';
+}
+
+load();
+</script>
+</body>
+</html>
