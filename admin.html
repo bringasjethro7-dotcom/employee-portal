@@ -597,6 +597,11 @@ thead tr{background:var(--card2)}
 ::-webkit-scrollbar-thumb{background:rgba(15,23,42,.18);border-radius:8px;border:3px solid transparent;background-clip:content-box}
 ::-webkit-scrollbar-thumb:hover{background:rgba(15,23,42,.30);background-clip:content-box}
 *{scrollbar-color:rgba(15,23,42,.22) transparent}
+
+  /* ── loading skeletons (shimmer placeholders) ── */
+  .skl{position:relative;overflow:hidden;background:var(--card2,#eceef2);border-radius:8px;display:block;}
+  .skl::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:sklsh 1.15s infinite;}
+  @keyframes sklsh{100%{transform:translateX(100%)}}
 </style>
 <style id="perf-clean">
 /* Performance + clean, professional: no backdrop blur, no fixed bg, no decorative nav motion */
@@ -1122,6 +1127,13 @@ body{background-attachment:initial !important}
               <input type="text" id="sc-form-note" class="sinp" placeholder="e.g. Keep up the great work!" style="width:100%;" />
             </div>
           </div>
+          <div class="m2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Client Feedback (0–100)</label>
+              <input type="number" id="sc-form-csat" class="sinp" min="0" max="100" step="1" placeholder="from client link" style="width:100%;" />
+              <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">Override only — normally set by the client's rating link (10% weight)</p>
+            </div>
+          </div>
           <div style="display:flex;gap:8px;">
             <button class="bsm" onclick="submitScorecard()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Save Scorecard</button>
             <button class="bsm" onclick="document.getElementById('sc-form-wrap').style.display='none'">Cancel</button>
@@ -1486,26 +1498,42 @@ const API  = "https://script.google.com/macros/s/AKfycbxbOUn-0xO4r8H4bw4nA7YMfVb
 // Never use for writes (set_/save_/resolve_/record_/purge_/otp_ …) — those stay on fetch().
 var _jCache={}, _jInflight={};
 function _jKey(u){ return String(u).replace(/[?&]_=\d+/,''); }
-function _jText(url,tries,timeout){
+function _jText(url,tries,timeout,delay){
+  tries=tries||1; delay=delay||400;
   return new Promise(function(res,rej){
     var ctrl=window.AbortController?new AbortController():null;
     var to=setTimeout(function(){ try{ ctrl&&ctrl.abort(); }catch(e){} }, timeout||15000);
     fetch(url, ctrl?{signal:ctrl.signal}:undefined)
       .then(function(r){ return r.text(); })
       .then(function(t){ clearTimeout(to); res(t); })
-      .catch(function(e){ clearTimeout(to); if((tries||1)>1) _jText(url,(tries||1)-1,timeout).then(res,rej); else rej(e); });
+      .catch(function(e){ clearTimeout(to);
+        // retry with exponential backoff (helps flaky Apps Script / mobile connections)
+        if(tries>1){ setTimeout(function(){ _jText(url,tries-1,timeout,Math.min(delay*2,4000)).then(res,rej); }, delay); }
+        else rej(e);
+      });
   });
 }
 function jGet(url, ttl){
   ttl = (ttl==null?1500:ttl);
   var key=_jKey(url), now=Date.now(), c=_jCache[key];
-  if(ttl>0 && c && (now-c.t)<ttl) return Promise.resolve(new Response(c.txt));
+  if(ttl>0 && c && (now-c.t)<ttl){
+    // Serve from cache. Once it's past half its TTL, refresh in the BACKGROUND so the next read
+    // is instant AND fresh — this never serves data older than the TTL (stale-while-revalidate).
+    if((now-c.t) > ttl/2 && !c.rev){
+      c.rev=true;
+      _jText(url,2,15000).then(function(t){ _jCache[key]={t:Date.now(),txt:t}; }, function(){ c.rev=false; });
+    }
+    return Promise.resolve(new Response(c.txt));
+  }
   if(ttl>0 && _jInflight[key]) return _jInflight[key].then(function(t){ return new Response(t); });
-  var p=_jText(url, ttl>0?2:1, 15000).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
+  var p=_jText(url, ttl>0?3:2, 15000).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
   if(ttl>0) _jInflight[key]=p;
   return p.then(function(t){ return new Response(t); });
 }
-function jBust(){ _jCache={}; }   // call after a write to force fresh reads
+function jBust(){ _jCache={}; }
+// ── loading-skeleton helpers ──
+function sklBar(w,h){ return '<div class="skl" style="width:'+(w||'100%')+';height:'+(h||14)+'px;margin:7px 0;"></div>'; }
+function sklTableRows(cols,n){ var o=''; n=n||6; for(var i=0;i<n;i++){ o+='<tr>'; for(var c=0;c<cols;c++){ o+='<td>'+sklBar(c===0?'70%':'55%')+'</td>'; } o+='</tr>'; } return o; }   // call after a write to force fresh reads
 
 let emps=JSON.parse(localStorage.getItem('portal_employees')||'[]'), editIdx=-1;
 let attRecs=[], leaveRecs=[];
@@ -1927,6 +1955,7 @@ function playRequestChime(){
 }
 async function loadDashPayslips(){
   var body=document.getElementById('dash-pay-body'); if(!body) return;
+  body.innerHTML = sklTableRows(5, 4);
   try{
     var res=await jGet(API+'?action=get_all_employees'); var d=await res.json();
     var emps=(d&&d.employees)||[]; var rows=[];
@@ -3575,6 +3604,7 @@ async function approveWithDemerit(entryId){
 // Mirror pending appeals onto the Dashboard so they aren't missed in the Time Log tab.
 async function loadDashAppeals(){
   var box=document.getElementById('dash-appeals'); if(!box) return;
+  box.innerHTML = sklBar('100%',30) + sklBar('100%',30) + sklBar('100%',30);
   try{
     var r=await jGet(API+'?action=get_appeals&_='+Date.now()); var d=await r.json();
     var a=(d&&d.appeals)||[];
@@ -4680,7 +4710,7 @@ async function loadAdminScorecard() {
   var empId = document.getElementById('sc-emp-filter').value;
   var month = document.getElementById('sc-month-filter').value;
   var tbody = document.getElementById('sc-body');
-  tbody.innerHTML = '<tr><td colspan="9" class="es">Loading…</td></tr>';
+  tbody.innerHTML = sklTableRows(10, 6);
   await _scRenderRows();     // initial paint
   startScLive();             // keep the ranking live while this tab is open
 }
@@ -4737,24 +4767,28 @@ function toggleCfPanel(){
 }
 async function loadCfLinks(){
   var box = document.getElementById('cf-links-body'); if(!box) return;
-  box.innerHTML = 'Loading…';
+  box.innerHTML = sklBar('40%',12) + sklBar('100%',34) + sklBar('100%',34) + sklBar('100%',34);
   try{
     var r = await fetch(API + '?action=cf_links&_=' + Date.now());
     var d = await r.json();
     var links = (d && d.links) || [];
     if(!links.length){ box.innerHTML = '<div style="color:var(--t3);">No projects found yet. Projects appear here once they exist in Sales.</div>'; _cfLoaded = true; return; }
-    var head = '<div style="font-size:11px;color:var(--t3);margin-bottom:8px;">Rating month: <b>'+ (d.month||'') +'</b></div>';
+    var head = '<div style="font-size:11px;color:var(--t3);margin-bottom:8px;">Rating month: <b>'+ (d.month||'') +'</b> · each client link lets them rate every VA on their project 1–10.</div>';
     box.innerHTML = head + links.map(function(L){
-      var sc = (L.score!=null && !isNaN(L.score)) ? Math.round(L.score) : null;
-      var badge = sc!=null
-        ? '<span style="color:#0ea5a4;font-weight:700;">'+sc+'/100</span> <span style="color:var(--t3);font-size:11px;">('+(L.source==='admin'?'admin':'client')+')</span>'
-        : '<span style="color:var(--t3);">no rating yet</span>';
+      var total = L.total||0, rated = L.rated||0;
+      var prog = total>0
+        ? '<span style="color:'+(rated>=total&&total>0?'#16a34a':'#0ea5a4')+';font-weight:700;">'+rated+'/'+total+' VAs rated</span>'
+        : '<span style="color:var(--t3);">no VAs on this project yet</span>';
       var pj = (L.project||'').replace(/</g,'&lt;');
-      return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;border-top:1px solid var(--border);">'+
-        '<div style="flex:1;min-width:150px;"><b style="color:var(--t1);">'+pj+'</b><div style="font-size:11px;">'+badge+'</div></div>'+
-        '<button class="bsm" onclick="copyCfLink(this,\''+encodeURIComponent(L.url)+'\')">Copy link</button>'+
-        '<input class="sinp" id="cf-ov-'+L.project.replace(/[^a-zA-Z0-9]/g,'_')+'" type="number" min="0" max="100" placeholder="0–100" style="width:92px;" />'+
-        '<button class="bsm" onclick="saveCfOverride(\''+encodeURIComponent(L.project)+'\',this)" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Override</button>'+
+      var pid = (L.project||'').replace(/[^a-zA-Z0-9]/g,'_');
+      return '<div style="padding:9px 0;border-top:1px solid var(--border);">'+
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
+          '<div style="flex:1;min-width:150px;"><b style="color:var(--t1);">'+pj+'</b><div style="font-size:11px;margin-top:2px;">'+prog+'</div></div>'+
+          '<button class="bsm" onclick="copyCfLink(this,\''+encodeURIComponent(L.url)+'\')">Copy link</button>'+
+          '<button class="bsm" onclick="openCfLink(\''+encodeURIComponent(L.url)+'\')">Open</button>'+
+          '<button class="bsm" onclick="manageCfVAs(\''+encodeURIComponent(L.project)+'\')">Manage VAs</button>'+
+        '</div>'+
+        '<div id="cf-va-'+pid+'" style="display:none;margin-top:8px;padding:10px 12px;background:var(--bg-2,rgba(0,0,0,.02));border:1px solid var(--border);border-radius:8px;"></div>'+
         '</div>';
     }).join('');
     _cfLoaded = true;
@@ -4766,19 +4800,66 @@ function copyCfLink(btn, encUrl){
   var old = btn.textContent; btn.textContent = 'Copied!';
   setTimeout(function(){ btn.textContent = old; }, 1400);
 }
-async function saveCfOverride(encProject, btn){
+function openCfLink(encUrl){ window.open(decodeURIComponent(encUrl), '_blank'); }
+
+// ── Manage the VAs assigned to a project (manual roster + auto worklog list) ──
+async function manageCfVAs(encProject){
   var project = decodeURIComponent(encProject);
-  var inp = document.getElementById('cf-ov-'+project.replace(/[^a-zA-Z0-9]/g,'_'));
-  var val = inp ? inp.value : '';
-  if(val===''||isNaN(parseFloat(val))){ alert('Enter a score 0–100.'); return; }
-  btn.disabled = true; var old = btn.textContent; btn.textContent = 'Saving…';
+  var pid = project.replace(/[^a-zA-Z0-9]/g,'_');
+  var box = document.getElementById('cf-va-'+pid); if(!box) return;
+  if(box.style.display!=='none'){ box.style.display='none'; return; }
+  box.style.display='block'; box.innerHTML = '<span style="font-size:12px;color:var(--t3);">Loading VAs…</span>';
+  await renderCfRoster(project);
+}
+async function renderCfRoster(project){
+  var pid = project.replace(/[^a-zA-Z0-9]/g,'_');
+  var box = document.getElementById('cf-va-'+pid); if(!box) return;
   try{
-    var r = await fetch(API + '?action=cf_set&project=' + encodeURIComponent(project) + '&score=' + encodeURIComponent(val) + '&_=' + Date.now());
+    var r = await fetch(API + '?action=cf_roster&project=' + encodeURIComponent(project) + '&_=' + Date.now());
     var d = await r.json();
-    if(d && d.ok){ if(typeof toast==='function') toast('Client Feedback saved.'); _cfLoaded=false; loadCfLinks(); loadAdminScorecard(); }
-    else alert('Could not save.');
+    var vas = (d && d.vas) || [];
+    var have = {}; vas.forEach(function(v){ have[v.employee_id.toLowerCase()] = true; });
+    var list = vas.length ? vas.map(function(v){
+      var tag = v.manual
+        ? '<span style="font-size:10px;color:#0ea5a4;">manual</span>'
+        : '<span style="font-size:10px;color:var(--t3);">from worklog</span>';
+      var rm = v.manual
+        ? '<button class="bsm" style="padding:2px 8px;font-size:11px;" onclick="cfRemoveVA(\''+encodeURIComponent(project)+'\',\''+encodeURIComponent(v.employee_id)+'\')">Remove</button>'
+        : '';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">'+
+        '<span style="flex:1;font-size:13px;color:var(--t1);">'+(v.full_name||v.employee_id).replace(/</g,'&lt;')+' '+tag+'</span>'+ rm +'</div>';
+    }).join('') : '<div style="font-size:12px;color:var(--t3);padding:4px 0;">No VAs yet — add one below.</div>';
+    // add dropdown from the scorecard employee list
+    var opts = '<option value="">+ Add a VA…</option>' + (scAdminEmps||[]).filter(function(e){ return !have[String(e.employee_id).toLowerCase()]; })
+      .map(function(e){ return '<option value="'+e.employee_id+'">'+ (e.full_name||e.employee_id) +'</option>'; }).join('');
+    box.innerHTML = list +
+      '<div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">'+
+        '<select class="sinp" id="cf-add-'+pid+'" style="flex:1;">'+opts+'</select>'+
+        '<button class="bsm" style="color:var(--o3);border-color:rgba(255,107,26,.3);" onclick="cfAddVA(\''+encodeURIComponent(project)+'\')">Add</button>'+
+      '</div>';
+  }catch(e){ box.innerHTML = '<span style="font-size:12px;color:#dc2626;">Could not load VAs.</span>'; }
+}
+async function cfAddVA(encProject){
+  var project = decodeURIComponent(encProject);
+  var pid = project.replace(/[^a-zA-Z0-9]/g,'_');
+  var sel = document.getElementById('cf-add-'+pid);
+  var empId = sel ? sel.value : '';
+  if(!empId){ return; }
+  try{
+    var r = await fetch(API + '?action=cf_roster_add&project=' + encodeURIComponent(project) + '&employee_id=' + encodeURIComponent(empId) + '&_=' + Date.now());
+    var d = await r.json();
+    if(d && d.ok){ await renderCfRoster(project); }
+    else alert('Could not add.');
   }catch(e){ alert('Network error.'); }
-  finally{ btn.disabled = false; btn.textContent = old; }
+}
+async function cfRemoveVA(encProject, encEmp){
+  var project = decodeURIComponent(encProject), empId = decodeURIComponent(encEmp);
+  try{
+    var r = await fetch(API + '?action=cf_roster_remove&project=' + encodeURIComponent(project) + '&employee_id=' + encodeURIComponent(empId) + '&_=' + Date.now());
+    var d = await r.json();
+    if(d && d.ok){ await renderCfRoster(project); }
+    else alert('Could not remove.');
+  }catch(e){ alert('Network error.'); }
 }
 
 // Live ranking — refresh the scorecard table on an interval while its tab is showing.
@@ -4799,6 +4880,7 @@ function editScorecard(sc) {
   document.getElementById('sc-form-month').value = sc.month || '';
   document.getElementById('sc-form-note').value  = sc.note || '';
   document.getElementById('sc-form-vp').value    = sc.violation_points || '';
+  document.getElementById('sc-form-csat').value  = (sc.csat!=null && sc.csat!=='') ? sc.csat : '';
 }
 
 async function submitScorecard() {
@@ -4822,6 +4904,11 @@ async function submitScorecard() {
     var res  = await fetch(url);
     var data = await res.json();
     if (data.success) {
+      // Client Feedback override (per VA) — saved separately in the ClientFeedback store.
+      var csat = document.getElementById('sc-form-csat').value;
+      if (csat!=='' && !isNaN(parseFloat(csat))) {
+        try { await fetch(API + '?action=cf_set&employee_id=' + encodeURIComponent(empId) + '&month=' + encodeURIComponent(month) + '&score=' + encodeURIComponent(csat) + '&_=' + Date.now()); } catch(_e) {}
+      }
       toast('Scorecard saved!');
       document.getElementById('sc-form-wrap').style.display = 'none';
       loadAdminScorecard();

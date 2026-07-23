@@ -3808,6 +3808,11 @@
   .elc.els-lunch .elc-time{color:#38bdf8}  .elc.els-lunch::before{background:linear-gradient(180deg,#38bdf8,#0284c7)}
   .elc.els-micro .elc-time{color:#fbbf24}  .elc.els-micro::before{background:linear-gradient(180deg,#fbbf24,#d97706)}
   .elc.els-none .elc-time{color:#f87171}   .elc.els-none::before{background:linear-gradient(180deg,#f87171,#dc2626)}
+
+  /* ── loading skeletons (shimmer placeholders) ── */
+  .skl{position:relative;overflow:hidden;background:var(--card2,#eceef2);border-radius:8px;display:block;}
+  .skl::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:sklsh 1.15s infinite;}
+  @keyframes sklsh{100%{transform:translateX(100%)}}
 </style>
 <!-- ═══════════ LOGIN REDESIGN · modern light SaaS (scoped, loads last) ═══════════ -->
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -4626,7 +4631,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
     <div id="recent-wl-modal" class="wl-vol-overlay" onclick="if(event.target===this)closeRecentWL()">
       <div class="wl-vol-box" style="max-width:500px;">
         <div class="wl-vol-head">
-          <div class="wl-vol-icon"></div>
+          <div class="wl-vol-icon"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#e83d00" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg></div>
           <h3>Appeal recent work log</h3>
           <p>Last 5 days. Re-tag a task you logged to the wrong project, fix its hours, or request time that wasn't tracked. Everything goes to your admin for approval.</p>
         </div>
@@ -4730,7 +4735,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui47</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui51</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -5528,26 +5533,42 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbOUn-0xO4r8H4
 // Reads only (resolves a Response so callers keep using .json()). Writes stay on fetch().
 var _jCache={}, _jInflight={};
 function _jKey(u){ return String(u).replace(/[?&]_=\d+/,''); }
-function _jText(url,tries,timeout){
+function _jText(url,tries,timeout,delay){
+  tries=tries||1; delay=delay||400;
   return new Promise(function(res,rej){
     var ctrl=window.AbortController?new AbortController():null;
     var to=setTimeout(function(){ try{ ctrl&&ctrl.abort(); }catch(e){} }, timeout||15000);
     fetch(url, ctrl?{signal:ctrl.signal}:undefined)
       .then(function(r){ return r.text(); })
       .then(function(t){ clearTimeout(to); res(t); })
-      .catch(function(e){ clearTimeout(to); if((tries||1)>1) _jText(url,(tries||1)-1,timeout).then(res,rej); else rej(e); });
+      .catch(function(e){ clearTimeout(to);
+        // retry with exponential backoff (helps flaky Apps Script / mobile connections)
+        if(tries>1){ setTimeout(function(){ _jText(url,tries-1,timeout,Math.min(delay*2,4000)).then(res,rej); }, delay); }
+        else rej(e);
+      });
   });
 }
 function jGet(url, ttl){
   ttl = (ttl==null?1500:ttl);
   var key=_jKey(url), now=Date.now(), c=_jCache[key];
-  if(ttl>0 && c && (now-c.t)<ttl) return Promise.resolve(new Response(c.txt));
+  if(ttl>0 && c && (now-c.t)<ttl){
+    // Serve from cache. Once it's past half its TTL, refresh in the BACKGROUND so the next read
+    // is instant AND fresh — this never serves data older than the TTL (stale-while-revalidate).
+    if((now-c.t) > ttl/2 && !c.rev){
+      c.rev=true;
+      _jText(url,2,15000).then(function(t){ _jCache[key]={t:Date.now(),txt:t}; }, function(){ c.rev=false; });
+    }
+    return Promise.resolve(new Response(c.txt));
+  }
   if(ttl>0 && _jInflight[key]) return _jInflight[key].then(function(t){ return new Response(t); });
-  var p=_jText(url, ttl>0?2:1, 15000).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
+  var p=_jText(url, ttl>0?3:2, 15000).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
   if(ttl>0) _jInflight[key]=p;
   return p.then(function(t){ return new Response(t); });
 }
 function jBust(){ _jCache={}; }
+// ── loading-skeleton helpers ──
+function sklBar(w,h){ return '<div class="skl" style="width:'+(w||'100%')+';height:'+(h||14)+'px;margin:7px 0;"></div>'; }
+function sklTableRows(cols,n){ var o=''; n=n||6; for(var i=0;i<n;i++){ o+='<tr>'; for(var c=0;c<cols;c++){ o+='<td>'+sklBar(c===0?'70%':'55%')+'</td>'; } o+='</tr>'; } return o; }
 const COMPANY_NAME    = "JMB Virtuals";  // shown in header & login
 
 // ─────────────────────────────────────────────
@@ -8753,7 +8774,7 @@ function _rwlDayLabel(dk){
 }
 function loadRecentWL(){
   var box=document.getElementById('recent-wl-list');
-  box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div>';
+  box.innerHTML = sklBar('30%',11) + sklBar('100%',44) + sklBar('100%',44) + sklBar('100%',44) + sklBar('100%',44);
   var id=(typeof attEmpId!=='undefined'&&attEmpId)?attEmpId:(typeof _pEmp==='function'?_pEmp():'');
   if(!id){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Not signed in.</div>'; return; }
   var to=_apToday(); var dd=new Date(to+'T00:00:00'); dd.setDate(dd.getDate()-4);
@@ -8768,7 +8789,7 @@ function loadRecentWL(){
       order.sort(function(a,b){ return String(b).localeCompare(String(a)); });
       var html='';
       order.forEach(function(dk){
-        html+='<div style="font-size:11px;font-weight:800;color:#9fb0d6;text-transform:uppercase;letter-spacing:.05em;margin:12px 2px 6px;">'+escapeHtml(_rwlDayLabel(dk))+'</div>';
+        html+='<div style="font-size:11px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin:12px 2px 6px;">'+escapeHtml(_rwlDayLabel(dk))+'</div>';
         byDay[dk].forEach(function(w){
           var id2=String(w.clockify_id||w.entry_id||'');
           var label=[w.project,w.category,w.task].filter(function(x){return x;}).join(' · ')||'Task';
@@ -8776,13 +8797,13 @@ function loadRecentWL(){
           var st=String(w.appeal_status||'').toLowerCase();
           var badge = st==='pending'?' · <span style="color:#f59e0b;font-weight:700;">appeal pending</span>':(st==='approved'?' · <span style="color:#34d399;">approved</span>':(st==='rejected'?' · <span style="color:#f87171;">not approved</span>':''));
           var actions = st==='pending'
-            ? '<span style="font-size:11px;color:#6b7d90;">pending…</span>'
-            : '<button onclick="rwlAppeal(\'retag\',\''+encodeURIComponent(id2)+'\',\''+encodeURIComponent(label)+'\')" style="background:#1b2233;color:#fbbf24;border:1px solid rgba(251,191,36,.35);border-radius:8px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;">Re-tag</button>'+
-              '<button onclick="rwlAppeal(\'hours\',\''+encodeURIComponent(id2)+'\',\''+encodeURIComponent(label)+'\')" style="background:#1b2233;color:#9fb0d6;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;">🕐 Hours</button>';
-          html+='<div style="display:flex;align-items:center;gap:8px;padding:9px 11px;margin-bottom:6px;border-radius:10px;background:#ffffff;border:1px solid rgba(255,255,255,.08);">'+
+            ? '<span style="font-size:11px;color:var(--text-3);">pending…</span>'
+            : '<button onclick="rwlAppeal(\'retag\',\''+encodeURIComponent(id2)+'\',\''+encodeURIComponent(label)+'\')" style="background:#fff7ed;color:#b45309;border:1px solid #fed7aa;border-radius:8px;padding:6px 11px;font-size:11.5px;font-weight:700;cursor:pointer;">Re-tag</button>'+
+              '<button onclick="rwlAppeal(\'hours\',\''+encodeURIComponent(id2)+'\',\''+encodeURIComponent(label)+'\')" style="display:inline-flex;align-items:center;gap:5px;background:#f3f4f6;color:#374151;border:1px solid var(--border);border-radius:8px;padding:6px 11px;font-size:11.5px;font-weight:700;cursor:pointer;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>Hours</button>';
+          html+='<div style="display:flex;align-items:center;gap:8px;padding:9px 11px;margin-bottom:6px;border-radius:10px;background:#ffffff;border:1px solid var(--border);">'+
             '<div style="flex:1;min-width:0;">'+
-              '<div style="font-size:12.5px;font-weight:600;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escapeHtml(label)+'</div>'+
-              '<div style="font-size:10.5px;color:#9fb0d6;margin-top:2px;">'+hrs.toFixed(2)+'h'+badge+'</div>'+
+              '<div style="font-size:12.5px;font-weight:600;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escapeHtml(label)+'</div>'+
+              '<div style="font-size:10.5px;color:var(--text-3);margin-top:2px;">'+hrs.toFixed(2)+'h'+badge+'</div>'+
             '</div>'+ actions +'</div>';
         });
       });
