@@ -635,6 +635,9 @@ body{background-attachment:initial !important}
  .adm-brand-sub{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#98a1b0;display:block;margin-top:3px}
  .adm-menu-label{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#98a1b0;padding:6px 12px 6px}
 }
+/* The injected sidebar brand is desktop-only; below 1000px its size rules don't apply, so hide it
+   (its logo would otherwise render at full size). The header already shows branding when narrow. */
+@media(max-width:999px){ .adm-brand, .adm-menu-label{ display:none !important } }
 .dash-card{background:#fff !important;border:1px solid var(--border) !important;box-shadow:var(--shadow-sm) !important;border-radius:14px !important}
 .dash-card:hover{transform:none !important;box-shadow:var(--shadow-md) !important}
 .dc-top{align-items:center !important}
@@ -4714,49 +4717,58 @@ async function loadAdminScorecard() {
   var empId = document.getElementById('sc-emp-filter').value;
   var month = document.getElementById('sc-month-filter').value;
   var tbody = document.getElementById('sc-body');
-  tbody.innerHTML = sklTableRows(10, 6);
-  await _scRenderRows();     // initial paint
+  if(!_scSnapPaint()) tbody.innerHTML = sklTableRows(10, 6);   // instant paint from last snapshot, else skeleton
+  await _scRenderRows();     // refresh in the background
   startScLive();             // keep the ranking live while this tab is open
 }
 
 // Fetch → rank highest→lowest by final Overall → render. Reused by the live poller,
 // so it never shows the "Loading…" flash on its own.
+// Paint the ranked table from a rows array (shared by the live fetch and the instant snapshot).
+function _scPaint(rows){
+  var tbody = document.getElementById('sc-body'); if(!tbody) return;
+  if(!rows || !rows.length){ tbody.innerHTML = '<tr><td colspan="10" class="es">No scorecards found.</td></tr>'; return; }
+  var _ov = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v) : -Infinity; };
+  rows = rows.slice().sort(function(a,b){ return _ov(b.overall) - _ov(a.overall); });
+  var dash = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v).toFixed(0) : '—'; };
+  tbody.innerHTML = rows.map(function(sc, i) {
+    var overall = (sc.overall!==''&&sc.overall!=null) ? parseFloat(sc.overall).toFixed(2) : '—';
+    var dem = (sc.demerit_score!==''&&sc.demerit_score!=null&&!isNaN(parseFloat(sc.demerit_score))) ? parseFloat(sc.demerit_score).toFixed(0) : '—';
+    var demCol = dem==='—' ? 'var(--t3)' : (parseFloat(sc.demerit_score) >= 100 ? '#16a34a' : '#dc2626');
+    var rankCol = i===0 ? 'var(--o3)' : 'var(--t3)';
+    var rk = '<span style="display:inline-block;min-width:22px;color:'+rankCol+';font-weight:700;">' + (i+1) + '.</span>';
+    return '<tr>' +
+      '<td>' + rk + '<strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
+      '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
+      '<td><span style="color:#2563eb;font-weight:600;">' + dash(sc.productivity) + '</span></td>' +
+      '<td><span style="color:#0d9488;font-weight:600;">' + dash(sc.quality) + '</span></td>' +
+      '<td><span style="color:#d97706;font-weight:600;">' + dash(sc.attendance) + '</span></td>' +
+      '<td><span style="color:#9333ea;font-weight:600;">' + dash(sc.assessment) + '</span></td>' +
+      '<td><span style="color:#0891b2;font-weight:600;">' + dash(sc.team_sales) + '</span></td>' +
+      '<td><span style="color:' + demCol + ';font-weight:600;">' + dem + '</span></td>' +
+      '<td><span style="color:#0ea5a4;font-weight:600;">' + dash(sc.csat) + '</span></td>' +
+      '<td><strong style="color:var(--o3);">' + overall + '</strong></td>' +
+    '</tr>';
+  }).join('');
+}
+function _scSnapKey(){ return 'sc_snap_'+(document.getElementById('sc-emp-filter').value||'all')+'_'+(document.getElementById('sc-month-filter').value||''); }
+function _scSnapPaint(){ try{ var s=JSON.parse(localStorage.getItem(_scSnapKey())||'null'); if(s&&s.rows&&s.rows.length){ _scPaint(s.rows); return true; } }catch(e){} return false; }
+// Fetch through jGet (client cache + stale-while-revalidate + retry), paint, and remember the
+// result so reopening the tab is instant. The 20s poller reuses this with no "Loading" flash.
 async function _scRenderRows() {
-  var tbody = document.getElementById('sc-body');
-  if (!tbody) return;
+  var tbody = document.getElementById('sc-body'); if (!tbody) return;
   var empId = document.getElementById('sc-emp-filter').value;
   var month = document.getElementById('sc-month-filter').value;
   try {
     var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '') + '&_=' + Date.now();
-    var res  = await fetch(url);
+    var res  = await jGet(url, 12000);
     var data = await res.json();
     var rows = data.scorecards || [];
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="es">No scorecards found.</td></tr>'; return; }
-    // Rank by final Overall, highest first. Blank/unscored rows sink to the bottom.
-    var _ov = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v) : -Infinity; };
-    rows.sort(function(a,b){ return _ov(b.overall) - _ov(a.overall); });
-    var dash = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v).toFixed(0) : '—'; };
-    tbody.innerHTML = rows.map(function(sc, i) {
-      var overall = (sc.overall!==''&&sc.overall!=null) ? parseFloat(sc.overall).toFixed(2) : '—';
-      var dem = (sc.demerit_score!==''&&sc.demerit_score!=null&&!isNaN(parseFloat(sc.demerit_score))) ? parseFloat(sc.demerit_score).toFixed(0) : '—';
-      var demCol = dem==='—' ? 'var(--t3)' : (parseFloat(sc.demerit_score) >= 100 ? '#16a34a' : '#dc2626');
-      var rankCol = i===0 ? 'var(--o3)' : 'var(--t3)';
-      var rk = '<span style="display:inline-block;min-width:22px;color:'+rankCol+';font-weight:700;">' + (i+1) + '.</span>';
-      return '<tr>' +
-        '<td>' + rk + '<strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
-        '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
-        '<td><span style="color:#2563eb;font-weight:600;">' + dash(sc.productivity) + '</span></td>' +
-        '<td><span style="color:#0d9488;font-weight:600;">' + dash(sc.quality) + '</span></td>' +
-        '<td><span style="color:#d97706;font-weight:600;">' + dash(sc.attendance) + '</span></td>' +
-        '<td><span style="color:#9333ea;font-weight:600;">' + dash(sc.assessment) + '</span></td>' +
-        '<td><span style="color:#0891b2;font-weight:600;">' + dash(sc.team_sales) + '</span></td>' +
-        '<td><span style="color:' + demCol + ';font-weight:600;">' + dem + '</span></td>' +
-        '<td><span style="color:#0ea5a4;font-weight:600;">' + dash(sc.csat) + '</span></td>' +
-        '<td><strong style="color:var(--o3);">' + overall + '</strong></td>' +
-      '</tr>';
-    }).join('');
+    _scPaint(rows);
+    try{ localStorage.setItem(_scSnapKey(), JSON.stringify({ rows:rows, ts:Date.now() })); }catch(_e){}
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="10" class="es">Error loading scorecards.</td></tr>';
+    // keep any already-painted rows (snapshot) on a transient error; only show error on a blank table
+    if(/skl|class="es"|Loading/.test(tbody.innerHTML) || !tbody.children.length){ tbody.innerHTML = '<tr><td colspan="10" class="es">Error loading scorecards.</td></tr>'; }
   }
 }
 
