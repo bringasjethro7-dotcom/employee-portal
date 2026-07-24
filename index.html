@@ -4777,7 +4777,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui70</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui73</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -17466,9 +17466,21 @@ body.light .jul4-lbscore{color:#059669}
       for(var s=0;s<30;s++){ c.globalAlpha=(s%3)?.35:.8; c.fillRect((s*101)%w,(s*61)%h,1,1); }
       c.restore(); }
   };
+  // The board background is static per theme, but was being recomputed (several gradients)
+  // on EVERY redraw. Cache it to an offscreen canvas and just blit — big win on the bigger board.
+  var _bgCache=null, _bgKey='';
   function drawBoardBg(ctx,cv){
-    var f=BOARD_BGS[COS.bg]||BOARD_BGS.classic;
-    try{ f(ctx,cv.width,cv.height); }catch(e){ try{ BOARD_BGS.classic(ctx,cv.width,cv.height); }catch(_){} }
+    var key=(COS.bg||'classic')+'@'+cv.width+'x'+cv.height;
+    if(_bgKey!==key || !_bgCache){
+      try{
+        _bgCache=document.createElement('canvas'); _bgCache.width=cv.width; _bgCache.height=cv.height;
+        var bx=_bgCache.getContext('2d');
+        var f=BOARD_BGS[COS.bg]||BOARD_BGS.classic;
+        try{ f(bx,cv.width,cv.height); }catch(e){ BOARD_BGS.classic(bx,cv.width,cv.height); }
+        _bgKey=key;
+      }catch(_e){ _bgCache=null; var f2=BOARD_BGS[COS.bg]||BOARD_BGS.classic; try{ f2(ctx,cv.width,cv.height); }catch(_){}; return; }
+    }
+    ctx.drawImage(_bgCache,0,0);
   }
   // ── Line-clear effect packs. Each pushes particles; the renderer in draw() honours
   //    shape / gravity / spin / sway / glow so packs actually feel different. ──
@@ -17584,6 +17596,16 @@ body.light .jul4-lbscore{color:#059669}
   function sfxWin(){ [523,659,784,1046,1318,1046,1318].forEach(function(f,i){ beep(f,0.18,'triangle',0.2,i*0.12); }); }
   function sfxLose(){ [440,392,349,294].forEach(function(f,i){ beep(f,0.22,'sawtooth',0.16,i*0.14); }); }
   function sfxInvite(){ beep(784,0.12,'triangle',0.16); beep(1046,0.14,'triangle',0.16,0.12); }
+  // Cute "pop-in" jingle when the Tetris dashboard opens — a bouncy little arpeggio + sparkle.
+  function sfxHubOpen(){
+    var a=ac(); if(!a) return;
+    try{
+      [[659,0.00],[988,0.06],[1319,0.12]].forEach(function(n){ beep(n[0],0.12,'triangle',0.15,n[1]); }); // E-B-E bounce up
+      beep(1047,0.09,'sine',0.10,0.15);       // little "boop"
+      beep(1760,0.09,'sine',0.11,0.24);       // twinkle
+      beep(2637,0.12,'sine',0.08,0.30);       // high sparkle tail
+    }catch(_){}
+  }
   // ── Announcer voice: a synthesized "K-OOOO!" shout on a knockout ──
   // Built entirely in Web Audio (no audio file): a short filtered-noise burst for the hard "K"
   // plosive, then a sustained sawtooth "glottal source" pushed through two band-pass formant
@@ -17599,26 +17621,83 @@ body.light .jul4-lbscore{color:#059669}
       return male[0] || en.filter(function(v){ return /en[-_]us/i.test(v.lang); })[0] || en[0] || vs[0];
     }catch(_){ return null; }
   }
-  try{ if(window.speechSynthesis){ window.speechSynthesis.onvoiceschanged=function(){ _koVoice=_pickKoVoice(); _koVoiceReady=true; }; _koVoice=_pickKoVoice(); if(_koVoice) _koVoiceReady=true; } }catch(_){}
-  // Shared announcer voice — a real voice via the browser speech engine, pitched down a touch
-  // for that deep, slightly-robotic arcade-announcer feel.
-  function _speak(text,rate,pitch){
+  // A bright, cute FEMALE voice for the combo hype-woman.
+  var _girlVoice=null;
+  function _pickGirlVoice(){
+    try{
+      var vs=(window.speechSynthesis&&window.speechSynthesis.getVoices())||[];
+      if(!vs.length) return null;
+      var en=vs.filter(function(v){ return /^en/i.test(v.lang); });
+      var fem=en.filter(function(v){ return /(female|samantha|victoria|karen|moira|tessa|zira|susan|fiona|serena|allison|ava|zoe|google uk english female|google us english)/i.test(v.name); });
+      return fem[0] || en.filter(function(v){ return /en[-_]us/i.test(v.lang); })[0] || en[0] || vs[0];
+    }catch(_){ return null; }
+  }
+  try{ if(window.speechSynthesis){ window.speechSynthesis.onvoiceschanged=function(){ _koVoice=_pickKoVoice(); _girlVoice=_pickGirlVoice(); _koVoiceReady=true; }; _koVoice=_pickKoVoice(); _girlVoice=_pickGirlVoice(); if(_koVoice) _koVoiceReady=true; } }catch(_){}
+  // Shared announcer voice — a real voice via the browser speech engine. Pass a voice to override.
+  function _speak(text,rate,pitch,voice){
     try{
       var S=window.speechSynthesis, U=window.SpeechSynthesisUtterance;
       if(!S||!U) return false;
       if(!_koVoiceReady){ _koVoice=_pickKoVoice(); }
       var u=new U(text);
       u.rate=(rate==null?0.9:rate); u.pitch=(pitch==null?0.6:pitch); u.volume=1;
-      if(_koVoice) u.voice=_koVoice; u.lang='en-US';
+      u.voice=voice||_koVoice||null; u.lang='en-US';
       try{ S.cancel(); }catch(_c){}   // cut any pending speech so it lands instantly
       S.speak(u);
       return true;
     }catch(_e){ return false; }
   }
-  // KO announcer — booms the letters "K – O!". Falls back to the synth shout with no speech engine.
-  function voiceKO(){ if(_speak('K O!',0.8,0.55)) return; voiceKOsynth(); }
+  // KO — a robotic ring-modulated "K-O" (pure Web Audio, unmistakably mechanical).
+  function voiceKO(){ voiceKOrobot(); }
   // End-of-game callout — announces the result.
   function voiceResult(win,draw){ _speak(draw?'Draw':(win?'You win!':'You lose'), 0.92, 0.6); }
+  // Combo hype-woman — a cute high female voice calling escalating praise as the chain grows.
+  var _comboWords=['Nice','Good','Great','Cool','Awesome','Excellent','Amazing','Fantastic','Incredible','Unstoppable','Legendary','Godlike'];
+  var _lastComboSpoke=0;
+  function voiceCombo(n){
+    if(!(n>=2)) return;
+    var now=Date.now(); if(now-_lastComboSpoke<600) return;   // don't machine-gun it on fast chains
+    _lastComboSpoke=now;
+    if(!_girlVoice) _girlVoice=_pickGirlVoice();
+    var w=_comboWords[Math.min(n-2, _comboWords.length-1)];
+    if(!_speak(w+'!', 1.05, 1.5, _girlVoice)){ try{ beep(1320,0.1,'triangle',0.14); beep(1760,0.12,'triangle',0.13,0.08); }catch(_){} }
+  }
+  // Robotic "K-O": a hard "K" click, then two monotone vowel syllables run through a ring
+  // modulator (a low square carrier multiplying the signal) → that classic buzzy robot timbre.
+  function voiceKOrobot(){
+    var a=ac(); if(!a){ voiceKOsynth(); return; }
+    try{
+      var t0=a.currentTime;
+      var out=a.createGain(); out.gain.value=0.95; out.connect(a.destination);
+      // hard "K" plosive
+      var kl=Math.floor(a.sampleRate*0.05), nb=a.createBuffer(1,kl,a.sampleRate), nd=nb.getChannelData(0);
+      for(var i=0;i<kl;i++){ nd[i]=(Math.random()*2-1)*Math.pow(1-i/kl,2.4); }
+      var ns=a.createBufferSource(); ns.buffer=nb;
+      var nf=a.createBiquadFilter(); nf.type='bandpass'; nf.frequency.value=1800; nf.Q.value=0.8;
+      var ng=a.createGain(); ng.gain.setValueAtTime(0.0001,t0);
+      ng.gain.exponentialRampToValueAtTime(0.7,t0+0.005); ng.gain.exponentialRampToValueAtTime(0.0001,t0+0.05);
+      ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(t0); ns.stop(t0+0.05);
+      // one ring-modulated vowel syllable
+      function robo(t,dur,pitch,f1,f2){
+        var src=a.createGain();
+        var o1=a.createOscillator(), o2=a.createOscillator();
+        o1.type='sawtooth'; o2.type='square'; o2.detune.value=6;
+        o1.frequency.value=pitch; o2.frequency.value=pitch; o1.connect(src); o2.connect(src);
+        function fmt(fr,q,g){ var f=a.createBiquadFilter(); f.type='bandpass'; f.frequency.value=fr; f.Q.value=q; var gg=a.createGain(); gg.gain.value=g; f.connect(gg); return {f:f,g:gg}; }
+        var A=fmt(f1,7,1.0), B=fmt(f2,9,0.6); src.connect(A.f); src.connect(B.f);
+        var rm=a.createGain(); rm.gain.value=0;                 // ring modulation: gain driven by carrier
+        var car=a.createOscillator(); car.type='square'; car.frequency.value=46; car.connect(rm.gain);
+        A.g.connect(rm); B.g.connect(rm);
+        var env=a.createGain();
+        env.gain.setValueAtTime(0.0001,t); env.gain.exponentialRampToValueAtTime(1.0,t+0.02);
+        env.gain.setValueAtTime(1.0,t+dur-0.06); env.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+        rm.connect(env); env.connect(out);
+        o1.start(t);o2.start(t);car.start(t); o1.stop(t+dur);o2.stop(t+dur);car.stop(t+dur);
+      }
+      robo(t0+0.045,0.26,132,650,1700);   // "KAY"
+      robo(t0+0.34, 0.34,116,480,900);     // "OH"
+    }catch(e){ voiceKOsynth(); }
+  }
   function voiceKOsynth(){
     var a=ac(); if(!a) return;
     try{
@@ -17679,83 +17758,103 @@ body.light .jul4-lbscore{color:#059669}
   // Full arcade production: a detuned supersaw lead, an octave-down bass, and a driving
   // kick + hi-hat groove, glued with a subtle tempo-synced delay. Built with dedicated
   // Web Audio nodes (not beep()) so it sounds consistent under every sound pack.
-  var musicTimer=null, _musBus=null, _musDelayT=0;
+  var musicTimer=null, _musBus=null, _musNoise=null, _musEvents=null, _musPhrase=0, _musStartAt=0, _musIdx=0;
   var MUSIC=[[659,2],[494,1],[523,1],[587,2],[523,1],[494,1],[440,2],[440,1],[523,1],[659,2],[587,1],[523,1],[494,3],[523,1],[587,2],[659,2],[523,2],[440,2],[440,4],
     [587,3],[698,1],[880,2],[784,1],[698,1],[659,3],[523,1],[659,2],[587,1],[523,1],[494,2],[494,1],[523,1],[587,2],[659,2],[523,2],[440,2],[440,4]];
   var BEAT=150;
   function musBus(a){
     if(_musBus) return _musBus;
-    var bus=a.createGain(); bus.gain.value=0.62;                 // sits politely under the SFX
+    var bus=a.createGain(); bus.gain.value=0.6;                  // sits politely under the SFX
     var dl=a.createDelay(1.0); dl.delayTime.value=(BEAT*1.5)/1000; // tempo-synced echo → space
-    var fb=a.createGain(); fb.gain.value=0.24;
-    var wet=a.createGain(); wet.gain.value=0.16;
+    var fb=a.createGain(); fb.gain.value=0.2;
+    var wet=a.createGain(); wet.gain.value=0.14;
     bus.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet);
     var master=a.createGain(); master.gain.value=1;
     bus.connect(master); wet.connect(master); master.connect(a.destination);
     _musBus=bus; return bus;
   }
+  // ONE shared noise buffer for every hi-hat — allocating a fresh buffer per hit was the lag.
+  function musNoise(a){
+    if(_musNoise) return _musNoise;
+    var len=Math.floor(a.sampleRate*0.03), nb=a.createBuffer(1,len,a.sampleRate), d=nb.getChannelData(0);
+    for(var i=0;i<len;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.6); }
+    _musNoise=nb; return nb;
+  }
   function musLead(a,bus,freq,dur,t0,vol){
-    var o1=a.createOscillator(),o2=a.createOscillator(),o3=a.createOscillator();
-    o1.type='sawtooth'; o2.type='sawtooth'; o3.type='triangle';
-    o1.frequency.value=freq; o2.frequency.value=freq; o2.detune.value=9; o3.frequency.value=freq*2; // octave shimmer
-    var f=a.createBiquadFilter(); f.type='lowpass'; f.Q.value=7;
-    f.frequency.setValueAtTime(3200,t0); f.frequency.exponentialRampToValueAtTime(1300,t0+dur);
+    var o1=a.createOscillator(),o2=a.createOscillator();
+    o1.type='sawtooth'; o2.type='sawtooth'; o2.detune.value=9; o1.frequency.value=freq; o2.frequency.value=freq;
+    var f=a.createBiquadFilter(); f.type='lowpass'; f.Q.value=6;
+    f.frequency.setValueAtTime(3000,t0); f.frequency.exponentialRampToValueAtTime(1300,t0+dur);
     var g=a.createGain();
     g.gain.setValueAtTime(0.0001,t0);
     g.gain.exponentialRampToValueAtTime(vol,t0+0.02);
-    g.gain.exponentialRampToValueAtTime(Math.max(0.0001,vol*0.6),t0+dur*0.6);
     g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
-    o1.connect(f); o2.connect(f); o3.connect(f); f.connect(g); g.connect(bus);
-    o1.start(t0);o2.start(t0);o3.start(t0);
-    o1.stop(t0+dur+0.04);o2.stop(t0+dur+0.04);o3.stop(t0+dur+0.04);
+    o1.connect(f); o2.connect(f); f.connect(g); g.connect(bus);
+    o1.start(t0);o2.start(t0); o1.stop(t0+dur+0.04);o2.stop(t0+dur+0.04);
   }
   function musBass(a,bus,freq,dur,t0){
     var o=a.createOscillator(); o.type='sawtooth'; o.frequency.value=freq;
-    var sub=a.createOscillator(); sub.type='sine'; sub.frequency.value=freq/2;
     var f=a.createBiquadFilter(); f.type='lowpass'; f.frequency.value=520; f.Q.value=3;
     var g=a.createGain();
     g.gain.setValueAtTime(0.0001,t0);
-    g.gain.exponentialRampToValueAtTime(0.17,t0+0.02);
+    g.gain.exponentialRampToValueAtTime(0.16,t0+0.02);
     g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
-    o.connect(f); sub.connect(f); f.connect(g); g.connect(bus);
-    o.start(t0); sub.start(t0); o.stop(t0+dur+0.02); sub.stop(t0+dur+0.02);
+    o.connect(f); f.connect(g); g.connect(bus);
+    o.start(t0); o.stop(t0+dur+0.02);
   }
   function musKick(a,bus,t0){
     var o=a.createOscillator(), g=a.createGain();
     o.frequency.setValueAtTime(155,t0); o.frequency.exponentialRampToValueAtTime(45,t0+0.11);
-    g.gain.setValueAtTime(0.55,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.17);
-    o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.19);
+    g.gain.setValueAtTime(0.5,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.16);
+    o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.18);
   }
   function musHat(a,bus,t0,accent){
-    var len=Math.floor(a.sampleRate*0.03), nb=a.createBuffer(1,len,a.sampleRate), d=nb.getChannelData(0);
-    for(var i=0;i<len;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.6); }
-    var ns=a.createBufferSource(); ns.buffer=nb;
+    var ns=a.createBufferSource(); ns.buffer=musNoise(a);
     var f=a.createBiquadFilter(); f.type='highpass'; f.frequency.value=7500;
-    var g=a.createGain(); g.gain.value=accent?0.10:0.05;
+    var g=a.createGain(); g.gain.value=accent?0.08:0.045;
     ns.connect(f); f.connect(g); g.connect(bus); ns.start(t0); ns.stop(t0+0.04);
   }
-  function scheduleMusic(){
-    if(!M||M.ended) return; var a=ac(); if(!a){ return; }
-    var bus=musBus(a), t0=a.currentTime+0.03, t=0;
-    // Lead + a bass note (2 octaves down) under the structural notes → full, moving low end.
+  // Build the phrase's note/drum events ONCE (times relative to phrase start).
+  function musBuildEvents(){
+    if(_musEvents) return;
+    var ev=[], t=0;
     MUSIC.forEach(function(n){
-      var dur=Math.max(0.09, n[1]*BEAT/1000*0.9), when=t0+t/1000;
-      musLead(a,bus,n[0],dur,when,0.06);
-      if(n[1]>=2){ musBass(a,bus,n[0]/4,dur,when); }
+      var dur=Math.max(0.09,n[1]*BEAT/1000*0.9);
+      ev.push({at:t/1000,k:'lead',f:n[0],d:dur});
+      if(n[1]>=2) ev.push({at:t/1000,k:'bass',f:n[0]/4,d:dur});
       t+=n[1]*BEAT;
     });
-    // Driving groove across the whole phrase: kick every 2 beats, hats on every beat.
-    var total=t, step=0;
-    for(var tt=0; tt<total; tt+=BEAT){
-      var when2=t0+tt/1000;
-      if(step%2===0) musKick(a,bus,when2);
-      musHat(a,bus,when2,step%2===0);
-      step++;
-    }
-    musicTimer=setTimeout(function(){ if(M && !M.ended) scheduleMusic(); }, total);
+    var step=0;
+    for(var tt=0; tt<t; tt+=BEAT){ if(step%2===0){ ev.push({at:tt/1000,k:'kick'}); ev.push({at:tt/1000,k:'hat',acc:true}); } step++; }
+    ev.sort(function(x,y){ return x.at-y.at; });
+    _musEvents=ev; _musPhrase=t/1000;
+  }
+  function musFire(a,bus,e,when){
+    if(e.k==='lead') musLead(a,bus,e.f,e.d,when,0.055);
+    else if(e.k==='bass') musBass(a,bus,e.f,e.d,when);
+    else if(e.k==='kick') musKick(a,bus,when);
+    else musHat(a,bus,when,e.acc);
+  }
+  // Lookahead scheduler: each tick only creates the handful of nodes due in the next ~0.35s,
+  // so node creation is spread out — no per-loop burst, no frame hitch.
+  function scheduleMusic(){
+    if(!M||M.ended) return; var a=ac(); if(!a) return;
+    musBuildEvents(); var bus=musBus(a);
+    _musStartAt=a.currentTime+0.08; _musIdx=0;
+    musicTimer=setInterval(function(){
+      if(!M||M.ended){ stopMusic(); return; }
+      var a2=ac(); if(!a2) return;
+      var ahead=a2.currentTime+0.35, guard=0;
+      while(guard++<128){
+        if(_musIdx>=_musEvents.length){ _musStartAt+=_musPhrase; _musIdx=0; }   // loop the phrase
+        var e=_musEvents[_musIdx], when=_musStartAt+e.at;
+        if(when>ahead) break;
+        musFire(a2,bus,e,when); _musIdx++;
+      }
+    }, 110);
   }
   function startMusic(){ stopMusic(); if(M) scheduleMusic(); }
-  function stopMusic(){ if(musicTimer){ clearTimeout(musicTimer); musicTimer=null; } }
+  function stopMusic(){ if(musicTimer){ clearInterval(musicTimer); musicTimer=null; } }
 
   function eid(){ try{ return chatEmpId||''; }catch(e){ return ''; } }
   function ename(){ try{ return chatEmpName||''; }catch(e){ return ''; } }
@@ -18116,7 +18215,7 @@ body.light .jul4-lbscore{color:#059669}
       sent=Math.min(sent, MAX_SEND);   // normal cap
       if(perfect){ sent=15; }          // 💥 Perfect Clear = massive 15-line attack (bypasses the cap)
       M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10);
-      sfxClear(c); if(M.combo>1) sfxCombo(M.combo);
+      sfxClear(c); if(M.combo>1){ sfxCombo(M.combo); try{ voiceCombo(M.combo); }catch(_vc){} }   // cute hype-woman on a combo
       if(perfect){ announce('✨ PERFECT CLEAR! +15 ✨'); perfectClearFx(); }
       else announce(label + (M.combo>1?(' · Combo '+M.combo):''));
       // Garbage cancellation: your outgoing cancels incoming first, remainder goes out.
@@ -20536,6 +20635,7 @@ body.light .jul4-lbscore{color:#059669}
     el('tet-rank-podium').innerHTML='';
     el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:30px;">Loading…</div>';
     m.classList.add('open');
+    try{ ac(); sfxHubOpen(); }catch(_){}   // cute pop-in jingle
     fetch(APPS_SCRIPT_URL+'?action=tetris_ranking&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
       var rows=(d&&d.ranking)||[];
       _tetBoard=rows;   // cached for Ranked Match
