@@ -4874,13 +4874,22 @@ function stopScLive(){ if (scLiveTimer){ clearInterval(scLiveTimer); scLiveTimer
 // ── Rankings export (PPTX) + Top-5 printable certificates ──
 async function _scRanked(){
   var month=document.getElementById('sc-month-filter').value;
+  // make sure we have the employee roster (for photos)
+  if(!(typeof emps!=='undefined' && emps && emps.length)){ try{ var er=await fetch(API+'?action=get_all_employees&_='+Date.now()); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  var pmap={}; try{ (emps||[]).forEach(function(e){ if(e&&e.employee_id) pmap[String(e.employee_id).toLowerCase()]= e.photo?convertDrive(e.photo):''; }); }catch(e){}
   var url=API+'?action=get_all_scorecards'+(month?'&month='+encodeURIComponent(month):'')+'&_='+Date.now();
   var d=await (await fetch(url)).json();
   var rows=((d&&d.scorecards)||[]).slice();
+  rows.forEach(function(r){ r.photo = pmap[String(r.employee_id||'').toLowerCase()]||''; });
   var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; };
-  rows.sort(function(a,b){ return ov(b.overall)-ov(a.overall); });
+  rows.sort(function(a,b){ return ov(b.overall)-ov(a.overall); });   // highest first → rank = index+1
   return { rows:rows, month:month };
 }
+function _scInitials(name){ var p=String(name||'').trim().split(/[\s,]+/).filter(Boolean); return ((p[0]||'?')[0]+(p[1]?p[1][0]:'')).toUpperCase(); }
+async function _imgData(url){ if(!url) return null;
+  try{ var r=await fetch(url,{mode:'cors'}); if(!r.ok) return null; var b=await r.blob();
+    return await new Promise(function(res){ var fr=new FileReader(); fr.onload=function(){res(String(fr.result));}; fr.onerror=function(){res(null);}; fr.readAsDataURL(b); });
+  }catch(e){ return null; } }
 function _scMonthLabel(m){
   if(!m) return '';
   var p=String(m).split('-'); if(p.length<2) return m;
@@ -4904,46 +4913,49 @@ async function exportRankingsPptx(){
     var rows=data.rows.filter(function(r){ return r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); });
     if(!rows.length){ alert('No ranked scorecards for this month yet.'); return; }
     var label=_scMonthLabel(data.month)||'This month';
-    var ORANGE='E8590C', DARK='1F2430', GREY='6B7280', LIGHT='F3F4F6';
+    if(btn) btn.textContent='Fetching photos…';
+    var photos=await Promise.all(rows.map(function(r){ return _imgData(r.photo); }));   // base64 or null per VA
+    if(btn) btn.textContent='Building…';
+    var ORANGE='E8590C', DARK='1F2430', GREY='6B7280', LIGHT='F3F4F6', GOLD='C79A1E';
+    var rankCol=function(rk){ return rk===1?GOLD:(rk===2?'7C8590':(rk===3?'B45309':DARK)); };
+    var dash=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?String(Math.round(parseFloat(v))):'—'; };
     var pptx=new PptxGenJS(); pptx.layout='LAYOUT_WIDE';
 
+    // ── Title slide ──
     var t=pptx.addSlide(); t.background={color:'FFFFFF'};
     t.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:0.28,fill:{color:ORANGE}});
     t.addShape(pptx.ShapeType.rect,{x:0,y:7.22,w:'100%',h:0.28,fill:{color:ORANGE}});
-    t.addText('JMB VIRTUALS',{x:0,y:2.4,w:'100%',h:0.6,fontSize:20,bold:true,color:ORANGE,align:'center',charSpacing:4});
-    t.addText('Monthly Scorecard Rankings',{x:0,y:3.0,w:'100%',h:1.0,fontSize:40,bold:true,color:DARK,align:'center'});
-    t.addText(label,{x:0,y:4.1,w:'100%',h:0.6,fontSize:22,color:GREY,align:'center'});
+    t.addText('JMB VIRTUALS',{x:0,y:2.3,w:'100%',h:0.6,fontSize:20,bold:true,color:ORANGE,align:'center',charSpacing:4});
+    t.addText('Monthly Scorecard Rankings',{x:0,y:2.9,w:'100%',h:1.0,fontSize:40,bold:true,color:DARK,align:'center'});
+    t.addText(label,{x:0,y:4.0,w:'100%',h:0.5,fontSize:22,color:GREY,align:'center'});
+    t.addText('Counting down from last place to #1',{x:0,y:4.7,w:'100%',h:0.4,fontSize:15,italic:true,color:GREY,align:'center'});
 
-    var p=pptx.addSlide(); p.background={color:'FFFFFF'};
-    p.addText('Top Performers',{x:0.6,y:0.4,w:12,h:0.7,fontSize:30,bold:true,color:DARK});
-    var medals=['1st Place','2nd Place','3rd Place']; var mcol=['C79A1E','7C8590','B45309'];
-    for(var i=0;i<Math.min(3,rows.length);i++){
-      var r=rows[i]; var y=1.55+i*1.7;
-      p.addShape(pptx.ShapeType.roundRect,{x:0.9,y:y,w:11.5,h:1.4,fill:{color:LIGHT},line:{color:mcol[i],width:2.5},rectRadius:0.12});
-      p.addText(medals[i],{x:1.15,y:y+0.15,w:2.6,h:1.1,fontSize:20,bold:true,color:mcol[i],align:'center',valign:'middle'});
-      p.addText(String(r.full_name||r.employee_id),{x:3.9,y:y+0.15,w:6.2,h:1.1,fontSize:24,bold:true,color:DARK,valign:'middle'});
-      p.addText(parseFloat(r.overall).toFixed(2),{x:10.1,y:y+0.15,w:2.1,h:1.1,fontSize:32,bold:true,color:ORANGE,align:'right',valign:'middle'});
+    // ── One slide per VA, LOWEST → HIGHEST (build-up to #1) ──
+    var hdr={ bold:true, color:'FFFFFF', fill:{color:ORANGE}, align:'center', valign:'middle' };
+    var cel=function(v){ return { text:v, options:{ align:'center', valign:'middle', bold:true, fontSize:18, color:DARK } }; };
+    for(var k=rows.length-1;k>=0;k--){
+      var r=rows[k], rank=k+1, rc=rankCol(rank);
+      var s=pptx.addSlide(); s.background={color:'FFFFFF'};
+      s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:0.22,fill:{color:rc}});
+      // photo (or initials circle) on the left
+      var px=0.9, py=1.45, pw=4.3;
+      s.addShape(pptx.ShapeType.ellipse,{x:px-0.08,y:py-0.08,w:pw+0.16,h:pw+0.16,fill:{color:'FFFFFF'},line:{color:rc,width:3}});
+      if(photos[k]){ s.addImage({ data:photos[k], x:px, y:py, w:pw, h:pw, rounding:true }); }
+      else { s.addShape(pptx.ShapeType.ellipse,{x:px,y:py,w:pw,h:pw,fill:{color:LIGHT}});
+             s.addText(_scInitials(r.full_name||r.employee_id),{x:px,y:py,w:pw,h:pw,align:'center',valign:'middle',fontSize:80,bold:true,color:ORANGE}); }
+      // right column
+      var rx=5.7;
+      s.addText('RANK',{x:rx,y:1.35,w:6,h:0.4,fontSize:15,bold:true,color:GREY,charSpacing:4});
+      s.addText('#'+rank,{x:rx,y:1.6,w:6,h:1.05,fontSize:56,bold:true,color:rc});
+      s.addText(String(r.full_name||r.employee_id),{x:rx,y:2.8,w:7.2,h:0.8,fontSize:30,bold:true,color:DARK});
+      s.addText('OVERALL SCORE',{x:rx,y:3.7,w:6,h:0.35,fontSize:13,bold:true,color:GREY,charSpacing:3});
+      s.addText(parseFloat(r.overall).toFixed(2),{x:rx,y:3.95,w:6,h:1.0,fontSize:58,bold:true,color:ORANGE});
+      s.addTable([
+        [{text:'Prod',options:hdr},{text:'QA',options:hdr},{text:'Att',options:hdr},{text:'Assess',options:hdr},{text:'Sales',options:hdr},{text:'Demerit',options:hdr},{text:'CSAT',options:hdr}],
+        [cel(dash(r.productivity)),cel(dash(r.quality)),cel(dash(r.attendance)),cel(dash(r.assessment)),cel(dash(r.team_sales)),cel(dash(r.demerit_score)),cel(dash(r.csat))]
+      ],{ x:rx, y:5.15, colW:[1.0,1.0,1.0,1.0,1.0,1.0,1.0], border:{type:'solid',color:'E5E7EB',pt:1}, rowH:0.42 });
+      s.addText(label+'  ·  JMB Virtuals',{x:0,y:7.02,w:'100%',h:0.35,fontSize:12,color:GREY,align:'center'});
     }
-
-    var head=['#','Employee','Prod','QA','Att','Assess','Sales','Dem','CSAT','Overall'].map(function(h){ return {text:h,options:{bold:true,color:'FFFFFF',fill:{color:ORANGE},align:'center',valign:'middle'}}; });
-    var dash=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?String(Math.round(parseFloat(v))):'—'; };
-    var body=rows.map(function(r,i){
-      return [ {text:String(i+1),options:{align:'center'}},
-               {text:String(r.full_name||r.employee_id)},
-               {text:dash(r.productivity),options:{align:'center'}},
-               {text:dash(r.quality),options:{align:'center'}},
-               {text:dash(r.attendance),options:{align:'center'}},
-               {text:dash(r.assessment),options:{align:'center'}},
-               {text:dash(r.team_sales),options:{align:'center'}},
-               {text:dash(r.demerit_score),options:{align:'center'}},
-               {text:dash(r.csat),options:{align:'center'}},
-               {text:(r.overall!==''&&r.overall!=null?parseFloat(r.overall).toFixed(2):'—'),options:{align:'center',bold:true,color:ORANGE}} ];
-    });
-    var ts=pptx.addSlide(); ts.background={color:'FFFFFF'};
-    ts.addText('Full Rankings — '+label,{x:0.5,y:0.3,w:12.3,h:0.6,fontSize:22,bold:true,color:DARK});
-    ts.addTable([head].concat(body),{ x:0.5,y:1.0, colW:[0.6,3.3,1.0,0.9,0.9,1.1,0.9,0.9,1.1,1.6],
-      fontSize:11, color:DARK, border:{type:'solid',color:'E5E7EB',pt:1}, valign:'middle',
-      autoPage:true, autoPageRepeatHeader:true, autoPageHeaderRows:1, autoPageSlideStartY:0.6, rowH:0.3 });
 
     await pptx.writeFile({ fileName:'JMB_Rankings_'+(data.month||'month')+'.pptx' });
     if(typeof toast==='function') toast('Rankings PPT downloaded.');
@@ -4966,33 +4978,47 @@ async function printTopCertificates(){
 }
 function _certHTML(rows, label){
   var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var escA=function(s){ return esc(s).replace(/"/g,'&quot;'); };
   var ord=['First','Second','Third','Fourth','Fifth'];
+  var medal=['#C79A1E','#7C8590','#B45309','#0E7490','#6D28D9'];
   var pages=rows.map(function(r,i){
-    var name=esc(r.full_name||r.employee_id); var score=parseFloat(r.overall).toFixed(2);
-    return '<div class="cert"><div class="frame">'+
+    var name=esc(r.full_name||r.employee_id); var score=parseFloat(r.overall).toFixed(2); var mc=medal[i]||'#E8590C';
+    var img = r.photo
+      ? '<img src="'+escA(r.photo)+'" alt="" onerror="this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.style.display=\'flex\';">'
+      : '';
+    var init = '<div class="ph-init"'+(r.photo?' style="display:none"':'')+'>'+esc(_scInitials(r.full_name||r.employee_id))+'</div>';
+    return '<div class="cert"><div class="frame"><div class="inner" style="--mc:'+mc+'">'+
+      '<div class="seal"><span>'+(i+1)+'</span><small>PLACE</small></div>'+
       '<div class="brand">JMB VIRTUALS</div>'+
+      '<div class="photo">'+img+init+'</div>'+
       '<div class="sub">Certificate of Excellence</div>'+
       '<div class="rank">'+ord[i]+' Place</div>'+
       '<div class="pres">This certificate is proudly presented to</div>'+
       '<div class="name">'+name+'</div>'+
       '<div class="body">in recognition of an outstanding overall scorecard of <b>'+score+'</b>'+(label?(' for <b>'+esc(label)+'</b>'):'')+', ranking among the company’s top performers. Your dedication, consistency, and professionalism set the standard for the team.</div>'+
       '<div class="sigrow"><div class="sig"><div class="line"></div>Management</div><div class="sig"><div class="line"></div>Date</div></div>'+
-      '</div></div>';
+      '</div></div></div>';
   }).join('');
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>JMB Virtuals — Certificates</title><style>'+
     '@page{size:landscape;margin:0}'+
     '*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:Georgia,\'Times New Roman\',serif;color:#1f2430}'+
-    '.cert{width:100vw;height:100vh;padding:26px;page-break-after:always;display:flex}'+
-    '.frame{flex:1;border:3px solid #E8590C;border-radius:14px;padding:26px 52px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 0 0 2px #F5C9A8}'+
-    '.brand{font-size:20px;font-weight:bold;letter-spacing:6px;color:#E8590C;margin-bottom:6px}'+
-    '.sub{font-size:34px;font-weight:bold;letter-spacing:1px;margin-bottom:6px}'+
-    '.rank{font-size:15px;color:#a16207;letter-spacing:3px;text-transform:uppercase;margin-bottom:20px}'+
-    '.pres{font-size:14px;color:#555;margin-bottom:8px}'+
-    '.name{font-size:40px;font-weight:bold;color:#0f172a;border-bottom:2px solid #E8590C;padding:0 30px 8px;margin-bottom:16px}'+
-    '.body{font-size:15px;line-height:1.7;max-width:660px;color:#374151;margin-bottom:32px}'+
-    '.sigrow{display:flex;gap:110px;margin-top:8px}'+
+    '.cert{width:100vw;height:100vh;padding:20px;page-break-after:always;display:flex}'+
+    '.frame{flex:1;border:2px solid #E8590C;border-radius:16px;padding:9px;background:radial-gradient(circle at 50% -10%, #FFF6EE, #FFFFFF 55%)}'+
+    '.inner{position:relative;height:100%;border:1px solid #EABF92;border-radius:11px;padding:18px 60px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}'+
+    '.seal{position:absolute;top:16px;right:22px;width:82px;height:82px;border-radius:50%;background:var(--mc);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.28)}'+
+    '.seal span{font-size:30px;font-weight:bold;line-height:1}.seal small{font-size:8.5px;letter-spacing:2px;margin-top:1px}'+
+    '.brand{font-size:17px;font-weight:bold;letter-spacing:6px;color:#E8590C;margin-bottom:10px}'+
+    '.photo{width:140px;height:140px;border-radius:50%;overflow:hidden;border:4px solid var(--mc);box-shadow:0 6px 16px rgba(0,0,0,.16);margin-bottom:12px;background:#F3F4F6;display:flex;align-items:center;justify-content:center}'+
+    '.photo img{width:100%;height:100%;object-fit:cover}'+
+    '.ph-init{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:52px;font-weight:bold;color:#E8590C}'+
+    '.sub{font-size:32px;font-weight:bold;letter-spacing:1px;margin-bottom:4px}'+
+    '.rank{font-size:14px;color:#a16207;letter-spacing:3px;text-transform:uppercase;margin-bottom:14px}'+
+    '.pres{font-size:13px;color:#555;margin-bottom:6px}'+
+    '.name{font-size:38px;font-weight:bold;color:#0f172a;border-bottom:2px solid var(--mc);padding:0 28px 6px;margin-bottom:12px}'+
+    '.body{font-size:14px;line-height:1.65;max-width:640px;color:#374151;margin-bottom:22px}'+
+    '.sigrow{display:flex;gap:110px}'+
     '.sig{font-size:12px;color:#555}.line{width:190px;border-top:1px solid #333;margin-bottom:5px}'+
-    '</style></head><body onload="setTimeout(function(){window.focus();window.print();},150);">'+pages+'</body></html>';
+    '</style></head><body onload="setTimeout(function(){window.focus();window.print();},250);">'+pages+'</body></html>';
 }
 
 function openScorecardForm() {
