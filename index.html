@@ -4777,7 +4777,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui63</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui64</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -16097,6 +16097,7 @@ body.light .jul4-lbscore{color:#059669}
     <div id="tr-sub" style="font-size:12.5px;color:#9fb0d6;margin-bottom:4px;"></div>
     <div id="tr-points" style="font-size:12.5px;font-weight:700;color:#fbbf24;min-height:16px;margin-bottom:16px;"></div>
     <div id="tr-stats" style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;"></div>
+    <button id="tr-again" onclick="tetRematch()" style="display:none;width:100%;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:8px;">🔁 Play again</button>
     <div style="display:flex;gap:8px;">
       <button onclick="tetOpenRanking()" style="flex:1;background:#141a2b;color:#fbbf24;border:1px solid rgba(251,191,36,.4);border-radius:12px;padding:12px;font-weight:800;font-size:13.5px;cursor:pointer;">🏅 Rankings</button>
       <button onclick="tetrisQuit()" style="flex:1;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">Close</button>
@@ -16655,7 +16656,8 @@ body.light .jul4-lbscore{color:#059669}
       <div id="solo-res-hero" style="text-align:center;padding:6px 0 14px;"></div>
       <div class="rk-sec">🏆 Best runs</div>
       <div id="solo-res-board"><div style="text-align:center;color:#6b7d90;padding:20px;">Loading…</div></div>
-      <button onclick="soloClose()" style="width:100%;margin-top:14px;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">Close</button>
+      <button onclick="tetRematch()" style="width:100%;margin-top:14px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">🔁 Play again</button>
+      <button onclick="soloClose()" style="width:100%;margin-top:8px;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;">Close</button>
     </div>
   </div>
 </div>
@@ -17652,6 +17654,23 @@ body.light .jul4-lbscore{color:#059669}
     }
     cleanup(); bkCleanup(); el('tet-overlay').style.display='none'; var r=el('tet-result'); if(r) r.style.display='none';
   };
+  // Unlimited replay for the SELF-PLAYING modes (Solo challenges, Practice/Ladder, Ranked-vs-CPU):
+  // restart the last game immediately from the result screen. Live VS is excluded (needs a re-invite).
+  window.tetRematch=function(){
+    var L=window._tetLast;
+    try{ var _r=el('tet-result'); if(_r) _r.style.display='none'; }catch(e){}
+    try{ var _sr=document.getElementById('solo-result'); if(_sr){ _sr.classList.remove('on'); _sr.style.display='none'; } }catch(e){}
+    try{ cleanup(); }catch(e){}
+    try{ bkCleanup(); }catch(e){}
+    if(!L){ try{ el('tet-overlay').style.display='none'; }catch(e){} return; }
+    setTimeout(function(){
+      try{
+        if(L.kind==='solo'){ startSolo(L.mode); }
+        else if(L.kind==='ranked'){ window.tetrisTraining(L.level, { name:L.name, rank:L.rank, id:L.id, bypass:true, ranked:true }); }
+        else { window.tetrisTraining(L.level||1, { bypass:true }); }
+      }catch(e){}
+    }, 70);
+  };
   function cleanup(){
     stopMusic(); stopAllRepeat(); cancelRender(); clearLockTimer();
     var _me=el('tet-me'); if(_me) _me.classList.remove('tet-danger');
@@ -18052,6 +18071,7 @@ body.light .jul4-lbscore{color:#059669}
     else finish(null,'time');
   }
   function finish(iWon, how){
+    window._tetLast=null; try{ var _agv=el('tr-again'); if(_agv) _agv.style.display='none'; }catch(_e){}   // live VS: no instant rematch (needs re-invite)
     // Bracket tournament match → report the result and advance instead of the normal duel wrap-up.
     if(M && M.bk){ if(M._bkDone) return; M._bkDone=true; M.ended=true; M.alive=false; bkReport(iWon, how); return; }
     if(M.ended && how!=='topout') { /* allow override from topout already set */ }
@@ -20537,6 +20557,7 @@ body.light .jul4-lbscore{color:#059669}
     var soloScore = (mode==='combo') ? (M.maxCombo||0) : (M.score||0);
     var res={ mode:mode, win:win, time_ms:(timeMode?elapsed:(mode==='combo'?90000:120000)), score:soloScore, lines:M.lines||0 };
     if(mode!=='zen'){ if(win){ try{ sfxWin(); }catch(_){} } else { try{ sfxLose(); }catch(_){} } }
+    window._tetLast={ kind:'solo', mode:mode };   // enable Play again
     showSoloResult(how, res);
     // Only record valid finishes. Zen is practice — it never touches the leaderboard.
     var record = (mode==='sprint' && win)
@@ -20825,7 +20846,9 @@ body.light .jul4-lbscore{color:#059669}
     // awards NO stars. Standing opponents are replayable, so paying stars for them would be a
     // free farm. They exist so there's always a fair fight available, not to inflate ranks.
     if(M.ranked){
+      window._tetLast={ kind:'ranked', level:M.botLevel, name:bname, rank:M._oppRank, id:M._oppId };
       var rp=el('tr-points'); showDuelResult(!!win);
+      var _agr=el('tr-again'); if(_agr) _agr.style.display='block';
       var orank=M._oppRank||0, oid=M._oppId||'', worth=poolStars(orank);
       if(!win){
         if(rp) rp.textContent = bname+' (Rank '+orank+') took that one. A loss here costs you nothing — run it back.';
@@ -20863,7 +20886,9 @@ body.light .jul4-lbscore{color:#059669}
       setTimeout(function(){ if(_ladderNext!==nx) return; _ladderNext=0; if(M&&M.playing) return; window.tetrisTraining(nx); }, 2600);
       return;
     }
+    window._tetLast={ kind:'training', level:M.botLevel||1 };
     var p=el('tr-points'); showDuelResult(win?true:false);
+    var _agt=el('tr-again'); if(_agt) _agt.style.display='block';
     if(lv){
       if(win){ if(p) p.textContent='🏆 Skill Ladder complete — you beat all 10 bots! You are a Grandmaster.'; }
       else if(p){ p.textContent='Skill Ladder · fell at Lv'+lv+' — best cleared: Lv'+_mySkill; }
