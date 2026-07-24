@@ -1520,20 +1520,20 @@ function _jText(url,tries,timeout,delay){
       });
   });
 }
-function jGet(url, ttl){
-  ttl = (ttl==null?1500:ttl);
+function jGet(url, ttl, timeout){
+  ttl = (ttl==null?1500:ttl); var TO = timeout||15000;   // heavy endpoints can pass a longer timeout
   var key=_jKey(url), now=Date.now(), c=_jCache[key];
   if(ttl>0 && c && (now-c.t)<ttl){
     // Serve from cache. Once it's past half its TTL, refresh in the BACKGROUND so the next read
     // is instant AND fresh — this never serves data older than the TTL (stale-while-revalidate).
     if((now-c.t) > ttl/2 && !c.rev){
       c.rev=true;
-      _jText(url,2,15000).then(function(t){ _jCache[key]={t:Date.now(),txt:t}; }, function(){ c.rev=false; });
+      _jText(url,2,TO).then(function(t){ _jCache[key]={t:Date.now(),txt:t}; }, function(){ c.rev=false; });
     }
     return Promise.resolve(new Response(c.txt));
   }
   if(ttl>0 && _jInflight[key]) return _jInflight[key].then(function(t){ return new Response(t); });
-  var p=_jText(url, ttl>0?3:2, 15000).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
+  var p=_jText(url, ttl>0?3:2, TO).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
   if(ttl>0) _jInflight[key]=p;
   return p.then(function(t){ return new Response(t); });
 }
@@ -4761,7 +4761,7 @@ async function _scRenderRows() {
   var month = document.getElementById('sc-month-filter').value;
   try {
     var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '') + '&_=' + Date.now();
-    var res  = await jGet(url, 12000);
+    var res  = await jGet(url, 12000, 45000);   // long timeout — the all-employee compute can be slow
     var data = await res.json();
     var rows = data.scorecards || [];
     _scPaint(rows);
@@ -4907,7 +4907,13 @@ async function _imgData(url){
   var bare = hi.replace(/^https?:\/\//,'');
   var tries = [ hi, 'https://images.weserv.nl/?url='+encodeURIComponent(bare)+'&w=640&h=640&fit=cover&output=jpg' ];
   for(var i=0;i<tries.length;i++){
-    try{ var r=await fetch(tries[i],{mode:'cors'}); if(!r.ok) continue; var d=await _blobToData(await r.blob()); if(d) return d; }catch(e){}
+    try{
+      var ctrl=window.AbortController?new AbortController():null;
+      var to=setTimeout(function(){ try{ ctrl&&ctrl.abort(); }catch(e){} }, 7000);   // never hang on a slow photo
+      var r=await fetch(tries[i], ctrl?{mode:'cors',signal:ctrl.signal}:{mode:'cors'});
+      clearTimeout(to);
+      if(!r.ok) continue; var d=await _blobToData(await r.blob()); if(d) return d;
+    }catch(e){}
   }
   return null;
 }
