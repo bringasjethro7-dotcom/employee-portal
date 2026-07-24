@@ -4898,10 +4898,19 @@ async function _scRanked(){
   return { rows:rows, month:month };
 }
 function _scInitials(name){ var p=String(name||'').trim().split(/[\s,]+/).filter(Boolean); return ((p[0]||'?')[0]+(p[1]?p[1][0]:'')).toUpperCase(); }
-async function _imgData(url){ if(!url) return null;
-  try{ var r=await fetch(url,{mode:'cors'}); if(!r.ok) return null; var b=await r.blob();
-    return await new Promise(function(res){ var fr=new FileReader(); fr.onload=function(){res(String(fr.result));}; fr.onerror=function(){res(null);}; fr.readAsDataURL(b); });
-  }catch(e){ return null; } }
+function _blobToData(b){ return new Promise(function(res){ if(!b||b.size<80) return res(null); var fr=new FileReader(); fr.onload=function(){ var d=String(fr.result); res(/^data:image\//.test(d)?d:null); }; fr.onerror=function(){res(null);}; fr.readAsDataURL(b); }); }
+// Fetch an image as base64 for embedding. Drive blocks cross-origin fetch, so we fall back to a
+// CORS image proxy (images.weserv.nl). Returns null on total failure (caller draws initials).
+async function _imgData(url){
+  if(!url) return null;
+  var hi = String(url).replace(/sz=w\d+/,'sz=w640');
+  var bare = hi.replace(/^https?:\/\//,'');
+  var tries = [ hi, 'https://images.weserv.nl/?url='+encodeURIComponent(bare)+'&w=640&h=640&fit=cover&output=jpg' ];
+  for(var i=0;i<tries.length;i++){
+    try{ var r=await fetch(tries[i],{mode:'cors'}); if(!r.ok) continue; var d=await _blobToData(await r.blob()); if(d) return d; }catch(e){}
+  }
+  return null;
+}
 function _scMonthLabel(m){
   if(!m) return '';
   var p=String(m).split('-'); if(p.length<2) return m;
@@ -4928,48 +4937,88 @@ async function exportRankingsPptx(){
     if(btn) btn.textContent='Fetching photos…';
     var photos=await Promise.all(rows.map(function(r){ return _imgData(r.photo); }));   // base64 or null per VA
     if(btn) btn.textContent='Building…';
-    var ORANGE='E8590C', DARK='1F2430', GREY='6B7280', LIGHT='F3F4F6', GOLD='C79A1E';
-    var rankCol=function(rk){ return rk===1?GOLD:(rk===2?'7C8590':(rk===3?'B45309':DARK)); };
+    var ORANGE='E8590C', DARK='1F2430', GREY='6B7280', GOLD='C79A1E', INK='0F172A';
+    var rankCol=function(rk){ return rk===1?GOLD:(rk===2?'7C8590':(rk===3?'B45309':ORANGE)); };
     var dash=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?String(Math.round(parseFloat(v))):'—'; };
-    var pptx=new PptxGenJS(); pptx.layout='LAYOUT_WIDE';
+    var soft={ type:'outer', color:'000000', opacity:0.22, blur:9, offset:3, angle:90 };
+    var pptx=new PptxGenJS(); pptx.layout='LAYOUT_WIDE'; pptx.author='JMB Virtuals';
 
-    // ── Title slide ──
-    var t=pptx.addSlide(); t.background={color:'FFFFFF'};
-    t.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:0.28,fill:{color:ORANGE}});
-    t.addShape(pptx.ShapeType.rect,{x:0,y:7.22,w:'100%',h:0.28,fill:{color:ORANGE}});
-    t.addText('JMB VIRTUALS',{x:0,y:2.3,w:'100%',h:0.6,fontSize:20,bold:true,color:ORANGE,align:'center',charSpacing:4});
-    t.addText('Monthly Scorecard Rankings',{x:0,y:2.9,w:'100%',h:1.0,fontSize:40,bold:true,color:DARK,align:'center'});
-    t.addText(label,{x:0,y:4.0,w:'100%',h:0.5,fontSize:22,color:GREY,align:'center'});
-    t.addText('Counting down from last place to #1',{x:0,y:4.7,w:'100%',h:0.4,fontSize:15,italic:true,color:GREY,align:'center'});
+    // ── Title slide (dark, premium) ──
+    var t=pptx.addSlide(); t.background={color:'0F172A'};
+    t.addShape(pptx.ShapeType.rect,{x:4.66,y:3.28,w:4.0,h:0.03,fill:{color:GOLD}});
+    t.addText('JMB VIRTUALS',{x:0,y:2.35,w:'100%',h:0.5,fontSize:20,bold:true,color:'FF8E45',align:'center',charSpacing:6});
+    t.addText('Monthly Scorecard Rankings',{x:0,y:2.72,w:'100%',h:1.0,fontSize:44,bold:true,color:'FFFFFF',align:'center'});
+    t.addText(label,{x:0,y:3.9,w:'100%',h:0.5,fontSize:22,color:'C7CDD9',align:'center'});
+    t.addText('Counting down from last place to  #1',{x:0,y:4.6,w:'100%',h:0.4,fontSize:15,italic:true,color:'8B93A3',align:'center'});
 
     // ── One slide per VA, LOWEST → HIGHEST (build-up to #1) ──
-    var hdr={ bold:true, color:'FFFFFF', fill:{color:ORANGE}, align:'center', valign:'middle' };
-    var cel=function(v){ return { text:v, options:{ align:'center', valign:'middle', bold:true, fontSize:18, color:DARK } }; };
+    var metrics=function(r){ return [
+      {l:'Prod',   v:dash(r.productivity),  c:'2563EB'},
+      {l:'QA',     v:dash(r.quality),       c:'0D9488'},
+      {l:'Att',    v:dash(r.attendance),    c:'D97706'},
+      {l:'Assess', v:dash(r.assessment),    c:'9333EA'},
+      {l:'Sales',  v:dash(r.team_sales),    c:'0891B2'},
+      {l:'Demerit',v:dash(r.demerit_score), c:(parseFloat(r.demerit_score)>=100?'16A34A':(dash(r.demerit_score)==='—'?'94A3B8':'DC2626'))},
+      {l:'CSAT',   v:dash(r.csat),          c:'0EA5A4'}
+    ]; };
     for(var k=rows.length-1;k>=0;k--){
       var r=rows[k], rank=k+1, rc=rankCol(rank);
       var s=pptx.addSlide(); s.background={color:'FFFFFF'};
-      s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:0.22,fill:{color:rc}});
-      // photo (or initials circle) on the left
-      var px=0.9, py=1.45, pw=4.3;
-      s.addShape(pptx.ShapeType.ellipse,{x:px-0.08,y:py-0.08,w:pw+0.16,h:pw+0.16,fill:{color:'FFFFFF'},line:{color:rc,width:3}});
+      s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:5.35,h:7.5,fill:{color:'FBFAF7'}});     // left panel
+      s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:0.16,h:7.5,fill:{color:rc}});           // accent edge
+      s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:0.16,fill:{color:rc}});        // top ribbon
+      // photo ring + image (or initials)
+      var cx=2.68, py=1.7, pw=3.7, px=cx-pw/2;
+      s.addShape(pptx.ShapeType.ellipse,{x:px-0.11,y:py-0.11,w:pw+0.22,h:pw+0.22,fill:{color:'FFFFFF'},line:{color:rc,width:4},shadow:soft});
       if(photos[k]){ s.addImage({ data:photos[k], x:px, y:py, w:pw, h:pw, rounding:true }); }
-      else { s.addShape(pptx.ShapeType.ellipse,{x:px,y:py,w:pw,h:pw,fill:{color:LIGHT}});
-             s.addText(_scInitials(r.full_name||r.employee_id),{x:px,y:py,w:pw,h:pw,align:'center',valign:'middle',fontSize:80,bold:true,color:ORANGE}); }
+      else { s.addShape(pptx.ShapeType.ellipse,{x:px,y:py,w:pw,h:pw,fill:{color:'ECEEF2'}});
+             s.addText(_scInitials(r.full_name||r.employee_id),{x:px,y:py,w:pw,h:pw,align:'center',valign:'middle',fontSize:72,bold:true,color:rc}); }
+      // rank badge under the photo
+      s.addShape(pptx.ShapeType.roundRect,{x:cx-1.15,y:py+pw+0.2,w:2.3,h:0.72,rectRadius:0.36,fill:{color:rc},shadow:soft});
+      s.addText('RANK  #'+rank,{x:cx-1.15,y:py+pw+0.2,w:2.3,h:0.72,align:'center',valign:'middle',fontSize:20,bold:true,color:'FFFFFF',charSpacing:1});
+
       // right column
-      var rx=5.7;
-      s.addText('RANK',{x:rx,y:1.35,w:6,h:0.4,fontSize:15,bold:true,color:GREY,charSpacing:4});
-      s.addText('#'+rank,{x:rx,y:1.6,w:6,h:1.05,fontSize:56,bold:true,color:rc});
-      s.addText(String(r.full_name||r.employee_id),{x:rx,y:2.8,w:7.2,h:0.8,fontSize:30,bold:true,color:DARK});
-      s.addText('OVERALL SCORE',{x:rx,y:3.7,w:6,h:0.35,fontSize:13,bold:true,color:GREY,charSpacing:3});
-      s.addText(parseFloat(r.overall).toFixed(2),{x:rx,y:3.95,w:6,h:1.0,fontSize:58,bold:true,color:ORANGE});
-      s.addTable([
-        [{text:'Prod',options:hdr},{text:'QA',options:hdr},{text:'Att',options:hdr},{text:'Assess',options:hdr},{text:'Sales',options:hdr},{text:'Demerit',options:hdr},{text:'CSAT',options:hdr}],
-        [cel(dash(r.productivity)),cel(dash(r.quality)),cel(dash(r.attendance)),cel(dash(r.assessment)),cel(dash(r.team_sales)),cel(dash(r.demerit_score)),cel(dash(r.csat))]
-      ],{ x:rx, y:5.15, colW:[1.0,1.0,1.0,1.0,1.0,1.0,1.0], border:{type:'solid',color:'E5E7EB',pt:1}, rowH:0.42 });
-      s.addText(label+'  ·  JMB Virtuals',{x:0,y:7.02,w:'100%',h:0.35,fontSize:12,color:GREY,align:'center'});
+      var rx=6.0;
+      var place=(rank===1?'CHAMPION':(rank===2?'RUNNER-UP':(rank===3?'THIRD PLACE':('RANK #'+rank))));
+      s.addText(place,{x:rx,y:1.15,w:6.8,h:0.4,fontSize:16,bold:true,color:rc,charSpacing:3});
+      s.addText(String(r.full_name||r.employee_id),{x:rx,y:1.55,w:7.0,h:0.9,fontSize:34,bold:true,color:INK});
+      // overall card
+      s.addShape(pptx.ShapeType.roundRect,{x:rx,y:2.72,w:3.95,h:1.55,rectRadius:0.12,fill:{color:'FFF6EE'},line:{color:'F6C9A6',width:1}});
+      s.addText('OVERALL SCORE',{x:rx+0.25,y:2.88,w:3.5,h:0.35,fontSize:12,bold:true,color:GREY,charSpacing:2});
+      s.addText(parseFloat(r.overall).toFixed(2),{x:rx+0.2,y:3.14,w:3.6,h:1.0,fontSize:54,bold:true,color:ORANGE});
+      // component mini-cards
+      var M=metrics(r), cw=0.98, gap=0.05, my=5.05;
+      for(var mi=0; mi<M.length; mi++){
+        var mx=rx + mi*(cw+gap);
+        s.addShape(pptx.ShapeType.roundRect,{x:mx,y:my,w:cw,h:1.2,rectRadius:0.08,fill:{color:'F8FAFC'},line:{color:'E5E7EB',width:1}});
+        s.addText(M[mi].l,{x:mx,y:my+0.12,w:cw,h:0.3,align:'center',fontSize:10,bold:true,color:GREY,charSpacing:1});
+        s.addText(M[mi].v,{x:mx,y:my+0.42,w:cw,h:0.68,align:'center',valign:'middle',fontSize:24,bold:true,color:M[mi].c});
+      }
+      s.addText(label+'   ·   JMB Virtuals',{x:rx,y:6.55,w:7.0,h:0.35,fontSize:12,color:GREY});
     }
 
-    await pptx.writeFile({ fileName:'JMB_Rankings_'+(data.month||'month')+'.pptx' });
+    // ── Save, then inject real slide transitions (fade) by post-processing the .pptx ──
+    if(btn) btn.textContent='Finishing…';
+    var fname='JMB_Rankings_'+(data.month||'month')+'.pptx';
+    var blob=await pptx.write({ outputType:'blob' });
+    if(!(blob instanceof Blob)){ await pptx.writeFile({ fileName:fname }); if(typeof toast==='function') toast('Rankings PPT downloaded.'); return; }
+    try{
+      await _loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
+      var zip=await JSZip.loadAsync(blob);
+      var trans='<p:transition spd="slow"><p:fade/></p:transition>';
+      var names=Object.keys(zip.files).filter(function(n){ return /^ppt\/slides\/slide\d+\.xml$/.test(n); });
+      for(var zi=0; zi<names.length; zi++){
+        var xml=await zip.file(names[zi]).async('string');
+        if(xml.indexOf('<p:transition')<0){
+          if(xml.indexOf('</p:clrMapOvr>')>=0) xml=xml.replace('</p:clrMapOvr>','</p:clrMapOvr>'+trans);
+          else xml=xml.replace('</p:sld>', trans+'</p:sld>');
+          zip.file(names[zi], xml);
+        }
+      }
+      blob=await zip.generateAsync({ type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+    }catch(_tx){}   // any failure → keep the plain, still-valid file
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; document.body.appendChild(a); a.click();
+    setTimeout(function(){ try{ URL.revokeObjectURL(a.href); }catch(e){} a.remove(); }, 1500);
     if(typeof toast==='function') toast('Rankings PPT downloaded.');
   }catch(e){ alert('Could not build the PPT: '+(e&&e.message||e)); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
