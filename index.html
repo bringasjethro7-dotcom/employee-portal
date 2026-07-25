@@ -2953,6 +2953,13 @@
     border: 1px solid rgba(255,107,26,0.25);
     margin-top: 6px;
   }
+  /* Time Tracker disabled on mobile → hide the label + show a notice */
+  body.mobile-no-trk .at-trk-label { display: none; }
+  .trk-mobile-note { text-align: center; padding: 22px 16px; border: 1px dashed rgba(255,255,255,.16);
+    border-radius: 14px; background: rgba(255,255,255,.03); }
+  .trk-mobile-note .tmn-ico { font-size: 30px; line-height: 1; margin-bottom: 8px; }
+  .trk-mobile-note .tmn-h { font-size: 14px; font-weight: 800; color: var(--text, #e8eefc); margin-bottom: 5px; }
+  .trk-mobile-note .tmn-s { font-size: 12px; color: #9fb0d6; line-height: 1.5; max-width: 340px; margin: 0 auto; }
   /* Unified premium Attendance + Time Tracker card */
   .at-card {
     position: relative;
@@ -4777,7 +4784,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui75</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui77</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -5831,7 +5838,7 @@ async function doLogin() {
   err.style.display = 'none';
 
   try {
-    const url = `${APPS_SCRIPT_URL}?action=bootstrap&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}`;
+    const url = `${APPS_SCRIPT_URL}?action=bootstrap&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&device=${encodeURIComponent(_devId())}`;
     const res  = await fetch(url);
     const raw  = await res.json();
 
@@ -5859,6 +5866,42 @@ async function doLogin() {
     btn.textContent = 'Sign in';
     btn.disabled = false;
   }
+}
+
+// ── SINGLE-DEVICE LOGIN ──────────────────────────────────────────────────────
+// One account may be signed in on one device at a time. Logging in elsewhere makes THIS
+// device the active one; older devices detect the mismatch on their next poll and sign out.
+function _devId(){
+  try { var s = localStorage.getItem('trk_device_id');
+    if (!s) { s = 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8); localStorage.setItem('trk_device_id', s); }
+    return s;
+  } catch(e) { return 'sess-x'; }
+}
+function checkSessionValid(){
+  var d; try { d = sessionStorage.getItem('emp_data'); } catch(e){ return; }
+  if (!d) return;
+  var emp; try { emp = JSON.parse(d); } catch(e){ return; }
+  var id = emp && emp.employee_id; if (!id) return;
+  fetch(APPS_SCRIPT_URL + '?action=check_session&employee_id=' + encodeURIComponent(id) + '&device=' + encodeURIComponent(_devId()) + '&_=' + Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(res){ if (res && res.ok && res.valid === false) _forceLogoutOtherDevice(); })
+    .catch(function(){});   // fail-open: network hiccup never logs anyone out
+}
+function _sessVisCheck(){ if (!document.hidden) checkSessionValid(); }   // fast detect on tab focus
+function startSessionGuard(){
+  stopSessionGuard();
+  try { window._sessGuard = setInterval(checkSessionValid, 25000); } catch(e){}
+  try { document.addEventListener('visibilitychange', _sessVisCheck); } catch(e){}
+}
+function stopSessionGuard(){
+  try { if (window._sessGuard) { clearInterval(window._sessGuard); window._sessGuard = null; } } catch(e){}
+  try { document.removeEventListener('visibilitychange', _sessVisCheck); } catch(e){}
+}
+function _forceLogoutOtherDevice(){
+  stopSessionGuard();
+  try { doLogout(); } catch(e){}
+  var el = document.getElementById('login-error');
+  if (el) { el.textContent = 'You were signed out because your account was opened on another device.'; el.style.display = 'block'; }
 }
 
 function showError(msg) {
@@ -6264,6 +6307,7 @@ function renderProfile(data) {
 function renderDashboard(data) {
   document.getElementById('login-screen').style.display    = 'none';
   document.getElementById('dashboard-screen').style.display = 'flex';
+  try { startSessionGuard(); } catch(e){}   // enforce single active device while signed in
 
   const name = data.full_name || 'Employee';
   const initials = name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
@@ -6374,6 +6418,7 @@ function renderDashboard(data) {
 // LOGOUT
 // ─────────────────────────────────────────────
 function doLogout() {
+  try { stopSessionGuard(); } catch(e) {}
   try { empLiveStop(); } catch(e) {}
   sessionStorage.removeItem('emp_data');
   document.getElementById('dashboard-screen').style.display = 'none';
@@ -6455,6 +6500,21 @@ function closeMessages() {
   setTimeout(function(){ panel.classList.remove('msg-open', 'msg-closing'); }, 260);
 }
 
+// Hide/disable the Time Tracker UI on mobile and drop a "use a computer" notice in its place.
+function disableTrackerOnMobile() {
+  try {
+    document.body.classList.add('mobile-no-trk');
+    var mount = document.getElementById('trk-mount');
+    if (mount) mount.innerHTML =
+      '<div class="trk-mobile-note">'
+      + '<div class="tmn-ico">🖥️</div>'
+      + '<div class="tmn-h">Time tracking is available on desktop only</div>'
+      + '<div class="tmn-s">Please sign in on a computer to start your timer and record work time. This keeps your hours accurate.</div>'
+      + '</div>';
+    var tabBtn = document.getElementById('tabbtn-clockify'); if (tabBtn) tabBtn.style.display = 'none';
+    var tabPanel = document.getElementById('tab-clockify'); if (tabPanel) tabPanel.style.display = 'none';
+  } catch(e){}
+}
 // Phones can fake taps, so Attendance & Time Tracker are desktop-only
 function isMobileDevice() {
   if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean' && navigator.userAgentData.mobile) return true;
@@ -9216,6 +9276,9 @@ function trkSetRunning(r) { trkRunning = r; cfyRunningId = r ? r.entry_id : null
 // Init when the Time Tracker tab is first opened
 async function initClockify(empData) {
   trkEmpData = empData || window._currentEmpData || {};
+  // Time Tracker is DESKTOP-ONLY. On phones/tablets, don't mount the timer at all — show a
+  // notice instead. (Mobile taps are unreliable for accurate time capture.)
+  if (isMobileDevice()) { try { disableTrackerOnMobile(); } catch(e){} return; }
   var nk = document.getElementById('cfy-no-key'); if (nk) nk.style.display = 'none';
   var ld = document.getElementById('cfy-loading'); if (ld) ld.style.display = 'none';
   var mn = document.getElementById('cfy-main'); if (mn) mn.style.display = 'block';
@@ -21003,6 +21066,7 @@ body.light .jul4-lbscore{color:#059669}
     }
     el('solo-res-hero').innerHTML=hero;
     el('solo-res-board').innerHTML='<div style="text-align:center;color:#6b7d90;padding:20px;">Loading…</div>';
+    m.style.display='';   // clear any inline display:none left by a prior "Play again" so .open can show it
     m.classList.add('open');
     if(r.win){ try{ tetConfetti({count:160,dur:2800}); }catch(_){} }
     if(r.mode!=='zen'){ try{ voiceResult(!!r.win); }catch(_v){} }   // announcer: win / lose (Zen is practice — stays silent)
