@@ -4819,7 +4819,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui94</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui95</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -6339,6 +6339,57 @@ function renderProfile(data) {
   }).join('');
 }
 
+// ── Animated welcome intro (once per sign-in) ──
+function playIntroWelcome(fullName){
+  try { if (sessionStorage.getItem('jmb_intro_shown')) return; sessionStorage.setItem('jmb_intro_shown','1'); } catch(e){}
+  var nm = String(fullName||'').trim();
+  var first = nm.indexOf(',')>=0 ? nm.split(',')[1].trim().split(/\s+/)[0] : (nm.split(/\s+/)[0]||'');
+  var display = nm.indexOf(',')>=0 ? (nm.split(',')[1].trim()+' '+nm.split(',')[0].trim()).trim() : nm;
+  var h = new Date().getHours(); var g = h<12?'Good morning':h<18?'Good afternoon':'Good evening';
+  if (!document.getElementById('iw-style')) {
+    var st = document.createElement('style'); st.id='iw-style';
+    st.textContent =
+    '#intro-welcome{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;overflow:hidden;'+
+      'background:radial-gradient(120% 120% at 50% -10%,#ff9a5c 0%,#ff6b1a 42%,#e83d00 78%,#b93100 100%);opacity:0;transition:opacity .35s ease}'+
+    '#intro-welcome.show{opacity:1}'+
+    '#intro-welcome.out{transform:translateY(-101%);transition:transform .8s cubic-bezier(.76,0,.24,1)}'+
+    '#intro-welcome .iw-orb{position:absolute;border-radius:50%;filter:blur(48px);opacity:.55;will-change:transform}'+
+    '#intro-welcome .iw-o1{width:420px;height:420px;background:#ffd0a8;left:-90px;top:-80px;animation:iwFloat 7s ease-in-out infinite}'+
+    '#intro-welcome .iw-o2{width:360px;height:360px;background:#ff3d00;right:-70px;bottom:-90px;animation:iwFloat 8s ease-in-out infinite reverse}'+
+    '#intro-welcome .iw-grid{position:absolute;inset:0;opacity:.12;background-image:linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px);background-size:44px 44px;-webkit-mask-image:radial-gradient(70% 70% at 50% 45%,#000,transparent);mask-image:radial-gradient(70% 70% at 50% 45%,#000,transparent)}'+
+    '#intro-welcome .iw-c{position:relative;text-align:center;color:#fff;padding:24px}'+
+    '#intro-welcome .iw-mark{width:64px;height:64px;border-radius:18px;margin:0 auto 22px;display:flex;align-items:center;justify-content:center;'+
+      'background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);box-shadow:0 18px 46px -18px rgba(0,0,0,.5);'+
+      'font-weight:900;font-size:24px;letter-spacing:.02em;opacity:0;transform:translateY(14px) scale(.8);animation:iwPop .7s cubic-bezier(.2,1.3,.3,1) .15s forwards}'+
+    '#intro-welcome .iw-greet{font-size:16px;font-weight:700;letter-spacing:.02em;color:rgba(255,255,255,.92);opacity:0;transform:translateY(12px);animation:iwUp .6s cubic-bezier(.2,1,.3,1) .35s forwards}'+
+    '#intro-welcome .iw-name{font-family:\'Sora\',\'Inter\',sans-serif;font-size:clamp(34px,6.5vw,68px);font-weight:900;letter-spacing:-.02em;line-height:1.05;margin:6px 0 14px;'+
+      'opacity:0;transform:translateY(20px) scale(.96);animation:iwName .8s cubic-bezier(.2,1.1,.3,1) .5s forwards;text-shadow:0 8px 30px rgba(0,0,0,.28)}'+
+    '#intro-welcome .iw-tag{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#fff;background:rgba(255,255,255,.16);'+
+      'border:1px solid rgba(255,255,255,.32);border-radius:999px;padding:7px 16px;opacity:0;transform:translateY(12px);animation:iwUp .6s cubic-bezier(.2,1,.3,1) .75s forwards}'+
+    '#intro-welcome .iw-sheen{position:absolute;top:0;left:-30%;width:30%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.28),transparent);transform:skewX(-16deg);animation:iwSheen 1.4s ease-in-out .9s}'+
+    '@keyframes iwFloat{0%,100%{transform:translate(0,0)}50%{transform:translate(26px,20px)}}'+
+    '@keyframes iwPop{to{opacity:1;transform:translateY(0) scale(1)}}'+
+    '@keyframes iwUp{to{opacity:1;transform:translateY(0)}}'+
+    '@keyframes iwName{to{opacity:1;transform:translateY(0) scale(1)}}'+
+    '@keyframes iwSheen{0%{left:-30%}100%{left:130%}}'+
+    '@media(prefers-reduced-motion:reduce){#intro-welcome *{animation:none!important;opacity:1!important;transform:none!important}}';
+    document.head.appendChild(st);
+  }
+  var ov = document.createElement('div'); ov.id='intro-welcome';
+  ov.innerHTML =
+    '<div class="iw-orb iw-o1"></div><div class="iw-orb iw-o2"></div><div class="iw-grid"></div><div class="iw-sheen"></div>'+
+    '<div class="iw-c">'+
+      '<div class="iw-mark">JMB</div>'+
+      '<div class="iw-greet">'+escapeHtml(g)+', '+escapeHtml(first)+' 👋</div>'+
+      '<div class="iw-name">'+escapeHtml(display||'Welcome')+'</div>'+
+      '<div class="iw-tag">✨ Welcome back to JMB Virtuals</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  requestAnimationFrame(function(){ ov.classList.add('show'); });
+  setTimeout(function(){ ov.classList.add('out'); }, 2350);           // slide the curtain up
+  setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }, 3250);
+}
+
 function renderDashboard(data) {
   document.getElementById('login-screen').style.display    = 'none';
   document.getElementById('dashboard-screen').style.display = 'flex';
@@ -6347,6 +6398,7 @@ function renderDashboard(data) {
   const name = data.full_name || 'Employee';
   const initials = name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
   const photoUrl = data.photo ? convertDriveLink(data.photo) : null;
+  try { playIntroWelcome(name); } catch(e) {}   // one-time animated welcome on sign-in
 
   document.getElementById('header-emp-name').textContent = name;
   try{
@@ -6425,13 +6477,16 @@ function renderDashboard(data) {
   }
   // Large right-side hero portrait. Prefer a dedicated AI portrait ('hero_photo' / 'portrait'
   // column in the sheet) so avatars everywhere keep the normal headshot; fall back to 'photo'.
+  // Rendered as an <img> (not a CSS background) because Drive links load reliably as images.
   try {
     var heroPortrait = document.getElementById('hero-portrait');
-    var _hp = (data.hero_photo || data.portrait || '');
+    var _hp = (data.hero_photo || data.portrait || data.ai_photo || data.hero_image || '');
     var heroPhotoUrl = (_hp && String(_hp).trim()) ? convertDriveLink(String(_hp).trim()) : photoUrl;
     if (heroPortrait) {
-      if (heroPhotoUrl) { heroPortrait.style.backgroundImage = 'url("' + heroPhotoUrl + '")'; heroPortrait.classList.add('has-img'); }
-      else { heroPortrait.style.backgroundImage = ''; heroPortrait.classList.remove('has-img'); }
+      if (heroPhotoUrl) {
+        heroPortrait.classList.add('has-img');
+        heroPortrait.innerHTML = '<img src="' + heroPhotoUrl + '" alt="" onerror="this.parentNode.classList.remove(\'has-img\');this.remove();">';
+      } else { heroPortrait.classList.remove('has-img'); heroPortrait.innerHTML = ''; }
     }
   } catch(e) {}
   hero.style.display = 'flex';
@@ -8258,12 +8313,15 @@ function closePayslip() {
 
 function convertDriveLink(url) {
   if (!url) return null;
-  // Convert Google Drive share link to direct image URL
-  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (match) {
-    return `https://lh3.googleusercontent.com/d/${match[1]}`;
-  }
-  return url; // return as-is if not a Drive link
+  url = String(url).trim();
+  // A Drive FOLDER link is not an image — ignore it (caller falls back to the normal photo).
+  if (/drive\.google\.com\/.*\/folders\//.test(url)) return null;
+  // Pull the file ID from any of Drive's share-link shapes: /file/d/ID, ?id=ID, /d/ID.
+  const m = url.match(/\/file\/d\/([a-zA-Z0-9_-]{20,})/)
+         || url.match(/[?&]id=([a-zA-Z0-9_-]{20,})/)
+         || url.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+  if (m) return `https://lh3.googleusercontent.com/d/${m[1]}`;
+  return url; // already a direct image URL (or non-Drive) → use as-is
 }
 
 function formatMoney(val) {
