@@ -806,6 +806,7 @@ body{background-attachment:initial !important}
         <div style="display:flex;align-items:center;gap:10px;">
           <span id="wb-status" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:999px;background:#eee;color:#555;">…</span>
           <button class="bsm" id="wb-toggle" onclick="toggleWallboard()" style="font-weight:600;">Toggle</button>
+          <button class="bsm" id="wb-force" onclick="toggleForce()" style="font-weight:600;" title="Enforce codes right now, ignoring the Mon–Sat schedule — for testing.">Test now</button>
           <button class="bsm" onclick="loadWallboard()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻</button>
         </div>
       </div>
@@ -2285,7 +2286,7 @@ function goTab(name){
 // SECURITY: the admin panel never fetches or shows the live codes (so nobody browsing the
 // internals can read them). It only reads the on/off status and flips the toggle. The actual
 // codes live solely on the standalone, key-locked office wallboard screen.
-var _wbTimer = null, _wbOn = false;
+var _wbTimer = null, _wbOn = false, _wbForce = false;
 function startWallboard(){ loadWallboard(); if(_wbTimer) clearInterval(_wbTimer); _wbTimer=setInterval(loadWallboard, 8000); }
 function stopWallboard(){ if(_wbTimer){ clearInterval(_wbTimer); _wbTimer=null; } }
 function loadWallboard(){
@@ -2294,15 +2295,28 @@ function loadWallboard(){
     .catch(function(){ var st=document.getElementById('wb-status'); if(st) st.textContent='…'; });
 }
 function renderWallboard(d){
-  var st=document.getElementById('wb-status'), tg=document.getElementById('wb-toggle');
+  var st=document.getElementById('wb-status'), tg=document.getElementById('wb-toggle'), fb=document.getElementById('wb-force');
   if(!d || d.error){ if(st){ st.textContent='Error'; } return; }
-  _wbOn=!!d.on;
+  _wbOn=!!d.on; _wbForce=!!d.force;
+  var enforcing = _wbOn && (d.in_window || _wbForce);
   if(st){
-    st.textContent = _wbOn ? (d.in_window?'ON · enforcing now':'ON · off-hours') : 'OFF';
-    st.style.background = _wbOn ? (d.in_window?'#dcfce7':'#fef9c3') : '#eee';
-    st.style.color      = _wbOn ? (d.in_window?'#16a34a':'#a16207') : '#555';
+    st.textContent = !_wbOn ? 'OFF' : (enforcing ? (_wbForce ? 'ON · TEST enforcing' : 'ON · enforcing now') : 'ON · off-hours');
+    st.style.background = !_wbOn ? '#eee' : (enforcing ? '#dcfce7' : '#fef9c3');
+    st.style.color      = !_wbOn ? '#555' : (enforcing ? '#16a34a' : '#a16207');
   }
   if(tg){ tg.textContent = _wbOn ? 'Turn OFF' : 'Turn ON'; }
+  if(fb){ fb.textContent = _wbForce ? 'Stop test' : 'Test now';
+    fb.style.background = _wbForce ? 'rgba(220,38,38,.12)' : '';
+    fb.style.borderColor = _wbForce ? 'rgba(220,38,38,.4)' : '';
+    fb.style.color = _wbForce ? '#dc2626' : ''; }
+}
+function toggleForce(){
+  var target=!_wbForce;
+  if(target && !confirm('Enforce office codes RIGHT NOW, ignoring the Mon–Sat schedule?\n\nThis is for testing. Make sure the office wallboard is showing codes, or you may lock yourself out (admin account stays exempt). Remember to Stop test when done.')) return;
+  var fb=document.getElementById('wb-force'); if(fb){ fb.disabled=true; fb.textContent='…'; }
+  fetch(API+'?action=office_otp_force&pass='+encodeURIComponent(PASS)+'&on='+(target?'1':'0')+'&_='+Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){ if(fb) fb.disabled=false; if(d&&d.error){ alert(d.error); } loadWallboard(); })
+    .catch(function(){ if(fb) fb.disabled=false; alert('Network error.'); });
 }
 function toggleWallboard(){
   var target=!_wbOn;
