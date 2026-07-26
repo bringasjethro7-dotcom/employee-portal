@@ -795,12 +795,13 @@ body{background-attachment:initial !important}
     </div>
 
     <!-- LIVE & HOURS DASHBOARD -->
-    <!-- OFFICE LOGIN CODES (wallboard) -->
+    <!-- OFFICE LOGIN — control only. The live codes are NEVER shown here (so no one browsing
+         the admin panel can read them); they appear only on the standalone office wallboard. -->
     <div id="p-wallboard" style="display:none;">
       <div class="live-head">
         <div>
           <div class="live-title"><span class="live-dot"></span> Office login codes</div>
-          <div class="live-sub" id="wb-sub">Codes appear here the moment a staff member requests one — read it off this screen in the office.</div>
+          <div class="live-sub">Require an office code to log in during work hours. Turn it on/off here.</div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
           <span id="wb-status" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:999px;background:#eee;color:#555;">…</span>
@@ -809,9 +810,12 @@ body{background-attachment:initial !important}
         </div>
       </div>
       <div id="wb-note" style="font-size:12.5px;color:var(--t2);background:var(--card2,rgba(15,23,42,.04));border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin:6px 0 14px;line-height:1.5;">
-        Enforced <b>Mon 6:00 AM → Sat 5:00 AM</b>. When ON, staff must enter a code shown here to log in — so they must be in the office. Admin (this account) is always exempt. Keep this screen on a monitor in the office.
+        Enforced <b>Mon 6:00 AM → Sat 5:00 AM</b>. When ON, staff must enter a code to log in — so they must be in the office. Admin (this account) is always exempt.
       </div>
-      <div id="wb-list" class="live-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;"><div class="es" style="grid-column:1/-1;">Loading…</div></div>
+      <div style="font-size:13px;color:var(--t2);background:rgba(255,107,26,.07);border:1px solid rgba(255,107,26,.25);border-radius:12px;padding:16px 18px;line-height:1.55;">
+        🔒 For security, the live login codes are <b>not shown in the admin panel</b> — only on the dedicated office wallboard screen, so nobody can read them remotely.<br><br>
+        Open the wallboard on a monitor in the office at <b>portal.jmbvirtuals.com/wallboard</b> and unlock it once with the wallboard key. Codes appear there the instant a staff member requests one.
+      </div>
     </div>
 
     <div id="p-live" style="display:none;">
@@ -2277,21 +2281,21 @@ function goTab(name){
   syncAdminNav(name);
 }
 
-// ════════════ OFFICE LOGIN CODES (wallboard) ════════════
-// Live per-user login codes. Codes are PASS-gated on the backend so only this admin panel
-// (in the office) can read them. Auto-refreshes while the tab is open.
+// ════════════ OFFICE LOGIN — control only ════════════
+// SECURITY: the admin panel never fetches or shows the live codes (so nobody browsing the
+// internals can read them). It only reads the on/off status and flips the toggle. The actual
+// codes live solely on the standalone, key-locked office wallboard screen.
 var _wbTimer = null, _wbOn = false;
-function wbEsc(v){ return (v==null?'':String(v)).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-function startWallboard(){ loadWallboard(); if(_wbTimer) clearInterval(_wbTimer); _wbTimer=setInterval(loadWallboard, 4000); }
+function startWallboard(){ loadWallboard(); if(_wbTimer) clearInterval(_wbTimer); _wbTimer=setInterval(loadWallboard, 8000); }
 function stopWallboard(){ if(_wbTimer){ clearInterval(_wbTimer); _wbTimer=null; } }
 function loadWallboard(){
-  fetch(API+'?action=office_otp_board&pass='+encodeURIComponent(PASS)+'&_='+Date.now())
+  fetch(API+'?action=office_otp_status&_='+Date.now())     // status only — no codes in this response
     .then(function(r){ return r.json(); }).then(renderWallboard)
-    .catch(function(){ var l=document.getElementById('wb-list'); if(l) l.innerHTML='<div class="es" style="grid-column:1/-1;">Network error — retrying…</div>'; });
+    .catch(function(){ var st=document.getElementById('wb-status'); if(st) st.textContent='…'; });
 }
 function renderWallboard(d){
-  var st=document.getElementById('wb-status'), tg=document.getElementById('wb-toggle'), list=document.getElementById('wb-list');
-  if(!d || d.error){ if(st){ st.textContent='Error'; } if(list) list.innerHTML='<div class="es" style="grid-column:1/-1;">'+wbEsc((d&&d.error)||'Error')+'</div>'; return; }
+  var st=document.getElementById('wb-status'), tg=document.getElementById('wb-toggle');
+  if(!d || d.error){ if(st){ st.textContent='Error'; } return; }
   _wbOn=!!d.on;
   if(st){
     st.textContent = _wbOn ? (d.in_window?'ON · enforcing now':'ON · off-hours') : 'OFF';
@@ -2299,16 +2303,6 @@ function renderWallboard(d){
     st.style.color      = _wbOn ? (d.in_window?'#16a34a':'#a16207') : '#555';
   }
   if(tg){ tg.textContent = _wbOn ? 'Turn OFF' : 'Turn ON'; }
-  var codes=d.codes||[];
-  if(!list) return;
-  if(!codes.length){ list.innerHTML='<div class="es" style="grid-column:1/-1;">No active codes. When a staff member taps “Request office code” on the login screen, it appears here.</div>'; return; }
-  list.innerHTML = codes.map(function(c){
-    var s=Math.max(0,c.expires_in|0), mm=Math.floor(s/60), ss=s%60;
-    return '<div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow-sm);">'
-      +'<div style="font-size:13px;font-weight:600;color:var(--t1);margin-bottom:8px;">'+wbEsc(c.name)+' <span style="color:var(--t3);font-weight:500;">'+wbEsc(c.id)+'</span></div>'
-      +'<div style="font-size:42px;font-weight:800;letter-spacing:9px;color:var(--o3,#ff6b1a);line-height:1;">'+wbEsc(c.code)+'</div>'
-      +'<div style="font-size:11px;color:var(--t3);margin-top:9px;">expires in '+mm+':'+(ss<10?'0':'')+ss+'</div></div>';
-  }).join('');
 }
 function toggleWallboard(){
   var target=!_wbOn;
