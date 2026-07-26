@@ -4392,6 +4392,18 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
         })();
       </script>
     </div>
+    <!-- OFFICE-PRESENCE LOGIN CODE (hidden until the backend says it's required) -->
+    <div class="field-group" id="office-otp-wrap" style="display:none;">
+      <label class="field-label" for="office-otp">Office code</label>
+      <div class="pin-input-wrap">
+        <span class="field-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="21" width="18" height="0"/><path d="M3 21h18M6 21V7l6-4 6 4v14M10 9h.01M14 9h.01M10 13h.01M14 13h.01M10 17h4"/></svg></span>
+        <input class="field-input has-ico" type="text" inputmode="numeric" maxlength="4" id="office-otp" placeholder="4-digit code shown on the office screen" autocomplete="off" />
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;">
+        <button type="button" id="office-otp-req" onclick="requestOfficeCode()" style="background:#111827;color:#fff;border:none;border-radius:9px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">Request office code</button>
+        <span id="office-otp-hint" style="font-size:12px;color:var(--text-2);flex:1;min-width:160px;"></span>
+      </div>
+    </div>
     <button class="btn-primary" id="login-btn" onclick="doLogin()">Sign in</button>
     <div style="text-align:center;margin-top:12px;">
       <button onclick="showForgotPIN()" style="background:none;border:none;color:var(--text-2);font-size:13px;cursor:pointer;font-family:inherit;text-decoration:underline;text-underline-offset:3px;">Forgot PIN?</button>
@@ -4847,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui104</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui106</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -5901,7 +5913,8 @@ async function doLogin() {
   err.style.display = 'none';
 
   try {
-    const url = `${APPS_SCRIPT_URL}?action=bootstrap&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&device=${encodeURIComponent(_devId())}`;
+    const otp = ((document.getElementById('office-otp')||{}).value || '').trim();
+    const url = `${APPS_SCRIPT_URL}?action=bootstrap&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&device=${encodeURIComponent(_devId())}&otp=${encodeURIComponent(otp)}`;
     const res  = await fetch(url);
     const raw  = await res.json();
 
@@ -5912,7 +5925,9 @@ async function doLogin() {
     else                     { data = raw;          _boot = { at: 0, data: null }; }
 
     if (data.error) {
-      showError(
+      if (data.error === 'OTP_REQUIRED' || data.error === 'OTP_INVALID') {
+        revealOfficeCode(data.error === 'OTP_INVALID');     // office-presence gate — show the code step
+      } else showError(
         data.error === 'DEACTIVATED'
           ? 'This account has been deactivated. Please contact your admin.'
         : (data.error === 'NOT_FOUND' || data.error === 'WRONG_PIN')
@@ -5929,6 +5944,48 @@ async function doLogin() {
     btn.textContent = 'Sign in';
     btn.disabled = false;
   }
+}
+
+// ── OFFICE-PRESENCE LOGIN CODE ───────────────────────────────────────────────
+// During office hours, non-admin logins need a code that only shows on the office wallboard.
+// Reveal the code step and guide the user.
+function revealOfficeCode(invalid){
+  var w = document.getElementById('office-otp-wrap'); if (w) w.style.display = '';
+  var f = document.getElementById('office-otp'); if (f) { try { f.focus(); } catch(e){} }
+  var err = document.getElementById('login-error');
+  if (err){
+    err.style.display = 'block';
+    err.textContent = invalid
+      ? 'That office code is wrong or expired. Tap “Request office code”, then enter the new code shown on the office screen.'
+      : 'Login must be verified from the office right now. Tap “Request office code”, then enter the code shown on the office wallboard.';
+  }
+}
+function requestOfficeCode(){
+  var id  = (document.getElementById('emp-id').value  || '').trim();
+  var pin = (document.getElementById('emp-pin').value || '').trim();
+  var hint= document.getElementById('office-otp-hint');
+  var btn = document.getElementById('office-otp-req');
+  function setHint(msg, bad){ if(hint){ hint.style.color = bad ? '#c0392b' : 'var(--text-2)'; hint.innerHTML = msg; } }
+  if (!id || !pin){ setHint('Enter your Employee ID and PIN first.', true); return; }
+  if (btn){ btn.disabled = true; btn.textContent = 'Requesting…'; }
+  fetch(`${APPS_SCRIPT_URL}?action=office_otp_request&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&_=${Date.now()}`)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (btn){ btn.disabled = false; btn.textContent = 'Request office code'; }
+      var w = document.getElementById('office-otp-wrap'); if (w) w.style.display = '';
+      if (d && d.ok){
+        setHint('✅ Your code is on the <b>office screen</b> — enter it above (expires in 5 min).', false);
+        var f = document.getElementById('office-otp'); if (f) try { f.focus(); } catch(e){}
+      } else if (d && d.error === 'BAD_LOGIN'){
+        setHint('Check your Employee ID and PIN, then request again.', true);
+      } else {
+        setHint('Could not request a code. Please try again.', true);
+      }
+    })
+    .catch(function(){
+      if (btn){ btn.disabled = false; btn.textContent = 'Request office code'; }
+      setHint('Network error. Please try again.', true);
+    });
 }
 
 // ── SINGLE-DEVICE LOGIN ──────────────────────────────────────────────────────
@@ -16110,7 +16167,7 @@ body.light .jul4-lbscore{color:#059669}
     body().innerHTML=
       '<div class="jul4-flag">🎯 🧠 🎯</div>'+
       '<div class="jul4-h">Daily Trivia</div>'+
-      '<div class="jul4-sub">'+(s.count||15)+' questions · <b style="color:#fbbf24">'+(s.seconds||12)+' seconds each</b>.<br>Top 3 win <b>JMB Points</b> — 🥇300 · 🥈200 · 🥉100.<br>Ranked by score, then speed. Closes in <b>'+fmtLeft(s.closes_in)+'</b>.</div>'+
+      '<div class="jul4-sub">'+(s.count||15)+' questions · <b style="color:#fbbf24">'+(s.seconds||12)+' seconds each</b>.<br>Top 3 win <b>JMB Points</b> — 🥇250 · 🥈150 · 🥉100.<br>Ranked by score, then speed. Closes in <b>'+fmtLeft(s.closes_in)+'</b>.</div>'+
       '<button class="jul4-btn" onclick="jul4Start()">▶️ Start</button>'+
       '<button class="jul4-btn ghost" onclick="jul4Close()" style="margin-top:8px">Maybe later</button>';
   }
@@ -16289,7 +16346,7 @@ body.light .jul4-lbscore{color:#059669}
 <div id="tourney-lobby" style="display:none;position:fixed;inset:0;z-index:9450;background:rgba(5,8,20,.9);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
   <div style="width:420px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 60%,#080d19 100%);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:20px;color:#1a1a1a;box-shadow:0 40px 120px rgba(0,0,0,.7);">
     <div style="font-size:17px;font-weight:800;margin-bottom:2px;" id="tl-title">🏆 Tetris Tournament</div>
-    <div id="tl-sub" style="font-size:12px;color:#9fb0d6;margin-bottom:14px;">Last player standing wins <b style="color:#fbbf24;">+50 pts</b> · <span id="tl-count">1 player</span></div>
+    <div id="tl-sub" style="font-size:12px;color:#9fb0d6;margin-bottom:14px;">Last player standing wins <b style="color:#fbbf24;">bragging rights</b> · <span id="tl-count">1 player</span></div>
     <div id="tl-roster" style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;margin-bottom:16px;"></div>
     <div id="tl-auto" style="display:none;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);border-radius:11px;padding:12px;text-align:center;font-weight:800;font-size:14px;color:#fbbf24;margin-bottom:8px;">Auto-starting…</div>
     <button id="tl-join" onclick="tourneyJoin()" style="display:none;width:100%;background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border:none;border-radius:11px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:8px;">✋ Join tournament</button>
@@ -16300,7 +16357,7 @@ body.light .jul4-lbscore{color:#059669}
 
 <div id="tet-nightly-pop" style="display:none;position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:9500;background:linear-gradient(180deg,#131a2e,#0c1120);border:1px solid rgba(251,191,36,.4);border-radius:16px;padding:14px 16px;box-shadow:0 18px 50px rgba(0,0,0,.6);color:#1a1a1a;max-width:360px;">
   <div style="font-weight:800;font-size:14px;margin-bottom:2px;">🏆 Nightly Tetris Tournament</div>
-  <div style="font-size:12.5px;color:#9fb0d6;margin-bottom:8px;" id="tet-nightly-blurb">Tournament time! Knockout bracket — top 3 earn JMB Points: 🥇400 · 🥈200 · 🥉150.</div>
+  <div style="font-size:12.5px;color:#9fb0d6;margin-bottom:8px;" id="tet-nightly-blurb">Tournament time! Knockout bracket — top 3 earn JMB Points: 🥇250 · 🥈150 · 🥉100.</div>
   <div id="tet-nightly-cd" style="font-size:12.5px;font-weight:800;color:#fbbf24;margin-bottom:10px;">Starting soon — join now!</div>
   <div style="display:flex;gap:8px;">
     <button onclick="tetNightlyJoin()" style="flex:1;background:linear-gradient(135deg,#fbbf24,#d97706);color:#111;border:none;border-radius:10px;padding:9px;font-weight:800;font-size:12.5px;cursor:pointer;">Join now</button>
@@ -19412,7 +19469,7 @@ body.light .jul4-lbscore{color:#059669}
         ? 'The week\'s championship. Knockout bracket → final. 👑1,200 · 🥈600 · 🥉300 JMB Points — and the crown. · '
         : _dy
         ? 'Knockout bracket — shuffled 1v1s → semis → final. Top 3 win JMB Points: 🥇250 · 🥈150 · 🥉100 · '
-        : 'Knockout bracket — shuffled 1v1s → semis → final. Top 3 win JMB Points: 🥇400 · 🥈200 · 🥉150 · ')
+        : 'Knockout bracket — shuffled 1v1s → semis → final. Top 3 win JMB Points: 🥇250 · 🥈150 · 🥉100 · ')
         + '<span id="tl-count">'+ids.length+' player'+(ids.length!==1?'s':'')+'</span>';
       el('tl-launch').style.display='none';          // never a human launcher — it starts itself
       el('tl-join').style.display = joined?'none':'block';
@@ -19504,7 +19561,7 @@ body.light .jul4-lbscore{color:#059669}
     else { status('Tournament over.'); }
     showTourneyResults();
   }
-  // Nightly tournament: the CHAMPION reports the authoritative full final ranking → backend pays 400/200/150.
+  // Nightly tournament: the CHAMPION reports the authoritative full final ranking → backend pays 250/150/100.
   function reportNightlyRanking(){
     try{
       var rank=finalRanking();
@@ -19617,7 +19674,7 @@ body.light .jul4-lbscore{color:#059669}
   function bkPrizes(tid){
     if(bkIsDay(tid))   return [250,150,100];
     if(bkIsGrand(tid)) return [1200,600,300];
-    return [400,200,150];
+    return [250,150,100];
   }
 
   function beginBracket(tid, players){
@@ -19768,7 +19825,7 @@ body.light .jul4-lbscore{color:#059669}
             '<div class="reel-title">'+(grand ? 'THE GRAND<br><b>FINAL</b>' : 'TETRIS<br><b>TOURNAMENT</b>')+'</div>' +
             '<div class="reel-sub">'+(grand
                 ? '👑 1,200 · 🥈 600 · 🥉 300 JMB Points — and the crown'
-                : '🥇 400 · 🥈 200 · 🥉 150 JMB Points')+'</div>', 'act-title');
+                : '🥇 250 · 🥈 150 · 🥉 100 JMB Points')+'</div>', 'act-title');
         try{ sfxUrgent(0); }catch(e){}
         await beat(2400);
 
@@ -21138,7 +21195,7 @@ body.light .jul4-lbscore{color:#059669}
     }
     if(best===1e9){ nb.innerHTML='🧠 Daily Trivia — Mon · Wed · Fri · Sun'; return; }
     var dd=Math.floor(best/86400), hh=Math.floor((best%86400)/3600), mm=Math.floor((best%3600)/60);
-    nb.innerHTML='🧠 Next Daily Trivia in '+(dd>0?dd+'d ':'')+(hh>0?hh+'h ':'')+mm+'m — top 3 win 300 / 200 / 100 pts';
+    nb.innerHTML='🧠 Next Daily Trivia in '+(dd>0?dd+'d ':'')+(hh>0?hh+'h ':'')+mm+'m — top 3 win 250 / 150 / 100 pts';
   }
   function renderTrvPodium(rows, me){
     var host=el('trv-rank-podium'); if(!host) return;
@@ -21546,7 +21603,7 @@ body.light .jul4-lbscore{color:#059669}
         ? '👑 <b style="color:#fbbf24;">THE GRAND FINAL</b> — the week\'s championship. Top 3 earn 1,200 · 600 · 300 JMB Points, and the winner wears the crown all week.'
         : bkIsDay(sid)
         ? '☀️ <b style="color:#fbbf24;">Day Tournament</b> — knockout bracket. Top 3 earn JMB Points: 🥇250 · 🥈150 · 🥉100.'
-        : 'Tournament time! Knockout bracket — top 3 earn JMB Points: 🥇400 · 🥈200 · 🥉150.') + _keep;
+        : 'Tournament time! Knockout bracket — top 3 earn JMB Points: 🥇250 · 🥈150 · 🥉100.') + _keep;
     }catch(_g){}
     e.style.display='block';
     try{ sfxInvite(); }catch(_){}
@@ -21854,7 +21911,7 @@ body.light .jul4-lbscore{color:#059669}
                      'Top 3 win <b style="color:#fbbf24;">1,200 / 600 / 300</b> pts + the crown ' +
                      '<span style="color:#6b7d90;">(Sunday, 10 PM)</span>';
     } else {
-      nb.innerHTML = '🏆 Nightly tournament in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win 400/200/150 pts ' +
+      nb.innerHTML = '🏆 Nightly tournament in '+(hh>0?hh+'h ':'')+mm+'m — top 3 win 250/150/100 pts ' +
                      '<span style="color:#6b7d90;">(10 PM Sat/Sun · 11 PM weekdays)</span>';
     }
   }

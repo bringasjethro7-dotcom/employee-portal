@@ -795,6 +795,25 @@ body{background-attachment:initial !important}
     </div>
 
     <!-- LIVE & HOURS DASHBOARD -->
+    <!-- OFFICE LOGIN CODES (wallboard) -->
+    <div id="p-wallboard" style="display:none;">
+      <div class="live-head">
+        <div>
+          <div class="live-title"><span class="live-dot"></span> Office login codes</div>
+          <div class="live-sub" id="wb-sub">Codes appear here the moment a staff member requests one — read it off this screen in the office.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="wb-status" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:999px;background:#eee;color:#555;">…</span>
+          <button class="bsm" id="wb-toggle" onclick="toggleWallboard()" style="font-weight:600;">Toggle</button>
+          <button class="bsm" onclick="loadWallboard()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻</button>
+        </div>
+      </div>
+      <div id="wb-note" style="font-size:12.5px;color:var(--t2);background:var(--card2,rgba(15,23,42,.04));border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin:6px 0 14px;line-height:1.5;">
+        Enforced <b>Mon 6:00 AM → Sat 5:00 AM</b>. When ON, staff must enter a code shown here to log in — so they must be in the office. Admin (this account) is always exempt. Keep this screen on a monitor in the office.
+      </div>
+      <div id="wb-list" class="live-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;"><div class="es" style="grid-column:1/-1;">Loading…</div></div>
+    </div>
+
     <div id="p-live" style="display:none;">
       <div class="live-head">
         <div>
@@ -2232,7 +2251,7 @@ async function voidDemerit(id){
   try{ var r=await fetch(API+'?action=void_demerit&id='+encodeURIComponent(id)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) loadDemerits(); else alert('Could not void.'); }catch(e){ alert('Network error.'); }
 }
 function goTab(name){
-  ['dash','live','emp','att','leave','chat','coe','scorecard','qa','worklog','projects','payslips','sales','demerits','expected'].forEach(function(n){
+  ['dash','live','wallboard','emp','att','leave','chat','coe','scorecard','qa','worklog','projects','payslips','sales','demerits','expected'].forEach(function(n){
     var t=document.getElementById('t-'+n), p=document.getElementById('p-'+n);
     if(t) t.classList.toggle('active',n===name);
     if(p) p.style.display=n===name?'block':'none';
@@ -2249,11 +2268,58 @@ function goTab(name){
   if(name==='payslips') loadPayslipsAdmin();
   if(name==='dash') loadDashboard();
   if(name==='live') loadLive();
+  if(name!=='wallboard'){ try{ stopWallboard(); }catch(e){} }   // stop polling when leaving
+  if(name==='wallboard') startWallboard();
   if(name==='sales') loadSales();
   if(name==='demerits') loadDemerits();
   if(name==='qa') loadQaGrid();
   if(name==='expected') initExpected();
   syncAdminNav(name);
+}
+
+// ════════════ OFFICE LOGIN CODES (wallboard) ════════════
+// Live per-user login codes. Codes are PASS-gated on the backend so only this admin panel
+// (in the office) can read them. Auto-refreshes while the tab is open.
+var _wbTimer = null, _wbOn = false;
+function wbEsc(v){ return (v==null?'':String(v)).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function startWallboard(){ loadWallboard(); if(_wbTimer) clearInterval(_wbTimer); _wbTimer=setInterval(loadWallboard, 4000); }
+function stopWallboard(){ if(_wbTimer){ clearInterval(_wbTimer); _wbTimer=null; } }
+function loadWallboard(){
+  fetch(API+'?action=office_otp_board&pass='+encodeURIComponent(PASS)+'&_='+Date.now())
+    .then(function(r){ return r.json(); }).then(renderWallboard)
+    .catch(function(){ var l=document.getElementById('wb-list'); if(l) l.innerHTML='<div class="es" style="grid-column:1/-1;">Network error — retrying…</div>'; });
+}
+function renderWallboard(d){
+  var st=document.getElementById('wb-status'), tg=document.getElementById('wb-toggle'), list=document.getElementById('wb-list');
+  if(!d || d.error){ if(st){ st.textContent='Error'; } if(list) list.innerHTML='<div class="es" style="grid-column:1/-1;">'+wbEsc((d&&d.error)||'Error')+'</div>'; return; }
+  _wbOn=!!d.on;
+  if(st){
+    st.textContent = _wbOn ? (d.in_window?'ON · enforcing now':'ON · off-hours') : 'OFF';
+    st.style.background = _wbOn ? (d.in_window?'#dcfce7':'#fef9c3') : '#eee';
+    st.style.color      = _wbOn ? (d.in_window?'#16a34a':'#a16207') : '#555';
+  }
+  if(tg){ tg.textContent = _wbOn ? 'Turn OFF' : 'Turn ON'; }
+  var codes=d.codes||[];
+  if(!list) return;
+  if(!codes.length){ list.innerHTML='<div class="es" style="grid-column:1/-1;">No active codes. When a staff member taps “Request office code” on the login screen, it appears here.</div>'; return; }
+  list.innerHTML = codes.map(function(c){
+    var s=Math.max(0,c.expires_in|0), mm=Math.floor(s/60), ss=s%60;
+    return '<div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow-sm);">'
+      +'<div style="font-size:13px;font-weight:600;color:var(--t1);margin-bottom:8px;">'+wbEsc(c.name)+' <span style="color:var(--t3);font-weight:500;">'+wbEsc(c.id)+'</span></div>'
+      +'<div style="font-size:42px;font-weight:800;letter-spacing:9px;color:var(--o3,#ff6b1a);line-height:1;">'+wbEsc(c.code)+'</div>'
+      +'<div style="font-size:11px;color:var(--t3);margin-top:9px;">expires in '+mm+':'+(ss<10?'0':'')+ss+'</div></div>';
+  }).join('');
+}
+function toggleWallboard(){
+  var target=!_wbOn;
+  var msg = target
+    ? 'Turn ON office-code login?\n\nDuring Mon 6 AM – Sat 5 AM, every non-admin staff member will need a code shown on THIS screen to log in. Make sure this wallboard is visible in the office.'
+    : 'Turn OFF office-code login?\n\nStaff will be able to log in normally from anywhere.';
+  if(!confirm(msg)) return;
+  var tg=document.getElementById('wb-toggle'); if(tg){ tg.disabled=true; tg.textContent='…'; }
+  fetch(API+'?action=office_otp_set&pass='+encodeURIComponent(PASS)+'&on='+(target?'1':'0')+'&_='+Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){ if(tg) tg.disabled=false; if(d&&d.error){ alert(d.error); } loadWallboard(); })
+    .catch(function(){ if(tg) tg.disabled=false; alert('Network error.'); });
 }
 
 
@@ -2385,7 +2451,7 @@ async function fixDiscrepancy(id,date){
 
 // ── GROUPED NAVIGATION (top-level groups + sub-tabs) ──
 var ADMIN_NAV = [
-  { id:'dashboard', label:'Dashboard', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>', tabs:[{name:'dash',label:'Overview'},{name:'live',label:'Live & Hours'}] },
+  { id:'dashboard', label:'Dashboard', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>', tabs:[{name:'dash',label:'Overview'},{name:'live',label:'Live & Hours'},{name:'wallboard',label:'Office Codes'}] },
   { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Employees'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'qa',label:'QA'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'}] },
   { id:'requests', label:'Requests', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>', tabs:[{name:'leave',label:'Leave'},{name:'coe',label:'COE'}] },
   { id:'work', label:'Work', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>', tabs:[{name:'worklog',label:'Time Log'},{name:'projects',label:'Projects'}] },
