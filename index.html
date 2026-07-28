@@ -4859,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui141</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui142</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -20922,22 +20922,34 @@ body.light .jul4-lbscore{color:#059669}
   function startInfernoAmbience(){ try{ stopInfernoAmbience(); }catch(e){}
     try{ var a=(typeof ac==='function')?ac():null; if(!a) return;
     var kick=function(){ try{ if(a.state!=='running') a.resume(); }catch(e){} }; kick(); try{ document.addEventListener('pointerdown',kick,{once:true}); }catch(e){}
-    var out=a.createGain(); out.gain.value=0.0001; out.connect(a.destination); out.gain.setTargetAtTime(0.16,a.currentTime,0.5);
-    // low drone
-    var o1=a.createOscillator(),o2=a.createOscillator(),lp=a.createBiquadFilter(),dg=a.createGain();
-    o1.type='sine'; o1.frequency.value=55; o2.type='triangle'; o2.frequency.value=82; lp.type='lowpass'; lp.frequency.value=300; lp.Q.value=0.4; dg.gain.value=0.45;
-    o1.connect(lp); o2.connect(lp); lp.connect(dg); dg.connect(out);
-    // fire roar bed — brown noise, brighter so it is clearly heard
-    var len=Math.floor(a.sampleRate*2), nb=a.createBuffer(1,len,a.sampleRate), ch=nb.getChannelData(0), lastN=0;
-    for(var i=0;i<len;i++){ var wn=Math.random()*2-1; lastN=(lastN+0.02*wn)/1.02; ch[i]=Math.max(-1,Math.min(1,lastN*3.2)); }
-    var noise=a.createBufferSource(); noise.buffer=nb; noise.loop=true; var flp=a.createBiquadFilter(); flp.type='lowpass'; flp.frequency.value=1300; flp.Q.value=0.3; var ng=a.createGain(); ng.gain.value=0.16; noise.connect(flp); flp.connect(ng); ng.connect(out);
-    var lfo=a.createOscillator(),lfoG=a.createGain(); lfo.type='sine'; lfo.frequency.value=0.16; lfoG.gain.value=0.06; lfo.connect(lfoG); lfoG.connect(ng.gain);
-    // airy sizzle so small speakers hear the fire
-    var siz=a.createBufferSource(); siz.buffer=nb; siz.loop=true; var bpp=a.createBiquadFilter(); bpp.type='bandpass'; bpp.frequency.value=2600; bpp.Q.value=0.7; var sg=a.createGain(); sg.gain.value=0.022; siz.connect(bpp); bpp.connect(sg); sg.connect(out);
-    o1.start(); o2.start(); lfo.start(); noise.start(); siz.start();
-    // ember pops — clearly audible
-    var crk=setInterval(function(){ try{ var t=a.currentTime, dur=0.05+Math.random()*0.06, L=Math.floor(a.sampleRate*dur), b2=a.createBuffer(1,L,a.sampleRate), c2=b2.getChannelData(0); for(var j=0;j<L;j++) c2[j]=(Math.random()*2-1)*Math.pow(1-j/L,3); var n2=a.createBufferSource(); n2.buffer=b2; var f2=a.createBiquadFilter(); f2.type='bandpass'; f2.frequency.value=900+Math.random()*1400; f2.Q.value=1.0; var g2=a.createGain(); g2.gain.setValueAtTime(0.0001,t); g2.gain.linearRampToValueAtTime(0.1+Math.random()*0.08,t+0.005); g2.gain.exponentialRampToValueAtTime(0.0001,t+dur); n2.connect(f2); f2.connect(g2); g2.connect(out); n2.start(t); n2.stop(t+dur+0.03); }catch(e){} }, 500+Math.floor(Math.random()*650));
-    _infAmb={out:out,nodes:[o1,o2,lfo,noise,siz],crk:crk,a:a};
+    // ── INTENSE INFERNO GAME TRACK (synth, tempo-locked, lag-free) ──
+    // master chain: bus → compressor → destination (compressor keeps it loud + punchy without clipping)
+    var comp=a.createDynamicsCompressor(); try{ comp.threshold.value=-18; comp.knee.value=24; comp.ratio.value=3.2; comp.attack.value=0.003; comp.release.value=0.22; }catch(e){}
+    comp.connect(a.destination);
+    var out=a.createGain(); out.gain.value=0.0001; out.connect(comp); out.gain.setTargetAtTime(0.5,a.currentTime,0.6);
+    var mlp=a.createBiquadFilter(); mlp.type='lowpass'; mlp.frequency.value=6000; mlp.Q.value=0.4; mlp.connect(out);  // warm bus for melodic voices
+    // dark sustained pad under the groove (A minor)
+    var pad=a.createOscillator(),pad2=a.createOscillator(),plp=a.createBiquadFilter(),pg=a.createGain();
+    pad.type='sawtooth'; pad.frequency.value=55; pad2.type='sawtooth'; pad2.frequency.value=82.41; plp.type='lowpass'; plp.frequency.value=260; plp.Q.value=0.5; pg.gain.value=0.10;
+    pad.connect(plp); pad2.connect(plp); plp.connect(out); plp.connect(pg); pg.connect(out); pad.start(); pad2.start();
+    // white-noise buffer reused for drums/hats
+    var NL=Math.floor(a.sampleRate*0.4), nbuf=a.createBuffer(1,NL,a.sampleRate), nd=nbuf.getChannelData(0);
+    for(var i=0;i<NL;i++) nd[i]=Math.random()*2-1;
+    function playKick(t){ var o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.setValueAtTime(160,t); o.frequency.exponentialRampToValueAtTime(46,t+0.12); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(1.0,t+0.005); g.gain.exponentialRampToValueAtTime(0.0001,t+0.16); o.connect(g); g.connect(out); o.start(t); o.stop(t+0.18); }
+    function playHat(t,open){ var s=a.createBufferSource(); s.buffer=nbuf; s.loop=true; var f=a.createBiquadFilter(); f.type='highpass'; f.frequency.value=7500; var g=a.createGain(); var d=open?0.09:0.028; g.gain.setValueAtTime(0.22,t); g.gain.exponentialRampToValueAtTime(0.0001,t+d); s.connect(f); f.connect(g); g.connect(out); s.start(t); s.stop(t+d+0.02); }
+    function playSnare(t){ var s=a.createBufferSource(); s.buffer=nbuf; s.loop=true; var f=a.createBiquadFilter(); f.type='bandpass'; f.frequency.value=1900; f.Q.value=0.7; var g=a.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.5,t+0.004); g.gain.exponentialRampToValueAtTime(0.0001,t+0.14); s.connect(f); f.connect(g); g.connect(out); s.start(t); s.stop(t+0.16); }
+    function playBass(t,f){ var o=a.createOscillator(),lp=a.createBiquadFilter(),g=a.createGain(); o.type='sawtooth'; o.frequency.value=f; lp.type='lowpass'; lp.frequency.value=480; lp.Q.value=6; g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.34,t+0.008); g.gain.exponentialRampToValueAtTime(0.0001,t+0.17); o.connect(lp); lp.connect(g); g.connect(out); o.start(t); o.stop(t+0.19); }
+    function playArp(t,f){ var o=a.createOscillator(),lp=a.createBiquadFilter(),g=a.createGain(); o.type='sawtooth'; o.frequency.value=f; lp.type='lowpass'; lp.Q.value=7; lp.frequency.setValueAtTime(600,t); lp.frequency.exponentialRampToValueAtTime(3200,t+0.05); lp.frequency.exponentialRampToValueAtTime(700,t+0.16); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.16,t+0.006); g.gain.exponentialRampToValueAtTime(0.0001,t+0.17); o.connect(lp); lp.connect(g); g.connect(mlp); o.start(t); o.stop(t+0.19); }
+    // 16-step patterns (A natural minor)
+    var N={A1:55,E2:82.41,A2:110,C3:130.81,E3:164.81,G3:196,A3:220,C4:261.63,D4:293.66,E4:329.63,G4:392,A4:440};
+    var KICK=[1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0];
+    var SNR =[0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,1];
+    var BASS=['A1',0,'A1',0,'A1',0,'A1','E2', 'E2',0,'E2',0,'G3',0,'E2',0];
+    var ARP =['A3',0,'C4','E4', 0,'D4','C4',0, 'A3',0,'E4','G4', 0,'E4','D4','A4'];
+    var BPM=142, s16=60/BPM/4, step=0, nextT=a.currentTime+0.12;
+    function schedStep(s,t){ if(KICK[s]) playKick(t); if(SNR[s]) playSnare(t); playHat(t, s%4===2); if(BASS[s]) playBass(t,N[BASS[s]]); if(ARP[s]) playArp(t,N[ARP[s]]); }
+    var timer=setInterval(function(){ try{ var now=a.currentTime; while(nextT<now+0.14){ schedStep(step,nextT); nextT+=s16; step=(step+1)%16; } }catch(e){} }, 25);
+    _infAmb={out:out,nodes:[pad,pad2,comp],crk:timer,a:a};
   }catch(e){} }
   function stopInfernoAmbience(){ try{ var A=_infAmb; if(!A) return; _infAmb=null; clearInterval(A.crk); var a=A.a; A.out.gain.setTargetAtTime(0.0001,a.currentTime,0.35); setTimeout(function(){ A.nodes.forEach(function(n){ try{n.stop();}catch(e){} try{n.disconnect();}catch(e){} }); try{A.out.disconnect();}catch(e){} },700); }catch(e){} }
   window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.classList.remove('open'); try{ stopInfernoAmbience(); }catch(e){} try{ stopInfernoBg(); }catch(e){} };
@@ -28009,8 +28021,10 @@ window.EB_UNITS_MORE3 = [
     if(T.phase==='play'){ drawPeer(p.id); updateScore(); checkWipe(); } }
 
   /* ---------- flow ---------- */
+  window.t3IsBusy=function(){ return T.phase==='lobby'||T.phase==='play'; };
   window.t3Open=function(){ ensureUI(); T.phase='lobby'; T.team=null; T.peers={}; T.started=false;
-    if(!T.ch){ if(!connect()) return; } el('t3-ov').classList.add('on'); scene('t3-lobby'); renderLobby(); try{ if(api())api().ac(); }catch(e){} };
+    if(!T.ch){ if(!connect()) return; } el('t3-ov').classList.add('on'); scene('t3-lobby'); renderLobby(); try{ if(api())api().ac(); }catch(e){}
+    try{ if(window.d2Announce) window.d2Announce('3v3'); }catch(e){} };
   window.t3Pick=function(t){ T.team=t; el('t3-tm-morn').classList.toggle('mine',t==='morn'); el('t3-tm-night').classList.toggle('mine',t==='night'); sendJoin(); renderLobby(); };
   function renderLobby(){ var mn=[],nt=[]; for(var k in T.peers){ (T.peers[k].team==='night'?nt:mn); if(T.peers[k].team==='morn') mn.push(esc(T.peers[k].name)); else if(T.peers[k].team==='night') nt.push(esc(T.peers[k].name)); }
     if(T.team==='morn') mn.unshift('<b>'+esc(T.name)+' (you)</b>'); else if(T.team==='night') nt.unshift('<b>'+esc(T.name)+' (you)</b>');
@@ -28080,6 +28094,9 @@ window.EB_UNITS_MORE3 = [
   .d2-vs{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:4px}
   .d2-card{width:200px;background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.12);border-radius:16px;padding:14px}
   .d2-card.a{border-color:#6ea8ff}.d2-card.b{border-color:#ff7a4d}
+  .d2-card.pick{cursor:pointer;transition:transform .14s,box-shadow .18s,border-color .18s}
+  .d2-card.pick:hover{transform:translateY(-2px)}
+  .d2-card.mine{box-shadow:0 0 0 3px rgba(255,255,255,.22)}
   .d2-ch{font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:9px}
   .d2-card.a .d2-ch{color:#6ea8ff}.d2-card.b .d2-ch{color:#ff7a4d}
   .d2-mem{font-size:13px;font-weight:700;color:#c7d2e8;display:flex;align-items:center;gap:6px;padding:3px 0}
@@ -28126,14 +28143,13 @@ window.EB_UNITS_MORE3 = [
   #d2-inv-no{background:#1b2233;color:#cdd6f5;font-weight:700}
 </style>
 <script>
-/* ══════════ 2v2 DUEL — invite-based, last team standing (reuses window._t3api) ══════════ */
+/* ══════════ 2v2 DUEL — tournament-style open lobby, last team standing (reuses window._t3api) ══════════ */
 (function(){
   function api(){ return window._t3api||null; }
-  var W=10,H=20,DUR=180;
+  var W=10,H=20,DUR=180, ROOM='d2r-main';
   var PIECES={ I:[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], O:[[2,2],[2,2]], T:[[0,3,0],[3,3,3],[0,0,0]],
     S:[[0,4,4],[4,4,0],[0,0,0]], Z:[[5,5,0],[0,5,5],[0,0,0]], J:[[6,0,0],[6,6,6],[0,0,0]], L:[[0,0,7],[7,7,7],[0,0,0]] };
   var TYPES=['I','O','T','S','Z','J','L'], ATK={1:0,2:1,3:2,4:4};
-  var TCOL={a:'#6ea8ff',b:'#ff7a4d'};
   function rotCW(m){ var n=m.length,r=[]; for(var i=0;i<n;i++){ r.push([]); for(var j=0;j<n;j++) r[i].push(m[n-1-j][i]); } return r; }
   function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; var t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
@@ -28141,45 +28157,39 @@ window.EB_UNITS_MORE3 = [
   function COLS(){ var a=api(); return (a&&a.COLORS)||[null,'#22d3ee','#facc15','#a855f7','#22c55e','#ef4444','#3b82f6','#f97316']; }
   function sfx(n,a){ var x=api(); if(x) x.sfx(n,a); }
 
-  var T={ team:null, ch:null, me:'', name:'', started:false, phase:'idle', host:false, room:null, roster:null, names:{},
+  var T={ team:null, ch:null, me:'', name:'', started:false, phase:'idle',
     board:null,cur:null,rng:null,bag:[],lines:0,score:0,combo:-1,b2b:false,hold:null,canHold:true,nextT:null,landed:false,lockT:0,lockResets:0,alive:false,playing:false,dropMs:800,dropAcc:0,lastT:0,pending:0,raf:null,stT:null,flash:null,end:0,
     peers:{} };
-  var pick={ partner:null, opps:[] };
   var LOB=null, _pendInv=null;
 
-  /* ---------- global invite lobby ---------- */
+  /* ---------- global invite lobby (announce → popup) ---------- */
   function ensureLobby(){ if(LOB) return true; var A=api(); if(!A||!A.supa) return false;
     try{
-      LOB=A.supa.channel('d2-lobby',{config:{broadcast:{self:false}}});
+      LOB=A.supa.channel('team-invites',{config:{broadcast:{self:false}}});
       LOB.on('broadcast',{event:'inv'},function(m){ onInv(m.payload||{}); });
-      LOB.on('broadcast',{event:'cancel'},function(m){ var p=m.payload||{}; if(_pendInv&&_pendInv.room===p.room){ hideInvite(); } });
-      LOB.on('broadcast',{event:'dec'},function(m){ var p=m.payload||{}; if(T.host&&T.room===p.room){ noteDecline(p.name||'A player'); } });
       LOB.subscribe();
     }catch(e){ LOB=null; return false; }
     return true; }
   function lob(ev,p){ try{ if(LOB) LOB.send({type:'broadcast',event:ev,payload:p||{}}); }catch(e){} }
+  // shared so the 3v3 module can announce through the same popup
+  window.d2Announce=function(mode){ if(!ensureLobby()) return; var A=api();
+    var payload={from:String(A?A.eid():''), fromName:String(A?A.ename():'A teammate'), mode:mode||'2v2'};
+    var tries=0; (function r(){ lob('inv',payload); if(++tries<6) setTimeout(r,1700); })(); };
 
   /* ---------- UI ---------- */
   function ensureUI(){ if(el('d2-ov')) return;
     var d=document.createElement('div'); d.id='d2-ov';
     d.innerHTML=
       '<div class="d2-top"><div class="d2-brand">JMB <em>Tetris</em> · 2v2</div><button class="d2-x" onclick="d2Close()">✕ Leave</button></div>'+
-      '<div class="d2-scene" id="d2-pick">'+
+      '<div class="d2-scene" id="d2-lobby">'+
         '<div class="d2-title">2v2 <em style="font-style:normal;color:#ff7a29">Duel</em></div>'+
-        '<div class="d2-sub">Pick a partner and two opponents. All four play at once — bury the other pair. Last team with a player standing wins.</div>'+
-        '<div class="d2-step"><h4>1 · Your partner</h4><div class="d2-list" id="d2-l-partner"></div></div>'+
-        '<div class="d2-step"><h4>2 · Two opponents</h4><div class="d2-list" id="d2-l-opps"></div></div>'+
-        '<button class="d2-go" id="d2-send" onclick="d2Send()" disabled>Send invites</button>'+
-        '<div class="d2-hint">Only teammates online right now can be invited.</div>'+
-      '</div>'+
-      '<div class="d2-scene" id="d2-wait">'+
-        '<div class="d2-title" style="font-size:26px;">Waiting for players…</div>'+
+        '<div class="d2-sub">Pick a side — up to 2 per team. All four play at once; bury the other pair. Last team with a player standing wins.</div>'+
         '<div class="d2-vs">'+
-          '<div class="d2-card a"><div class="d2-ch">🔵 Blue</div><div id="d2-w-a"></div></div>'+
-          '<div class="d2-card b"><div class="d2-ch">🔴 Red</div><div id="d2-w-b"></div></div>'+
+          '<div class="d2-card a pick" id="d2-card-a" onclick="d2PickTeam(\'a\')"><div class="d2-ch">🔵 Blue</div><div id="d2-w-a"></div></div>'+
+          '<div class="d2-card b pick" id="d2-card-b" onclick="d2PickTeam(\'b\')"><div class="d2-ch">🔴 Red</div><div id="d2-w-b"></div></div>'+
         '</div>'+
-        '<div class="d2-hint" id="d2-wait-hint">Everyone must accept the invite to begin.</div>'+
-        '<button class="d2-go" id="d2-startbtn" onclick="d2StartNow()" disabled style="display:none;">Start match</button>'+
+        '<button class="d2-go" id="d2-startbtn" onclick="d2StartLobby()" disabled>Start match</button>'+
+        '<div class="d2-hint" id="d2-lobby-hint">An invite was sent to everyone online. Pick a side and wait for players.</div>'+
       '</div>'+
       '<div class="d2-scene" id="d2-match">'+
         '<div class="d2-board-bar">'+
@@ -28210,13 +28220,13 @@ window.EB_UNITS_MORE3 = [
     document.body.appendChild(d);
     if(!el('d2-inv-pop')){
       var pop=document.createElement('div'); pop.id='d2-inv-pop';
-      pop.innerHTML='<div class="t">🎮 2v2 Duel invite</div><div id="d2-inv-txt"></div><div class="btns"><button id="d2-inv-yes" onclick="d2AcceptInvite()">Accept</button><button id="d2-inv-no" onclick="d2DeclineInvite()">Decline</button></div>';
+      pop.innerHTML='<div class="t">🎮 Team battle invite</div><div id="d2-inv-txt"></div><div class="btns"><button id="d2-inv-yes" onclick="d2AcceptInvite()">Join</button><button id="d2-inv-no" onclick="d2DeclineInvite()">Dismiss</button></div>';
       document.body.appendChild(pop);
     }
   }
-  function scene(id){ ['d2-pick','d2-wait','d2-match','d2-end'].forEach(function(s){ var e=el(s); if(e) e.classList.toggle('on',s===id); }); }
+  function scene(id){ ['d2-lobby','d2-match','d2-end'].forEach(function(s){ var e=el(s); if(e) e.classList.toggle('on',s===id); }); }
 
-  /* ---------- engine (mirrors 3v3) ---------- */
+  /* ---------- engine ---------- */
   function emptyBoard(){ var b=[]; for(var y=0;y<H;y++) b.push(new Array(W).fill(0)); return b; }
   function nextType(){ if(!T.bag.length){ T.bag=TYPES.slice(); for(var i=T.bag.length-1;i>0;i--){ var j=Math.floor(T.rng()*(i+1)); var t=T.bag[i];T.bag[i]=T.bag[j];T.bag[j]=t; } } return T.bag.shift(); }
   function pieceFrom(type){ var p=PIECES[type]; return {t:type,m:p.map(function(r){return r.slice();}),x:Math.floor((W-p.length)/2),y:0}; }
@@ -28249,13 +28259,13 @@ window.EB_UNITS_MORE3 = [
     if(T.flash){ var e=(Date.now()-T.flash.t0)/230; if(e<1){ ctx.save(); ctx.globalAlpha=(1-e)*0.9; ctx.fillStyle='#fff'; T.flash.ys.forEach(function(ry){ ctx.fillRect(0,ry*cs,cv.width,cs); }); ctx.restore(); } else T.flash=null; } }
   function renderStrip(){ var host=el('d2-strip'); if(!host)return; var ids=Object.keys(T.peers);
     ids.sort(function(a,b){ return (T.peers[a].team===T.team?0:1)-(T.peers[b].team===T.team?0:1); });
-    host.innerHTML=ids.map(function(id){ var p=T.peers[id]; return '<div class="d2-mini '+p.team+(p.alive===false?' dead':'')+'" id="d2-mini-'+id+'"><canvas id="d2-cv-'+id+'" width="66" height="132"></canvas><div class="mi">'+esc(p.name)+'<small>'+(p.team==='a'?'Blue':'Red')+' · '+(p.lines||0)+' ln</small></div></div>'; }).join('');
+    host.innerHTML=ids.map(function(id){ var p=T.peers[id]; return '<div class="d2-mini '+(p.team||'a')+(p.alive===false?' dead':'')+'" id="d2-mini-'+id+'"><canvas id="d2-cv-'+id+'" width="66" height="132"></canvas><div class="mi">'+esc(p.name)+'<small>'+(p.team==='b'?'Red':'Blue')+' · '+(p.lines||0)+' ln</small></div></div>'; }).join('');
     ids.forEach(drawPeer); }
   function drawPeer(id){ var p=T.peers[id]; if(!p)return; var cv=el('d2-cv-'+id); if(!cv)return; var ctx=cv.getContext('2d'),g=cv.width/W,A=api(),C=COLS();
     ctx.clearRect(0,0,cv.width,cv.height); ctx.fillStyle='#070b16'; ctx.fillRect(0,0,cv.width,cv.height);
     if(p.grid){ for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var k=+p.grid[y*W+x]; if(k){ var col=k===8?'#5b6b82':C[k]; if(A&&A.blockAs) A.blockAs(ctx,x,y,g,col,p.skin||'classic'); else { ctx.fillStyle=col; ctx.fillRect(x*g,y*g,g,g); } } } }
     var mn=el('d2-mini-'+id); if(mn) mn.classList.toggle('dead',p.alive===false);
-    var lbl=cv.parentNode&&cv.parentNode.querySelector('.mi small'); if(lbl) lbl.textContent=(p.team==='a'?'Blue':'Red')+' · '+(p.lines||0)+' ln'; }
+    var lbl=cv.parentNode&&cv.parentNode.querySelector('.mi small'); if(lbl) lbl.textContent=(p.team==='b'?'Red':'Blue')+' · '+(p.lines||0)+' ln'; }
   function warn(){ var w=el('d2-warn'); if(w) w.textContent=T.pending>0?('⚠ '+T.pending+' incoming — clear to cancel'):''; }
   function drawMini(id,type){ var cv=el(id); if(!cv)return; var ctx=cv.getContext('2d'),A=api(),C=COLS(); ctx.clearRect(0,0,cv.width,cv.height); ctx.fillStyle='#0b1120'; ctx.fillRect(0,0,cv.width,cv.height); if(!type)return; var p=PIECES[type],cells=[],minx=9,miny=9,maxx=0,maxy=0; for(var r=0;r<p.length;r++)for(var cc=0;cc<p.length;cc++){ if(p[r][cc]){ cells.push([cc,r,p[r][cc]]); if(cc<minx)minx=cc; if(cc>maxx)maxx=cc; if(r<miny)miny=r; if(r>maxy)maxy=r; } } var wc=maxx-minx+1,hc=maxy-miny+1,cs=Math.min((cv.width-6)/wc,(cv.height-6)/hc,11),ox=(cv.width-wc*cs)/2-minx*cs,oy=(cv.height-hc*cs)/2-miny*cs; ctx.save(); ctx.translate(ox,oy); cells.forEach(function(ce){ var col=C[ce[2]]; if(A&&A.block) A.block(ctx,ce[0],ce[1],cs,col); else { ctx.fillStyle=col; ctx.fillRect(ce[0]*cs+1,ce[1]*cs+1,cs-2,cs-2); } }); ctx.restore(); }
   function drawNext(){ drawMini('d2-next',T.nextT); }
@@ -28276,12 +28286,11 @@ window.EB_UNITS_MORE3 = [
 
   /* ---------- net ---------- */
   function bc(ev,p){ try{ if(T.ch) T.ch.send({type:'broadcast',event:ev,payload:p||{}}); }catch(e){} }
-  function rosterTeam(id){ if(!T.roster)return null; if((T.roster.a||[]).map(String).indexOf(String(id))>=0)return 'a'; if((T.roster.b||[]).map(String).indexOf(String(id))>=0)return 'b'; return null; }
   function connectRoom(){ var A=api(); if(!A||!A.supa) return false;
     T.me=String(A.eid()||('g'+Math.random().toString(36).slice(2,8))); T.name=String(A.ename()||'Player');
-    T.ch=A.supa.channel('d2r-'+T.room,{config:{broadcast:{self:false}}});
+    T.ch=A.supa.channel(ROOM,{config:{broadcast:{self:false}}});
     T.ch.on('broadcast',{event:'join'},function(m){ onJoin(m.payload||{}); });
-    T.ch.on('broadcast',{event:'leave'},function(m){ var p=m.payload||{}; if(p.id){ delete T.peers[p.id]; if(T.phase==='wait') renderWait(); else if(T.phase==='play') renderStrip(); } });
+    T.ch.on('broadcast',{event:'leave'},function(m){ var p=m.payload||{}; if(p.id){ delete T.peers[p.id]; if(T.phase==='lobby') renderLobby(); else if(T.phase==='play') renderStrip(); } });
     T.ch.on('broadcast',{event:'state'},function(m){ onState(m.payload||{}); });
     T.ch.on('broadcast',{event:'garbage'},function(m){ var p=m.payload||{}; if(String(p.to)===String(T.me) && T.alive){ T.pending+=(p.n||0); warn(); sfx('garbage'); } });
     T.ch.on('broadcast',{event:'go'},function(m){ startMatch(m.payload||{}); });
@@ -28290,56 +28299,39 @@ window.EB_UNITS_MORE3 = [
   function sendJoin(){ var A=api(); bc('join',{id:T.me,team:T.team,name:T.name,skin:A?A.skin():'classic'}); }
   function sendState(){ var A=api(); bc('state',{id:T.me,team:T.team,name:T.name,skin:A?A.skin():'classic',grid:packGrid(),lines:T.lines,score:T.score,alive:T.alive}); }
   function packGrid(){ var b=T.board.map(function(r){return r.slice();}); if(T.cur&&T.alive){ for(var r=0;r<T.cur.m.length;r++)for(var c=0;c<T.cur.m.length;c++){ if(T.cur.m[r][c]){ var y=T.cur.y+r,x=T.cur.x+c; if(y>=0&&y<H&&x>=0&&x<W) b[y][x]=T.cur.m[r][c]; } } } var s=''; for(var yy=0;yy<H;yy++)for(var xx=0;xx<W;xx++) s+=b[yy][xx]; return s; }
-  function onJoin(p){ if(!p||!p.id||String(p.id)===String(T.me))return; if(!T.peers[p.id]) T.peers[p.id]={id:p.id}; T.peers[p.id].team=rosterTeam(p.id)||p.team||T.peers[p.id].team; T.peers[p.id].name=(T.names&&T.names[p.id])||p.name||T.peers[p.id].name; T.peers[p.id].skin=p.skin||T.peers[p.id].skin; if(T.peers[p.id].alive===undefined) T.peers[p.id].alive=true;
-    sendJoin(); if(T.phase==='wait'){ renderWait(); maybeAutoStart(); } else if(T.phase==='play'){ renderStrip(); updateScore(); } }
-  function onState(p){ if(!p||!p.id||String(p.id)===String(T.me))return; var pl=T.peers[p.id]||(T.peers[p.id]={id:p.id}); pl.team=rosterTeam(p.id)||p.team||pl.team; pl.name=(T.names&&T.names[p.id])||p.name||pl.name; pl.skin=p.skin||pl.skin; pl.grid=p.grid; pl.lines=p.lines||0; pl.score=p.score||0; pl.alive=!!p.alive;
+  function onJoin(p){ if(!p||!p.id||String(p.id)===String(T.me))return; if(!T.peers[p.id]) T.peers[p.id]={id:p.id}; if(p.team) T.peers[p.id].team=p.team; T.peers[p.id].name=p.name||T.peers[p.id].name; T.peers[p.id].skin=p.skin||T.peers[p.id].skin; if(T.peers[p.id].alive===undefined) T.peers[p.id].alive=true;
+    sendJoin(); if(T.phase==='lobby'){ renderLobby(); } else if(T.phase==='play'){ renderStrip(); updateScore(); } }
+  function onState(p){ if(!p||!p.id||String(p.id)===String(T.me))return; var pl=T.peers[p.id]||(T.peers[p.id]={id:p.id}); if(p.team) pl.team=p.team; pl.name=p.name||pl.name; pl.skin=p.skin||pl.skin; pl.grid=p.grid; pl.lines=p.lines||0; pl.score=p.score||0; pl.alive=!!p.alive;
     if(T.phase==='play'){ drawPeer(p.id); updateScore(); checkWipe(); } }
 
-  /* ---------- picker (host) ---------- */
-  window.d2Open=function(){ ensureUI(); ensureLobby(); T.phase='pick'; T.host=false; T.started=false; T.peers={}; T.room=null; pick={partner:null,opps:[]};
-    el('d2-ov').classList.add('on'); scene('d2-pick'); renderPick(); try{ if(api())api().ac(); }catch(e){} };
-  function renderPick(){ var A=api(); var list=(A&&A.peers)?A.peers():[]; var meId=String(A?A.eid():'');
-    var lp=el('d2-l-partner'), lo=el('d2-l-opps');
-    if(!list.length){ if(lp) lp.innerHTML='<div class="d2-empty">No teammates online right now.</div>'; if(lo) lo.innerHTML=''; return; }
-    function avatar(p){ return p.photo?('<span class="d2-av"><img src="'+p.photo+'" alt=""></span>'):('<span class="d2-av">'+esc((p.name||'?').slice(0,1).toUpperCase())+'</span>'); }
-    if(lp) lp.innerHTML=list.map(function(p){ var on=(pick.partner===p.id); var dim=(pick.opps.indexOf(p.id)>=0)?'opacity:.4;pointer-events:none;':''; return '<div class="d2-row" style="'+dim+'">'+avatar(p)+'<span class="d2-nm">'+esc(p.name)+'</span><button class="d2-pill pa'+(on?' on':'')+'" onclick="d2PickPartner(\''+encodeURIComponent(p.id)+'\')">'+(on?'✓ Partner':'Partner')+'</button></div>'; }).join('');
-    if(lo) lo.innerHTML=list.map(function(p){ var on=(pick.opps.indexOf(p.id)>=0); var isP=(pick.partner===p.id); var dim=isP?'opacity:.4;pointer-events:none;':''; return '<div class="d2-row" style="'+dim+'">'+avatar(p)+'<span class="d2-nm">'+esc(p.name)+'</span><button class="d2-pill pb'+(on?' on':'')+'" onclick="d2PickOpp(\''+encodeURIComponent(p.id)+'\')">'+(on?'✓ Opponent':'Opponent')+'</button></div>'; }).join('');
-    var ready=pick.partner&&pick.opps.length===2; var b=el('d2-send'); if(b) b.disabled=!ready;
-  }
-  window.d2PickPartner=function(idEnc){ var id=decodeURIComponent(idEnc); pick.partner=(pick.partner===id)?null:id; pick.opps=pick.opps.filter(function(x){return x!==id;}); renderPick(); };
-  window.d2PickOpp=function(idEnc){ var id=decodeURIComponent(idEnc); if(id===pick.partner)return; var i=pick.opps.indexOf(id); if(i>=0) pick.opps.splice(i,1); else { if(pick.opps.length>=2) return; pick.opps.push(id); } renderPick(); };
-  window.d2Send=function(){ var A=api(); if(!pick.partner||pick.opps.length!==2){ return; } if(!ensureLobby()){ alert('Tetris is still loading — try again in a moment.'); return; }
-    var meId=String(A.eid()); var list=A.peers?A.peers():[]; var nm={}; nm[meId]=String(A.ename()||'Player'); list.forEach(function(p){ nm[p.id]=p.name; });
-    T.room='d2_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    T.roster={ a:[meId,pick.partner], b:[pick.opps[0],pick.opps[1]] };
-    T.names=nm; T.team='a'; T.host=true; T.phase='wait'; T.peers={};
-    connectRoom(); scene('d2-wait'); renderWait();
-    var payload={room:T.room,roster:T.roster,names:nm,from:meId,fromName:nm[meId]};
-    var tries=0; (function resend(){ if(T.phase!=='wait'||!T.host) return; lob('inv',payload); if(++tries<6) setTimeout(resend,1600); })();
-  };
-  function renderWait(){ var A=api(); var meId=String(A?A.eid():'');
-    function memHtml(t){ var ids=(T.roster&&T.roster[t])||[]; return ids.map(function(id){ var inRoom=(String(id)===String(T.me))||(T.peers[id]&&T.peers[id].alive!==undefined)||!!T.peers[id]; var nm=(T.names&&T.names[id])||id; if(String(id)===meId) nm=nm+' (you)'; return '<div class="d2-mem"><span class="d2-dot'+(inRoom?' in':'')+'"></span>'+esc(nm)+'</div>'; }).join(''); }
-    if(el('d2-w-a')) el('d2-w-a').innerHTML=memHtml('a'); if(el('d2-w-b')) el('d2-w-b').innerHTML=memHtml('b');
-    var joined=Object.keys(T.peers).length; var need=3; var hint=el('d2-wait-hint'); if(hint) hint.textContent=(joined>=need)?'Everyone is in! Starting…':'Waiting for players to accept ('+joined+'/'+need+')…';
-  }
-  function maybeAutoStart(){ if(!T.host||T.started||T.phase!=='wait') return; if(Object.keys(T.peers).length>=3){ setTimeout(function(){ if(T.host&&!T.started&&T.phase==='wait') d2StartNow(); }, 700); } }
-  window.d2StartNow=function(){ if(!T.host||T.started)return; var seed=(Math.random()*1e9)>>>0, startAt=Date.now()+3000; bc('go',{seed:seed,startAt:startAt}); startMatch({seed:seed,startAt:startAt}); };
-  function noteDecline(nm){ var hint=el('d2-wait-hint'); if(hint) hint.textContent=nm+' declined. You can leave and invite again.'; }
+  /* ---------- lobby (open join, tournament-style) ---------- */
+  function openLobby(announce){ ensureUI(); ensureLobby(); T.phase='lobby'; T.started=false; T.team=null; T.peers={};
+    if(!T.ch) connectRoom(); el('d2-ov').classList.add('on'); scene('d2-lobby'); renderLobby(); try{ if(api())api().ac(); }catch(e){}
+    if(announce) window.d2Announce('2v2'); }
+  window.d2Open=function(){ openLobby(true); };
+  function sideCount(t){ var n=0; if(T.team===t) n++; for(var k in T.peers){ if(T.peers[k].team===t) n++; } return n; }
+  function lobbyMembers(t){ var out=[]; if(T.team===t) out.push({id:T.me,name:T.name,you:true}); for(var k in T.peers){ if(T.peers[k].team===t) out.push({id:k,name:T.peers[k].name||k,you:false}); } return out; }
+  function renderLobby(){ ['a','b'].forEach(function(t){ var host=el('d2-w-'+t); if(!host)return; var mem=lobbyMembers(t);
+      host.innerHTML=mem.length?mem.map(function(m){ return '<div class="d2-mem"><span class="d2-dot in"></span>'+esc(m.name)+(m.you?' <b style="color:#ffb877">(you)</b>':'')+'</div>'; }).join(''):'<div class="d2-mem" style="opacity:.45"><span class="d2-dot"></span>Empty</div>'; });
+    var ca=el('d2-card-a'), cb=el('d2-card-b'); if(ca) ca.classList.toggle('mine',T.team==='a'); if(cb) cb.classList.toggle('mine',T.team==='b');
+    var aN=sideCount('a'), bN=sideCount('b'); var ready=!!T.team && aN>0 && bN>0; var b=el('d2-startbtn'); if(b) b.disabled=!ready;
+    var hint=el('d2-lobby-hint'); if(hint) hint.textContent=ready?('Ready — Blue '+aN+' · Red '+bN+'. Anyone can press Start.'):(T.team?('Waiting for the other side… (Blue '+aN+' · Red '+bN+')'):'Pick a side to join. (Blue '+aN+' · Red '+bN+')'); }
+  window.d2PickTeam=function(t){ if(T.team!==t && sideCount(t)>=2){ var h=el('d2-lobby-hint'); if(h) h.textContent=(t==='a'?'Blue':'Red')+' is full (2 max).'; return; } T.team=t; sendJoin(); renderLobby(); try{ sfx('rot'); }catch(e){} };
+  window.d2StartLobby=function(){ if(!T.team)return; if(!(sideCount('a')>0 && sideCount('b')>0))return; var seed=(Math.random()*1e9)>>>0, startAt=Date.now()+3000; bc('go',{seed:seed,startAt:startAt}); startMatch({seed:seed,startAt:startAt}); };
 
-  /* ---------- invitee ---------- */
-  function onInv(p){ if(!p||!p.roster||!p.room)return; var A=api(); var meId=String(A?A.eid():'');
-    var mine=((p.roster.a||[]).map(String).indexOf(meId)>=0)||((p.roster.b||[]).map(String).indexOf(meId)>=0);
-    if(!mine)return; if(T.phase==='play'||T.phase==='wait')return; if(_pendInv&&_pendInv.room===p.room)return;
-    ensureUI(); _pendInv=p; showInvite(p); }
-  function showInvite(p){ var A=api(); var meId=String(A?A.eid():''); var myTeam=((p.roster.a||[]).map(String).indexOf(meId)>=0)?'a':'b'; var mate=(p.roster[myTeam]||[]).filter(function(id){return String(id)!==meId;})[0]; var foes=p.roster[myTeam==='a'?'b':'a']||[];
-    function nm(id){ return esc((p.names&&p.names[id])||id); }
-    el('d2-inv-txt').innerHTML='<b>'+nm(p.from)+'</b> invites you to a 2v2 duel.<br>Your team: <b style="color:'+(myTeam==='a'?'#6ea8ff':'#ff7a4d')+'">you &amp; '+nm(mate)+'</b><br>vs '+nm(foes[0])+' &amp; '+nm(foes[1]);
-    el('d2-inv-pop').style.display='block'; try{ sfx('go'); }catch(e){} }
+  /* ---------- invitee popup ---------- */
+  function onInv(p){ if(!p)return; var A=api(); if(String(p.from)===String(A?A.eid():''))return;
+    var mode=p.mode||'2v2';
+    if(mode==='3v3'){ if(window.t3IsBusy&&window.t3IsBusy())return; }
+    else { if(T.phase==='play'||T.phase==='lobby')return; }
+    ensureUI(); var pop=el('d2-inv-pop'); if(pop&&pop.style.display==='block'){ _pendInv=p; return; }
+    _pendInv=p; showInvite(p); }
+  function showInvite(p){ var mode=(p.mode==='3v3')?'3v3':'2v2'; var label=(mode==='3v3')?'3v3 Team Battle':'2v2 Duel';
+    el('d2-inv-txt').innerHTML='<b>'+esc(p.fromName||'A teammate')+'</b> started a '+label+'.<br>Jump in and pick a side — last team standing wins!';
+    var pop=el('d2-inv-pop'); if(pop) pop.style.display='block'; try{ sfx('go'); }catch(e){} }
   function hideInvite(){ var e=el('d2-inv-pop'); if(e) e.style.display='none'; _pendInv=null; }
-  window.d2AcceptInvite=function(){ var p=_pendInv; if(!p)return; hideInvite(); ensureUI(); var A=api();
-    T.room=p.room; T.roster=p.roster; T.names=p.names||{}; var meId=String(A?A.eid():''); T.team=((p.roster.a||[]).map(String).indexOf(meId)>=0)?'a':'b'; T.host=false; T.started=false; T.phase='wait'; T.peers={};
-    el('d2-ov').classList.add('on'); connectRoom(); scene('d2-wait'); renderWait(); try{ if(api())api().ac(); }catch(e){} };
-  window.d2DeclineInvite=function(){ var p=_pendInv; if(!p)return; var A=api(); lob('dec',{room:p.room,name:String(A?A.ename():'A player')}); hideInvite(); };
+  window.d2AcceptInvite=function(){ var p=_pendInv; hideInvite(); if(p && p.mode==='3v3'){ if(window.t3Open) window.t3Open(); return; } openLobby(false); };
+  window.d2DeclineInvite=function(){ hideInvite(); };
 
   /* ---------- match flow ---------- */
   function startMatch(p){ if(T.started)return; T.started=true; T.phase='play';
@@ -28349,7 +28341,7 @@ window.EB_UNITS_MORE3 = [
     scene('d2-match'); spawn(); drawMe(); renderStrip(); updateScore(); warn(); try{ if(api())api().ac(); }catch(e){} sfx('go');
     if(T.stT) clearInterval(T.stT); T.stT=setInterval(sendState,350);
     T.raf=requestAnimationFrame(loop); }
-  function teamName(t){ var A=api(); var meId=String(A?A.eid():''); var ids=(T.roster&&T.roster[t])||[]; return ids.map(function(id){ return String(id)===meId?'You':((T.names&&T.names[id])||id); }).join(' & ')||(t==='a'?'Blue':'Red'); }
+  function teamName(t){ var mem=lobbyMembers(t); if(!mem.length) return t==='a'?'Blue':'Red'; return mem.map(function(m){ return m.you?'You':m.name; }).join(' & '); }
   function loop(t){ if(!T.playing){ return; } if(!T.lastT) T.lastT=t; var dt=t-T.lastT; T.lastT=t; T.dropAcc+=dt;
     if(Date.now()>=T.end){ finish(); return; }
     while(T.dropAcc>=T.dropMs){ T.dropAcc-=T.dropMs; if(T.cur&&!collide(T.cur.m,T.cur.x,T.cur.y+1)){ T.cur.y++; T.landed=false; } else { if(T.cur&&!T.landed){ T.landed=true; T.lockT=Date.now(); } break; } }
@@ -28368,7 +28360,7 @@ window.EB_UNITS_MORE3 = [
     var a=all(),best=null; for(var k in a){ if(!best||(a[k].score||0)>(best.score||0)) best=a[k]; }
     if(best&&best.score>0){ el('d2-mvp').style.display=''; el('d2-mvp').innerHTML='⭐ MVP · <b style="color:#ff7a29">'+esc(best.name||'')+'</b> — '+(best.score||0).toLocaleString()+' pts'; }
     scene('d2-end'); sfx(w==='tie'?'go':(meWon?'win':'lose')); }
-  window.d2Close=function(){ try{ if(T.host&&T.phase==='wait') lob('cancel',{room:T.room}); }catch(e){} try{ bc('leave',{id:T.me}); }catch(e){} if(T.raf)cancelAnimationFrame(T.raf); if(T.stT){clearInterval(T.stT);T.stT=null;} try{ if(T.ch&&api()&&api().supa) api().supa.removeChannel(T.ch); }catch(e){} T.ch=null; T.phase='idle'; T.started=false; T.playing=false; T.alive=false; T.peers={}; var o=el('d2-ov'); if(o) o.classList.remove('on'); };
+  window.d2Close=function(){ try{ bc('leave',{id:T.me}); }catch(e){} if(T.raf)cancelAnimationFrame(T.raf); if(T.stT){clearInterval(T.stT);T.stT=null;} try{ if(T.ch&&api()&&api().supa) api().supa.removeChannel(T.ch); }catch(e){} T.ch=null; T.phase='idle'; T.started=false; T.playing=false; T.alive=false; T.team=null; T.peers={}; var o=el('d2-ov'); if(o) o.classList.remove('on'); };
   window.d2Key=function(a,ev){ if(ev&&ev.preventDefault)ev.preventDefault(); if(!T.alive)return; if(a==='L')move(-1); else if(a==='R')move(1); else if(a==='ROT')rot(); else if(a==='SOFT')soft(); else if(a==='HARD')hard(); else if(a==='HOLD')holdPiece(); };
   document.addEventListener('keydown',function(e){ if(T.phase!=='play'||!T.alive)return; var k=e.key; if(k==='ArrowLeft'){move(-1);} else if(k==='ArrowRight'){move(1);} else if(k==='ArrowUp'){e.preventDefault();rot();} else if(k==='ArrowDown'){soft();} else if(k===' '){e.preventDefault();hard();} else if(k==='c'||k==='C'||k==='Shift'){e.preventDefault();holdPiece();} });
 
