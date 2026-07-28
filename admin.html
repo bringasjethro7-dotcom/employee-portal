@@ -2309,7 +2309,13 @@ function toggleT3(){ var target=!_t3On;
   if(target && !confirm('Open the 3v3 Team Battle now?\n\nA “3v3 Team Battle — LIVE” button will appear in every player\'s Tetris hub. Turn it off when the event is done.')) return;
   var tg=el('t3-toggle'); if(tg){ tg.disabled=true; tg.textContent='…'; }
   fetch(API+'?action=t3_set&pass='+encodeURIComponent(PASS)+'&on='+(target?'1':'0')+'&_='+Date.now())
-    .then(function(r){return r.json();}).then(function(d){ if(tg) tg.disabled=false; if(d&&d.error){ alert(d.error); } loadT3(); })
+    .then(function(r){return r.json();}).then(function(d){ if(tg) tg.disabled=false;
+      if(d&&d.error){ alert(d.error); return; }
+      _t3On = (d && typeof d.on!=='undefined') ? !!d.on : target;          // trust the write response
+      var st=el('t3-status'); if(st){ st.textContent=_t3On?'OPEN · live':'CLOSED'; st.style.background=_t3On?'#dcfce7':'#eee'; st.style.color=_t3On?'#16a34a':'#555'; }
+      if(tg) tg.textContent=_t3On?'Close event':'Open event';
+      setTimeout(loadT3, 1500);                                            // re-sync shortly after
+    })
     .catch(function(){ if(tg) tg.disabled=false; alert('Network error.'); }); }
 function stopWallboard(){ if(_wbTimer){ clearInterval(_wbTimer); _wbTimer=null; } }
 function loadWallboard(){
@@ -3220,18 +3226,18 @@ async function loadPayslipsAdmin(){
     }).join('');
   }catch(e){ body.innerHTML='<tr><td colspan="7" class="es">Could not load payslips.</td></tr>'; }
 }
-async function markPaidPay(btn, empId, period, name, hours){
+function markPaidPay(btn, empId, period, name, hours){
   var msg='Mark this payslip as PAID?\n\n  Employee:  '+name+'\n  Period:    '+period+'\n  Hours:     '+(hours||'—')+'\n\nThe employee will be emailed that their payroll for this cutoff has been paid. This cannot be undone here.\n\nAre you sure?';
   if(!confirm(msg)) return;
-  btn.disabled=true; btn.textContent='Sending…';
-  try{
-    var res=await fetch(API+'?action=mark_payslip_paid&employee_id='+encodeURIComponent(empId)+'&period='+encodeURIComponent(period));
-    var d=await res.json();
-    if(d&&d.success){
-      if(typeof toast==='function') toast(d.emailed?'Marked paid — email sent to '+name+'.':'Marked paid ('+name+' has no email on file).');
-      setTimeout(loadPayslipsAdmin,700);
-    } else { if(typeof toast==='function') toast('Could not mark paid: '+((d&&d.error)||'error')); btn.disabled=false; btn.textContent='Mark Paid'; }
-  }catch(e){ if(typeof toast==='function') toast('Could not mark paid.'); btn.disabled=false; btn.textContent='Mark Paid'; }
+  // Optimistic: flip the button to Paid instantly; the email + write finish in the background.
+  var row=(btn.closest?btn.closest('tr'):null);
+  btn.disabled=true; btn.textContent='✓ Paid'; btn.style.opacity='.75';
+  fetch(API+'?action=mark_payslip_paid&employee_id='+encodeURIComponent(empId)+'&period='+encodeURIComponent(period)+'&_='+Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(d&&d.success){ if(typeof toast==='function') toast(d.emailed?('Paid — email sent to '+name+'.'):('Paid ('+name+' has no email on file).')); jBust(); }
+      else { if(typeof toast==='function') toast('Could not mark paid: '+((d&&d.error)||'error')); btn.disabled=false; btn.textContent='Mark Paid'; btn.style.opacity=''; }
+    })
+    .catch(function(){ if(typeof toast==='function') toast('Network issue — mark paid may not have saved. Refresh to confirm.'); btn.disabled=false; btn.textContent='Mark Paid'; btn.style.opacity=''; });
 }
 
 /* ── Bank QR uploader (employee modal) ── */
