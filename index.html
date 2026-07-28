@@ -4859,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui144</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui151</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -17178,9 +17178,6 @@ body.light .jul4-lbscore{color:#059669}
       <div id="tet-cos-tabs" class="cos-tabs">
         <button class="cos-tab on" data-tab="blocks" onclick="tetCosTab('blocks')">Blocks</button>
         <button class="cos-tab" data-tab="bg"     onclick="tetCosTab('bg')">Boards</button>
-        <button class="cos-tab" data-tab="fx"     onclick="tetCosTab('fx')">Effects</button>
-        <button class="cos-tab" data-tab="sfx"    onclick="tetCosTab('sfx')">Sound</button>
-        <button class="cos-tab" data-tab="flair"  onclick="tetCosTab('flair')">Flair</button>
       </div>
       <div id="tet-hub-themes"></div>
       <div id="tet-cos-grid" style="display:none;"></div>
@@ -17963,7 +17960,17 @@ body.light .jul4-lbscore{color:#059669}
   var COLORS=[null,'#22d3ee','#facc15','#a855f7','#22c55e','#ef4444','#3b82f6','#f97316']; // I O T S Z J L
   // Which unlockable BLOCK DESIGN (render style) is equipped. Costs live in DESIGNS (defined near block()).
   var EQUIPPED='classic';
-  function applyTheme(id){ EQUIPPED=(id && typeof DESIGNS!=='undefined' && DESIGNS[id]) ? id : 'classic'; try{ localStorage.setItem('tetDesign',EQUIPPED); }catch(e){} }
+  function applyTheme(id){
+    var ok = id && typeof DESIGNS!=='undefined' && DESIGNS[id];
+    // Rank-locked flagships (e.g. JMB Inferno, Rank 104+) can NEVER be trusted from localStorage —
+    // they only apply if the server wallet has actually granted ownership. This closes the gap where
+    // a once-qualified (or spoofed) cache kept the skin after the user dropped below the rank.
+    if(ok && DESIGNS[id].req){
+      if(!(typeof _tetWallet!=='undefined' && _tetWallet && _tetWallet.owned && _tetWallet.owned.indexOf(id)>=0)) ok=false;
+    }
+    EQUIPPED = ok ? id : 'classic';
+    try{ localStorage.setItem('tetDesign',EQUIPPED); }catch(e){}
+  }
   try{ applyTheme(localStorage.getItem('tetDesign')||'classic'); }catch(e){}
 
   // ══════════ COSMETICS: board background · line-clear FX · sound pack · flair ══════════
@@ -18605,7 +18612,7 @@ body.light .jul4-lbscore{color:#059669}
     // match realtime channel
     chan=supaClient.channel('tetris-'+M.matchId,{config:{broadcast:{self:false}}})
       .on('broadcast',{event:'state'}, function(p){ if(M) onOppState(p.payload); })
-      .on('broadcast',{event:'attack'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.pendingGarbage+=(p.payload.lines||0); updateIncoming(); try{ sfxTick(); }catch(e){} } })
+      .on('broadcast',{event:'attack'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.pendingGarbage=Math.min(PENDING_CAP,M.pendingGarbage+(p.payload.lines||0)); updateIncoming(); try{ sfxTick(); }catch(e){} } })
       .on('broadcast',{event:'over'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())) onOppOver(p.payload); })
       .on('broadcast',{event:'ko'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.oppKos=p.payload.kos||0; if(p.payload.score!=null) M.oppScore=p.payload.score; updateKoDisplay(); if(p.payload.elim) onOppOver(p.payload); } })
       // ── READY handshake: neither side starts its 3-2-1 until BOTH players are in the
@@ -18707,6 +18714,9 @@ body.light .jul4-lbscore{color:#059669}
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
   function clearLines(){
     var full=[]; for(var y=0;y<H;y++){ if(M.grid[y].every(function(v){return v>0;})) full.push(y); }
+    // count cleared rows that contained garbage (value 8) — digging garbage sends only half the attack
+    var grb=0; for(var gi=0;gi<full.length;gi++){ if(M.grid[full[gi]].indexOf(8)>=0) grb++; }
+    M._grbCleared=grb;
     if(full.length){ M.flash={ys:full.slice(), t0:Date.now()}; spawnParticles(full); ensureFx(); }
     for(var i=full.length-1;i>=0;i--){ M.grid.splice(full[i],1); M.grid.unshift(new Array(W).fill(0)); }
     return full.length;
@@ -18763,8 +18773,10 @@ body.light .jul4-lbscore{color:#059669}
   // combos 2-4 → 1, combos 5-6 → 2 (doubled), combos 7-9 → 3 (tripled), combo 10+ → 5.
   // Bonus garbage from the combo chain, on top of the line-clear attack. Index = combo-1.
   // Combo 1 → 0 · 2-4 → 1 · 5-7 → 2 · 8-10 → 3 · 11+ → 4   (a long, gentle ramp)
-  var COMBO_TABLE=[0,1,1,1,2,2,2,3,3,3,4];
-  var MAX_SEND=5;                               // hard cap on garbage sent per placement
+  var COMBO_TABLE=[0,0,1,1,1,2,2,2,2,3,3];      // gentler combo-garbage ramp (was up to 4)
+  var MAX_SEND=5;                               // hard cap on garbage SENT per placement
+  var PENDING_CAP=12;                           // incoming meter can never stack past this
+  var DUMP_MAX=4;                               // max garbage rows dumped on you per piece
   function lockPiece(){
     clearLockTimer(); M._lockResets=0;
     merge(); sfxLock();
@@ -18790,6 +18802,7 @@ body.light .jul4-lbscore{color:#059669}
       M.combo=(M.combo||0)+1;
       if(M.combo>(M.maxCombo||0)) M.maxCombo=M.combo;
       sent+=COMBO_TABLE[Math.min(M.combo-1, COMBO_TABLE.length-1)];
+      if(M._grbCleared>0 && sent>0){ sent=Math.floor(sent/2); }   // digging out garbage = half impact
       var perfect=isBoardEmpty();
       if(perfect){ pts+=(c>=4?4000:2000); label='Perfect Clear'; }
       sent=Math.min(sent, MAX_SEND);   // normal cap
@@ -18810,7 +18823,7 @@ body.light .jul4-lbscore{color:#059669}
       M.combo=0;
       // A T-spin with no line clear still scores (and preserves back-to-back), then garbage dumps.
       if(ts){ M.score+=(ts==='mini'?100:400)*M.level; announce(ts==='mini'?'T-Spin Mini':'T-Spin'); }
-      if(M.pendingGarbage>0){ M._respawned=false; var dump=Math.min(M.pendingGarbage,MAX_SEND); addGarbage(dump); M.pendingGarbage-=dump; updateIncoming(); if(!M.alive || M._respawned){ M._respawned=false; draw(); return; } }
+      if(M.pendingGarbage>0){ M._respawned=false; var dump=Math.min(M.pendingGarbage,DUMP_MAX); addGarbage(dump); M.pendingGarbage-=dump; updateIncoming(); if(!M.alive || M._respawned){ M._respawned=false; draw(); return; } }
     }
     statBump('tet-me-score', M.score); statBump('tet-me-lines', M.lines);
     if(M.mode==='sprint' && M.lines>=40){ soloEnd('done'); return; }   // Sprint 40 reached
@@ -19074,6 +19087,7 @@ body.light .jul4-lbscore{color:#059669}
     if(M.mode==='training'){ if(BOT){ BOT.pending+=n; } return; }
     if(M.mode==='tourney'){
       var others=tourneyAliveIds().filter(function(id){ return id!==eid(); });
+      if(M.isTeam && M.teams){ var _mt=M.teams[String(eid())]; others=others.filter(function(id){ return M.teams[String(id)] && M.teams[String(id)]!==_mt; }); }   // 2v2: only bury the enemy team
       if(!others.length || !M.tchan) return;
       var to=others[Math.floor(Math.random()*others.length)];
       try{ M.tchan.send({type:'broadcast',event:'tattack',payload:{tid:M.matchId,from:eid(),to:to,lines:n}}); }catch(e){}
@@ -19850,7 +19864,7 @@ body.light .jul4-lbscore{color:#059669}
     }
   }
 
-  function beginTourney(tid, seed, players){
+  function beginTourney(tid, seed, players, teams){
     el('tourney-lobby').style.display='none';
     // arena panel on, single-opponent column off
     el('tet-opp-col').style.display='none';
@@ -19869,6 +19883,7 @@ body.light .jul4-lbscore{color:#059669}
     players.forEach(function(x){ M.players[x.id]={ name:x.name, score:0, lines:0, alive:true, grid:null, place:0, kos:0 }; });
     if(!M.players[eid()]) M.players[eid()]={ name:ename(), score:0, lines:0, alive:true, grid:null, place:0, kos:0 };
     M.startN=Object.keys(M.players).length;
+    if(teams){ M.isTeam=true; M.teams=teams; }   // 2v2 team battle uses the same engine, team-aware
     // engine init
     M.rng=mulberry32(hashStr(seed)); M.bag=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1; M.pendingGarbage=0; M.nextT=null;
     M.hold=null; M.canHold=true; M.combo=0; M.b2b=false;
@@ -19892,7 +19907,7 @@ body.light .jul4-lbscore{color:#059669}
     renderArena();
   }
   function onTAttack(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId) return;
-    if(String(p.to)===String(eid()) && M.alive){ M.pendingGarbage+=(p.lines||0); updateIncoming(); try{ sfxTick(); }catch(e){} }
+    if(String(p.to)===String(eid()) && M.alive){ M.pendingGarbage=Math.min(PENDING_CAP,M.pendingGarbage+(p.lines||0)); updateIncoming(); try{ sfxTick(); }catch(e){} }
   }
   function onTOver(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId) return;
     var pl=M.players[p.from]; if(pl){ pl.alive=false; pl.score=p.score||pl.score; pl.place=p.place||pl.place; }
@@ -19916,6 +19931,7 @@ body.light .jul4-lbscore{color:#059669}
   }
   function tourneyCheckEnd(){
     if(!M||M.ended) return;
+    if(M.isTeam){ teamCheckEnd(); return; }
     var alive=tourneyAliveIds();
     if(alive.length>1) return;
     M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
@@ -19939,6 +19955,7 @@ body.light .jul4-lbscore{color:#059669}
   }
   function tourneyTimeEnd(){
     if(M.ended) return;
+    if(M.isTeam){ teamTimeEnd(); return; }
     var alive=tourneyAliveIds(); var best=null;
     alive.forEach(function(id){ if(best===null){ best=id; return; }
       var a=M.players[id], b=M.players[best];
@@ -19953,13 +19970,69 @@ body.light .jul4-lbscore{color:#059669}
     else { status('Time!'); }
     showTourneyResults();
   }
+  // ══════════ 2v2 TEAM BATTLE — portal engine, last team standing ══════════
+  function teamLabel(t){ return t==='a'?'Amber':(t==='b'?'Red':'—'); }
+  function teamAliveCount(t){ var n=0; tourneyAliveIds().forEach(function(id){ if(M.teams[String(id)]===t) n++; }); return n; }
+  function teamCheckEnd(){
+    if(!M||M.ended) return;
+    var aA=teamAliveCount('a'), aB=teamAliveCount('b');
+    if(aA>0 && aB>0) return;                         // both teams still have a player alive
+    M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
+    detachControls(); stopMusic();
+    var winT=aA>0?'a':(aB>0?'b':'tie'); var myT=M.teams[String(eid())]; var won=(winT!=='tie'&&winT===myT);
+    if(winT==='tie') status('Draw — both teams down.');
+    else status(won?('🏆 '+teamLabel(winT)+' team — YOU WIN! 🎉'):('🏆 '+teamLabel(winT)+' team wins.'));
+    if(won){ try{ sfxWin(); }catch(e){} } else if(winT!=='tie'){ try{ sfxLose(); }catch(e){} }
+    reportTeam2(winT); showTeamResults(winT);
+  }
+  // Every client posts the full 4-player result; the match_id dedupe keeps just one write.
+  function reportTeam2(winT){
+    try{
+      if(!M||!M.isTeam||!M.players||!M.teams) return;
+      var arr=Object.keys(M.players).map(function(id){ var p=M.players[id]; var t=M.teams[String(id)];
+        var res=(winT==='tie')?'draw':(t===winT?'win':'loss');
+        return {id:String(id), name:p.name||id, score:p.score||0, lines:p.lines||0, res:res}; });
+      fetch(APPS_SCRIPT_URL+'?action=t2_result&match_id='+encodeURIComponent(M.matchId||'')+'&players='+encodeURIComponent(JSON.stringify(arr))+'&_='+Date.now()).catch(function(){});
+    }catch(e){}
+  }
+  function teamTimeEnd(){
+    if(M.ended) return;
+    M.ended=true; if(M.timer){clearInterval(M.timer);M.timer=null;} if(M.net){clearInterval(M.net);M.net=null;} if(M.loop){clearInterval(M.loop);M.loop=null;}
+    detachControls(); stopMusic();
+    function tKO(t){ var n=0; Object.keys(M.players).forEach(function(id){ if(M.teams[String(id)]===t) n+=(M.players[id].kos||0); }); return n; }
+    function tScore(t){ var n=0; Object.keys(M.players).forEach(function(id){ if(M.teams[String(id)]===t) n+=(M.players[id].score||0); }); return n; }
+    var ak=tKO('a'),bk=tKO('b'),as=tScore('a'),bs=tScore('b');
+    var winT=(ak!==bk)?(ak<bk?'a':'b'):(as!==bs?(as>bs?'a':'b'):'tie');   // fewer KOs suffered wins, else higher combined score
+    var myT=M.teams[String(eid())], won=(winT!=='tie'&&winT===myT);
+    status(winT==='tie'?'⏱ Time! Draw.':('⏱ Time! '+teamLabel(winT)+' team wins'+(won?' — you win! 🎉':'.')));
+    if(won){ try{ sfxWin(); }catch(e){} } else if(winT!=='tie'){ try{ sfxLose(); }catch(e){} }
+    reportTeam2(winT); showTeamResults(winT);
+  }
+  function showTeamResults(winT){
+    var lbl=el('tet-arena-label'); if(lbl) lbl.textContent=(winT==='tie'?'⚔ Draw':('🏆 '+teamLabel(winT)+' team wins!'));
+    var box=el('tet-arena'); if(!box) return; box.style.maxHeight='560px';
+    function rows(t){ return Object.keys(M.players).filter(function(id){ return M.teams[String(id)]===t; }).map(function(id){ var p=M.players[id]; return '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 1px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px;">'+esc(p.name)+(String(id)===String(eid())?' (you)':'')+'</span><span style="color:#cdd6f5;white-space:nowrap;">'+(p.score||0)+' · '+(p.kos||0)+' KO</span></div>'; }).join(''); }
+    box.innerHTML='<div style="width:320px;margin:0 auto;">'+
+      '<div style="border:1px solid rgba(255,176,32,.55);border-radius:12px;padding:10px 12px;margin-bottom:10px;'+(winT==='a'?'box-shadow:0 0 0 2px rgba(255,176,32,.55);background:rgba(255,176,32,.06);':'')+'"><div style="color:#ffb020;font-weight:800;font-size:12px;margin-bottom:5px;">🟡 AMBER'+(winT==='a'?' — WINNER':'')+'</div>'+rows('a')+'</div>'+
+      '<div style="border:1px solid rgba(239,62,46,.55);border-radius:12px;padding:10px 12px;'+(winT==='b'?'box-shadow:0 0 0 2px rgba(239,62,46,.55);background:rgba(239,62,46,.06);':'')+'"><div style="color:#ef3e2e;font-weight:800;font-size:12px;margin-bottom:5px;">🔴 RED'+(winT==='b'?' — WINNER':'')+'</div>'+rows('b')+'</div>'+
+    '</div>';
+  }
+  // Entry point the 2v2 lobby calls once all sides are set — runs the REAL portal engine.
+  window.tetBeginTeam2v2=function(mid,seed,players){
+    try{ if(typeof supaClient==='undefined'||!supaClient) return;
+      try{ ac(); }catch(e){}
+      var teams={}; (players||[]).forEach(function(p){ teams[String(p.id)]=p.team; });
+      beginTourney(String(mid), String(seed), players, teams);
+    }catch(e){}
+  };
+
   // Arena: mini-boards of all other players
   function buildArena(){
     var box=el('tet-arena'); if(!box||!M||!M.players) return;
     var ids=Object.keys(M.players).filter(function(id){ return id!==eid(); });
-    box.innerHTML=ids.map(function(id){ return '<div style="text-align:center;" id="tacard-'+id+'">'+
-      '<div style="font-size:10px;color:#9fb0d6;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 auto 3px;">'+esc(M.players[id].name)+'</div>'+
-      '<div style="position:relative;display:inline-block;"><canvas id="tacanvas-'+id+'" width="64" height="128" style="background:#070b16;border:1px solid rgba(255,255,255,.12);border-radius:7px;display:block;"></canvas>'+
+    box.innerHTML=ids.map(function(id){ var _tb=(M.isTeam&&M.teams)?(M.teams[String(id)]==='a'?'#ffb020':(M.teams[String(id)]==='b'?'#ef3e2e':'rgba(255,255,255,.12)')):'rgba(255,255,255,.12)'; var _tt=(M.isTeam&&M.teams)?(M.teams[String(id)]===M.teams[String(eid())]?' <span style="color:#7fe0a0;">▲ally</span>':' <span style="color:#ff9a8a;">▼foe</span>'):''; return '<div style="text-align:center;" id="tacard-'+id+'">'+
+      '<div style="font-size:10px;color:#9fb0d6;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 auto 3px;">'+esc(M.players[id].name)+_tt+'</div>'+
+      '<div style="position:relative;display:inline-block;"><canvas id="tacanvas-'+id+'" width="64" height="128" style="background:#070b16;border:1px solid '+_tb+';border-radius:7px;display:block;"></canvas>'+
       '<div id="tako-'+id+'" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.55);border-radius:7px;align-items:center;justify-content:center;color:#f87171;font-weight:800;font-size:11px;">OUT</div></div>'+
       '<div style="font-size:10px;color:#cdd6f5;margin-top:2px;"><b id="tascore-'+id+'">0</b> · <span style="color:#f87171;" id="tako-n-'+id+'">0</span>/3 KO</div></div>'; }).join('');
     renderArena();
@@ -21076,6 +21149,8 @@ body.light .jul4-lbscore{color:#059669}
     cells+=card('Total Lines', Number(me.total_lines||0).toLocaleString(), '', '', rankOf('total_lines',false));
     cells+=card('★ Milestones', Number(me.solo_stars||0).toLocaleString(), 'solo bests', '', rankOf('solo_stars',false));
     cells+=card('Duel Win Rate', dT?(wr+'%'):'—', dT?(dW+'W · '+dL+'L'):'no duels yet', dT&&wr>=50?'#7bf5a8':(dT?'#f87171':''));
+    var t2W=me.t2_wins||0, t2L=me.t2_losses||0, t2T=t2W+t2L, t2wr=t2T?Math.round(t2W/t2T*100):0;
+    cells+=card('2v2 Win Rate', t2T?(t2wr+'%'):'—', t2T?(t2W+'W · '+t2L+'L'):'no 2v2 yet', t2T&&t2wr>=50?'#7bf5a8':(t2T?'#f87171':''));
     cells+=card('Sprint 40', me.sprint_ms?((me.sprint_ms/1000).toFixed(1)+'s'):'—', 'fastest', '', rankOf('sprint_ms',true));
     cells+=card('Ultra', me.ultra_score?Number(me.ultra_score).toLocaleString():'—', '2:00 best', '', rankOf('ultra_score',false));
     cells+=card('Best Combo', me.combo_best?('×'+me.combo_best):'—', '', '', rankOf('combo_best',false));
@@ -22058,7 +22133,7 @@ body.light .jul4-lbscore{color:#059669}
     var cleared=botClear();
     if(cleared>0){ var sent=[0,0,1,1,2][cleared]||2; BOT.combo=(BOT.combo||0)+1; sent+=COMBO_TABLE[Math.min(BOT.combo-1,COMBO_TABLE.length-1)];
       sent=Math.min(sent, MAX_SEND);
-      if(sent>0){ M.pendingGarbage+=sent; updateIncoming(); }
+      if(sent>0){ M.pendingGarbage=Math.min(PENDING_CAP,M.pendingGarbage+sent); updateIncoming(); }
       BOT.lines+=cleared; BOT.score+=([0,100,300,500,800][cleared]||0);
     } else BOT.combo=0;
     M.oppGrid=BOT.grid; M.oppScore=BOT.score; M.oppLines=BOT.lines;
@@ -27825,9 +27900,10 @@ window.EB_UNITS_MORE3 = [
 </style>
 <style id="t3-style">
   #t3-ov{position:fixed;inset:0;z-index:9700;display:none;flex-direction:column;background:
-    radial-gradient(1000px 600px at 20% -10%,rgba(249,182,37,.14),transparent 55%),
-    radial-gradient(1000px 600px at 80% -10%,rgba(138,151,255,.16),transparent 55%),
-    linear-gradient(180deg,#0c1428,#05070f);color:#f2f6ff;font-family:'Inter',sans-serif;padding:14px;overflow:auto}
+    radial-gradient(1100px 640px at 18% -12%,rgba(255,140,40,.20),transparent 55%),
+    radial-gradient(1100px 640px at 82% -8%,rgba(232,40,10,.22),transparent 55%),
+    radial-gradient(130% 90% at 50% 118%,rgba(255,90,20,.20),transparent 60%),
+    linear-gradient(180deg,#1a0a06,#0a0503);color:#ffece0;font-family:'Inter',sans-serif;padding:14px;overflow:auto}
   #t3-ov.on{display:flex}
   .t3-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}
   .t3-brand{font-family:'Sora','Inter',sans-serif;font-size:20px;font-weight:800}.t3-brand em{font-style:normal;background:linear-gradient(180deg,#ffe9b0,#ff9d3a,#ff6a00);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
@@ -28063,9 +28139,10 @@ window.EB_UNITS_MORE3 = [
 </script>
 <style id="d2-style">
   #d2-ov{position:fixed;inset:0;z-index:9700;display:none;flex-direction:column;background:
-    radial-gradient(1000px 600px at 20% -10%,rgba(110,168,255,.16),transparent 55%),
-    radial-gradient(1000px 600px at 80% -10%,rgba(255,122,77,.16),transparent 55%),
-    linear-gradient(180deg,#0c1428,#05070f);color:#f2f6ff;font-family:'Inter',sans-serif;padding:14px;overflow:auto}
+    radial-gradient(1100px 640px at 18% -12%,rgba(255,140,40,.20),transparent 55%),
+    radial-gradient(1100px 640px at 82% -8%,rgba(232,40,10,.22),transparent 55%),
+    radial-gradient(130% 90% at 50% 118%,rgba(255,90,20,.20),transparent 60%),
+    linear-gradient(180deg,#1a0a06,#0a0503);color:#ffece0;font-family:'Inter',sans-serif;padding:14px;overflow:auto}
   #d2-ov.on{display:flex}
   .d2-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}
   .d2-brand{font-family:'Sora','Inter',sans-serif;font-size:20px;font-weight:800}.d2-brand em{font-style:normal;background:linear-gradient(180deg,#ffe9b0,#ff9d3a,#ff6a00);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
@@ -28074,7 +28151,7 @@ window.EB_UNITS_MORE3 = [
   /* picker + wait */
   #d2-pick,#d2-wait{align-items:center;gap:12px}
   .d2-title{font-family:'Sora',sans-serif;font-size:32px;font-weight:800;line-height:1;text-align:center}
-  .d2-sub{color:#9fb0d0;font-size:13.5px;max-width:460px;text-align:center}
+  .d2-sub{color:#d7ac8e;font-size:13.5px;max-width:460px;text-align:center}
   .d2-step{align-self:stretch;max-width:520px;margin:0 auto;width:100%}
   .d2-step h4{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:#8ea3d6;margin:12px 0 7px;font-weight:800}
   .d2-list{display:flex;flex-direction:column;gap:7px}
@@ -28083,20 +28160,20 @@ window.EB_UNITS_MORE3 = [
   .d2-av img{width:100%;height:100%;object-fit:cover}
   .d2-nm{font-size:13px;font-weight:800;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .d2-pill{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:#cdd6f5;border-radius:9px;padding:6px 11px;font-weight:800;font-size:11.5px;cursor:pointer;white-space:nowrap}
-  .d2-pill.pa.on{background:rgba(110,168,255,.24);border-color:#6ea8ff;color:#dbe8ff}
-  .d2-pill.pb.on{background:rgba(255,122,77,.24);border-color:#ff7a4d;color:#ffe0d4}
+  .d2-pill.pa.on{background:rgba(255,176,32,.24);border-color:#ffb020;color:#dbe8ff}
+  .d2-pill.pb.on{background:rgba(239,62,46,.24);border-color:#ef3e2e;color:#ffe0d4}
   .d2-empty{color:#5f6f92;font-size:12.5px;text-align:center;padding:16px}
   .d2-go{margin-top:12px;background:linear-gradient(135deg,#ff7a29,#ff5a00);border:none;border-radius:14px;color:#fff;font-weight:800;font-size:16px;padding:13px 28px;cursor:pointer}
   .d2-go:disabled{opacity:.4;cursor:default}
-  .d2-hint{color:#5f6f92;font-size:12px;text-align:center}
+  .d2-hint{color:#a9765a;font-size:12px;text-align:center}
   .d2-vs{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:4px}
-  .d2-card{width:200px;background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.12);border-radius:16px;padding:14px}
-  .d2-card.a{border-color:#6ea8ff}.d2-card.b{border-color:#ff7a4d}
+  .d2-card{width:200px;background:linear-gradient(150deg,rgba(60,20,10,.55),rgba(18,9,6,.6));border:2px solid rgba(255,170,105,.34);border-radius:16px;padding:14px}
+  .d2-card.a{border-color:#ffb020}.d2-card.b{border-color:#ef3e2e}
   .d2-card.pick{cursor:pointer;transition:transform .14s,box-shadow .18s,border-color .18s}
   .d2-card.pick:hover{transform:translateY(-2px)}
   .d2-card.mine{box-shadow:0 0 0 3px rgba(255,255,255,.22)}
   .d2-ch{font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:9px}
-  .d2-card.a .d2-ch{color:#6ea8ff}.d2-card.b .d2-ch{color:#ff7a4d}
+  .d2-card.a .d2-ch{color:#ffb020}.d2-card.b .d2-ch{color:#ef3e2e}
   .d2-mem{font-size:13px;font-weight:700;color:#c7d2e8;display:flex;align-items:center;gap:6px;padding:3px 0}
   .d2-dot{width:8px;height:8px;border-radius:50%;background:#556;flex:0 0 auto}
   .d2-dot.in{background:#22c55e;box-shadow:0 0 8px #22c55e}
@@ -28105,10 +28182,10 @@ window.EB_UNITS_MORE3 = [
   .d2-board-bar{display:flex;align-items:center;gap:10px}
   .d2-side{flex:1;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:8px 12px;min-width:0}
   .d2-side .nm{font-weight:800;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .d2-side.a .nm{color:#6ea8ff}.d2-side.b .nm{color:#ff7a4d}
+  .d2-side.a .nm{color:#ffb020}.d2-side.b .nm{color:#ef3e2e}
   .d2-side .ko{margin-left:auto;font-family:'Sora',sans-serif;font-weight:800;font-size:22px}
   .d2-side .ln{font-family:'Sora',sans-serif;font-weight:800;font-size:14px;color:#9fb0d0}
-  .d2-side.lead.a{background:rgba(110,168,255,.16);border-color:#6ea8ff}.d2-side.lead.b{background:rgba(255,122,77,.16);border-color:#ff7a4d}
+  .d2-side.lead.a{background:rgba(255,176,32,.16);border-color:#ffb020}.d2-side.lead.b{background:rgba(239,62,46,.16);border-color:#ef3e2e}
   .d2-clock{font-family:'Sora',sans-serif;font-weight:800;font-size:22px;padding:0 6px}.d2-clock.low{color:#f87171}
   .d2-arena{flex:1;min-height:0;display:flex;gap:12px;justify-content:center}
   .d2-mecol{display:flex;flex-direction:column;align-items:center;gap:6px;min-height:0}
@@ -28116,7 +28193,7 @@ window.EB_UNITS_MORE3 = [
   .d2-warn{color:#f87171;font-weight:800;font-size:12px;min-height:15px;text-align:center}
   .d2-strip{display:flex;flex-direction:column;gap:8px;overflow:auto}
   .d2-mini{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:6px 8px}
-  .d2-mini.a{border-left:3px solid #6ea8ff}.d2-mini.b{border-left:3px solid #ff7a4d}
+  .d2-mini.a{border-left:3px solid #ffb020}.d2-mini.b{border-left:3px solid #ef3e2e}
   .d2-mini.dead{opacity:.42}
   .d2-mini canvas{background:#070b16;border-radius:5px}
   .d2-mini .mi{font-size:11.5px;font-weight:800;white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis}
@@ -28128,11 +28205,11 @@ window.EB_UNITS_MORE3 = [
   /* end */
   #d2-end{align-items:center;justify-content:center;text-align:center;gap:14px}
   .d2-win{font-family:'Sora',sans-serif;font-size:42px;font-weight:800}
-  .d2-win.a{color:#6ea8ff}.d2-win.b{color:#ff7a4d}.d2-win.tie{color:#ff7a29}
+  .d2-win.a{color:#ffb020}.d2-win.b{color:#ef3e2e}.d2-win.tie{color:#ff7a29}
   .d2-fin{font-family:'Sora',sans-serif;font-size:18px;font-weight:800}
   .d2-mvp{font-weight:800;color:#9fb0d0;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 18px}
   /* invite popup */
-  #d2-inv-pop{display:none;position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:9650;background:linear-gradient(180deg,#131a2e,#0c1120);border:1px solid rgba(110,168,255,.4);border-radius:16px;padding:14px 16px;box-shadow:0 18px 50px rgba(0,0,0,.6);color:#eaf0ff;max-width:360px}
+  #d2-inv-pop{display:none;position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:9650;background:linear-gradient(180deg,#131a2e,#0c1120);border:1px solid rgba(255,176,32,.4);border-radius:16px;padding:14px 16px;box-shadow:0 18px 50px rgba(0,0,0,.6);color:#eaf0ff;max-width:360px}
   #d2-inv-pop .t{font-weight:800;font-size:14px;margin-bottom:3px}
   #d2-inv-txt{font-size:12.5px;color:#9fb0d6;margin-bottom:10px;line-height:1.5}
   #d2-inv-pop .btns{display:flex;gap:8px}
@@ -28183,7 +28260,7 @@ window.EB_UNITS_MORE3 = [
         '<div class="d2-title">2v2 <em style="font-style:normal;color:#ff7a29">Duel</em></div>'+
         '<div class="d2-sub">Pick a side — up to 2 per team. All four play at once; bury the other pair. Last team with a player standing wins.</div>'+
         '<div class="d2-vs">'+
-          '<div class="d2-card a pick" id="d2-card-a" onclick="d2PickTeam(\'a\')"><div class="d2-ch">🔵 Blue</div><div id="d2-w-a"></div></div>'+
+          '<div class="d2-card a pick" id="d2-card-a" onclick="d2PickTeam(\'a\')"><div class="d2-ch">🟡 Amber</div><div id="d2-w-a"></div></div>'+
           '<div class="d2-card b pick" id="d2-card-b" onclick="d2PickTeam(\'b\')"><div class="d2-ch">🔴 Red</div><div id="d2-w-b"></div></div>'+
         '</div>'+
         '<button class="d2-go" id="d2-startbtn" onclick="d2StartLobby()" disabled>Start match</button>'+
@@ -28191,7 +28268,7 @@ window.EB_UNITS_MORE3 = [
       '</div>'+
       '<div class="d2-scene" id="d2-match">'+
         '<div class="d2-board-bar">'+
-          '<div class="d2-side a" id="d2-s-a"><span class="nm" id="d2-nm-a">Blue</span><span class="ln" id="d2-ln-a">0</span><span class="ko" id="d2-ko-a">0</span></div>'+
+          '<div class="d2-side a" id="d2-s-a"><span class="nm" id="d2-nm-a">Amber</span><span class="ln" id="d2-ln-a">0</span><span class="ko" id="d2-ko-a">0</span></div>'+
           '<div class="d2-clock" id="d2-clock">3:00</div>'+
           '<div class="d2-side b" id="d2-s-b"><span class="ko" id="d2-ko-b">0</span><span class="ln" id="d2-ln-b">0</span><span class="nm" id="d2-nm-b">Red</span></div>'+
         '</div>'+
@@ -28257,13 +28334,13 @@ window.EB_UNITS_MORE3 = [
     if(T.flash){ var e=(Date.now()-T.flash.t0)/230; if(e<1){ ctx.save(); ctx.globalAlpha=(1-e)*0.9; ctx.fillStyle='#fff'; T.flash.ys.forEach(function(ry){ ctx.fillRect(0,ry*cs,cv.width,cs); }); ctx.restore(); } else T.flash=null; } }
   function renderStrip(){ var host=el('d2-strip'); if(!host)return; var ids=Object.keys(T.peers);
     ids.sort(function(a,b){ return (T.peers[a].team===T.team?0:1)-(T.peers[b].team===T.team?0:1); });
-    host.innerHTML=ids.map(function(id){ var p=T.peers[id]; return '<div class="d2-mini '+(p.team||'a')+(p.alive===false?' dead':'')+'" id="d2-mini-'+id+'"><canvas id="d2-cv-'+id+'" width="66" height="132"></canvas><div class="mi">'+esc(p.name)+'<small>'+(p.team==='b'?'Red':'Blue')+' · '+(p.lines||0)+' ln</small></div></div>'; }).join('');
+    host.innerHTML=ids.map(function(id){ var p=T.peers[id]; return '<div class="d2-mini '+(p.team||'a')+(p.alive===false?' dead':'')+'" id="d2-mini-'+id+'"><canvas id="d2-cv-'+id+'" width="66" height="132"></canvas><div class="mi">'+esc(p.name)+'<small>'+(p.team==='b'?'Red':'Amber')+' · '+(p.lines||0)+' ln</small></div></div>'; }).join('');
     ids.forEach(drawPeer); }
   function drawPeer(id){ var p=T.peers[id]; if(!p)return; var cv=el('d2-cv-'+id); if(!cv)return; var ctx=cv.getContext('2d'),g=cv.width/W,A=api(),C=COLS();
     ctx.clearRect(0,0,cv.width,cv.height); ctx.fillStyle='#070b16'; ctx.fillRect(0,0,cv.width,cv.height);
     if(p.grid){ for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var k=+p.grid[y*W+x]; if(k){ var col=k===8?'#5b6b82':C[k]; if(A&&A.blockAs) A.blockAs(ctx,x,y,g,col,p.skin||'classic'); else { ctx.fillStyle=col; ctx.fillRect(x*g,y*g,g,g); } } } }
     var mn=el('d2-mini-'+id); if(mn) mn.classList.toggle('dead',p.alive===false);
-    var lbl=cv.parentNode&&cv.parentNode.querySelector('.mi small'); if(lbl) lbl.textContent=(p.team==='b'?'Red':'Blue')+' · '+(p.lines||0)+' ln'; }
+    var lbl=cv.parentNode&&cv.parentNode.querySelector('.mi small'); if(lbl) lbl.textContent=(p.team==='b'?'Red':'Amber')+' · '+(p.lines||0)+' ln'; }
   function warn(){ var w=el('d2-warn'); if(w) w.textContent=T.pending>0?('⚠ '+T.pending+' incoming — clear to cancel'):''; }
   function drawMini(id,type){ var cv=el(id); if(!cv)return; var ctx=cv.getContext('2d'),A=api(),C=COLS(); ctx.clearRect(0,0,cv.width,cv.height); ctx.fillStyle='#0b1120'; ctx.fillRect(0,0,cv.width,cv.height); if(!type)return; var p=PIECES[type],cells=[],minx=9,miny=9,maxx=0,maxy=0; for(var r=0;r<p.length;r++)for(var cc=0;cc<p.length;cc++){ if(p[r][cc]){ cells.push([cc,r,p[r][cc]]); if(cc<minx)minx=cc; if(cc>maxx)maxx=cc; if(r<miny)miny=r; if(r>maxy)maxy=r; } } var wc=maxx-minx+1,hc=maxy-miny+1,cs=Math.min((cv.width-6)/wc,(cv.height-6)/hc,11),ox=(cv.width-wc*cs)/2-minx*cs,oy=(cv.height-hc*cs)/2-miny*cs; ctx.save(); ctx.translate(ox,oy); cells.forEach(function(ce){ var col=C[ce[2]]; if(A&&A.block) A.block(ctx,ce[0],ce[1],cs,col); else { ctx.fillStyle=col; ctx.fillRect(ce[0]*cs+1,ce[1]*cs+1,cs-2,cs-2); } }); ctx.restore(); }
   function drawNext(){ drawMini('d2-next',T.nextT); }
@@ -28291,7 +28368,7 @@ window.EB_UNITS_MORE3 = [
     T.ch.on('broadcast',{event:'leave'},function(m){ var p=m.payload||{}; if(p.id){ delete T.peers[p.id]; if(T.phase==='lobby') renderLobby(); else if(T.phase==='play') renderStrip(); } });
     T.ch.on('broadcast',{event:'state'},function(m){ onState(m.payload||{}); });
     T.ch.on('broadcast',{event:'garbage'},function(m){ var p=m.payload||{}; if(String(p.to)===String(T.me) && T.alive){ T.pending+=(p.n||0); warn(); sfx('garbage'); } });
-    T.ch.on('broadcast',{event:'go'},function(m){ startMatch(m.payload||{}); });
+    T.ch.on('broadcast',{event:'go2'},function(m){ launchTeam(m.payload||{}); });
     T.ch.subscribe(function(st){ if(st==='SUBSCRIBED'){ sendJoin(); } });
     return true; }
   function sendJoin(){ var A=api(); bc('join',{id:T.me,team:T.team,name:T.name,skin:A?A.skin():'classic'}); }
@@ -28313,9 +28390,11 @@ window.EB_UNITS_MORE3 = [
       host.innerHTML=mem.length?mem.map(function(m){ return '<div class="d2-mem"><span class="d2-dot in"></span>'+esc(m.name)+(m.you?' <b style="color:#ffb877">(you)</b>':'')+'</div>'; }).join(''):'<div class="d2-mem" style="opacity:.45"><span class="d2-dot"></span>Empty</div>'; });
     var ca=el('d2-card-a'), cb=el('d2-card-b'); if(ca) ca.classList.toggle('mine',T.team==='a'); if(cb) cb.classList.toggle('mine',T.team==='b');
     var aN=sideCount('a'), bN=sideCount('b'); var ready=!!T.team && aN>0 && bN>0; var b=el('d2-startbtn'); if(b) b.disabled=!ready;
-    var hint=el('d2-lobby-hint'); if(hint) hint.textContent=ready?('Ready — Blue '+aN+' · Red '+bN+'. Anyone can press Start.'):(T.team?('Waiting for the other side… (Blue '+aN+' · Red '+bN+')'):'Pick a side to join. (Blue '+aN+' · Red '+bN+')'); }
-  window.d2PickTeam=function(t){ if(T.team!==t && sideCount(t)>=2){ var h=el('d2-lobby-hint'); if(h) h.textContent=(t==='a'?'Blue':'Red')+' is full (2 max).'; return; } T.team=t; sendJoin(); renderLobby(); try{ sfx('rot'); }catch(e){} };
-  window.d2StartLobby=function(){ if(!T.team)return; if(!(sideCount('a')>0 && sideCount('b')>0))return; var seed=(Math.random()*1e9)>>>0, startAt=Date.now()+3000; bc('go',{seed:seed,startAt:startAt}); startMatch({seed:seed,startAt:startAt}); };
+    var hint=el('d2-lobby-hint'); if(hint) hint.textContent=ready?('Ready — Amber '+aN+' · Red '+bN+'. Anyone can press Start.'):(T.team?('Waiting for the other side… (Amber '+aN+' · Red '+bN+')'):'Pick a side to join. (Amber '+aN+' · Red '+bN+')'); }
+  window.d2PickTeam=function(t){ if(T.team!==t && sideCount(t)>=2){ var h=el('d2-lobby-hint'); if(h) h.textContent=(t==='a'?'Amber':'Red')+' is full (2 max).'; return; } T.team=t; sendJoin(); renderLobby(); try{ sfx('rot'); }catch(e){} };
+  function rosterPlayers(){ var out=[{id:String(T.me),name:T.name,team:T.team}]; for(var k in T.peers){ if(T.peers[k].team) out.push({id:String(k),name:T.peers[k].name||k,team:T.peers[k].team}); } return out; }
+  function launchTeam(p){ if(!p||!p.mid||T.phase==='handoff') return; T.phase='handoff'; var o=el('d2-ov'); if(o) o.classList.remove('on'); try{ if(window.tetCloseRanking) window.tetCloseRanking(); }catch(e){} try{ if(window.tetBeginTeam2v2) window.tetBeginTeam2v2(p.mid,p.seed,p.players); }catch(e){} }
+  window.d2StartLobby=function(){ if(!T.team)return; if(!(sideCount('a')>0 && sideCount('b')>0))return; var mid='d2t'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); var pl=rosterPlayers(); bc('go2',{mid:mid,seed:mid,players:pl}); launchTeam({mid:mid,seed:mid,players:pl}); };
 
   /* ---------- invitee popup ---------- */
   function onInv(p){ if(!p)return; var A=api(); if(String(p.from)===String(A?A.eid():''))return;
@@ -28339,7 +28418,7 @@ window.EB_UNITS_MORE3 = [
     scene('d2-match'); spawn(); drawMe(); renderStrip(); updateScore(); warn(); try{ if(api())api().ac(); }catch(e){} sfx('go');
     if(T.stT) clearInterval(T.stT); T.stT=setInterval(sendState,350);
     T.raf=requestAnimationFrame(loop); }
-  function teamName(t){ var mem=lobbyMembers(t); if(!mem.length) return t==='a'?'Blue':'Red'; return mem.map(function(m){ return m.you?'You':m.name; }).join(' & '); }
+  function teamName(t){ var mem=lobbyMembers(t); if(!mem.length) return t==='a'?'Amber':'Red'; return mem.map(function(m){ return m.you?'You':m.name; }).join(' & '); }
   function loop(t){ if(!T.playing){ return; } if(!T.lastT) T.lastT=t; var dt=t-T.lastT; T.lastT=t; T.dropAcc+=dt;
     if(Date.now()>=T.end){ finish(); return; }
     while(T.dropAcc>=T.dropMs){ T.dropAcc-=T.dropMs; if(T.cur&&!collide(T.cur.m,T.cur.x,T.cur.y+1)){ T.cur.y++; T.landed=false; } else { if(T.cur&&!T.landed){ T.landed=true; T.lockT=Date.now(); } break; } }
@@ -28354,7 +28433,7 @@ window.EB_UNITS_MORE3 = [
     var meWon=(w===T.team);
     el('d2-win').className='d2-win '+w;
     el('d2-win').textContent=(w==='tie')?"IT'S A TIE!":((w==='a'?'BLUE':'RED')+' WINS!'+(meWon?' 🎉':''));
-    el('d2-fin').innerHTML='<span style="color:#6ea8ff">'+esc(teamName('a'))+' · '+teamKO('a')+' KO · '+teamScore('a').toLocaleString()+' pts</span> &nbsp;—&nbsp; <span style="color:#ff7a4d">'+esc(teamName('b'))+' · '+teamKO('b')+' KO · '+teamScore('b').toLocaleString()+' pts</span>';
+    el('d2-fin').innerHTML='<span style="color:#ffb020">'+esc(teamName('a'))+' · '+teamKO('a')+' KO · '+teamScore('a').toLocaleString()+' pts</span> &nbsp;—&nbsp; <span style="color:#ef3e2e">'+esc(teamName('b'))+' · '+teamKO('b')+' KO · '+teamScore('b').toLocaleString()+' pts</span>';
     var a=all(),best=null; for(var k in a){ if(!best||(a[k].score||0)>(best.score||0)) best=a[k]; }
     if(best&&best.score>0){ el('d2-mvp').style.display=''; el('d2-mvp').innerHTML='⭐ MVP · <b style="color:#ff7a29">'+esc(best.name||'')+'</b> — '+(best.score||0).toLocaleString()+' pts'; }
     scene('d2-end'); sfx(w==='tie'?'go':(meWon?'win':'lose')); }
