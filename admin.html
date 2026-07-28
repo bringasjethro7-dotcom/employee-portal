@@ -2034,14 +2034,16 @@ async function loadDashboard(opts){
     var R=await Promise.all([
       jGet(API+'?action=get_leave_requests').then(function(r){return r.json();}).catch(function(){return {};}),
       jGet(API+'?action=get_coe_requests').then(function(r){return r.json();}).catch(function(){return {};}),
-      jGet(API+'?action=redeem_list&status=pending').then(function(r){return r.json();}).catch(function(){return {};})
+      jGet(API+'?action=redeem_list&status=pending').then(function(r){return r.json();}).catch(function(){return {};}),
+      jGet(API+'?action=lead_demerit_list').then(function(r){return r.json();}).catch(function(){return {};})
     ]);
     var leave=(R[0].requests||[]).filter(function(r){return (r.status||'pending')==='pending';});
     var coe=(R[1].requests||[]).filter(function(r){return (r.status||'pending').toLowerCase()==='pending';});
     var redeem=(R[2].requests||[]).filter(function(r){return (r.status||'pending').toLowerCase()==='pending';});
+    var demq=(R[3].requests||[]);
     setDashCount('dc-leave', leave.length);
     setDashCount('dc-coe', coe.length);
-    var total=leave.length+coe.length+redeem.length;
+    var total=leave.length+coe.length+redeem.length+demq.length;
     var totEl=document.getElementById('dash-total'); if(totEl) totEl.textContent = total ? '· '+total+' pending' : '';
     var badge=document.getElementById('dash-badge'); if(badge){ if(total){ badge.style.display='block'; badge.textContent=total; } else badge.style.display='none'; }
     // Ring when a NEW request arrives (count went up) — not on first load or when clearing
@@ -2058,6 +2060,8 @@ async function loadDashboard(opts){
       actions:'<button class="bsm edit" onclick="dashAct(this,\'?action=update_coe_status&row='+r._row+'&status=approved\',\'COE approved\')">Approve</button><button class="bsm danger" onclick="dashAct(this,\'?action=update_coe_status&row='+r._row+'&status=rejected\',\'COE rejected\')">Reject</button>'}); });
     redeem.forEach(function(r){ items.push({chip:'🎁 Redeem',cls:'chip-coe',name:r.full_name||r.employee_id,detail:(r.points||0)+' pts (₱'+(((r.points||0)/3).toFixed(2))+') · '+(r.type||'')+(r.detail?(' · '+r.detail):''),
       actions:'<button class="bsm edit" onclick="dashRedeem(this,\''+r.id+'\',\'approve\')">Approve</button><button class="bsm danger" onclick="dashRedeem(this,\''+r.id+'\',\'reject\')">Reject</button>'}); });
+    demq.forEach(function(r){ items.push({chip:'⚠️ Demerit',cls:'chip-leave',name:r.full_name||r.employee_id,detail:(r.infraction||'')+' · '+(r.points||0)+' pt'+((r.points==1)?'':'s')+' · by '+(r.by||'lead')+(r.note?(' · “'+r.note+'”'):''),
+      actions:'<button class="bsm edit" onclick="dashLeadDem(this,\''+r.id+'\',\''+encodeURIComponent(r.employee_id||'')+'\',\'approve\')">Approve</button><button class="bsm danger" onclick="dashLeadDem(this,\''+r.id+'\',\''+encodeURIComponent(r.employee_id||'')+'\',\'reject\')">Reject</button>'}); });
     if(!items.length){ list.innerHTML='<div class="es" style="padding:2.5rem;text-align:center;font-size:14px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>All caught up — no pending requests.</div>'; return; }
     list.innerHTML=items.map(function(it){
       return '<div class="dash-item"><span class="dash-chip '+it.cls+'">'+it.chip+'</span>'+
@@ -2081,6 +2085,13 @@ function dashRedeem(btn, id, action){
   var it=_dashItem(btn); _dashDim(it);
   fetch(API+'?action=redeem_resolve&id='+encodeURIComponent(id)+'&action='+action+'&by=Admin&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
     if(d && d.ok){ jBust(); if(it) it.remove(); if(typeof toast==='function') toast('Redemption '+(action==='approve'?'approved — points deducted.':'rejected.')); _dashResync(); }
+    else { _dashUndim(it); if(typeof toast==='function') toast('Could not '+action+((d&&d.error)?(': '+d.error):'.')); }
+  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Network error.'); });
+}
+function dashLeadDem(btn, id, empId, action){
+  var it=_dashItem(btn); _dashDim(it);
+  fetch(API+'?action=lead_demerit_resolve&id='+encodeURIComponent(id)+'&action='+action+'&employee_id='+empId+'&by=Admin&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+    if(d && d.ok){ jBust(); if(it) it.remove(); if(typeof toast==='function') toast('Demerit '+(action==='approve'?'approved — it now counts and the VA was notified.':'rejected — discarded.')); _dashResync(); }
     else { _dashUndim(it); if(typeof toast==='function') toast('Could not '+action+((d&&d.error)?(': '+d.error):'.')); }
   }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Network error.'); });
 }
