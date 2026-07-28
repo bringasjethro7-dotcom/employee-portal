@@ -4859,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui153</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui154</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -16493,6 +16493,7 @@ body.light .jul4-lbscore{color:#059669}
 
 <div id="tet-bigcount"><div class="bc-ring"></div><div class="bc-num" id="bc-num">3</div></div>
 <canvas id="tet-confetti"></canvas>
+<canvas id="tet-throw"></canvas>
 
 <div id="tet-result" style="display:none;position:fixed;inset:0;z-index:9600;background:rgba(5,8,20,.86);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
   <div style="width:410px;max-width:100%;background:radial-gradient(120% 90% at 50% 0%,#16203c 0%,#0c1223 60%,#080d19 100%);border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:26px 24px;text-align:center;color:#1a1a1a;box-shadow:0 40px 120px rgba(0,0,0,.7);">
@@ -17949,6 +17950,7 @@ body.light .jul4-lbscore{color:#059669}
 
   /* Confetti */
   #tet-confetti{position:fixed;inset:0;z-index:9650;pointer-events:none;display:none}
+  #tet-throw{position:fixed;inset:0;z-index:9640;pointer-events:none;display:block}
   /* Result modal trophy + glow */
   @keyframes trBounce{0%{transform:scale(0) rotate(-20deg)}55%{transform:scale(1.25) rotate(8deg)}75%{transform:scale(.92) rotate(-4deg)}100%{transform:scale(1) rotate(0)}}
   #tet-result .tr-win #tr-emoji{display:inline-block;animation:trBounce .7s cubic-bezier(.2,1.4,.3,1) both;filter:drop-shadow(0 0 22px rgba(251,191,36,.8))}
@@ -18612,7 +18614,7 @@ body.light .jul4-lbscore{color:#059669}
     // match realtime channel
     chan=supaClient.channel('tetris-'+M.matchId,{config:{broadcast:{self:false}}})
       .on('broadcast',{event:'state'}, function(p){ if(M) onOppState(p.payload); })
-      .on('broadcast',{event:'attack'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.pendingGarbage=Math.min(PENDING_CAP,M.pendingGarbage+(p.payload.lines||0)); updateIncoming(); try{ sfxTick(); }catch(e){} } })
+      .on('broadcast',{event:'attack'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.pendingGarbage=Math.min(PENDING_CAP,M.pendingGarbage+(p.payload.lines||0)); updateIncoming(); try{ boardRecv(); }catch(e){} try{ sfxTick(); }catch(e){} } })
       .on('broadcast',{event:'over'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())) onOppOver(p.payload); })
       .on('broadcast',{event:'ko'}, function(p){ if(M && p.payload && String(p.payload.from)!==String(eid())){ M.oppKos=p.payload.kos||0; if(p.payload.score!=null) M.oppScore=p.payload.score; updateKoDisplay(); if(p.payload.elim) onOppOver(p.payload); } })
       // ── READY handshake: neither side starts its 3-2-1 until BOTH players are in the
@@ -18709,6 +18711,47 @@ body.light .jul4-lbscore{color:#059669}
   function boardRecv(){ var fr=_meFrame(); if(!fr) return; fr.classList.remove('recv'); void fr.offsetWidth; fr.classList.add('recv'); }
   function koStamp(){ var e=el('tet-koflash'); if(!e) return; e.classList.remove('show'); void e.offsetWidth; e.classList.add('show'); try{ voiceKO(); }catch(_){} }
   function attackPop(n){ var e=el('tet-sent'); if(!e||n<=0) return; e.textContent='＋'+n+' SENT'; e.classList.remove('show'); void e.offsetWidth; e.classList.add('show'); }
+  // ── 🔥 GARBAGE-THROW ANIMATION: molten blocks arc from your board to the target board ──
+  var _thFx=[], _thRAF=null;
+  function _rrect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function tetThrowGarbage(n, targetEl){
+    try{
+      var cv=el('tet-throw'); var src=el('tet-me'); if(!cv||!src||n<=0) return;
+      var dpr=Math.min(2,window.devicePixelRatio||1);
+      var W2=Math.floor(innerWidth*dpr), H2=Math.floor(innerHeight*dpr);
+      if(cv.width!==W2||cv.height!==H2){ cv.width=W2; cv.height=H2; cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px'; }
+      var sr=src.getBoundingClientRect(); var sx=(sr.left+sr.right)/2*dpr, sy=sr.top*dpr+ (sr.height*0.25)*dpr;
+      var tx,ty; if(targetEl&&targetEl.getBoundingClientRect){ var tr=targetEl.getBoundingClientRect(); tx=(tr.left+tr.right)/2*dpr; ty=(tr.top+tr.bottom)/2*dpr; }
+      else { tx=W2+70*dpr; ty=sy; }
+      var count=Math.min(9, Math.max(1,n)); var now=performance.now();
+      for(var i=0;i<count;i++){
+        var up=(120+Math.random()*150)*dpr;
+        _thFx.push({ t0:now+i*42, dur:400+Math.random()*180,
+          sx:sx+(Math.random()-0.5)*36*dpr, sy:sy+(Math.random()-0.5)*30*dpr,
+          mx:(sx+tx)/2+(Math.random()-0.5)*90*dpr, my:Math.min(sy,ty)-up,
+          tx:tx+(Math.random()-0.5)*46*dpr, ty:ty+(Math.random()-0.5)*46*dpr,
+          rot:Math.random()*6.28, vr:(Math.random()-0.5)*7, sz:(13+Math.random()*7)*dpr, dpr:dpr });
+      }
+      if(!_thRAF) _thRAF=requestAnimationFrame(_thStep);
+    }catch(e){}
+  }
+  function _thStep(ts){
+    var cv=el('tet-throw'); if(!cv){ _thRAF=null; return; }
+    var ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height); var alive=false;
+    for(var i=0;i<_thFx.length;i++){ var p=_thFx[i]; var e=(ts-p.t0)/p.dur;
+      if(e<0){ alive=true; continue; } if(e>1) continue; alive=true;
+      var u=1-e; var x=u*u*p.sx+2*u*e*p.mx+e*e*p.tx; var y=u*u*p.sy+2*u*e*p.my+e*e*p.ty;
+      var sc=1-0.28*e; var a=e<0.82?1:Math.max(0,1-(e-0.82)/0.18); var s=p.sz*sc, r=s*0.24;
+      ctx.save(); ctx.globalAlpha=a; ctx.translate(x,y); ctx.rotate(p.rot+p.vr*e);
+      ctx.shadowColor='rgba(255,120,40,0.9)'; ctx.shadowBlur=15*p.dpr;
+      var g=ctx.createLinearGradient(-s/2,-s/2,s/2,s/2); g.addColorStop(0,'#ffe0ad'); g.addColorStop(0.5,'#ff7a1a'); g.addColorStop(1,'#c62b06');
+      ctx.fillStyle=g; _rrect(ctx,-s/2,-s/2,s,s,r); ctx.fill();
+      ctx.shadowBlur=0; ctx.globalAlpha=a*0.5; ctx.fillStyle='rgba(255,240,210,.7)'; _rrect(ctx,-s/2+2*p.dpr,-s/2+2*p.dpr,s-4*p.dpr,Math.max(1,s*0.16),r*0.5); ctx.fill();
+      ctx.restore();
+    }
+    _thFx=_thFx.filter(function(p){ return (ts-p.t0)/p.dur <= 1; });
+    if(alive){ _thRAF=requestAnimationFrame(_thStep); } else { ctx.clearRect(0,0,cv.width,cv.height); _thRAF=null; }
+  }
   function collide(m,x,y){ for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(!m[r][c]) continue; var gx=x+c, gy=y+r; if(gx<0||gx>=W||gy>=H) return true; if(gy>=0 && M.grid[gy][gx]) return true; } } return false; }
   function rotCW(m){ var R=m.length, C=m[0].length; var o=[]; for(var c=0;c<C;c++){ o.push([]); for(var r=R-1;r>=0;r--){ o[c].push(m[r][c]); } } return o; }
   function merge(){ var m=M.cur.m; for(var r=0;r<m.length;r++){ for(var c=0;c<m[r].length;c++){ if(m[r][c]){ var gy=M.cur.y+r, gx=M.cur.x+c; if(gy>=0&&gy<H&&gx>=0&&gx<W) M.grid[gy][gx]=m[r][c]; } } } }
@@ -19084,15 +19127,17 @@ body.light .jul4-lbscore{color:#059669}
   function sendAttack(n){
     if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='cheese'||M.mode==='survival'||M.mode==='zen') return;   // solo modes have no opponent
     attackPop(n);   // green "＋N SENT" pop on my board
-    if(M.mode==='training'){ if(BOT){ BOT.pending+=n; } return; }
+    if(M.mode==='training'){ if(BOT){ BOT.pending+=n; } tetThrowGarbage(n, el('tet-opp')); return; }
     if(M.mode==='tourney'){
       var others=tourneyAliveIds().filter(function(id){ return id!==eid(); });
       if(M.isTeam && M.teams){ var _mt=M.teams[String(eid())]; others=others.filter(function(id){ return M.teams[String(id)] && M.teams[String(id)]!==_mt; }); }   // 2v2: only bury the enemy team
       if(!others.length || !M.tchan) return;
       var to=others[Math.floor(Math.random()*others.length)];
+      tetThrowGarbage(n, el('tacanvas-'+to));   // arc the garbage at that foe's board
       try{ M.tchan.send({type:'broadcast',event:'tattack',payload:{tid:M.matchId,from:eid(),to:to,lines:n}}); }catch(e){}
       return;
     }
+    tetThrowGarbage(n, el('tet-opp'));
     try{ chan.send({type:'broadcast',event:'attack',payload:{from:eid(),lines:n}}); }catch(e){}
   }
   function sendState(){
@@ -19907,7 +19952,7 @@ body.light .jul4-lbscore{color:#059669}
     renderArena();
   }
   function onTAttack(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId) return;
-    if(String(p.to)===String(eid()) && M.alive){ M.pendingGarbage=Math.min(PENDING_CAP,M.pendingGarbage+(p.lines||0)); updateIncoming(); try{ sfxTick(); }catch(e){} }
+    if(String(p.to)===String(eid()) && M.alive){ M.pendingGarbage=Math.min(PENDING_CAP,M.pendingGarbage+(p.lines||0)); updateIncoming(); try{ boardRecv(); }catch(e){} try{ sfxTick(); }catch(e){} }
   }
   function onTOver(p){ if(!M||M.mode!=='tourney'||!p||p.tid!==M.matchId) return;
     var pl=M.players[p.from]; if(pl){ pl.alive=false; pl.score=p.score||pl.score; pl.place=p.place||pl.place; }
