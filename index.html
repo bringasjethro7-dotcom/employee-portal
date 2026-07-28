@@ -4859,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui151</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui152</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -28263,6 +28263,7 @@ window.EB_UNITS_MORE3 = [
           '<div class="d2-card a pick" id="d2-card-a" onclick="d2PickTeam(\'a\')"><div class="d2-ch">🟡 Amber</div><div id="d2-w-a"></div></div>'+
           '<div class="d2-card b pick" id="d2-card-b" onclick="d2PickTeam(\'b\')"><div class="d2-ch">🔴 Red</div><div id="d2-w-b"></div></div>'+
         '</div>'+
+        '<div id="d2-lobby-wait" style="min-height:18px;margin:4px auto 2px;text-align:center;font-size:12.5px;color:#e0a878;max-width:520px;"></div>'+
         '<button class="d2-go" id="d2-startbtn" onclick="d2StartLobby()" disabled>Start match</button>'+
         '<div class="d2-hint" id="d2-lobby-hint">An invite was sent to everyone online. Pick a side and wait for players.</div>'+
       '</div>'+
@@ -28381,7 +28382,10 @@ window.EB_UNITS_MORE3 = [
 
   /* ---------- lobby (open join, tournament-style) ---------- */
   function openLobby(announce){ ensureUI(); ensureLobby(); T.phase='lobby'; T.started=false; T.team=null; T.peers={};
-    if(!T.ch) connectRoom(); el('d2-ov').classList.add('on'); scene('d2-lobby'); renderLobby(); try{ if(api())api().ac(); }catch(e){}
+    if(!T.ch) connectRoom(); else sendJoin();   // reopening: re-announce so the room re-syncs the roster
+    el('d2-ov').classList.add('on'); scene('d2-lobby'); renderLobby(); try{ if(api())api().ac(); }catch(e){}
+    // keep re-announcing our presence for a few seconds so a late subscriber can't miss us
+    var tries=0; (function ping(){ if(T.phase!=='lobby') return; sendJoin(); if(++tries<5) setTimeout(ping, 1400); })();
     if(announce) window.d2Announce('2v2'); }
   window.d2Open=function(){ openLobby(true); };
   function sideCount(t){ var n=0; if(T.team===t) n++; for(var k in T.peers){ if(T.peers[k].team===t) n++; } return n; }
@@ -28389,8 +28393,11 @@ window.EB_UNITS_MORE3 = [
   function renderLobby(){ ['a','b'].forEach(function(t){ var host=el('d2-w-'+t); if(!host)return; var mem=lobbyMembers(t);
       host.innerHTML=mem.length?mem.map(function(m){ return '<div class="d2-mem"><span class="d2-dot in"></span>'+esc(m.name)+(m.you?' <b style="color:#ffb877">(you)</b>':'')+'</div>'; }).join(''):'<div class="d2-mem" style="opacity:.45"><span class="d2-dot"></span>Empty</div>'; });
     var ca=el('d2-card-a'), cb=el('d2-card-b'); if(ca) ca.classList.toggle('mine',T.team==='a'); if(cb) cb.classList.toggle('mine',T.team==='b');
-    var aN=sideCount('a'), bN=sideCount('b'); var ready=!!T.team && aN>0 && bN>0; var b=el('d2-startbtn'); if(b) b.disabled=!ready;
-    var hint=el('d2-lobby-hint'); if(hint) hint.textContent=ready?('Ready — Amber '+aN+' · Red '+bN+'. Anyone can press Start.'):(T.team?('Waiting for the other side… (Amber '+aN+' · Red '+bN+')'):'Pick a side to join. (Amber '+aN+' · Red '+bN+')'); }
+    // Everyone who has joined the room but hasn't chosen a side yet — so a joiner is always visible.
+    var unpicked=[]; if(!T.team) unpicked.push(T.name+' (you)'); for(var k in T.peers){ if(!T.peers[k].team) unpicked.push(T.peers[k].name||k); }
+    var wait=el('d2-lobby-wait'); if(wait){ wait.innerHTML = unpicked.length ? ('🟢 <b>In the lobby, choosing a side:</b> '+unpicked.map(esc).join(' · ')) : ''; }
+    var aN=sideCount('a'), bN=sideCount('b'); var inRoom=1+Object.keys(T.peers).length; var ready=!!T.team && aN>0 && bN>0; var b=el('d2-startbtn'); if(b) b.disabled=!ready;
+    var hint=el('d2-lobby-hint'); if(hint) hint.textContent=ready?('Ready — Amber '+aN+' · Red '+bN+'. Anyone can press Start.'):(inRoom<2?'Waiting for players to join…':(T.team?('Waiting for the other side to fill — '+inRoom+' in the lobby (Amber '+aN+' · Red '+bN+')'):'Pick a side to join — '+inRoom+' in the lobby.')); }
   window.d2PickTeam=function(t){ if(T.team!==t && sideCount(t)>=2){ var h=el('d2-lobby-hint'); if(h) h.textContent=(t==='a'?'Amber':'Red')+' is full (2 max).'; return; } T.team=t; sendJoin(); renderLobby(); try{ sfx('rot'); }catch(e){} };
   function rosterPlayers(){ var out=[{id:String(T.me),name:T.name,team:T.team}]; for(var k in T.peers){ if(T.peers[k].team) out.push({id:String(k),name:T.peers[k].name||k,team:T.peers[k].team}); } return out; }
   function launchTeam(p){ if(!p||!p.mid||T.phase==='handoff') return; T.phase='handoff'; var o=el('d2-ov'); if(o) o.classList.remove('on'); try{ if(window.tetCloseRanking) window.tetCloseRanking(); }catch(e){} try{ if(window.tetBeginTeam2v2) window.tetBeginTeam2v2(p.mid,p.seed,p.players); }catch(e){} }
