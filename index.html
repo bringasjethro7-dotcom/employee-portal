@@ -4859,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui128</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui132</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -16855,6 +16855,8 @@ body.light .jul4-lbscore{color:#059669}
     mask-image:linear-gradient(0deg,rgba(0,0,0,.95),rgba(0,0,0,.05)) !important;
     animation:emberRise 26s linear infinite !important; }
   @keyframes emberRise{ from{transform:translate3d(0,0,0)} to{transform:translate3d(-100px,-220px,0)} }
+  #tet-inf-bg{ position:absolute; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; display:block; }
+  #tet-rank-modal .rk-card::after{ display:none !important; }
 
   /* ══════════════════ TRIVIA CHAMPIONS — its own identity ══════════════════
      Tetris is orange/gold and made of blocks. Trivia is violet/indigo and made
@@ -17102,12 +17104,13 @@ body.light .jul4-lbscore{color:#059669}
 </style>
 <div id="tet-rank-modal" class="champ-modal">
   <div class="rk-card">
+    <canvas id="tet-inf-bg" aria-hidden="true"></canvas>
     <div class="rk-head">
       <div class="rk-title">Tetris Dashboard<small>Your profile · play modes · champions board <b id="tet-build" style="color:#5a6478;font-weight:700;"></b></small></div>
       <button class="rk-x" onclick="tetCloseRanking()">✕</button>
     </div>
     <div class="rk-scroll">
-      <div id="tet-hub-ad" onclick="tetOpenDesigns()" style="cursor:pointer;margin:0 0 18px;border-radius:20px;overflow:hidden;position:relative;background:linear-gradient(115deg,#170e2b 0%,#3a1226 42%,#b3350f 78%,#ff7a1a 100%);box-shadow:0 20px 46px -20px rgba(255,107,26,.95);border:1px solid rgba(255,255,255,.14);">
+      <div id="tet-hub-ad" onclick="tetOpenDesigns()" style="cursor:pointer;margin:0 auto 18px;border-radius:20px;overflow:hidden;position:relative;background:linear-gradient(115deg,#170e2b 0%,#3a1226 42%,#b3350f 78%,#ff7a1a 100%);box-shadow:0 20px 46px -20px rgba(255,107,26,.95);border:1px solid rgba(255,255,255,.14);">
         <div style="position:relative;z-index:1;display:flex;align-items:center;gap:20px;padding:22px 26px;flex-wrap:wrap;">
           <div style="flex:1;min-width:220px;color:#fff;">
             <span style="display:inline-block;background:#ffd54a;color:#3a1226;font-weight:800;font-size:11px;letter-spacing:1.5px;padding:4px 11px;border-radius:20px;margin-bottom:9px;">🔥 NEW DROP</span>
@@ -20834,21 +20837,50 @@ body.light .jul4-lbscore{color:#059669}
   }
 
   // ════════════════ ALL-TIME TETRIS RANKINGS (premium dashboard) ════════════════
-  var _infAmb=null;
-  function startInfernoAmbience(){ try{ var a=(typeof ac==='function')?ac():null; if(!a||_infAmb) return;
-    var out=a.createGain(); out.gain.value=0.0001; out.connect(a.destination); out.gain.setTargetAtTime(0.05,a.currentTime,1.4);
+  var _infAmb=null, _infBg=null;
+  function startInfernoBg(){ try{
+    var card=document.querySelector('#tet-rank-modal .rk-card'), cv=el('tet-inf-bg'); if(!card||!cv||_infBg) return;
+    var ctx=cv.getContext('2d'), dpr=Math.min(2,window.devicePixelRatio||1);
+    function size(){ var r=card.getBoundingClientRect(); cv.width=Math.max(2,Math.round(r.width*dpr)); cv.height=Math.max(2,Math.round(r.height*dpr)); }
+    size();
+    var spr=document.createElement('canvas'); spr.width=spr.height=32; var sc=spr.getContext('2d'); var sg=sc.createRadialGradient(16,16,0,16,16,16); sg.addColorStop(0,'rgba(255,228,170,1)'); sg.addColorStop(0.35,'rgba(255,120,30,.85)'); sg.addColorStop(1,'rgba(255,40,0,0)'); sc.fillStyle=sg; sc.fillRect(0,0,32,32);
+    var em=[]; function reset(e,init){ e.x=Math.random()*cv.width; e.y=init?Math.random()*cv.height:cv.height+Math.random()*30*dpr; e.r=(0.8+Math.random()*2.4)*dpr; e.vy=-(0.25+Math.random()*1.0)*dpr; e.vx=(Math.random()-0.5)*0.5*dpr; e.life=0; e.max=160+Math.random()*180; e.br=0.4+Math.random()*0.6; return e; }
+    var N=Math.min(95,Math.round(cv.width/(14*dpr))); for(var i=0;i<N;i++) em.push(reset({},true));
+    var t0=performance.now();
+    function frame(t){ var m=el('tet-rank-modal'); if(!m||!m.classList.contains('open')){ _infBg=null; return; }
+      var tt=(t-t0)/1000, w=cv.width, h=cv.height;
+      var g=ctx.createLinearGradient(0,0,0,h); g.addColorStop(0,'#070302'); g.addColorStop(0.5,'#150705'); g.addColorStop(1,'#320c05'); ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+      var pulse=0.62+0.38*Math.sin(tt*1.25);
+      var lg=ctx.createRadialGradient(w*0.5,h*1.05,10,w*0.5,h*1.05,h*0.85); lg.addColorStop(0,'rgba(255,90,20,'+(0.44*pulse)+')'); lg.addColorStop(0.5,'rgba(190,40,10,'+(0.18*pulse)+')'); lg.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=lg; ctx.fillRect(0,0,w,h);
+      var lg2=ctx.createRadialGradient(w*0.16,h*1.02,10,w*0.16,h*1.02,h*0.6); lg2.addColorStop(0,'rgba(255,140,30,'+(0.22*pulse)+')'); lg2.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=lg2; ctx.fillRect(0,0,w,h);
+      var lg3=ctx.createRadialGradient(w*0.84,h*1.0,10,w*0.84,h*1.0,h*0.55); lg3.addColorStop(0,'rgba(255,70,15,'+(0.2*(1.24-pulse))+')'); lg3.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=lg3; ctx.fillRect(0,0,w,h);
+      ctx.globalCompositeOperation='lighter';
+      for(var k=0;k<em.length;k++){ var e=em[k]; e.x+=e.vx; e.y+=e.vy; e.vy-=0.004*dpr; e.vx+=Math.sin(tt*2+e.y*0.01)*0.02*dpr; e.life++; if(e.y<-20||e.life>e.max){ reset(e,false); continue; } var al=Math.max(0,1-e.life/e.max)*e.br*(0.7+0.3*Math.sin(tt*9+e.x)); if(al<=0)continue; ctx.globalAlpha=al; var d=e.r*7; ctx.drawImage(spr,e.x-d/2,e.y-d/2,d,d); }
+      ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
+      _infBg=requestAnimationFrame(frame);
+    }
+    if(!startInfernoBg._sz){ startInfernoBg._sz=true; window.addEventListener('resize',function(){ if(_infBg) size(); }); }
+    _infBg=requestAnimationFrame(frame);
+  }catch(e){} }
+  function stopInfernoBg(){ if(_infBg){ try{ cancelAnimationFrame(_infBg); }catch(e){} _infBg=null; } }
+  function startInfernoAmbience(){ try{ var a=(typeof ac==='function')?ac():null; if(!a||_infAmb) return; if(a.state==='suspended'){ try{ a.resume(); }catch(e){} }
+    var out=a.createGain(); out.gain.value=0.0001; out.connect(a.destination); out.gain.setTargetAtTime(0.04,a.currentTime,1.8);
+    // warm low drone — two soft sines an octave apart, gently breathing
     var o1=a.createOscillator(),o2=a.createOscillator(),lp=a.createBiquadFilter(),dg=a.createGain();
-    o1.type='sawtooth'; o1.frequency.value=52; o2.type='sine'; o2.frequency.value=54.6; lp.type='lowpass'; lp.frequency.value=170; lp.Q.value=0.7; dg.gain.value=0.5;
+    o1.type='sine'; o1.frequency.value=46; o2.type='sine'; o2.frequency.value=69; lp.type='lowpass'; lp.frequency.value=240; lp.Q.value=0.3; dg.gain.value=0.42;
     o1.connect(lp); o2.connect(lp); lp.connect(dg); dg.connect(out);
-    var lfo=a.createOscillator(),lfoG=a.createGain(); lfo.frequency.value=0.12; lfoG.gain.value=0.28; lfo.connect(lfoG); lfoG.connect(dg.gain);
-    var nb=a.createBuffer(1,a.sampleRate*2,a.sampleRate),ch=nb.getChannelData(0); for(var i=0;i<ch.length;i++) ch[i]=Math.random()*2-1;
-    var noise=a.createBufferSource(); noise.buffer=nb; noise.loop=true; var bp=a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=820; bp.Q.value=0.6; var ng=a.createGain(); ng.gain.value=0.028; noise.connect(bp); bp.connect(ng); ng.connect(out);
+    var lfo=a.createOscillator(),lfoG=a.createGain(); lfo.type='sine'; lfo.frequency.value=0.09; lfoG.gain.value=0.16; lfo.connect(lfoG); lfoG.connect(dg.gain);
+    // warm fire bed — brown noise through a lowpass (soft roar, no harsh hiss)
+    var len=Math.floor(a.sampleRate*2), nb=a.createBuffer(1,len,a.sampleRate), ch=nb.getChannelData(0), lastN=0;
+    for(var i=0;i<len;i++){ var wn=Math.random()*2-1; lastN=(lastN+0.02*wn)/1.02; ch[i]=Math.max(-1,Math.min(1,lastN*3.2)); }
+    var noise=a.createBufferSource(); noise.buffer=nb; noise.loop=true; var flp=a.createBiquadFilter(); flp.type='lowpass'; flp.frequency.value=520; flp.Q.value=0.2; var ng=a.createGain(); ng.gain.value=0.05; noise.connect(flp); flp.connect(ng); ng.connect(out);
     o1.start(); o2.start(); lfo.start(); noise.start();
-    var crk=setInterval(function(){ try{ var t=a.currentTime,n2=a.createBufferSource(),b2=a.createBuffer(1,Math.floor(a.sampleRate*0.09),a.sampleRate),c2=b2.getChannelData(0); for(var j=0;j<c2.length;j++) c2[j]=(Math.random()*2-1)*Math.pow(1-j/c2.length,2); n2.buffer=b2; var f2=a.createBiquadFilter(); f2.type='highpass'; f2.frequency.value=1700; var g2=a.createGain(); g2.gain.setValueAtTime(0.05+Math.random()*0.05,t); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.09); n2.connect(f2); f2.connect(g2); g2.connect(out); n2.start(t); n2.stop(t+0.1); }catch(e){} }, 360+Math.floor(Math.random()*420));
+    // occasional soft ember pop
+    var crk=setInterval(function(){ try{ var t=a.currentTime, dur=0.06+Math.random()*0.05, L=Math.floor(a.sampleRate*dur), b2=a.createBuffer(1,L,a.sampleRate), c2=b2.getChannelData(0); for(var j=0;j<L;j++) c2[j]=(Math.random()*2-1)*Math.pow(1-j/L,3); var n2=a.createBufferSource(); n2.buffer=b2; var f2=a.createBiquadFilter(); f2.type='bandpass'; f2.frequency.value=600+Math.random()*700; f2.Q.value=1.1; var g2=a.createGain(); g2.gain.setValueAtTime(0.0001,t); g2.gain.linearRampToValueAtTime(0.04+Math.random()*0.03,t+0.006); g2.gain.exponentialRampToValueAtTime(0.0001,t+dur); n2.connect(f2); f2.connect(g2); g2.connect(out); n2.start(t); n2.stop(t+dur+0.03); }catch(e){} }, 850+Math.floor(Math.random()*900));
     _infAmb={out:out,nodes:[o1,o2,lfo,noise],crk:crk,a:a};
   }catch(e){} }
   function stopInfernoAmbience(){ try{ var A=_infAmb; if(!A) return; _infAmb=null; clearInterval(A.crk); var a=A.a; A.out.gain.setTargetAtTime(0.0001,a.currentTime,0.35); setTimeout(function(){ A.nodes.forEach(function(n){ try{n.stop();}catch(e){} try{n.disconnect();}catch(e){} }); try{A.out.disconnect();}catch(e){} },700); }catch(e){} }
-  window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.classList.remove('open'); try{ stopInfernoAmbience(); }catch(e){} };
+  window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.classList.remove('open'); try{ stopInfernoAmbience(); }catch(e){} try{ stopInfernoBg(); }catch(e){} };
   function rkInitial(n){ n=String(n||'?').trim(); return (n.charAt(0)||'?').toUpperCase(); }
   function rkAvColor(rank){ return rank===1?'linear-gradient(135deg,#ffe08a,#f59e0b)':rank===2?'linear-gradient(135deg,#e6ecf5,#9aa7bd)':'linear-gradient(135deg,#f0b98a,#c77e46)'; }
   function rkRing(rank){ return rank===1?'#f59e0b':rank===2?'#9aa7bd':rank===3?'#c77e46':'rgba(255,255,255,.14)'; }
@@ -20950,6 +20982,7 @@ body.light .jul4-lbscore{color:#059669}
         '<div class="hp-tier" style="--tc:'+rc+';"><span class="hpt-star">★</span> Rank '+R.rank+' · <b>'+esc(R.tier)+(R.god?' 👑':'')+'</b></div>'+
         '<div class="hp-stars">'+starMeter(R)+'<em>'+esc(toNextLbl)+'</em></div>'+
         '<div class="hub-chips">'+
+          '<span class="hub-chip" style="background:linear-gradient(90deg,rgba(255,205,50,.22),rgba(255,150,20,.12));border-color:rgba(255,195,50,.55);color:#8a5a00;font-weight:800;">🪙 <b id="tet-hub-coins" style="color:#7a4e00;">'+((typeof _tetCos!=='undefined'&&_tetCos&&_tetCos.coins!=null)?Number(_tetCos.coins).toLocaleString():((typeof _tetWallet!=='undefined'&&_tetWallet&&_tetWallet.coins!=null)?Number(_tetWallet.coins).toLocaleString():'…'))+'</b> coins</span>'+
           '<span class="hub-chip"><b>'+Number(R.stars).toLocaleString()+'</b> ★ total</span>'+
           (rank?('<span class="hub-chip">#<b>'+rank+'</b> on team</span>'):'')+
           ((me&&(me.duel_wins>0||me.duel_losses>0))?('<span class="hub-chip" title="Duel win +5 ★ · loss -3 ★ (max +10 ★ per opponent per day)">Duels <b>'+(me.duel_wins||0)+'W</b>–<b>'+(me.duel_losses||0)+'L</b></span>'):'')+
@@ -21164,6 +21197,7 @@ body.light .jul4-lbscore{color:#059669}
     host.innerHTML = prog + card + go + rest + back;
   }
 
+  function _setTetCoins(n){ var v=Number(n||0); var a=el('tet-coins-lbl'); if(a) a.textContent=v.toLocaleString()+' coins'; var b=el('tet-hub-coins'); if(b) b.textContent=v.toLocaleString(); }
   // ── Block designs shop ──
   var _tetWallet=null;
   var _tetAdRAF=null,_tetAdLast=0;
@@ -21188,7 +21222,7 @@ body.light .jul4-lbscore{color:#059669}
     var host=el('tet-hub-themes'); if(!host) return;
     var owned=(w&&w.owned)||['classic'], equipped=(w&&w.equipped)||EQUIPPED, coins=(w&&w.coins!=null)?w.coins:0;
     var rating=(w&&w.rating!=null)?w.rating:0;
-    var lbl=el('tet-coins-lbl'); if(lbl) lbl.textContent=Number(coins).toLocaleString()+' coins';
+    _setTetCoins(coins);
     var ids=Object.keys(DESIGNS).filter(function(id){ return !DESIGNS[id].hidden; });   // retired cheap skins hidden from shop
     host.innerHTML=ids.map(function(id){
       var t=DESIGNS[id]; var own=owned.indexOf(id)>=0, on=(id===equipped);
@@ -21412,7 +21446,7 @@ body.light .jul4-lbscore{color:#059669}
   function renderCos(kind){
     var host=el('tet-cos-grid'); if(!host) return;
     var coins=(_tetCos&&_tetCos.coins!=null)?_tetCos.coins:0;
-    var lbl=el('tet-coins-lbl'); if(lbl) lbl.textContent=Number(coins).toLocaleString()+' coins';
+    _setTetCoins(coins);
     var hd=function(t){ return '<div style="grid-column:1/-1;font-size:10.5px;font-weight:800;color:#8a97b5;letter-spacing:.6px;text-transform:uppercase;">'+t+'</div>'; };
     if(kind==='flair'){
       host.innerHTML = hd('Avatar frames') + cosCardsHTML('frame') +
@@ -21484,10 +21518,24 @@ body.light .jul4-lbscore{color:#059669}
         var ch=d&&d.champion; if(!ch||!ch.employee_id){ host.innerHTML=''; return; }
         var mine=(String(ch.employee_id).toLowerCase()===String(eid()).toLowerCase());
         var when=String(ch.won_at||'').split(' ')[0]||'';
-        host.innerHTML='<div class="champ-show"><div class="cs-crown">👑</div>'+
-          '<div style="flex:1;min-width:0;"><div class="cs-lbl">Reigning champion</div>'+
-          '<div class="cs-name">'+esc(ch.full_name||ch.employee_id)+(mine?' <span style="color:#fbbf24;font-size:11px;">(you)</span>':'')+'</div>'+
-          '<div class="cs-sub">Won the grand final'+(when?(' · '+when):'')+'</div></div></div>';
+        var nm=esc(ch.full_name||ch.employee_id);
+        var ph=(typeof rkPhoto==='function')?rkPhoto(ch.employee_id):'';
+        var av=ph
+          ? '<img src="'+ph+'" alt="" style="width:66px;height:66px;border-radius:50%;object-fit:cover;border:3px solid #ffd54a;box-shadow:0 0 20px rgba(251,191,36,.75);position:relative;z-index:2;" onerror="this.style.display=\'none\';">'
+          : '<div style="width:66px;height:66px;border-radius:50%;background:#3a2a06;border:3px solid #ffd54a;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:24px;color:#ffd54a;">'+((typeof rkInitial==='function')?rkInitial(ch.full_name||''):'?')+'</div>';
+        host.innerHTML=
+          '<div style="position:relative;overflow:hidden;border-radius:18px;margin:2px 0 8px;background:linear-gradient(115deg,#4a3608 0%,#2a1e06 46%,#100b04 100%);border:1px solid rgba(251,191,36,.5);box-shadow:0 18px 46px -20px rgba(251,191,36,.7);">'+
+            '<div style="position:absolute;inset:0;background:radial-gradient(120% 90% at 12% 20%,rgba(251,191,36,.22),transparent 55%);pointer-events:none;"></div>'+
+            '<div style="position:relative;z-index:1;display:flex;align-items:center;gap:16px;padding:16px 20px;flex-wrap:wrap;">'+
+              '<div style="position:relative;flex:0 0 auto;">'+av+'<div style="position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:26px;filter:drop-shadow(0 0 9px rgba(251,191,36,.95));">👑</div></div>'+
+              '<div style="flex:1;min-width:180px;">'+
+                '<div style="font-size:10.5px;font-weight:800;letter-spacing:1.6px;color:#ffd54a;text-transform:uppercase;">🏆 Reigning Grand Final Champion</div>'+
+                '<div style="font-size:24px;font-weight:900;color:#fff;line-height:1.08;text-shadow:0 2px 12px rgba(0,0,0,.45);">'+nm+(mine?' <span style="color:#ffd54a;font-size:13px;">(you)</span>':'')+'</div>'+
+                '<div style="font-size:12px;color:#e0cf9f;margin-top:3px;">Won the grand final'+(when?(' · '+when):'')+' — wears the crown until next Sunday</div>'+
+              '</div>'+
+              '<div style="flex:0 0 auto;font-size:12px;font-weight:900;letter-spacing:.5px;color:#3a2a06;background:linear-gradient(90deg,#ffe27a,#ffb020);padding:8px 15px;border-radius:22px;box-shadow:0 8px 20px -8px rgba(251,191,36,.85);">CHAMPION</div>'+
+            '</div>'+
+          '</div>';
       }).catch(function(){ host.innerHTML=''; });
   }
 
@@ -21499,6 +21547,7 @@ body.light .jul4-lbscore{color:#059669}
     el('tet-rank-body').innerHTML='<div style="text-align:center;color:#6b7d90;padding:30px;">Loading…</div>';
     m.classList.add('open');
     try{ startTetAd(); }catch(_e){}
+    try{ startInfernoBg(); }catch(_e){}
     try{ ac(); sfxHubOpen(); }catch(_){}   // cute pop-in jingle
     try{ startInfernoAmbience(); }catch(_e){}
     fetch(APPS_SCRIPT_URL+'?action=tetris_ranking&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
