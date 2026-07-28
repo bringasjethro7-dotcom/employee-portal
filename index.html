@@ -4859,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui109</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui110</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -5909,12 +5909,29 @@ window.addEventListener('focus', _sessionBeat);
 // hasn't been updated yet, `bootstrap` is treated as an unknown action and returns the
 // plain employee record — so this is fully backward-compatible.
 var _boot = { at: 0, data: null };
+window._bootPromise = null;   // set at login: the in-flight one-shot bootstrap fetch
 function _bootTake(key){
   if (!_boot.data || (Date.now() - _boot.at) > 30000) return null;   // only fresh, only right after login
   var v = _boot.data[key];
   if (v === undefined || v === null) return null;
   _boot.data[key] = undefined;   // one-time use — manual refreshes always re-fetch live
   return v;
+}
+// Like _bootTake, but if the one-shot bootstrap is still in flight (it's fired in PARALLEL
+// with the fast `auth` call so the shell can render immediately), wait for it rather than
+// firing a duplicate live fetch. Returns the slice once, or null so the caller fetches live.
+async function _bootGet(key){
+  var v = _bootTake(key);
+  if (v !== null) return v;
+  if (window._bootPromise){
+    try {
+      var b = await window._bootPromise;
+      if (b && b.employee && _boot.data !== b) _boot = { at: Date.now(), data: b };
+    } catch(e){}
+    v = _bootTake(key);
+    if (v !== null) return v;
+  }
+  return null;
 }
 
 async function doLogin() {
@@ -5932,17 +5949,23 @@ async function doLogin() {
 
   try {
     const otp = ((document.getElementById('office-otp')||{}).value || '').trim();
-    const url = `${APPS_SCRIPT_URL}?action=bootstrap&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&device=${encodeURIComponent(_devId())}&otp=${encodeURIComponent(otp)}`;
-    const res  = await fetch(url);
+    const q = `id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&device=${encodeURIComponent(_devId())}&otp=${encodeURIComponent(otp)}`;
+    // Fire the HEAVY card-data bootstrap in parallel — the shell must not wait on it.
+    window._bootPromise = fetch(`${APPS_SCRIPT_URL}?action=bootstrap&${q}`)
+      .then(function(r){ return r.json(); }).catch(function(){ return null; });
+    // The FAST auth returns just the employee record (one sheet read) — enough to render the
+    // entire dashboard shell instantly. Card loaders pull their slices from _bootPromise.
+    _boot = { at: 0, data: null };
+    const res  = await fetch(`${APPS_SCRIPT_URL}?action=auth&${q}`);
     const raw  = await res.json();
 
-    // New backend → { employee, scorecard, notifications, ... }. Old backend → the plain
-    // employee object (bootstrap is an unknown action there). Handle both.
+    // New backend → { employee, ... }. Old backend (no `auth` action) → plain employee. Both work.
     let data;
-    if (raw && raw.employee) { data = raw.employee; _boot = { at: Date.now(), data: raw }; }
-    else                     { data = raw;          _boot = { at: 0, data: null }; }
+    if (raw && raw.employee) { data = raw.employee; }
+    else                     { data = raw; }
 
     if (data.error) {
+      window._bootPromise = null;
       if (data.error === 'OTP_REQUIRED' || data.error === 'OTP_INVALID') {
         revealOfficeCode(data.error === 'OTP_INVALID');     // office-presence gate — show the code step
       } else showError(
@@ -6147,10 +6170,11 @@ function loadMyQA(){
       }
       var sub=document.getElementById('myqa-sub'); if(sub){ var n=0; for(var j=1;j<=4;j++){ if(w[j]!==''&&w[j]!=null&&!isNaN(w[j])) n++; } sub.textContent=n+' of 4 weeks scored'; }
   };
-  var _cq=_bootTake('qa');
-  if(_cq){ _done(_cq); return; }
-  fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
-    .then(function(r){return r.json();}).then(_done).catch(function(){});
+  _bootGet('qa').then(function(_cq){
+    if(_cq){ _done(_cq); return; }
+    fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(_done).catch(function(){});
+  });
 }
 // ── DISPUTE modal (shared: QA week + demerit) ──
 var _qaDispFiles=[], _dispMode='qa', _dispDemId='';
@@ -6779,7 +6803,7 @@ function toggleNotif(ev){ if(ev) ev.stopPropagation(); var p=document.getElement
 async function loadNotifs(openRender){
   var id=_notifEmpId(); if(!id) return;
   try{
-    var d=_bootTake('notifications');
+    var d=await _bootGet('notifications');
     if(!d){ var r=await jGet(APPS_SCRIPT_URL+'?action=get_notifications&employee_id='+encodeURIComponent(id)+'&_='+Date.now()); d=await r.json(); }
     if(!d||!d.ok) return; _notifs=d.notifications||[];
     var b=document.getElementById('notif-badge'); if(b){ if(d.unread>0){ b.style.display=''; b.textContent=d.unread>99?'99+':d.unread; } else b.style.display='none'; }
@@ -7465,9 +7489,10 @@ function loadMyDemerits() {
   var totEl=document.getElementById('mydem-total'), tierEl=document.getElementById('mydem-tier'), listEl=document.getElementById('mydem-list');
   if (!listEl) return;
   listEl.innerHTML='<div class="cfy-no-entries" style="padding:10px 0;font-size:12.5px;">Loading…</div>';
-  var _cd=_bootTake('demerits');
-  var _demP = _cd ? Promise.resolve(_cd)
-                  : jGet(APPS_SCRIPT_URL + '?action=get_demerits&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;});
+  var _demP = _bootGet('demerits').then(function(_cd){
+    return _cd ? _cd
+               : jGet(APPS_SCRIPT_URL + '?action=get_demerits&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;});
+  });
   Promise.all([
     _demP,
     fetch(APPS_SCRIPT_URL + '?action=get_demerit_disputes&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now()).then(function(r){ return r.json(); }).catch(function(){return null;})
@@ -7540,7 +7565,7 @@ async function loadScorecard() {
   document.getElementById('sc-vp-badge').textContent = '0/5 max';
 
   try {
-    var data = _bootTake('scorecard');   // first (current-month) load only; nulls out after
+    var data = await _bootGet('scorecard');   // first (current-month) load only; nulls out after
     if (!data) {
       var url = APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(scEmpId) + '&month=' + encodeURIComponent(key);
       var res  = await fetch(url);

@@ -681,7 +681,6 @@ body{background-attachment:initial !important}
     <div class="htitle"><img id="admin-logo-img" alt="" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%2276%2082%20360%20360%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22m%22%20x1%3D%220%22%20y1%3D%22.05%22%20x2%3D%220%22%20y2%3D%22.95%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FFE0BE%22%2F%3E%3Cstop%20offset%3D%22.16%22%20stop-color%3D%22%23FFB16A%22%2F%3E%3Cstop%20offset%3D%22.46%22%20stop-color%3D%22%23FF7A29%22%2F%3E%3Cstop%20offset%3D%22.78%22%20stop-color%3D%22%23F1560F%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23C3380A%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22b%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FF8E45%22%2F%3E%3Cstop%20offset%3D%22.55%22%20stop-color%3D%22%23E64C10%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23A52E08%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20x%3D%22241%22%20y%3D%22110%22%20width%3D%2230%22%20height%3D%22304%22%20rx%3D%2215%22%20fill%3D%22url%28%23m%29%22%2F%3E%3Cpath%20d%3D%22M256%20226Q341%20264%20398%20320Q341%20376%20256%20414Q171%20376%20114%20320Q171%20264%20256%20226Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23b%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3Cpath%20d%3D%22M256%20110Q341%20148%20398%20204Q341%20260%20256%20298Q171%20260%20114%20204Q171%20148%20256%20110Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23m%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E" /> Portal admin <span class="pill" style="margin-bottom:0;">Admin</span></div>
     <div style="display:flex;align-items:center;gap:10px;">
       <button class="blogout" onclick="forceRefreshAll()" title="Reload every open portal so users get the latest update" style="border-color:rgba(255,107,26,.45);color:var(--o3);">↻ Refresh all users</button>
-      <button class="blogout" onclick="openSettings()" title="Settings — games, quizzes & more">Settings</button>
       <button class="blogout" onclick="doLogout()">Sign out</button>
     </div>
   </header>
@@ -2034,13 +2033,15 @@ async function loadDashboard(opts){
   try{
     var R=await Promise.all([
       jGet(API+'?action=get_leave_requests').then(function(r){return r.json();}).catch(function(){return {};}),
-      jGet(API+'?action=get_coe_requests').then(function(r){return r.json();}).catch(function(){return {};})
+      jGet(API+'?action=get_coe_requests').then(function(r){return r.json();}).catch(function(){return {};}),
+      jGet(API+'?action=redeem_list&status=pending').then(function(r){return r.json();}).catch(function(){return {};})
     ]);
     var leave=(R[0].requests||[]).filter(function(r){return (r.status||'pending')==='pending';});
     var coe=(R[1].requests||[]).filter(function(r){return (r.status||'pending').toLowerCase()==='pending';});
+    var redeem=(R[2].requests||[]).filter(function(r){return (r.status||'pending').toLowerCase()==='pending';});
     setDashCount('dc-leave', leave.length);
     setDashCount('dc-coe', coe.length);
-    var total=leave.length+coe.length;
+    var total=leave.length+coe.length+redeem.length;
     var totEl=document.getElementById('dash-total'); if(totEl) totEl.textContent = total ? '· '+total+' pending' : '';
     var badge=document.getElementById('dash-badge'); if(badge){ if(total){ badge.style.display='block'; badge.textContent=total; } else badge.style.display='none'; }
     // Ring when a NEW request arrives (count went up) — not on first load or when clearing
@@ -2052,9 +2053,11 @@ async function loadDashboard(opts){
     loadDashInvoices();
     var items=[];
     leave.forEach(function(r){ items.push({chip:'Leave',cls:'chip-leave',name:r.full_name||r.employee_id,detail:({vacation:'Vacation',sick:'Sick',emergency:'Emergency'}[r.type]||r.type)+' · '+fmtLeaveDate(r.start||r.start_date)+' → '+fmtLeaveDate(r.end||r.end_date),
-      actions:'<button class="bsm edit" onclick="dashAct(\'?action=update_leave_status&row='+r._row+'&status=approved\',\'Leave approved\')">Approve</button><button class="bsm danger" onclick="dashAct(\'?action=update_leave_status&row='+r._row+'&status=rejected\',\'Leave rejected\')">Reject</button>'}); });
+      actions:'<button class="bsm edit" onclick="dashAct(this,\'?action=update_leave_status&row='+r._row+'&status=approved\',\'Leave approved\')">Approve</button><button class="bsm danger" onclick="dashAct(this,\'?action=update_leave_status&row='+r._row+'&status=rejected\',\'Leave rejected\')">Reject</button>'}); });
     coe.forEach(function(r){ items.push({chip:'COE',cls:'chip-coe',name:r.full_name||r.employee_id,detail:r.purpose||'Certificate of Employment',
-      actions:'<button class="bsm edit" onclick="dashAct(\'?action=update_coe_status&row='+r._row+'&status=approved\',\'COE approved\')">Approve</button><button class="bsm danger" onclick="dashAct(\'?action=update_coe_status&row='+r._row+'&status=rejected\',\'COE rejected\')">Reject</button>'}); });
+      actions:'<button class="bsm edit" onclick="dashAct(this,\'?action=update_coe_status&row='+r._row+'&status=approved\',\'COE approved\')">Approve</button><button class="bsm danger" onclick="dashAct(this,\'?action=update_coe_status&row='+r._row+'&status=rejected\',\'COE rejected\')">Reject</button>'}); });
+    redeem.forEach(function(r){ items.push({chip:'🎁 Redeem',cls:'chip-coe',name:r.full_name||r.employee_id,detail:(r.points||0)+' pts (₱'+(((r.points||0)/3).toFixed(2))+') · '+(r.type||'')+(r.detail?(' · '+r.detail):''),
+      actions:'<button class="bsm edit" onclick="dashRedeem(this,\''+r.id+'\',\'approve\')">Approve</button><button class="bsm danger" onclick="dashRedeem(this,\''+r.id+'\',\'reject\')">Reject</button>'}); });
     if(!items.length){ list.innerHTML='<div class="es" style="padding:2.5rem;text-align:center;font-size:14px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>All caught up — no pending requests.</div>'; return; }
     list.innerHTML=items.map(function(it){
       return '<div class="dash-item"><span class="dash-chip '+it.cls+'">'+it.chip+'</span>'+
@@ -2063,8 +2066,23 @@ async function loadDashboard(opts){
     }).join('');
   }catch(e){ list.innerHTML='<div class="es">Could not load dashboard.</div>'; }
 }
-async function dashAct(url, okMsg){
-  try{ await fetch(API+url); jBust(); if(okMsg&&typeof toast==='function') toast(okMsg); setTimeout(loadDashboard,700); }catch(e){ if(typeof toast==='function') toast('Action failed.'); }
+function _dashItem(btn){ return (btn&&btn.closest)?btn.closest('.dash-item'):null; }
+function _dashDim(it){ if(it){ it.style.opacity='.4'; it.style.pointerEvents='none'; } }
+function _dashUndim(it){ if(it){ it.style.opacity=''; it.style.pointerEvents=''; } }
+function _dashResync(){ setTimeout(function(){ if(typeof loadDashboard==='function') loadDashboard({silent:true}); }, 1200); }
+function dashAct(btn, url, okMsg){
+  var it=_dashItem(btn); _dashDim(it);
+  fetch(API+url+'&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+    if(d && (d.success||d.ok)){ jBust(); if(it) it.remove(); if(okMsg&&typeof toast==='function') toast(okMsg); _dashResync(); }
+    else { _dashUndim(it); if(typeof toast==='function') toast('Action failed: '+((d&&d.error)||'unknown')); }
+  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Action failed — check connection.'); });
+}
+function dashRedeem(btn, id, action){
+  var it=_dashItem(btn); _dashDim(it);
+  fetch(API+'?action=redeem_resolve&id='+encodeURIComponent(id)+'&action='+action+'&by=Admin&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+    if(d && d.ok){ jBust(); if(it) it.remove(); if(typeof toast==='function') toast('Redemption '+(action==='approve'?'approved — points deducted.':'rejected.')); _dashResync(); }
+    else { _dashUndim(it); if(typeof toast==='function') toast('Could not '+action+((d&&d.error)?(': '+d.error):'.')); }
+  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Network error.'); });
 }
 
 /* ════════ DEMERITS ════════ */
@@ -3147,14 +3165,20 @@ function pgCopyAll(){
 }
 async function pgMarkPaidNotify(){
   if(!confirm('Only do this AFTER you have sent the GoTyme transfers.\n\nMark all '+_pgRows.length+' payslip(s) for '+_pgPeriod+' as PAID, email each employee, and post a "payout released" notification?')) return;
-  var st=document.getElementById('pg-disb-status'); st.style.color='var(--t3)'; st.textContent='Marking paid…';
-  var ok=0,fail=0,ids=[];
-  for(var i=0;i<_pgRows.length;i++){ var x=_pgRows[i]; ids.push(x.id);
-    try{ var r=await fetch(API+'?action=mark_payslip_paid&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&_='+Date.now()); var d=await r.json(); if(d&&d.success) ok++; else fail++; }catch(e){ fail++; }
+  var st=document.getElementById('pg-disb-status'); st.style.color='var(--t3)';
+  var rows=_pgRows.slice(), ids=rows.map(function(x){return x.id;}), ok=0, fail=0, BATCH=6;
+  // Fire in parallel batches instead of one-at-a-time — each mark also emails server-side, so
+  // sequential meant N × a few seconds. Batches keep it fast without overwhelming Apps Script.
+  for(var i=0;i<rows.length;i+=BATCH){
+    st.textContent='Marking paid… '+Math.min(i+BATCH,rows.length)+'/'+rows.length;
+    await Promise.all(rows.slice(i,i+BATCH).map(function(x){
+      return fetch(API+'?action=mark_payslip_paid&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&_='+Date.now())
+        .then(function(r){return r.json();}).then(function(d){ if(d&&d.success) ok++; else fail++; }).catch(function(){ fail++; });
+    }));
   }
   try{ await fetch(API+'?action=send_notification&type=payout&title='+encodeURIComponent('Payout released')+'&body='+encodeURIComponent('Your payroll for '+_pgPeriod+' has been released to your GoTyme account. 🎉')+'&audience=employee&recipients='+encodeURIComponent(ids.join(','))+'&by=Admin&_='+Date.now()); }catch(e){}
   st.style.color='#34d399'; st.textContent='Done — '+ok+' marked paid'+(fail?(' · '+fail+' failed'):'')+', employees emailed + notified.';
-  loadPayslipsAdmin();
+  jBust(); loadPayslipsAdmin();
 }
 // Parse a payslip period label ("Jun 16 – Jun 30, 2026") to a sortable time (uses the END date).
 function _payPeriodTime(period){
@@ -4214,18 +4238,21 @@ function filterLeave(){
 }
 
 function updLeave(row, status) {
-  fetch(API + '?action=update_leave_status&row=' + row + '&status=' + status)
+  // Optimistic: flip the row instantly, email + save in the background, revert only on failure.
+  var rec=null; for(var i=0;i<leaveRecs.length;i++){ if(String(leaveRecs[i]._row)===String(row)){ rec=leaveRecs[i]; break; } }
+  var prev = rec ? rec.status : null;
+  if(rec){ rec.status=status; filterLeave(); }
+  fetch(API + '?action=update_leave_status&row=' + row + '&status=' + status + '&_=' + Date.now())
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      if (d.success) {
-        var label = status === 'approved' ? 'Approved' : 'Rejected';
-        toast('Leave ' + label + ' — employee notified by email if address on file');
-        loadLeave();
+      if (d && d.success) {
+        toast('Leave ' + (status==='approved'?'Approved':'Rejected') + ' — employee notified by email if on file.'); jBust();
       } else {
-        toast('Update failed: ' + (d.error || 'Unknown error'));
+        if(rec){ rec.status=prev; filterLeave(); }
+        toast('Update failed: ' + ((d&&d.error) || 'Unknown error'));
       }
     })
-    .catch(function() { toast('Update failed. Check connection.'); });
+    .catch(function() { if(rec){ rec.status=prev; filterLeave(); } toast('Update failed. Check connection.'); });
 }
 
 // -- PIN RESETS --
@@ -4729,8 +4756,8 @@ function loadCOE() {
           : '<span style="color:var(--o3);font-weight:600;font-size:11px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Pending</span>';
         var date = r.submitted ? new Date(r.submitted).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
         var actions = sl === 'pending'
-          ? '<button onclick="approveCOE(' + r._row + ',&quot;approved&quot;)" style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;margin-right:6px;">Approve</button>' +
-            '<button onclick="approveCOE(' + r._row + ',&quot;rejected&quot;)" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;">Reject</button>'
+          ? '<button onclick="approveCOE(this,' + r._row + ',&quot;approved&quot;)" style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;margin-right:6px;">Approve</button>' +
+            '<button onclick="approveCOE(this,' + r._row + ',&quot;rejected&quot;)" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;">Reject</button>'
           : '—';
         return '<tr>' +
           '<td><strong>' + (r.full_name || r.employee_id) + '</strong><br><span style="color:var(--t3);font-size:11px;">' + (r.employee_id || '') + '</span></td>' +
@@ -4746,19 +4773,26 @@ function loadCOE() {
     });
 }
 
-function approveCOE(row, status) {
+function approveCOE(btn, row, status) {
   if (!confirm(status === 'approved' ? 'Approve this COE request?' : 'Reject this COE request?')) return;
-  fetch(API + '?action=update_coe_status&row=' + row + '&status=' + status)
+  var tr = (btn && btn.closest) ? btn.closest('tr') : null;
+  var cell = tr ? tr.lastElementChild : null;
+  var prev = cell ? cell.innerHTML : null;
+  // Optimistic: flip the actions cell to a status pill instantly
+  if (cell) cell.innerHTML = status === 'approved'
+    ? '<span style="color:#4ade80;font-weight:600;font-size:11px;">✓ Approved</span>'
+    : '<span style="color:#f87171;font-weight:600;font-size:11px;">✕ Rejected</span>';
+  fetch(API + '?action=update_coe_status&row=' + row + '&status=' + status + '&_=' + Date.now())
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.success) {
         toast(status === 'approved' ? 'COE approved — employee notified by email' : 'COE rejected — employee notified');
-        loadCOE();
       } else {
+        if (cell && prev != null) cell.innerHTML = prev;
         toast('Error: ' + (d.error || 'Unknown'));
       }
     })
-    .catch(function() { toast('Connection error'); });
+    .catch(function() { if (cell && prev != null) cell.innerHTML = prev; toast('Connection error'); });
 }
 
 
