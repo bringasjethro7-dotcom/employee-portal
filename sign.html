@@ -132,23 +132,42 @@ function form(d){
   initPad();
 }
 
-var PAD={ cv:null, ctx:null, drawing:false, has:false, last:null };
+var PAD={ cv:null, ctx:null, ratio:1, drawing:false, has:false, pts:[], lastW:2, minX:1e9, minY:1e9, maxX:-1e9, maxY:-1e9 };
 function initPad(){
   var cv=document.getElementById('sigpad'); if(!cv) return;
-  PAD.cv=cv;
-  var ratio=window.devicePixelRatio||1;
-  var rect=cv.getBoundingClientRect();
-  cv.width=Math.round(rect.width*ratio); cv.height=Math.round(180*ratio);
-  var ctx=cv.getContext('2d'); ctx.scale(ratio,ratio); ctx.lineWidth=2.4; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#101828';
+  PAD.cv=cv; var ratio=Math.max(1, window.devicePixelRatio||1); PAD.ratio=ratio;
+  var rect=cv.getBoundingClientRect(); var hpx=rect.height||180;
+  cv.width=Math.round(rect.width*ratio); cv.height=Math.round(hpx*ratio);
+  var ctx=cv.getContext('2d'); ctx.scale(ratio,ratio); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.fillStyle='#0b1220';
   PAD.ctx=ctx;
-  function pos(e){ var r=cv.getBoundingClientRect(); var p=(e.touches&&e.touches[0])||e; return { x:p.clientX-r.left, y:p.clientY-r.top }; }
-  function start(e){ e.preventDefault(); PAD.drawing=true; PAD.last=pos(e); }
-  function move(e){ if(!PAD.drawing) return; e.preventDefault(); var p=pos(e); ctx.beginPath(); ctx.moveTo(PAD.last.x,PAD.last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); PAD.last=p; if(!PAD.has){ PAD.has=true; document.getElementById('sighint').style.display='none'; document.getElementById('sigwrap').classList.add('drawn'); } }
-  function end(e){ PAD.drawing=false; }
+  var MINW=1.1, MAXW=3.3;
+  function pos(e){ var r=cv.getBoundingClientRect(); var p=(e.touches&&e.touches[0])||e; return { x:p.clientX-r.left, y:p.clientY-r.top, t:Date.now() }; }
+  function bound(p){ if(p.x<PAD.minX)PAD.minX=p.x; if(p.y<PAD.minY)PAD.minY=p.y; if(p.x>PAD.maxX)PAD.maxX=p.x; if(p.y>PAD.maxY)PAD.maxY=p.y; }
+  function mid(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
+  function vel(a,b){ var dt=Math.max(1,b.t-a.t); return Math.hypot(b.x-a.x,b.y-a.y)/dt; }
+  function wForV(v){ return Math.max(MINW, MAXW - v*1.7); }
+  function dot(p,w){ ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(0.6,w/2),0,6.283); ctx.fill(); }
+  function seg(s,c,e,w1,w2){ var steps=Math.max(2, Math.ceil(Math.hypot(e.x-s.x,e.y-s.y))); for(var i=0;i<=steps;i++){ var t=i/steps; var x=(1-t)*(1-t)*s.x+2*(1-t)*t*c.x+t*t*e.x; var y=(1-t)*(1-t)*s.y+2*(1-t)*t*c.y+t*t*e.y; var w=w1+(w2-w1)*t; ctx.beginPath(); ctx.arc(x,y,Math.max(0.6,w/2),0,6.283); ctx.fill(); } }
+  function markDrawn(){ if(!PAD.has){ PAD.has=true; var h=document.getElementById('sighint'); if(h)h.style.display='none'; var w=document.getElementById('sigwrap'); if(w)w.classList.add('drawn'); } }
+  function start(e){ e.preventDefault(); PAD.drawing=true; var p=pos(e); PAD.pts=[p]; PAD.lastW=(MINW+MAXW)/2; bound(p); dot(p,PAD.lastW); markDrawn(); }
+  function move(e){ if(!PAD.drawing) return; e.preventDefault(); var p=pos(e); PAD.pts.push(p); bound(p); var n=PAD.pts.length;
+    if(n>=3){ var p0=PAD.pts[n-3],p1=PAD.pts[n-2],p2=PAD.pts[n-1]; var s=mid(p0,p1), c=p1, en=mid(p1,p2); var w=wForV(vel(p1,p2)); w=0.35*w+0.65*PAD.lastW; seg(s,c,en,PAD.lastW,w); PAD.lastW=w; }
+    else if(n===2){ dot(p,PAD.lastW); } }
+  function end(){ PAD.drawing=false; }
   cv.addEventListener('mousedown',start); cv.addEventListener('mousemove',move); window.addEventListener('mouseup',end);
-  cv.addEventListener('touchstart',start,{passive:false}); cv.addEventListener('touchmove',move,{passive:false}); cv.addEventListener('touchend',end);
+  cv.addEventListener('touchstart',start,{passive:false}); cv.addEventListener('touchmove',move,{passive:false}); cv.addEventListener('touchend',end); cv.addEventListener('touchcancel',end);
 }
-function clearPad(){ if(!PAD.ctx||!PAD.cv) return; PAD.ctx.clearRect(0,0,PAD.cv.width,PAD.cv.height); PAD.has=false; var h=document.getElementById('sighint'); if(h) h.style.display=''; var w=document.getElementById('sigwrap'); if(w) w.classList.remove('drawn'); }
+function clearPad(){ if(!PAD.ctx||!PAD.cv) return; PAD.ctx.clearRect(0,0,PAD.cv.width,PAD.cv.height); PAD.has=false; PAD.pts=[]; PAD.minX=PAD.minY=1e9; PAD.maxX=PAD.maxY=-1e9; var h=document.getElementById('sighint'); if(h)h.style.display=''; var w=document.getElementById('sigwrap'); if(w)w.classList.remove('drawn'); }
+// Export just the drawn area (trimmed), so each signature is clean and centered.
+function exportSig(){
+  if(!PAD.has||!PAD.cv) return '';
+  var r=PAD.ratio, pad=12;
+  var sx=Math.max(0,(PAD.minX-pad))*r, sy=Math.max(0,(PAD.minY-pad))*r;
+  var ex=Math.min(PAD.cv.width,(PAD.maxX+pad)*r), ey=Math.min(PAD.cv.height,(PAD.maxY+pad)*r);
+  var sw=Math.max(1,ex-sx), sh=Math.max(1,ey-sy);
+  try{ var tmp=document.createElement('canvas'); tmp.width=sw; tmp.height=sh; tmp.getContext('2d').drawImage(PAD.cv, sx,sy,sw,sh, 0,0, sw,sh); return tmp.toDataURL('image/png'); }
+  catch(e){ return PAD.cv.toDataURL('image/png'); }
+}
 function msg(x,err){ var m=document.getElementById('msg'); if(m){ m.textContent=x; m.style.color=err?'#dc2626':'#16a34a'; } }
 function submitSign(){
   var sig=(document.getElementById('sig').value||'').trim();
@@ -160,10 +179,11 @@ function submitSign(){
   if(!PAD.has){ msg('Please draw your signature in the box.', true); return; }
   if(!consent){ msg('Please tick the electronic-signature consent box.', true); return; }
   var agreed=boxes.map(function(b){return b.getAttribute('data-doc');});
-  var img=''; try{ var s=PAD.cv.toDataURL('image/png'); var comma=s.indexOf(','); img=comma>=0?s.slice(comma+1):s; }catch(e){}
+  var img=''; try{ var s=exportSig(); var comma=s.indexOf(','); img=comma>=0?s.slice(comma+1):s; }catch(e){}
   if(!img){ msg('Could not capture your signature. Please try again.', true); return; }
+  var docHtml=''; [].slice.call(document.querySelectorAll('.doc')).forEach(function(el){ docHtml+='<div class="doc">'+el.innerHTML+'</div>'; });
   var btn=document.getElementById('submit'); btn.disabled=true; btn.textContent='Signing…'; msg('Recording your signature…',false);
-  fetch(APPS_SCRIPT_URL,{ method:'POST', body:JSON.stringify({ action:'contract_sign_submit', token:TOKEN, signature:sig, agreed:agreed, sig_image_b64:img }) })
+  fetch(APPS_SCRIPT_URL,{ method:'POST', body:JSON.stringify({ action:'contract_sign_submit', token:TOKEN, signature:sig, agreed:agreed, sig_image_b64:img, doc_html:docHtml }) })
     .then(function(r){return r.json();})
     .then(function(d){ if(d&&d.ok){ done(sig,null,false); } else if(d&&d.error==='ALREADY_SIGNED'){ done(sig,null,true); } else { msg('Could not sign: '+((d&&d.error)||'please try again')+'.', true); btn.disabled=false; btn.textContent='Sign my agreements'; } })
     .catch(function(){ msg('Connection error. Please try again.', true); btn.disabled=false; btn.textContent='Sign my agreements'; });
