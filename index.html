@@ -4859,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui184</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui186</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -19015,7 +19015,7 @@ body.light .jul4-lbscore{color:#059669}
     (function loop(ts){ if(!M){ return; }
       ts = ts||0;
       var fx = M.flash || (M.particles && M.particles.length);
-      var inf = ((EQUIPPED==='inferno'||EQUIPPED==='emoji'||EQUIPPED==='prisma') && M.playing);          // animated skins keep the fx loop alive
+      var inf = ((EQUIPPED==='inferno'||EQUIPPED==='emoji'||EQUIPPED==='prisma'||EQUIPPED==='holo') && M.playing);          // animated skins keep the fx loop alive
       if(fx){ draw(); }                                        // flashes/particles need every frame
       else if(inf){ if(!M._infTs || ts-M._infTs>=33){ M._infTs=ts; draw(); } }   // ~30fps glow pulse
       if(fx || inf){ M._raf=requestAnimationFrame(loop); } else { M._fx=false; }
@@ -19889,6 +19889,40 @@ body.light .jul4-lbscore{color:#059669}
         return cv;
       }
       return function(c,px,py,cs,col,glow){ var s=Math.max(2,Math.round(cs)); var fi=Math.floor(Date.now()/60)%FR; var k=col+'|'+s+'|'+(glow?1:0); var arr=cache[k]||(cache[k]=[]); var t=arr[fi]||(arr[fi]=render(String(col),s,!!glow,fi)); c.drawImage(t,px,py); };
+    })() },
+    holo:{ name:'Holo Foil', cost:15000, tier:'collector', cell:(function(){
+      var FR=36, cache={};
+      function render(col,cs,glow,fi){
+        var cv=document.createElement('canvas'); cv.width=cv.height=cs; var c=cv.getContext('2d');
+        var m=Math.max(1,cs*0.06), a=m, b=m, w=cs-2*m, r=Math.max(3,cs*0.22); var t=fi/FR;
+        rr(c,a,b,w,w,r); c.save(); c.clip();
+        // metallic foil base tinted to the piece colour
+        var bg=c.createLinearGradient(a,b,a+w,b+w); bg.addColorStop(0,_cx(col,'#ffffff',0.5)); bg.addColorStop(0.5,_cx(col,'#3a3a46',0.2)); bg.addColorStop(1,_cx(col,'#0a0a14',0.4));
+        c.fillStyle=bg; c.fillRect(a,b,w,w);
+        // holographic rainbow bands (screen blend): a diagonal sweep + a faint counter-band + hue wash
+        c.globalCompositeOperation='screen';
+        var hue=(t*360)%360, sw=t*2-0.5, s;
+        var g=c.createLinearGradient(a+(sw-0.6)*w,b,a+(sw+0.6)*w,b+w);
+        for(s=0;s<=6;s++){ g.addColorStop(s/6,'hsla('+((hue+s*60)%360)+',95%,60%,0.32)'); }
+        c.fillStyle=g; c.fillRect(a,b,w,w);
+        var g2=c.createLinearGradient(a,b+w,a+w,b); for(s=0;s<=6;s++){ g2.addColorStop(s/6,'hsla('+((hue+180+s*55)%360)+',90%,62%,0.16)'); }
+        c.fillStyle=g2; c.fillRect(a,b,w,w);
+        c.globalAlpha=0.10; c.fillStyle='hsl('+hue.toFixed(0)+',95%,64%)'; c.fillRect(a,b,w,w); c.globalAlpha=1;
+        c.globalCompositeOperation='source-over';
+        // twinkling diamond sparkles
+        c.fillStyle='#ffffff';
+        var pts=[[0.28,0.30],[0.70,0.24],[0.55,0.62],[0.36,0.74],[0.80,0.68]];
+        for(var p=0;p<pts.length;p++){ var tw=0.5+0.5*Math.sin(t*12.566 + p*1.7); if(tw>0.62){ c.globalAlpha=(tw-0.62)/0.38; var q=w*0.06*tw; var px=a+pts[p][0]*w, py=b+pts[p][1]*w; c.beginPath(); c.moveTo(px-q,py); c.lineTo(px,py-q); c.lineTo(px+q,py); c.lineTo(px,py+q); c.closePath(); c.fill(); } }
+        c.globalAlpha=1;
+        // top sheen
+        c.globalAlpha=0.16; c.fillStyle='#ffffff'; c.fillRect(a,b,w,w*0.4); c.globalAlpha=1;
+        c.restore();
+        // bright foil rim + dark bottom-right edge
+        c.strokeStyle='rgba(255,255,255,.72)'; c.lineWidth=Math.max(1,cs*0.05); rr(c,a+0.6,b+0.6,w-1.2,w-1.2,r); c.stroke();
+        c.globalAlpha=0.4; c.strokeStyle='rgba(0,0,0,.45)'; c.lineWidth=Math.max(1,cs*0.04); c.beginPath(); c.moveTo(a+w*0.22,b+w-1); c.lineTo(a+w-1,b+w-1); c.lineTo(a+w-1,b+w*0.22); c.stroke(); c.globalAlpha=1;
+        return cv;
+      }
+      return function(c,px,py,cs,col,glow){ var s=Math.max(2,Math.round(cs)); var fi=Math.floor(Date.now()/55)%FR; var k=col+'|'+s+'|'+(glow?1:0); var arr=cache[k]||(cache[k]=[]); var t=arr[fi]||(arr[fi]=render(String(col),s,!!glow,fi)); c.drawImage(t,px,py); };
     })() }
   };
   // ── THE CHOCOLATE COUNTER ──
@@ -20099,7 +20133,7 @@ body.light .jul4-lbscore{color:#059669}
     for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=M.grid[y][x]; if(v){ block(bc,x,y,cs, v===8?'#5b6b82':COLORS[v]); } }
     _brdSig=sig; return _brdCache;
   }
-  function draw(){ var cv=el('tet-me'); if(!cv||!M) return; if((EQUIPPED==='inferno'||EQUIPPED==='emoji'||EQUIPPED==='prisma')&&M.playing){ ensureFx(); } var ctx=cv.getContext('2d'); var cs=cv.width/W;
+  function draw(){ var cv=el('tet-me'); if(!cv||!M) return; if((EQUIPPED==='inferno'||EQUIPPED==='emoji'||EQUIPPED==='prisma'||EQUIPPED==='holo')&&M.playing){ ensureFx(); } var ctx=cv.getContext('2d'); var cs=cv.width/W;
     ctx.clearRect(0,0,cv.width,cv.height);
     try{ ctx.drawImage(staticBoard(cv),0,0); }
     catch(_sb){ drawBoardBg(ctx,cv); grid(ctx,cv,cs); for(var yy=0;yy<H;yy++)for(var xx=0;xx<W;xx++){ var vv=M.grid[yy][xx]; if(vv){ block(ctx,xx,yy,cs, vv===8?'#5b6b82':COLORS[vv]); } } }
