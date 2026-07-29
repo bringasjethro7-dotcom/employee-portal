@@ -697,7 +697,7 @@ body{background-attachment:initial !important}
       </button>
       <button class="tab" id="t-live" onclick="goTab('live')" title="Live &amp; Hours" style="display:none;"></button>
       <button class="tab" id="t-sales" onclick="goTab('sales')" title="Sales" style="display:none;"></button>
-      <button class="tab" id="t-emp" onclick="goTab('emp')" title="Employees">
+      <button class="tab" id="t-emp" onclick="goTab('emp')" title="Contractors">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       </button>
       <button class="tab" id="t-att" onclick="goTab('att')" title="Attendance">
@@ -817,20 +817,6 @@ body{background-attachment:initial !important}
         Codes appear on your existing <b>Office Wallboard</b> screen. Set it up once on the office monitor by opening the wallboard with <b>?codekey=JMBwall2026</b> on the end of the URL — it remembers the key on that screen, and a big code overlay pops up whenever a staff member requests one.
       </div>
 
-      <!-- 3v3 TEAM BATTLE — open/close the portal Tetris team event -->
-      <div class="live-head" style="margin-top:22px;">
-        <div>
-          <div class="live-title"><span class="live-dot"></span> 3v3 Tetris — Team Battle</div>
-          <div class="live-sub">Open the monthly Morning vs Night team battle in everyone's Tetris hub.</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <span id="t3-status" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:999px;background:#eee;color:#555;">…</span>
-          <button class="bsm" id="t3-toggle" onclick="toggleT3()" style="font-weight:600;">Toggle</button>
-        </div>
-      </div>
-      <div style="font-size:12.5px;color:var(--t2);background:var(--card2,rgba(15,23,42,.04));border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-top:6px;line-height:1.5;">
-        When <b>ON</b>, a “3v3 Team Battle — LIVE” button appears in every player's Tetris hub so they can join a team. Turn it <b>OFF</b> when the event is over.
-      </div>
     </div>
 
     <div id="p-live" style="display:none;">
@@ -1348,7 +1334,7 @@ body{background-attachment:initial !important}
       <div class="paygen">
         <div class="paygen-title">＋ Log a demerit</div>
         <div class="paygen-controls" style="margin-top:8px;">
-          <label>Employee <select class="sinp" id="dm-emp" style="width:200px;"></select></label>
+          <label>Contractor <select class="sinp" id="dm-emp" style="width:200px;"></select></label>
           <label>Category <select class="sinp" id="dm-cat" onchange="dmFillInfractions()" style="width:150px;"></select></label>
           <label>Infraction <select class="sinp" id="dm-inf" onchange="dmSyncPoints()" style="width:230px;"></select></label>
           <label>Points <input class="sinp" id="dm-pts" type="number" min="0" max="0.75" step="0.05" style="width:80px;"></label>
@@ -1401,7 +1387,7 @@ body{background-attachment:initial !important}
     <div class="mtitle" id="mtitle">Add employee</div>
     <div class="mgrid">
       <div class="fg"><label class="lbl">Full name *</label><input class="inp" type="text" id="m-name" placeholder="Juan Dela Cruz" /></div>
-      <div class="fg"><label class="lbl">Employee ID *</label><input class="inp" type="text" id="m-id" placeholder="JMB-001" /></div>
+      <div class="fg"><label class="lbl">Contractor ID *</label><input class="inp" type="text" id="m-id" placeholder="JMB-001" /></div>
       <div class="fg"><label class="lbl">PIN *</label><input class="inp" type="text" id="m-pin" placeholder="4–6 digit PIN" /></div>
       <div class="fg"><label class="lbl">Career Level (CL)</label><input class="inp" type="text" id="m-cl" placeholder="e.g. CL9" /></div>
       <div class="fg"><label class="lbl">Position</label><input class="inp" type="text" id="m-pos" placeholder="e.g. Developer" /></div>
@@ -2111,7 +2097,7 @@ function dmSyncPoints(){ var inf=document.getElementById('dm-inf'); var opt=inf.
 function dmFillEmployees(){
   var list=_demEmps().filter(function(e){return e.employee_id;});
   var optHtml=list.map(function(e){return '<option value="'+escAdmin(e.employee_id)+'" data-name="'+escAdmin(e.full_name||e.employee_id)+'">'+escAdmin((e.full_name||e.employee_id)+' ('+e.employee_id+')')+'</option>';}).join('');
-  var sel=document.getElementById('dm-emp'); if(sel) sel.innerHTML='<option value="">Select employee…</option>'+optHtml;
+  var sel=document.getElementById('dm-emp'); if(sel) sel.innerHTML='<option value="">Select contractor…</option>'+optHtml;
   var f=document.getElementById('dm-filter'); if(f){ var cur=f.value; f.innerHTML='<option value="">Standings (all)</option>'+optHtml; f.value=cur; }
 }
 async function loadDemerits(){
@@ -2331,21 +2317,7 @@ function goTab(name){
 // internals can read them). It only reads the on/off status and flips the toggle. The actual
 // codes live solely on the standalone, key-locked office wallboard screen.
 var _wbTimer = null, _wbOn = false, _wbForce = false;
-function startWallboard(){ loadWallboard(); loadT3(); if(_wbTimer) clearInterval(_wbTimer); _wbTimer=setInterval(function(){ loadWallboard(); loadT3(); }, 8000); }
-var _t3On=false;
-function loadT3(){ fetch(API+'?action=t3_status&_='+Date.now()).then(function(r){return r.json();}).then(function(d){ _t3On=!!(d&&d.on); var st=el('t3-status'),tg=el('t3-toggle'); if(st){ st.textContent=_t3On?'OPEN · live':'CLOSED'; st.style.background=_t3On?'#dcfce7':'#eee'; st.style.color=_t3On?'#16a34a':'#555'; } if(tg) tg.textContent=_t3On?'Close event':'Open event'; }).catch(function(){}); }
-function toggleT3(){ var target=!_t3On;
-  if(target && !confirm('Open the 3v3 Team Battle now?\n\nA “3v3 Team Battle — LIVE” button will appear in every player\'s Tetris hub. Turn it off when the event is done.')) return;
-  var tg=el('t3-toggle'); if(tg){ tg.disabled=true; tg.textContent='…'; }
-  fetch(API+'?action=t3_set&pass='+encodeURIComponent(PASS)+'&on='+(target?'1':'0')+'&_='+Date.now())
-    .then(function(r){return r.json();}).then(function(d){ if(tg) tg.disabled=false;
-      if(d&&d.error){ alert(d.error); return; }
-      _t3On = (d && typeof d.on!=='undefined') ? !!d.on : target;          // trust the write response
-      var st=el('t3-status'); if(st){ st.textContent=_t3On?'OPEN · live':'CLOSED'; st.style.background=_t3On?'#dcfce7':'#eee'; st.style.color=_t3On?'#16a34a':'#555'; }
-      if(tg) tg.textContent=_t3On?'Close event':'Open event';
-      setTimeout(loadT3, 1500);                                            // re-sync shortly after
-    })
-    .catch(function(){ if(tg) tg.disabled=false; alert('Network error.'); }); }
+function startWallboard(){ loadWallboard(); if(_wbTimer) clearInterval(_wbTimer); _wbTimer=setInterval(function(){ loadWallboard(); }, 8000); }
 function stopWallboard(){ if(_wbTimer){ clearInterval(_wbTimer); _wbTimer=null; } }
 function loadWallboard(){
   fetch(API+'?action=office_otp_status&_='+Date.now())     // status only — no codes in this response
@@ -2518,7 +2490,7 @@ async function fixDiscrepancy(id,date){
 // ── GROUPED NAVIGATION (top-level groups + sub-tabs) ──
 var ADMIN_NAV = [
   { id:'dashboard', label:'Dashboard', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>', tabs:[{name:'dash',label:'Overview'},{name:'live',label:'Live & Hours'},{name:'wallboard',label:'Office Codes'}] },
-  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Employees'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'qa',label:'QA'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'}] },
+  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Contractors'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'qa',label:'QA'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'}] },
   { id:'requests', label:'Requests', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>', tabs:[{name:'leave',label:'Leave'},{name:'coe',label:'COE'}] },
   { id:'work', label:'Work', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>', tabs:[{name:'worklog',label:'Time Log'},{name:'projects',label:'Projects'}] },
   { id:'payslips', label:'Payslips', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>', tabs:[{name:'payslips',label:'Payslips'}] },
@@ -3440,7 +3412,7 @@ async function wlSetStatus(row, status){
 function exportWorkLogCSV(){
   if(!wlRows || !wlRows.length){ if(typeof toast==='function') toast('Nothing to export.'); return; }
   function esc(v){ v = (v==null?'':String(v)); return '"'+v.replace(/"/g,'""')+'"'; }
-  var headers = ['Employee','Employee ID','Date','Project','Category','Task','Description','Hours','Volume','Status'];
+  var headers = ['Contractor','Contractor ID','Date','Project','Category','Task','Description','Hours','Volume','Status'];
   var lines = [headers.map(esc).join(',')];
   wlRows.forEach(function(w){
     lines.push([w.full_name||w.employee_id||'', w.employee_id||'', w.date||'', w.project||'', w.category||'', w.task||'', w.description||'', (parseFloat(w.hours)||0).toFixed(2), (w.volume!==undefined?w.volume:''), (w.status||'recorded')].map(esc).join(','));
@@ -4068,8 +4040,8 @@ function saveEmp(){
   var cf1l=document.getElementById('m-cf1l').value.trim().replace(/\s+/g,'_').toLowerCase();
   var emp={full_name:name,employee_id:id,pin:pin,career_level:document.getElementById('m-cl').value.trim(),position:document.getElementById('m-pos').value.trim(),department:document.getElementById('m-dept').value.trim(),work_schedule:document.getElementById('m-schedule').value,client:document.getElementById('m-client').value.trim(),status:document.getElementById('m-status').value,rate:document.getElementById('m-rate').value.trim(),start_date:document.getElementById('m-start').value,birthday:document.getElementById('m-bday').value,photo:document.getElementById('m-photo').value.trim(),payslips:ps};
   if(cf1l)emp[cf1l]=document.getElementById('m-cf1v').value.trim();
-  if(editIdx>=0){emps[editIdx]=emp;toast('Employee updated.');}
-  else{emps.push(emp);toast('Employee added.');}
+  if(editIdx>=0){emps[editIdx]=emp;toast('Contractor updated.');}
+  else{emps.push(emp);toast('Contractor added.');}
   // Write work_schedule + client + status straight to the Employees sheet (used by attendance scoring + login gate)
   fetch(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(id)+'&work_schedule='+encodeURIComponent(emp.work_schedule||'')+'&client='+encodeURIComponent(emp.client||'')+'&career_level='+encodeURIComponent(emp.career_level||'')+'&status='+encodeURIComponent(emp.status||''))
     .then(function(r){return r.json();})
@@ -4086,9 +4058,9 @@ async function purgeEmp(idx){
     return;
   }
   if(!confirm('PERMANENTLY DELETE '+nm+' ('+id+')?\n\nThis erases ALL their data across every feature — time logs, attendance, payslips, demerits, QA, trivia, points, redemptions, appeals, notifications, and chat. This CANNOT be undone.')) return;
-  var typed=prompt('To confirm, type the Employee ID exactly:\n'+id);
+  var typed=prompt('To confirm, type the Contractor ID exactly:\n'+id);
   if(typed===null) return;
-  if(String(typed).trim().toLowerCase()!==String(id).trim().toLowerCase()){ toast('Employee ID did not match — nothing deleted.'); return; }
+  if(String(typed).trim().toLowerCase()!==String(id).trim().toLowerCase()){ toast('Contractor ID did not match — nothing deleted.'); return; }
   toast('Deleting '+nm+' everywhere…');
   try{
     // 1) Purge all Google Sheet data (server-side, across every per-user sheet)
@@ -5340,7 +5312,7 @@ function closeNotify(){ document.getElementById('notify-modal').style.display='n
 function notifFillEmps(){
   var sel=document.getElementById('nt-emp'); if(!sel||sel.options.length>1) return;
   var list=(typeof emps!=='undefined'&&emps&&emps.length)?emps:[];
-  sel.innerHTML='<option value="">Select employee…</option>'+list.filter(function(e){return e.employee_id;}).map(function(e){ return '<option value="'+escAdmin(e.employee_id)+'">'+escAdmin((e.full_name||e.employee_id)+' ('+e.employee_id+')')+'</option>'; }).join('');
+  sel.innerHTML='<option value="">Select contractor…</option>'+list.filter(function(e){return e.employee_id;}).map(function(e){ return '<option value="'+escAdmin(e.employee_id)+'">'+escAdmin((e.full_name||e.employee_id)+' ('+e.employee_id+')')+'</option>'; }).join('');
 }
 async function loadNotifProjects(){
   var sel=document.getElementById('nt-proj-list'); if(!sel||sel.options.length>1) return;
@@ -5429,7 +5401,7 @@ async function sendNotify(){
           <option value="all">Everyone</option><option value="employee">Specific employee</option><option value="project">Project team</option>
         </select>
       </label>
-      <div id="nt-emp-wrap" style="display:none;"><label style="font-size:12px;color:var(--t3);">Employee <select class="sinp" id="nt-emp" style="width:100%;"><option value="">Select employee…</option></select></label></div>
+      <div id="nt-emp-wrap" style="display:none;"><label style="font-size:12px;color:var(--t3);">Contractor <select class="sinp" id="nt-emp" style="width:100%;"><option value="">Select contractor…</option></select></label></div>
       <div id="nt-proj-wrap" style="display:none;">
         <label style="font-size:12px;color:var(--t3);">Project <select class="sinp" id="nt-proj-list" onchange="ntProjChange()" style="width:100%;"><option value="">Select project…</option></select></label>
         <label style="font-size:11px;color:var(--t3);display:block;margin-top:6px;">…or type one <input class="sinp" id="nt-proj" placeholder="e.g. ALTR Media" style="width:100%;" onblur="if(document.getElementById('nt-type').value==='payment_project'&&this.value.trim())_ntFillPayment(this.value.trim());"></label>
