@@ -181,13 +181,55 @@
       P('As VAs are freelancers, JMB Virtuals does not process statutory “final pay” or government-mandated benefits; only fees genuinely earned for completed work are reconciled, in line with your arrangement with your client and/or JMB Virtuals.');
   }
 
-  var MAP={ ica:ica, nda:nda, nonsolicit:nonsolicit, conduct:conduct, awol:awol };
+  function privacy(v){
+    return '<h2>Data Privacy &amp; Security Policy</h2>'+
+      H('1. Purpose & Scope')+
+      P('This policy applies to every contractor and to all personal and client data accessed in any engagement, in any form. It supplements the Confidentiality &amp; NDA and the Independent Contractor Agreement.')+
+      H('2. Roles')+
+      P('Each client decides why and how personal data is processed; the Contractor processes data only on the client’s instructions and for authorized purposes. Where a client provides stricter privacy or security requirements, those apply in addition to — or in place of — this policy.')+
+      H('3. Core Principles')+
+      UL(['Access and use data only as needed for the assigned work (lawful, authorized use).','Copy or download the least data necessary (data minimization).','Never use client or personal data for personal purposes, another client, or anything the client has not authorized (purpose limitation).','Treat all personal and client data as strictly confidential.'])+
+      H('4. Security Safeguards')+
+      UL(['Use a secured, password/biometric-locked device with an up-to-date operating system and antivirus.','Protect every work account with a strong, unique password and enable two-factor authentication where available.','Work only through approved systems; never store client or personal data on personal cloud, email, messaging apps, or removable drives.','Keep screens private, lock devices when away, and avoid unsecured public Wi-Fi for client work.'])+
+      H('5. Access & Credentials')+
+      P('Client accounts are for authorized work only. Do not share credentials, let anyone else use your access, or retain, export, or reuse client contact lists, customer records, or credentials outside the engagement.')+
+      H('6. Data-Breach Reporting')+
+      P('Report any suspected or actual loss, theft, unauthorized access, or accidental disclosure of personal or client data to the Operations Manager immediately, and no later than 24 hours after becoming aware. Preserve evidence, stop ongoing exposure where possible, cooperate fully, and never conceal an incident.')+
+      H('7. Retention & Deletion')+
+      P('Keep data only as long as the task and client require. On request or at the end of the engagement, promptly return or securely delete all personal and client data, remove access, and confirm in writing — keeping no copies except where the client or law requires.')+
+      H('8. Legal Awareness')+
+      P('Handle personal data responsibly and in line with applicable standards, including the Philippine Data Privacy Act of 2012 (RA 10173) and any client framework (for example, U.S. state privacy laws). When in doubt, ask the Operations Manager before acting.');
+  }
+
+  function acceptableuse(v){
+    return '<h2>Acceptable Use &amp; Account Access Policy</h2>'+
+      H('1. Purpose & Scope')+
+      P('This policy governs how contractors use client accounts, assigned phones and devices, workstations, and work platforms. It supplements the Independent Contractor Agreement, the NDA, and the Data Privacy &amp; Security Policy.')+
+      H('2. Client Accounts & Systems')+
+      UL(['Access client accounts only to perform authorized work, and only for the client they belong to.','No personal messaging, browsing, purchases, or personal benefit through client accounts.','Do not change ownership, recovery details, or security settings without written authorization.'])+
+      H('3. Phones, Devices & Workstations')+
+      UL(['Treat every assigned phone, device, and workstation as an entrusted business asset — keep it secure, updated, and working.','Keep assigned phones connected and their status accurate; report a disconnected phone, login issue, or hardware problem promptly.','Do not install unauthorized apps, jailbreak or root devices, or use assigned devices in ways that risk client accounts.'])+
+      H('4. Passwords, 2FA & Credentials')+
+      UL(['Use strong, unique passwords for every work account; enable two-factor authentication where available.','Store credentials only in an approved password manager — never in plain text, notes, or personal-device browsers.','Never share credentials or one-time codes except through approved channels; surrender all access at the end of the engagement.'])+
+      H('5. Approved Tools & Platforms')+
+      P('Do posting, sourcing, and other client work only through the approved workflow and tools. Follow each platform’s terms of service. Do not introduce unauthorized automation, bots, or third-party services into a client account.')+
+      H('6. Prohibited Uses')+
+      UL(['Buying followers, engagement, or reviews; spamming; or any deceptive tactic.','Violating a platform’s terms, or any action likely to get a client account restricted or banned.','Using client accounts, devices, or tools for personal gain, side work, or another party’s benefit.','Installing unauthorized software, sharing access, or bypassing monitoring or security controls.'])+
+      H('7. Content & Posting Standards')+
+      P('Content posted for a client must be accurate, appropriate, on-brand, and consistent with instructions. Complete required notes, captions, and quality checks before marking work done. Never post misleading, offensive, or unauthorized content.')+
+      H('8. Monitoring & Accountability')+
+      P('To protect clients and maintain quality, work activity — posting and sourcing progress, account status, and completion — is recorded and reviewed for quality assurance. This is a business-quality measure, not personal surveillance. You are accountable for activity under your assigned access.');
+  }
+
+  var MAP={ ica:ica, nda:nda, nonsolicit:nonsolicit, conduct:conduct, privacy:privacy, acceptableuse:acceptableuse, awol:awol };
   window.JMBDocs={
     DOCS:[
       {key:'ica', title:'Independent Contractor Agreement'},
       {key:'nda', title:'Confidentiality & Non-Disclosure Agreement'},
       {key:'nonsolicit', title:'Non-Solicitation & Client-Protection Agreement'},
       {key:'conduct', title:'Code of Conduct & Team Handbook'},
+      {key:'privacy', title:'Data Privacy & Security Policy'},
+      {key:'acceptableuse', title:'Acceptable Use & Account Access Policy'},
       {key:'awol', title:'AWOL & Proper Disengagement Policy'}
     ],
     render:function(key, v){ v=v||{}; var f=MAP[key]; return f?f(v):''; }
