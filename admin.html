@@ -1090,7 +1090,7 @@ body{background-attachment:initial !important}
           <span id="sc-final-state" style="font-size:11px;color:var(--t3);align-self:center;"></span>
           <button class="bsm" id="sc-reveal-btn" onclick="rankingsReveal()" style="color:#fff;background:linear-gradient(135deg,#ff6b1a,#e83d00);border-color:transparent;font-weight:700;">🎬 Rankings Reveal</button>
           <button class="bsm" id="sc-ppt-btn" onclick="exportRankingsPptx()" style="color:#c2410c;border-color:rgba(255,107,26,.3);">▤ Rankings PPT</button>
-          <button class="bsm" id="sc-cert-btn" onclick="printTopCertificates()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏆 Top-5 Certificates</button>
+          <button class="bsm" id="sc-cert-btn" onclick="openCertPicker()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏅 Certificates &amp; Awards</button>
           <button class="bsm" onclick="openScorecardForm()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add / Edit</button>
         </div>
       </div>
@@ -5499,6 +5499,104 @@ function _revNext(){
   else if(e.rank<=3){ _revDing(); _revConfetti(false); }
   else { _revWhoosh(); }
   _revSchedule();
+}
+// ── Award nominees: top-5 candidates per award; admin picks the winner ──
+var _CERT_CTX=null;
+var _AWMETA={
+  early:{title:'Early Bird Award',emoji:'🌅',color:'#0E7490',cite:'for the earliest average clock-in of the month — consistently showing up early and setting the tone for the whole team.'},
+  perfect:{title:'Perfect Attendance',emoji:'🎖️',color:'#B45309',cite:'for flawless attendance — present and on time every single day, with no lates all month long.'},
+  spotless:{title:'Spotless Record',emoji:'✨',color:'#6D28D9',cite:'for the cleanest record on the team — discipline, professionalism, and reliability all month long.'},
+  sales:{title:'Sales MVP',emoji:'💰',color:'#15803D',cite:'for the strongest individual revenue contribution — the results that move the whole company forward.'},
+  workhorse:{title:'Workhorse Award',emoji:'🐎',color:'#B91C1C',cite:'for the most productive hours tracked this month — sheer dedication and a relentless work ethic.'}
+};
+function _ce(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+async function _earlyBirdList(month){
+  try{ var d=await (await jGet(API+'?action=early_bird'+(month?'&month='+encodeURIComponent(month):''), 4000, 120000)).json(); var rows=(d&&d.rows)||[]; var e=rows.filter(function(r){return r.avg_minutes!=null && r.days>=5;}); if(e.length<3) e=rows.filter(function(r){return r.avg_minutes!=null;}); e.sort(function(a,b){return a.avg_minutes-b.avg_minutes;}); return e; }
+  catch(e){ return []; }
+}
+function _awardNominees(rows, ebRows, ex){
+  ex=ex||{}; var hours=ex.hours||{}, present=ex.present||{}, lates=ex.lates||{}, names=ex.names||{}, mvp=ex.mvp||[];
+  function photoOf(id){ var r=(rows||[]).filter(function(x){return String(x.employee_id||'').toLowerCase()===String(id||'').toLowerCase();})[0]; return r?r.photo:''; }
+  function nameOf(id){ var r=(rows||[]).filter(function(x){return String(x.employee_id||'').toLowerCase()===String(id||'').toLowerCase();})[0]; return (r&&r.full_name)||names[String(id).toLowerCase()]||id; }
+  function num(v){ var n=parseFloat(v); return isNaN(n)?null:n; }
+  function mk(key,id,metricText){ var m=_AWMETA[key]; return { title:m.title,emoji:m.emoji,color:m.color,cite:m.cite,name:nameOf(id),id:id,photo:photoOf(id),metricText:metricText }; }
+  var out={ early:[], perfect:[], spotless:[], sales:[], workhorse:[] };
+  (ebRows||[]).slice(0,5).forEach(function(r){ out.early.push(mk('early', r.employee_id, 'Average clock-in: <b>'+_ce(r.avg_time)+'</b> · '+(r.days||0)+' day'+((r.days===1)?'':'s'))); });
+  var pk=Object.keys(present).map(function(k){ return {id:k, p:present[k]||0, l:lates[k]||0}; }).filter(function(o){ return o.p>=5; });
+  pk.sort(function(a,b){ return (a.l-b.l)||(b.p-a.p); });
+  pk.slice(0,5).forEach(function(o){ out.perfect.push(mk('perfect', o.id, 'Present <b>'+o.p+'</b> day'+(o.p===1?'':'s')+' · <b>'+o.l+'</b> late'+(o.l===1?'':'s'))); });
+  var sp=(rows||[]).map(function(r){ var vp=num(r.violation_points); return vp==null?null:{id:r.employee_id, vp:vp, p:(present[String(r.employee_id||'').toLowerCase()]||0), ov:num(r.overall)||0}; }).filter(Boolean);
+  sp.sort(function(a,b){ return (a.vp-b.vp)||(b.p-a.p)||(b.ov-a.ov); });
+  sp.slice(0,5).forEach(function(o){ out.spotless.push(mk('spotless', o.id, (o.vp===0?('<b>Zero</b> demerits · present <b>'+o.p+'</b> days'):('<b>'+o.vp+'</b> demerit pt'+(o.vp===1?'':'s')+' · present <b>'+o.p+'</b>')))); });
+  (mvp||[]).filter(function(m){return (m.contribution_php||0)>0;}).slice(0,5).forEach(function(m){ out.sales.push(mk('sales', m.employee_id, 'Net revenue contribution: <b>₱'+Number(m.contribution_php).toLocaleString()+'</b>')); });
+  var wk=Object.keys(hours).map(function(k){ return {id:k,h:hours[k]||0}; }).filter(function(o){return o.h>0;});
+  wk.sort(function(a,b){ return b.h-a.h; });
+  wk.slice(0,5).forEach(function(o){ out.workhorse.push(mk('workhorse', o.id, 'Logged <b>'+o.h.toFixed(1)+'</b> productive hours')); });
+  return out;
+}
+async function openCertPicker(){
+  var btn=document.getElementById('sc-cert-btn'); var old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='Loading…'; }
+  try{
+    var month=document.getElementById('sc-month-filter').value;
+    var fin=await _loadFinal(month);
+    var all, ex, ebRows;
+    if(fin){ all=_scRankSort(_scFilterActive(_attachPhotos(fin.rows||[]))).filter(_scValid); ex=fin.ex||{}; ebRows=(fin.eb_list&&fin.eb_list.length)?fin.eb_list:(fin.eb?[fin.eb]:[]); }
+    else { var data=await _scRanked(); all=data.rows.filter(_scValid); var r=await Promise.all([_awardExtras(month), _earlyBirdList(month)]); ex=r[0]||{}; ebRows=r[1]||[]; }
+    if(!all.length){ alert('No ranked scorecards for this month yet.'); return; }
+    _CERT_CTX={ all:all, month:month, monthLabel:_scMonthLabel(month), noms:_awardNominees(all, ebRows, ex), finalized:!!fin };
+    _renderCertPicker();
+  }catch(e){ alert('Could not load nominees: '+(e&&e.message||e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old||'🏅 Certificates & Awards'; } }
+}
+function _renderCertPicker(){
+  var c=_CERT_CTX; if(!c) return;
+  var ov=document.getElementById('cert-picker'); if(!ov){ ov=document.createElement('div'); ov.id='cert-picker'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
+  var top5=c.all.slice(0,5);
+  var placeHtml=top5.map(function(r,i){ return '<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0;"><b style="width:20px;color:#c2410c;">'+(i+1)+'.</b><span style="flex:1;">'+_ce(r.full_name||r.employee_id)+'</span><b style="color:#c2410c;">'+(parseFloat(r.overall).toFixed(2))+'</b></div>'; }).join('');
+  var order=[['early','🌅 Early Bird'],['perfect','🎖️ Perfect Attendance'],['spotless','✨ Spotless Record'],['sales','💰 Sales MVP'],['workhorse','🐎 Workhorse']];
+  var awHtml=order.map(function(o){
+    var key=o[0], list=c.noms[key]||[];
+    var rows=list.length? list.map(function(n,i){
+      var av=n.photo?('<img src="'+_ce(n.photo)+'" style="width:26px;height:26px;border-radius:50%;object-fit:cover;">'):('<span style="width:26px;height:26px;border-radius:50%;background:#eee;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#a16207;">'+_ce(_scInitials(n.name))+'</span>');
+      return '<label style="display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--border);border-radius:9px;margin-bottom:5px;cursor:pointer;background:'+(i===0?'rgba(255,107,26,.06)':'#fff')+';">'+
+        '<input type="radio" name="nom-'+key+'" value="'+i+'"'+(i===0?' checked':'')+' style="accent-color:var(--o2,#e83d00);">'+
+        '<b style="width:16px;color:var(--t3);font-size:11px;">'+(i+1)+'</b>'+av+
+        '<span style="flex:1;font-size:12.5px;font-weight:600;">'+_ce(n.name)+'</span>'+
+        '<span style="font-size:11px;color:var(--t3);">'+n.metricText+'</span></label>';
+    }).join('') : '<div style="font-size:12px;color:var(--t3);padding:6px;">No eligible nominees this month.</div>';
+    return '<div style="margin-bottom:14px;"><div style="font-size:13px;font-weight:800;color:var(--t1);margin-bottom:6px;">'+o[1]+'</div>'+rows+'</div>';
+  }).join('');
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:640px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
+    '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
+      '<div style="font-size:16px;font-weight:800;color:var(--t1);">🏅 Award Nominees — '+_ce(c.monthLabel)+(c.finalized?' <span style="font-size:10px;color:#7c3aed;font-weight:700;">🔒 finalized</span>':'')+'</div><span style="flex:1;"></span>'+
+      '<button class="bsm" onclick="_closeCertPicker()">✕ Close</button></div>'+
+    '<div style="padding:18px 20px;">'+
+      '<div style="font-size:11px;color:var(--t3);margin-bottom:12px;">Pick one winner per award (top nominee is pre-selected). Top-5 placement certificates print automatically.</div>'+
+      '<div style="background:rgba(255,107,26,.05);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:16px;"><div style="font-size:12px;font-weight:800;color:#c2410c;margin-bottom:5px;">🏆 Top 5 (by Overall)</div>'+placeHtml+'</div>'+
+      awHtml+
+    '</div>'+
+    '<div style="position:sticky;bottom:0;background:var(--card,#fff);border-top:1px solid var(--border);padding:14px 20px;display:flex;gap:10px;justify-content:flex-end;">'+
+      '<button class="bsm" onclick="_closeCertPicker()">Cancel</button>'+
+      '<button class="bsm" style="color:#fff;background:linear-gradient(135deg,#ff6b1a,#e83d00);border-color:transparent;font-weight:700;" onclick="printSelectedCerts()">🖨 Print certificates</button>'+
+    '</div></div>';
+}
+function _closeCertPicker(){ var ov=document.getElementById('cert-picker'); if(ov) ov.remove(); }
+function printSelectedCerts(){
+  var c=_CERT_CTX; if(!c) return;
+  var awards=[];
+  ['early','perfect','spotless','sales','workhorse'].forEach(function(key){
+    var list=c.noms[key]||[]; if(!list.length) return;
+    var sel=document.querySelector('input[name="nom-'+key+'"]:checked');
+    var idx=sel?parseInt(sel.value,10):0; var pick=list[idx]||list[0];
+    if(pick) awards.push(pick);
+  });
+  var rows5=c.all.slice(0,5);
+  var w=window.open('','_blank');
+  if(!w){ alert('Please allow pop-ups for this site to print certificates.'); return; }
+  w.document.write(_certHTML(rows5, c.monthLabel, awards));
+  w.document.close();
+  _closeCertPicker();
 }
 function openScorecardForm() {
   document.getElementById('sc-form-wrap').style.display = 'block';
