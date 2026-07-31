@@ -5008,10 +5008,10 @@ function stopScLive(){ if (scLiveTimer){ clearInterval(scLiveTimer); scLiveTimer
 async function _scRanked(){
   var month=document.getElementById('sc-month-filter').value;
   // make sure we have the employee roster (for photos)
-  if(!(typeof emps!=='undefined' && emps && emps.length)){ try{ var er=await fetch(API+'?action=get_all_employees&_='+Date.now()); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  if(!(typeof emps!=='undefined' && emps && emps.length)){ try{ var ed=await (await jGet(API+'?action=get_all_employees', 60000, 30000)).json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
   var pmap={}; try{ (emps||[]).forEach(function(e){ if(e&&e.employee_id) pmap[String(e.employee_id).toLowerCase()]= e.photo?convertDrive(e.photo):''; }); }catch(e){}
-  var url=API+'?action=get_all_scorecards'+(month?'&month='+encodeURIComponent(month):'')+'&_='+Date.now();
-  var d=await (await fetch(url)).json();
+  var url=API+'?action=get_all_scorecards'+(month?'&month='+encodeURIComponent(month):'');
+  var d=await (await jGet(url, 4000, 30000)).json();
   var rows=((d&&d.scorecards)||[]).slice();
   rows.forEach(function(r){ r.photo = pmap[String(r.employee_id||'').toLowerCase()]||''; });
   var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; };
@@ -5158,9 +5158,8 @@ async function printTopCertificates(){
     var all=data.rows.filter(function(r){ return r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); });
     var rows=all.slice(0,5);
     if(!rows.length){ alert('No ranked scorecards for this month yet.'); return; }
-    var eb=await _earlyBirdWinner(data.month);
-    var ex=await _awardExtras(data.month);
-    var awards=_scAwards(all, eb, ex);
+    var ebex=await Promise.all([_earlyBirdWinner(data.month), _awardExtras(data.month)]);
+    var awards=_scAwards(all, ebex[0], ebex[1]);
     var w=window.open('','_blank');
     if(!w){ alert('Please allow pop-ups for this site to print certificates.'); return; }
     w.document.write(_certHTML(rows, _scMonthLabel(data.month), awards));
@@ -5173,7 +5172,7 @@ async function printTopCertificates(){
 // Earliest average clock-in for the month (literal punctuality) — best-effort.
 async function _earlyBirdWinner(month){
   try{
-    var d=await (await fetch(API+'?action=early_bird'+(month?'&month='+encodeURIComponent(month):'')+'&_='+Date.now())).json();
+    var d=await (await jGet(API+'?action=early_bird'+(month?'&month='+encodeURIComponent(month):''), 4000, 30000)).json();
     var rows=(d&&d.rows)||[];
     var elig=rows.filter(function(r){ return r.avg_minutes!=null && r.days>=5; });
     if(!elig.length) elig=rows.filter(function(r){ return r.avg_minutes!=null; });
@@ -5183,7 +5182,7 @@ async function _earlyBirdWinner(month){
   }catch(e){ return null; }
 }
 async function _awardExtras(month){
-  try{ return await (await fetch(API+'?action=award_extras'+(month?'&month='+encodeURIComponent(month):'')+'&_='+Date.now())).json(); }
+  try{ return await (await jGet(API+'?action=award_extras'+(month?'&month='+encodeURIComponent(month):''), 4000, 30000)).json(); }
   catch(e){ return {}; }
 }
 // The five monthly awards: Early Bird, Perfect Attendance, Spotless Record, Sales MVP, Workhorse.
