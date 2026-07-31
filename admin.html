@@ -1086,6 +1086,8 @@ body{background-attachment:initial !important}
           <select class="sinp" id="sc-month-filter" onchange="loadAdminScorecard()" style="width:160px;margin-left:8px;"></select>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="bsm" id="sc-final-btn" onclick="finalizeMonth()" style="color:#7c3aed;border-color:rgba(124,58,237,.35);">🔒 Finalize Month</button>
+          <span id="sc-final-state" style="font-size:11px;color:var(--t3);align-self:center;"></span>
           <button class="bsm" id="sc-reveal-btn" onclick="rankingsReveal()" style="color:#fff;background:linear-gradient(135deg,#ff6b1a,#e83d00);border-color:transparent;font-weight:700;">🎬 Rankings Reveal</button>
           <button class="bsm" id="sc-ppt-btn" onclick="exportRankingsPptx()" style="color:#c2410c;border-color:rgba(255,107,26,.3);">▤ Rankings PPT</button>
           <button class="bsm" id="sc-cert-btn" onclick="printTopCertificates()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏆 Top-5 Certificates</button>
@@ -4841,6 +4843,7 @@ async function loadAdminScorecard() {
   if(!_scSnapPaint()) tbody.innerHTML = sklTableRows(10, 6);   // instant paint from last snapshot, else skeleton
   await _scRenderRows();     // refresh in the background
   startScLive();             // keep the ranking live while this tab is open
+  try{ updateFinalizeUI(month); }catch(_f){}   // show whether the selected month is finalized
 }
 
 // Fetch → rank highest→lowest by final Overall → render. Reused by the live poller,
@@ -5031,6 +5034,34 @@ async function _scRanked(){
   rows.sort(function(a,b){ return ov(b.overall)-ov(a.overall); });   // highest first → rank = index+1
   return { rows:rows, month:month };
 }
+// ── Finalize Month (freeze rankings + awards) ──
+function _attachPhotos(rows){ var pmap={}; try{ (emps||[]).forEach(function(e){ if(e&&e.employee_id) pmap[String(e.employee_id).toLowerCase()]= e.photo?convertDrive(e.photo):''; }); }catch(e){} (rows||[]).forEach(function(r){ r.photo=pmap[String(r.employee_id||'').toLowerCase()]||r.photo||''; }); return rows; }
+function _scRankSort(rows){ var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; }; return (rows||[]).slice().sort(function(a,b){ return ov(b.overall)-ov(a.overall); }); }
+function _scValid(r){ return r && r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); }
+async function _loadFinal(month){
+  try{ var d=await (await jGet(API+'?action=get_finalized&month='+encodeURIComponent(month||''), 2500, 30000)).json(); return (d&&d.finalized&&d.snapshot)?d.snapshot:null; }
+  catch(e){ return null; }
+}
+async function updateFinalizeUI(month){
+  var st=document.getElementById('sc-final-state'), btn=document.getElementById('sc-final-btn'); if(!st) return;
+  try{
+    var d=await (await jGet(API+'?action=get_finalized&month='+encodeURIComponent(month||''), 2000, 30000)).json();
+    if(d&&d.finalized){ st.textContent='🔒 Finalized '+String(d.finalized_at||'').slice(0,16)+(d.by?(' · '+d.by):''); st.style.color='#7c3aed'; if(btn) btn.textContent='🔄 Re-finalize'; }
+    else { st.textContent='Not finalized'; st.style.color='var(--t3)'; if(btn) btn.textContent='🔒 Finalize Month'; }
+  }catch(e){ st.textContent=''; }
+}
+async function finalizeMonth(){
+  var month=document.getElementById('sc-month-filter').value; if(!month){ toast('Pick a month first.'); return; }
+  var lbl=_scMonthLabel(month);
+  if(!confirm('Finalize '+lbl+'?\n\nThis locks the rankings and all 5 awards for '+lbl+' into a frozen snapshot — the numbers can no longer change, and the Reveal and Certificates will print from it.\n\nYou can Re-finalize later to refresh the snapshot with the latest data.')) return;
+  var btn=document.getElementById('sc-final-btn'); var old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='Finalizing…'; }
+  try{
+    var d=await (await jGet(API+'?action=finalize_scorecard&month='+encodeURIComponent(month)+'&by=Admin', 0, 90000)).json();
+    if(d&&d.ok){ try{ jBust(); }catch(_){} toast('🔒 '+lbl+' finalized — rankings & awards locked ('+ (d.count||0) +' contractors).'); updateFinalizeUI(month); }
+    else toast('Could not finalize: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Finalize failed — try again.'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old||'🔒 Finalize Month'; } }
+}
 function _scInitials(name){ var p=String(name||'').trim().split(/[\s,]+/).filter(Boolean); return ((p[0]||'?')[0]+(p[1]?p[1][0]:'')).toUpperCase(); }
 function _blobToData(b){ return new Promise(function(res){ if(!b||b.size<80) return res(null); var fr=new FileReader(); fr.onload=function(){ var d=String(fr.result); res(/^data:image\//.test(d)?d:null); }; fr.onerror=function(){res(null);}; fr.readAsDataURL(b); }); }
 // Fetch an image as base64 for embedding. Drive blocks cross-origin fetch, so we fall back to a
@@ -5167,15 +5198,17 @@ async function printTopCertificates(){
   var btn=document.getElementById('sc-cert-btn'); var old=btn?btn.textContent:'';
   if(btn){ btn.disabled=true; btn.textContent='Preparing…'; }
   try{
-    var data=await _scRanked();
-    var all=data.rows.filter(function(r){ return r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); });
+    var month=document.getElementById('sc-month-filter').value;
+    var fin=await _loadFinal(month);
+    var all, eb, ex;
+    if(fin){ all=_scRankSort(_scFilterActive(_attachPhotos(fin.rows||[]))).filter(_scValid); eb=fin.eb; ex=fin.ex||{}; }
+    else { var data=await _scRanked(); all=data.rows.filter(_scValid); var ebex=await Promise.all([_earlyBirdWinner(month), _awardExtras(month)]); eb=ebex[0]; ex=ebex[1]; }
     var rows=all.slice(0,5);
     if(!rows.length){ alert('No ranked scorecards for this month yet.'); return; }
-    var ebex=await Promise.all([_earlyBirdWinner(data.month), _awardExtras(data.month)]);
-    var awards=_scAwards(all, ebex[0], ebex[1]);
+    var awards=_scAwards(all, eb, ex);
     var w=window.open('','_blank');
     if(!w){ alert('Please allow pop-ups for this site to print certificates.'); return; }
-    w.document.write(_certHTML(rows, _scMonthLabel(data.month), awards));
+    w.document.write(_certHTML(rows, _scMonthLabel(month), awards));
     w.document.close();
   }catch(e){ alert('Could not create certificates: '+(e&&e.message||e)); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
@@ -5217,18 +5250,27 @@ function _scAwards(rows, eb, ex){
     cite:'for flawless attendance — present and on time every single day, with no lates all month long.',
     name:names[paBest.k]||paBest.k, id:paBest.k, photo:photoOf(paBest.k),
     metricText:'Present <b>'+paBest.p+' days</b> with <b>zero</b> late clock-ins.' }); }
-  // 3 · Spotless Record — fewest demerit / violation points (tie-break: highest overall)
-  var spBest=null; (rows||[]).forEach(function(r){ var vp=num(r.violation_points); if(vp==null) return; var ov=num(r.overall)||0; if(!spBest || vp<spBest.vp || (vp===spBest.vp && ov>spBest.ov)) spBest={r:r,vp:vp,ov:ov}; });
+  // 3 · Spotless Record — fewest demerit / violation points; tie-break: most days present, then Overall
+  var spBest=null; (rows||[]).forEach(function(r){ var vp=num(r.violation_points); if(vp==null) return; var pd=present[String(r.employee_id||'').toLowerCase()]||0; var ov=num(r.overall)||0;
+    if(!spBest || vp<spBest.vp || (vp===spBest.vp && pd>spBest.pd) || (vp===spBest.vp && pd===spBest.pd && ov>spBest.ov)) spBest={r:r,vp:vp,pd:pd,ov:ov}; });
   if(spBest){ out.push({ title:'Spotless Record', emoji:'✨', color:'#6D28D9',
     cite:'for the cleanest record on the team — discipline, professionalism, and reliability all month long.',
     name:spBest.r.full_name||spBest.r.employee_id, id:spBest.r.employee_id, photo:spBest.r.photo,
-    metricText:(spBest.vp===0?'A spotless record — <b>zero</b> demerits all month.':'Only <b>'+spBest.vp+'</b> demerit point'+(spBest.vp===1?'':'s')+' — the cleanest sheet on the team.') }); }
-  // 4 · Sales MVP — highest team-sales contribution
-  var smBest=null; (rows||[]).forEach(function(r){ var ts=num(r.team_sales); if(ts==null||ts<=0) return; if(!smBest||ts>smBest.ts) smBest={r:r,ts:ts}; });
-  if(smBest){ out.push({ title:'Sales MVP', emoji:'💰', color:'#15803D',
-    cite:'for the strongest contribution to team sales — driving the results that move the whole company forward.',
-    name:smBest.r.full_name||smBest.r.employee_id, id:smBest.r.employee_id, photo:smBest.r.photo,
-    metricText:'Team Sales score: <b>'+smBest.ts.toFixed(2)+'</b>.' }); }
+    metricText:(spBest.vp===0?('A spotless record — <b>zero</b> demerits'+(spBest.pd?(' across <b>'+spBest.pd+'</b> present days'):'')+'.'):'Only <b>'+spBest.vp+'</b> demerit point'+(spBest.vp===1?'':'s')+' — the cleanest sheet on the team.') }); }
+  // 4 · Sales MVP — individual NET revenue contribution (falls back to the team-sales score)
+  var mvpRow=(ex.mvp&&ex.mvp.length)?ex.mvp[0]:null;
+  if(mvpRow && mvpRow.contribution_php>0){
+    out.push({ title:'Sales MVP', emoji:'💰', color:'#15803D',
+      cite:'for the strongest individual revenue contribution — the results that move the whole company forward.',
+      name:mvpRow.full_name||mvpRow.employee_id, id:mvpRow.employee_id, photo:photoOf(mvpRow.employee_id),
+      metricText:'Net revenue contribution: <b>₱'+Number(mvpRow.contribution_php).toLocaleString()+'</b> this month.' });
+  } else {
+    var smBest=null; (rows||[]).forEach(function(r){ var ts=num(r.team_sales); if(ts==null||ts<=0) return; if(!smBest||ts>smBest.ts) smBest={r:r,ts:ts}; });
+    if(smBest){ out.push({ title:'Sales MVP', emoji:'💰', color:'#15803D',
+      cite:'for the strongest contribution to team sales — driving the results that move the whole company forward.',
+      name:smBest.r.full_name||smBest.r.employee_id, id:smBest.r.employee_id, photo:smBest.r.photo,
+      metricText:'Team Sales score: <b>'+smBest.ts.toFixed(2)+'</b>.' }); }
+  }
   // 5 · Workhorse — most productive hours tracked
   var whBest=null; Object.keys(hours).forEach(function(k){ var hh=hours[k]||0; if(hh<=0) return; if(!whBest||hh>whBest.h) whBest={k:k,h:hh}; });
   if(whBest){ out.push({ title:'Workhorse Award', emoji:'🐎', color:'#B91C1C',
@@ -5305,10 +5347,12 @@ async function rankingsReveal(){
   var btn=document.getElementById('sc-reveal-btn'); var old=btn?btn.textContent:'';
   if(btn){ btn.disabled=true; btn.textContent='Preparing…'; }
   try{
-    var data=await _scRanked();
-    var rows=data.rows.filter(function(r){ return r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); });
+    var month=document.getElementById('sc-month-filter').value;
+    var fin=await _loadFinal(month);
+    var rows = fin ? _scRankSort(_scFilterActive(_attachPhotos(fin.rows||[]))) : (await _scRanked()).rows;
+    rows=rows.filter(_scValid);
     if(!rows.length){ alert('No ranked scorecards for this month yet.'); return; }
-    _revStart(rows, _scMonthLabel(data.month));
+    _revStart(rows, _scMonthLabel(month));
   }catch(e){ alert('Could not start the reveal: '+(e&&e.message||e)); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
 }
