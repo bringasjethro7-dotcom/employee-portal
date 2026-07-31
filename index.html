@@ -4859,7 +4859,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <div><span id="myqa-avg" style="font-size:28px;font-weight:800;font-family:'Sora','Inter',sans-serif;color:var(--text-1);">—</span><span style="font-size:13px;color:var(--text-3);"> / 100 avg</span></div>
             <div id="myqa-weeks" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
-          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui196</div>
+          <div style="font-size:9.5px;opacity:.4;margin-top:8px;">portal build 2026-07-21 · light-ui197</div>
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — this cutoff</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
@@ -17798,6 +17798,7 @@ body.light .jul4-lbscore{color:#059669}
     <div class="arc-top">
       <div class="arc-logo"><i class="arc-cube"></i><span>TETRIS <b>BATTLE</b></span></div>
       <div id="tet-status" class="arc-status">Connecting…</div>
+      <button class="arc-x" id="tet-pause-btn" onclick="tetPauseToggle()" aria-label="Pause" title="Pause (P)">⏸</button>
       <button class="arc-x" onclick="tetrisQuit()" aria-label="Quit">✕</button>
     </div>
 
@@ -17825,6 +17826,11 @@ body.light .jul4-lbscore{color:#059669}
           <div id="tet-announce"></div>
           <div id="tet-koflash">KO</div>
           <div id="tet-sent"></div>
+          <div id="tet-pause-ov" style="display:none;position:absolute;inset:0;z-index:30;background:rgba(8,10,20,.82);flex-direction:column;align-items:center;justify-content:center;gap:14px;border-radius:14px;">
+            <div style="font-size:30px;font-weight:900;color:#fff;letter-spacing:.12em;">⏸ PAUSED</div>
+            <button onclick="tetPauseToggle()" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:12px;padding:11px 26px;font-weight:800;font-size:14px;cursor:pointer;">▶ Resume</button>
+            <button onclick="tetRestartSolo()" style="background:#1b2233;color:#cdd6f5;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:9px 22px;font-weight:700;font-size:13px;cursor:pointer;">↻ Restart</button>
+          </div>
         </div>
         <div class="arc-name you">You</div>
       </section>
@@ -17833,10 +17839,11 @@ body.light .jul4-lbscore{color:#059669}
       <aside class="arc-rail">
         <div class="arc-mod">
           <div class="arc-lbl">Next</div>
-          <canvas id="tet-next" width="84" height="66"></canvas>
+          <canvas id="tet-next" width="84" height="250"></canvas>
         </div>
         <div class="arc-stat"><span>Score</span><b id="tet-me-score">0</b></div>
         <div class="arc-stat"><span>Lines</span><b id="tet-me-lines">0</b></div>
+        <div class="arc-stat"><span>Level</span><b id="tet-me-level">1</b></div>
         <div class="arc-stat ko"><span>Knockouts</span><b><i id="tet-me-ko">0</i><em>/<span id="tet-me-komax">3</span></em></b></div>
       </aside>
 
@@ -18371,6 +18378,7 @@ body.light .jul4-lbscore{color:#059669}
     L:[[0,0,7],[7,7,7],[0,0,0]]
   };
   var TYPES=['I','O','T','S','Z','J','L'];
+  var NEXT_N=5;   // upcoming pieces shown in the Next queue (standard 3–5)
   var STATES={};
   (function(){ for(var i=0;i<TYPES.length;i++){ var t=TYPES[i]; var s=[PIECES[t]]; for(var k=1;k<4;k++) s.push(rotCW(s[k-1])); STATES[t]=s; } })();
   // SRS wall-kick tables (y already flipped to grid-down)
@@ -18871,7 +18879,7 @@ body.light .jul4-lbscore{color:#059669}
     var ar=el('tet-arena-col'); if(ar) ar.style.display='none';
     M.mode='duel';
     var seed=hashStr(M.matchId);
-    M.rng=mulberry32(seed); M.bag=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1;
+    M.rng=mulberry32(seed); M.bag=[]; M.queue=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1;
     M.oppGrid=empty(); M.oppScore=0; M.oppLines=0; M.oppAlive=true;
     M.playing=true; M.ended=false; M.alive=true; M.pendingGarbage=0;
     M.hold=null; M.canHold=true; M.combo=0; M.b2b=false; M.nextT=null; M.kos=0; M.myKos=0; M.oppKos=0;
@@ -18915,6 +18923,7 @@ body.light .jul4-lbscore{color:#059669}
 
   function empty(){ var g=[]; for(var y=0;y<H;y++){ g.push(new Array(W).fill(0)); } return g; }
   function nextType(){ if(!M.bag.length){ M.bag=TYPES.slice(); for(var i=M.bag.length-1;i>0;i--){ var j=Math.floor(M.rng()*(i+1)); var t=M.bag[i]; M.bag[i]=M.bag[j]; M.bag[j]=t; } } return M.bag.shift(); }
+  function fillQueue(){ if(!M.queue) M.queue=[]; while(M.queue.length<NEXT_N){ M.queue.push(nextType()); } M.nextT=M.queue[0]; }
   function spawnType(t){
     var m=STATES[t][0];
     M.cur={ type:t, rot:0, m:m, x:Math.floor((W-m[0].length)/2), y:0 };
@@ -18923,22 +18932,19 @@ body.light .jul4-lbscore{color:#059669}
   }
   function spawn(){
     clearLockTimer(); M._lockResets=0;
-    var t=M.nextT||nextType();
-    M.nextT=nextType();
+    fillQueue();
+    var t=M.queue.shift(); fillQueue();
     M.canHold=true;
     spawnType(t);
     renderNext();
   }
   // ── Hold piece (Tetris Battle) ──
   function holdPiece(){
-    if(!M||!M.alive||!M.canHold) return;
-    var now=Date.now();
-    if(M.lastHold && (now-M.lastHold)<8000){ var left=Math.ceil((8000-(now-M.lastHold))/1000); announce('⇄ Switch in '+left+'s'); return; }
-    M.lastHold=now;
+    if(!M||!M.alive||!M.canHold) return;   // standard: usable once per placed piece (canHold resets on spawn)
     clearLockTimer(); M._lockResets=0;
     var cur=M.cur.type;
     if(M.hold){ var h=M.hold; M.hold=cur; spawnType(h); }
-    else { M.hold=cur; var t=M.nextT||nextType(); M.nextT=nextType(); spawnType(t); renderNext(); }
+    else { M.hold=cur; fillQueue(); var t=M.queue.shift(); fillQueue(); spawnType(t); renderNext(); }
     M.canHold=false; renderHold(); sfxRot();
   }
   function renderHold(){
@@ -18950,17 +18956,20 @@ body.light .jul4-lbscore{color:#059669}
       rr(ctx,px+1,py+1,cs-2,cs-2,rad); ctx.fillStyle=g; ctx.fill(); } }
   }
   function renderNext(){
-    var cv=el('tet-next'); if(!cv||!M||!M.nextT) return; var ctx=cv.getContext('2d');
+    var cv=el('tet-next'); if(!cv||!M||!M.queue||!M.queue.length) return; var ctx=cv.getContext('2d');
     ctx.clearRect(0,0,cv.width,cv.height);
-    var m=STATES[M.nextT][0], rows=m.length, cols=m[0].length;
-    var cs=Math.min((cv.width-8)/cols, (cv.height-8)/rows, 20);
-    var ox=(cv.width-cols*cs)/2, oy=(cv.height-rows*cs)/2;
-    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){ if(m[r][c]){
-      var color=COLORS[m[r][c]], px=ox+c*cs, py=oy+r*cs, rad=Math.max(2,cs*0.17);
-      var g=ctx.createLinearGradient(px,py,px,py+cs); g.addColorStop(0,hexAdj(color,0.42)); g.addColorStop(0.5,color); g.addColorStop(1,hexAdj(color,-0.3));
-      rr(ctx,px+1,py+1,cs-2,cs-2,rad); ctx.fillStyle=g; ctx.fill();
-      ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle='rgba(255,255,255,.9)'; rr(ctx,px+cs*0.22,py+cs*0.15,cs*0.56,cs*0.15,cs*0.07); ctx.fill(); ctx.restore();
-    } }
+    var n=Math.min(NEXT_N, M.queue.length), cellH=cv.height/n;
+    for(var q=0;q<n;q++){
+      var m=STATES[M.queue[q]][0], rows=m.length, cols=m[0].length;
+      var cs=Math.min((cv.width-10)/cols, (cellH-6)/rows, q===0?18:14);
+      var ox=(cv.width-cols*cs)/2, oy=q*cellH+(cellH-rows*cs)/2;
+      for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){ if(m[r][c]){
+        var color=COLORS[m[r][c]], px=ox+c*cs, py=oy+r*cs, rad=Math.max(2,cs*0.17);
+        var g=ctx.createLinearGradient(px,py,px,py+cs); g.addColorStop(0,hexAdj(color,0.42)); g.addColorStop(0.5,color); g.addColorStop(1,hexAdj(color,-0.3));
+        rr(ctx,px+1,py+1,cs-2,cs-2,rad); ctx.fillStyle=g; ctx.fill();
+        ctx.save(); ctx.globalAlpha=(q===0?0.5:0.32); ctx.fillStyle='rgba(255,255,255,.9)'; rr(ctx,px+cs*0.22,py+cs*0.15,cs*0.56,cs*0.15,cs*0.07); ctx.fill(); ctx.restore();
+      } }
+    }
   }
   function updateIncoming(){
     var f=el('tet-incoming-fill'), nu=el('tet-incoming-num'); var n=(M&&M.pendingGarbage)||0;
@@ -19118,7 +19127,7 @@ body.light .jul4-lbscore{color:#059669}
       if(perfect){ pts+=(c>=4?4000:2000); label='Perfect Clear'; }
       sent=Math.min(sent, MAX_SEND);   // normal cap
       if(perfect){ sent=15; }          // 💥 Perfect Clear = massive 15-line attack (bypasses the cap)
-      M.score+=pts*M.level; M.lines+=c; M.level=1+Math.floor(M.lines/10);
+      M.score+=pts*M.level; if(M.combo>1){ M.score+=50*(M.combo-1)*M.level; }   /* standard combo bonus: 50 × combo × level */  M.lines+=c; M.level=1+Math.floor(M.lines/10);
       sfxClear(c); if(M.combo>1){ sfxCombo(M.combo); var _cbn=M.combo; setTimeout(function(){ try{ voiceCombo(_cbn); }catch(_vc){} },0); }   // hype-woman, deferred off the clear frame
       if(perfect){ announce('✨ PERFECT CLEAR! ✨','perfect'); perfectClearFx(); }
       else { var _ck=(label.indexOf('B2B')===0)?'b2b':(ts?'tspin':(c===4?'tetris':(M.combo>=3?'combo':'normal'))); announce(label + (M.combo>1?(' · COMBO '+M.combo):''), _ck); }
@@ -19137,6 +19146,7 @@ body.light .jul4-lbscore{color:#059669}
       if(M.pendingGarbage>0){ M._respawned=false; var dump=Math.min(M.pendingGarbage,DUMP_MAX); addGarbage(dump); M.pendingGarbage-=dump; updateIncoming(); if(!M.alive || M._respawned){ M._respawned=false; draw(); return; } }
     }
     statBump('tet-me-score', M.score); statBump('tet-me-lines', M.lines);
+    var _lv=el('tet-me-level'); if(_lv) _lv.textContent=M.level;
     if(M.mode==='sprint' && M.lines>=40){ soloEnd('done'); return; }   // Sprint 40 reached
     if(M.mode==='cheese' && garbageRows()===0){ soloEnd('done'); return; }   // Cheese Race: board is dug out
     spawn();
@@ -19250,6 +19260,8 @@ body.light .jul4-lbscore{color:#059669}
   function stopAllRepeat(){ Object.keys(_rep).forEach(stopRepeat); }
   function onKey(e){
     if(!M||!M.alive) return; var k=e.key;
+    if(k==='p'||k==='P'){ if(!e.repeat){ e.preventDefault(); if(typeof tetPauseToggle==='function') tetPauseToggle(); } return; }
+    if(M.paused) return;   // swallow gameplay keys while paused
     if(k==='ArrowLeft'){ if(!_rep.left){ stopRepeat('right'); startRepeat('left'); } }
     else if(k==='ArrowRight'){ if(!_rep.right){ stopRepeat('left'); startRepeat('right'); } }
     else if(k==='ArrowDown'){ if(!_rep.down) startRepeat('down'); }
@@ -19279,6 +19291,39 @@ body.light .jul4-lbscore{color:#059669}
   }
   window.tetRelease=function(a){ if(a==='left'||a==='right'||a==='down') stopRepeat(a); };
   window.tetKey=window.tetHold;   // back-compat
+  // ── Pause / Restart (solo modes only — never a live match) ──
+  var SOLO_MODES=['sprint','ultra','combo','cheese','survival','zen','daily'];
+  function _isSoloMode(){ return M && SOLO_MODES.indexOf(M.mode)>=0; }
+  function _tetPauseNow(){
+    if(!M||!M.alive) return; M.paused=true;
+    if(M.loop){ clearInterval(M.loop); M.loop=null; }
+    if(M.timer){ clearInterval(M.timer); M.timer=null; }
+    try{ stopAllRepeat(); }catch(_){}
+    try{ if(typeof stopMusic==='function') stopMusic(); }catch(_){}
+    var ov=el('tet-pause-ov'); if(ov) ov.style.display='flex';
+    var pb=el('tet-pause-btn'); if(pb) pb.textContent='▶';
+  }
+  function _tetResume(){
+    if(!M) return; M.paused=false;
+    var ov=el('tet-pause-ov'); if(ov) ov.style.display='none';
+    var pb=el('tet-pause-btn'); if(pb) pb.textContent='⏸';
+    if(!M.loop) M.loop=setInterval(tick, M.dropMs||700);
+    if(!M.timer && M.timeLeft!=null){ M.timer=setInterval(function(){ M.timeLeft--; if(M.timeLeft<=0){ endByTime(); } else { status(''+fmtT(M.timeLeft)); if(M.timeLeft<=10) sfxUrgent(M.timeLeft); } }, 1000); }
+    try{ if(typeof startMusic==='function') startMusic(); }catch(_){}
+  }
+  window.tetPauseToggle=function(){
+    if(!M||!M.alive) return;
+    if(!_isSoloMode()){ try{ announce('⏸ Pause is available in solo modes only'); }catch(_){} return; }
+    if(M.paused) _tetResume(); else _tetPauseNow();
+  };
+  window.tetRestartSolo=function(){
+    if(!M || !_isSoloMode()) return;
+    var mode=M.mode;
+    try{ if(M.loop) clearInterval(M.loop); if(M.timer) clearInterval(M.timer); if(M.net) clearInterval(M.net); }catch(_){}
+    M.paused=false; M.alive=false;
+    var ov=el('tet-pause-ov'); if(ov) ov.style.display='none';
+    try{ if(typeof startSolo==='function') startSolo(mode); }catch(e){}
+  };
   function move(d){ if(!collide(M.cur.m,M.cur.x+d,M.cur.y)){ M.cur.x+=d; M.lastRot=false; sfxMove(); bumpLock(); } }
   function rotate(dir){
     if(M.cur.type==='O'){ return; }
@@ -20438,7 +20483,7 @@ body.light .jul4-lbscore{color:#059669}
     M.startN=Object.keys(M.players).length;
     if(teams){ M.isTeam=true; M.teams=teams; M.stake=parseInt(stake,10)||0; M.tnames=(tnames&&typeof tnames==='object')?tnames:null; }   // 2v2 team battle uses the same engine, team-aware
     // engine init
-    M.rng=mulberry32(hashStr(seed)); M.bag=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1; M.pendingGarbage=0; M.nextT=null;
+    M.rng=mulberry32(hashStr(seed)); M.bag=[]; M.queue=[]; M.grid=empty(); M.score=0; M.lines=0; M.level=1; M.pendingGarbage=0; M.nextT=null;
     M.hold=null; M.canHold=true; M.combo=0; M.b2b=false;
     openOverlay(); el('tet-controls').style.display='block';
     buildArena();
