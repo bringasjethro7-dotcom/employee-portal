@@ -4846,8 +4846,18 @@ async function loadAdminScorecard() {
 // Fetch → rank highest→lowest by final Overall → render. Reused by the live poller,
 // so it never shows the "Loading…" flash on its own.
 // Paint the ranked table from a rows array (shared by the live fetch and the instant snapshot).
+// Set of deactivated/offboarded contractor ids (from the loaded roster) — belt-and-suspenders so
+// deactivated VAs drop from the table, reveal, and certificates even before the server redeploys.
+function _deactSet(){
+  var set={};
+  var src=(typeof scAdminEmps!=='undefined'&&scAdminEmps&&scAdminEmps.length)?scAdminEmps:(typeof emps!=='undefined'?emps:[]);
+  try{ (src||[]).forEach(function(e){ if(!e||!e.employee_id) return; var s=String(e.status||'active').toLowerCase(); if(/inactive|deactivat|disabled|archived|offboard|terminated|resigned/.test(s)) set[String(e.employee_id).toLowerCase()]=1; }); }catch(_){}
+  return set;
+}
+function _scFilterActive(rows){ var dead=_deactSet(); return (rows||[]).filter(function(r){ return !dead[String(r.employee_id||'').toLowerCase()]; }); }
 function _scPaint(rows){
   var tbody = document.getElementById('sc-body'); if(!tbody) return;
+  rows = _scFilterActive(rows);
   if(!rows || !rows.length){ tbody.innerHTML = '<tr><td colspan="10" class="es">No scorecards found.</td></tr>'; return; }
   var _ov = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v) : -Infinity; };
   rows = rows.slice().sort(function(a,b){ return _ov(b.overall) - _ov(a.overall); });
@@ -5008,12 +5018,15 @@ function stopScLive(){ if (scLiveTimer){ clearInterval(scLiveTimer); scLiveTimer
 async function _scRanked(){
   var month=document.getElementById('sc-month-filter').value;
   // make sure we have the employee roster (for photos)
-  if(!(typeof emps!=='undefined' && emps && emps.length)){ try{ var ed=await (await jGet(API+'?action=get_all_employees', 60000, 30000)).json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  if(!(typeof emps!=='undefined' && emps && emps.length)){ try{ var ed=await (await jGet(API+'?action=get_all_employees', 60000, 120000)).json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
   var pmap={}; try{ (emps||[]).forEach(function(e){ if(e&&e.employee_id) pmap[String(e.employee_id).toLowerCase()]= e.photo?convertDrive(e.photo):''; }); }catch(e){}
   var url=API+'?action=get_all_scorecards'+(month?'&month='+encodeURIComponent(month):'');
-  var d=await (await jGet(url, 4000, 30000)).json();
-  var rows=((d&&d.scorecards)||[]).slice();
-  rows.forEach(function(r){ r.photo = pmap[String(r.employee_id||'').toLowerCase()]||''; });
+  var rows=null;
+  try{ var d=await (await jGet(url, 4000, 120000)).json(); rows=((d&&d.scorecards)||[]).slice(); }   // 120s: cold all-employee compute can exceed a minute
+  catch(err){ try{ var snap=JSON.parse(localStorage.getItem(_scSnapKey())||'null'); if(snap&&snap.rows&&snap.rows.length) rows=snap.rows.slice(); }catch(_s){}   // fall back to the table's last snapshot so the reveal/certs never die
+    if(!rows) throw err; }
+  rows = _scFilterActive(rows);   // drop deactivated VAs from the reveal + certificates
+  rows.forEach(function(r){ r.photo = pmap[String(r.employee_id||'').toLowerCase()]||r.photo||''; });
   var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; };
   rows.sort(function(a,b){ return ov(b.overall)-ov(a.overall); });   // highest first → rank = index+1
   return { rows:rows, month:month };
@@ -5172,7 +5185,7 @@ async function printTopCertificates(){
 // Earliest average clock-in for the month (literal punctuality) — best-effort.
 async function _earlyBirdWinner(month){
   try{
-    var d=await (await jGet(API+'?action=early_bird'+(month?'&month='+encodeURIComponent(month):''), 4000, 30000)).json();
+    var d=await (await jGet(API+'?action=early_bird'+(month?'&month='+encodeURIComponent(month):''), 4000, 120000)).json();
     var rows=(d&&d.rows)||[];
     var elig=rows.filter(function(r){ return r.avg_minutes!=null && r.days>=5; });
     if(!elig.length) elig=rows.filter(function(r){ return r.avg_minutes!=null; });
@@ -5182,7 +5195,7 @@ async function _earlyBirdWinner(month){
   }catch(e){ return null; }
 }
 async function _awardExtras(month){
-  try{ return await (await jGet(API+'?action=award_extras'+(month?'&month='+encodeURIComponent(month):''), 4000, 30000)).json(); }
+  try{ return await (await jGet(API+'?action=award_extras'+(month?'&month='+encodeURIComponent(month):''), 4000, 120000)).json(); }
   catch(e){ return {}; }
 }
 // The five monthly awards: Early Bird, Perfect Attendance, Spotless Record, Sales MVP, Workhorse.
