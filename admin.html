@@ -5581,6 +5581,51 @@ var _AWMETA={
   workhorse:{title:'Workhorse Award',emoji:'🐎',color:'#B91C1C',cite:'for the most productive hours tracked this month — sheer dedication and a relentless work ethic.'}
 };
 function _ce(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+/* ── Event-based (manually assigned) certificates ── */
+var _EVENT_AWMETA={
+  quizbee:{title:'Quiz Bee Champion',emoji:'🧠',color:'#1D4ED8',cite:'for claiming victory in the Monthly Quiz Bee — quick thinking, sharp knowledge, and clutch answers under pressure.'},
+  tetris3v3:{title:'3v3 Tetris Champion',emoji:'🎮',color:'#7C3AED',cite:'for dominating the 3v3 Tetris monthly tournament — flawless stacking, clutch line clears, and unbeatable teamwork.'},
+  dance:{title:'Dance Competition Champion',emoji:'💃',color:'#DB2777',cite:'for a show-stopping, unforgettable performance at the monthly meeting dance competition.'}
+};
+var _EVENT_PICKS={ quizbee:[], tetris3v3:[], dance:[] };
+var _EVENT_DETAIL={ quizbee:'', tetris3v3:'', dance:'' };
+function _evtReset(){ _EVENT_PICKS={ quizbee:[], tetris3v3:[], dance:[] }; _EVENT_DETAIL={ quizbee:'', tetris3v3:'', dance:'' }; }
+function _evtPhoto(id){ var e=(typeof emps!=='undefined'&&emps||[]).filter(function(x){return String(x.employee_id||'').toLowerCase()===String(id).toLowerCase();})[0]; return (e&&e.photo)?convertDrive(e.photo):''; }
+function _evtNameOf(id){ var e=(typeof emps!=='undefined'&&emps||[]).filter(function(x){return String(x.employee_id||'').toLowerCase()===String(id).toLowerCase();})[0]; return (e&&e.full_name)||id; }
+function _evtAdd(key,sel){ var id=sel.value; if(!id) return; if(!(_EVENT_PICKS[key]||[]).some(function(p){return p.id&&p.id===id;})) _EVENT_PICKS[key].push({id:id,name:_evtNameOf(id),photo:_evtPhoto(id)}); sel.value=''; _evtRenderChips(key); }
+function _evtAddCustom(key){ var el=document.getElementById('evt-custom-'+key); var nm=(el&&el.value||'').trim(); if(!nm) return; _EVENT_PICKS[key].push({id:'',name:nm,photo:''}); if(el) el.value=''; _evtRenderChips(key); }
+function _evtRemove(key,i){ (_EVENT_PICKS[key]||[]).splice(i,1); _evtRenderChips(key); }
+function _evtRenderChips(key){
+  var box=document.getElementById('evt-chips-'+key); if(!box) return;
+  var list=_EVENT_PICKS[key]||[];
+  box.innerHTML=list.map(function(p,i){
+    var av=p.photo?('<img src="'+_ce(p.photo)+'" style="width:20px;height:20px;border-radius:50%;object-fit:cover;">'):('<span style="width:20px;height:20px;border-radius:50%;background:#eee;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#a16207;">'+_ce(_scInitials(p.name))+'</span>');
+    return '<span style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,107,26,.08);border:1px solid var(--border);border-radius:100px;padding:3px 8px 3px 4px;font-size:12px;font-weight:600;">'+av+_ce(p.name)+'<span onclick="_evtRemove(\''+key+'\','+i+')" style="cursor:pointer;color:#b91c1c;font-weight:800;padding:0 2px;">✕</span></span>';
+  }).join('');
+}
+function _evtSectionHtml(){
+  var empsList=(typeof emps!=='undefined'&&emps)?emps.filter(function(e){return e&&e.employee_id;}):[];
+  empsList=empsList.slice().sort(function(a,b){ return String(a.full_name||a.employee_id).localeCompare(String(b.full_name||b.employee_id)); });
+  var opts='<option value="">+ Add a contractor…</option>'+empsList.map(function(e){return '<option value="'+_ce(e.employee_id)+'">'+_ce(e.full_name||e.employee_id)+'</option>';}).join('');
+  var order=[['quizbee','🧠 Monthly Quiz Bee Champion','Winning shift (e.g., Night Shift)'],
+             ['tetris3v3','🎮 3v3 Tetris Monthly Champion','Team name (optional)'],
+             ['dance','💃 Dance Competition — July Meeting','Group / performance (optional)']];
+  var blocks=order.map(function(o){
+    var key=o[0];
+    return '<div style="margin-bottom:12px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;">'+
+      '<div style="font-size:13px;font-weight:800;color:var(--t1);margin-bottom:8px;">'+o[1]+'</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">'+
+        '<select onchange="_evtAdd(\''+key+'\',this)" style="flex:1;min-width:160px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;background:#fff;">'+opts+'</select>'+
+        '<input id="evt-custom-'+key+'" placeholder="or type a name" onkeydown="if(event.key===\'Enter\'){event.preventDefault();_evtAddCustom(\''+key+'\');}" style="width:130px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;">'+
+        '<button class="bsm" onclick="_evtAddCustom(\''+key+'\')">+ Add</button>'+
+      '</div>'+
+      '<input id="evt-detail-'+key+'" placeholder="'+o[2]+'" oninput="_EVENT_DETAIL[\''+key+'\']=this.value" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;margin-bottom:8px;box-sizing:border-box;">'+
+      '<div id="evt-chips-'+key+'" style="display:flex;flex-wrap:wrap;gap:6px;"></div>'+
+    '</div>';
+  }).join('');
+  return '<div style="margin-top:4px;border-top:1px solid var(--border);padding-top:14px;"><div style="font-size:13px;font-weight:800;color:#c2410c;margin-bottom:4px;">🎉 Event Certificates</div>'+
+    '<div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Add winners for event-based awards. Each recipient prints their own certificate. Leave empty to skip.</div>'+blocks+'</div>';
+}
 async function _earlyBirdList(month){
   try{ var d=await (await jGet(API+'?action=early_bird'+(month?'&month='+encodeURIComponent(month):''), 4000, 120000)).json(); var rows=(d&&d.rows)||[]; var e=rows.filter(function(r){return r.avg_minutes!=null && r.days>=5;}); if(e.length<3) e=rows.filter(function(r){return r.avg_minutes!=null;}); e.sort(function(a,b){return a.avg_minutes-b.avg_minutes;}); return e; }
   catch(e){ return []; }
@@ -5615,6 +5660,7 @@ async function openCertPicker(){
     else { var data=await _scRanked(); all=data.rows.filter(_scValid); var r=await Promise.all([_awardExtras(month), _earlyBirdList(month)]); ex=r[0]||{}; ebRows=r[1]||[]; }
     if(!all.length){ alert('No ranked scorecards for this month yet.'); return; }
     _CERT_CTX={ all:all, month:month, monthLabel:_scMonthLabel(month), noms:_awardNominees(all, ebRows, ex), finalized:!!fin };
+    _evtReset();
     _renderCertPicker();
   }catch(e){ alert('Could not load nominees: '+(e&&e.message||e)); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old||'🏅 Certificates & Awards'; } }
@@ -5645,7 +5691,7 @@ function _renderCertPicker(){
     '<div style="padding:18px 20px;">'+
       '<div style="font-size:11px;color:var(--t3);margin-bottom:12px;">Pick one winner per award (top nominee is pre-selected). Top-5 placement certificates print automatically.</div>'+
       '<div style="background:rgba(255,107,26,.05);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:16px;"><div style="font-size:12px;font-weight:800;color:#c2410c;margin-bottom:5px;">🏆 Top 5 (by Overall)</div>'+placeHtml+'</div>'+
-      awHtml+
+      awHtml+_evtSectionHtml()+
     '</div>'+
     '<div style="position:sticky;bottom:0;background:var(--card,#fff);border-top:1px solid var(--border);padding:14px 20px;display:flex;gap:10px;justify-content:flex-end;">'+
       '<button class="bsm" onclick="_closeCertPicker()">Cancel</button>'+
@@ -5661,6 +5707,13 @@ function printSelectedCerts(){
     var sel=document.querySelector('input[name="nom-'+key+'"]:checked');
     var idx=sel?parseInt(sel.value,10):0; var pick=list[idx]||list[0];
     if(pick) awards.push(pick);
+  });
+  // Event-based certificates (manually assigned winners) — one page per recipient.
+  Object.keys(_EVENT_PICKS).forEach(function(key){
+    var meta=_EVENT_AWMETA[key]; if(!meta) return; var detail=(_EVENT_DETAIL[key]||'').trim();
+    (_EVENT_PICKS[key]||[]).forEach(function(p){
+      awards.push({ title:meta.title, emoji:meta.emoji, color:meta.color, cite:meta.cite, name:p.name, photo:p.photo, metricText: detail?('<b>'+_ce(detail)+'</b>.'):'' });
+    });
   });
   var rows5=c.all.slice(0,5);
   var w=window.open('','_blank');
