@@ -7714,13 +7714,31 @@ function loadMyDemerits() {
       }).join('');
     }).catch(function(){ listEl.innerHTML=''; });
 }
+// A month's final OVERALL score is released to VAs on the 5th of the FOLLOWING month.
+// Returns true while the score for `key` (YYYY-MM) should still be hidden.
+function _scFinalHidden(key){
+  try{
+    var p = String(key).split('-'); var ky = parseInt(p[0],10), km = parseInt(p[1],10);
+    if(!ky || !km) return (key === monthKeyPHT());
+    var ry = ky, rm = km + 1; if(rm > 12){ rm = 1; ry++; }   // reveal month = month after `key`
+    var o = {};
+    new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Manila', year:'numeric', month:'2-digit', day:'2-digit' })
+      .formatToParts(new Date()).forEach(function(x){ o[x.type] = x.value; });
+    var ty = parseInt(o.year,10), tm = parseInt(o.month,10), td = parseInt(o.day,10);
+    var todayN  = ty*10000 + tm*100 + td;
+    var revealN = ry*10000 + rm*100 + 5;   // the 5th, 00:00 PHT
+    return todayN < revealN;
+  }catch(e){ return (key === monthKeyPHT()); }
+}
+
 async function loadScorecard() {
   if (!scEmpId) return;
   loadMyDemerits();
   var key = scMonthKey(scYear, scMonth);
-  // Hide the OVERALL / final score for the current (running) month — it's revealed at the
-  // monthly meeting. Past months (already announced) show normally.
-  window._scHideFinal = (key === monthKeyPHT());
+  // Hide the OVERALL / final score until it's officially released. A month's final score
+  // opens on the 5th of the FOLLOWING month (e.g. July opens Aug 5); before that — including
+  // the current running month — it stays under wraps. Older, already-released months show normally.
+  window._scHideFinal = _scFinalHidden(key);
   document.getElementById('sc-month-label').textContent = scMonthLabel(scYear, scMonth);
   await updateAssessmentGate();   // resolves assessOpen/assessTaken/assessScore (direct from the assessment data)
 
