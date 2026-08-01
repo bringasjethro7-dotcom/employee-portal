@@ -3097,10 +3097,20 @@ async function pgGenerate(){
   if(!_pgRows||!_pgRows.length) return;
   if(!confirm('Generate '+_pgRows.length+' payslip(s) for '+_pgPeriod+'?\n\nExisting payslips for this exact period are updated (not duplicated). Paid ones keep their paid status.')) return;
   var btn=document.getElementById('pg-save'); btn.disabled=true; btn.textContent='Saving…';
-  var ok=0,fail=0;
-  for(var i=0;i<_pgRows.length;i++){ var x=_pgRows[i];
-    try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+'&incentives='+encodeURIComponent(x.incentive||0)+'&amount='+encodeURIComponent(Math.round((x.gross||0)*100)/100)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) ok++; else fail++; }catch(e){ fail++; }
+  var ok=0,fail=0,failNames=[];
+  var payload=_pgRows.map(function(x){ return { employee_id:x.id, period:_pgPeriod, hours:x.hours, shift:x.shift, incentives:x.incentive||0, amount:Math.round((x.gross||0)*100)/100 }; });
+  function nameFor(id){ var z=_pgRows.filter(function(r){return r.id===id;})[0]; return z?z.name:id; }
+  async function saveOne(x){   // per-row fallback with retry (used if batch is unavailable/errors)
+    for(var t=0;t<3;t++){ try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+'&incentives='+encodeURIComponent(x.incentive||0)+'&amount='+encodeURIComponent(Math.round((x.gross||0)*100)/100)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) return true; }catch(e){} await new Promise(function(res){ setTimeout(res,300*(t+1)); }); }
+    return false;
   }
+  async function perRow(){ ok=0;fail=0;failNames=[]; for(var i=0;i<_pgRows.length;i++){ var okk=await saveOne(_pgRows[i]); if(okk) ok++; else { fail++; failNames.push(_pgRows[i].name); } } }
+  try{
+    var br0=await fetch(API,{method:'POST',body:JSON.stringify({action:'add_payslips_batch', rows:payload})});
+    var bd0=await br0.json();
+    if(bd0&&bd0.ok){ ok=bd0.saved||0; fail=bd0.failed||0; (bd0.failed_list||[]).forEach(function(f){ failNames.push(nameFor(f.id)); }); }
+    else { await perRow(); }   // batch not available (old deployment) or errored → resilient per-row retry
+  }catch(e){ await perRow(); }
   // Auto-book each project's salary cost for this cutoff into Sales (revenue fills in on invoice record).
   var booked='';
   try{ var fromD=document.getElementById('pg-from').value, toD=document.getElementById('pg-to').value;
@@ -3108,7 +3118,7 @@ async function pgGenerate(){
     var bd=await br.json(); if(bd&&bd.ok) booked='\n\nSalary booked to Sales for '+bd.count+' project(s) this cutoff.';
   }catch(e){}
   btn.disabled=false; btn.textContent='✓ Generate & save all';
-  alert('Payslips saved: '+ok+(fail?(' · failed: '+fail):'')+'.'+booked);
+  alert('Payslips saved: '+ok+(fail?(' · failed: '+fail+(failNames.length?(' — '+failNames.join(', ')):'')):'')+'.'+booked);
   loadPayslipsAdmin();
 }
 /* ── PAYROLL DISBURSEMENT (GoTyme InstaPay, one-by-one) ── */
