@@ -1090,6 +1090,7 @@ body{background-attachment:initial !important}
           <span id="sc-final-state" style="font-size:11px;color:var(--t3);align-self:center;"></span>
           <button class="bsm" id="sc-reveal-btn" onclick="rankingsReveal()" style="color:#fff;background:linear-gradient(135deg,#ff6b1a,#e83d00);border-color:transparent;font-weight:700;">🎬 Rankings Reveal</button>
           <button class="bsm" id="sc-ppt-btn" onclick="exportRankingsPptx()" style="color:#c2410c;border-color:rgba(255,107,26,.3);">▤ Rankings PPT</button>
+          <button class="bsm" id="sc-teams-btn" onclick="openTeamSales()" style="color:#0e7490;border-color:rgba(8,145,178,.35);">📊 Team Sales</button>
           <button class="bsm" id="sc-cert-btn" onclick="openCertPicker()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏅 Certificates &amp; Awards</button>
           <button class="bsm" onclick="openScorecardForm()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add / Edit</button>
         </div>
@@ -5510,52 +5511,55 @@ function _revNext(){
   else { _revWhoosh(); }
   _revSchedule();
 }
-// ── Team Sales breakdown: how a VA's sales score is computed (per cutoff) ──
-async function openSalesBreakdown(empId){
+// ── Team Sales computation — ALL teams for the month, in one frame ──
+function _closeSalesBd(){ var ov=document.getElementById('sales-bd'); if(ov) ov.remove(); }
+function _peso(n){ return '₱'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}); }
+async function openTeamSales(){
   var month=document.getElementById('sc-month-filter').value;
   var ov=document.getElementById('sales-bd'); if(!ov){ ov=document.createElement('div'); ov.id='sales-bd'; document.body.appendChild(ov); }
   ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
-  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:680px;width:100%;padding:22px;text-align:center;color:var(--t3);">Loading Team Sales breakdown…</div>';
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:720px;width:100%;padding:22px;text-align:center;color:var(--t3);">Loading Team Sales computation…</div>';
   try{
-    var d=await (await jGet(API+'?action=sales_breakdown&employee_id='+encodeURIComponent(empId)+'&month='+encodeURIComponent(month||''), 3000, 60000)).json();
-    _renderSalesBreakdown(d);
-  }catch(e){ ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:680px;width:100%;padding:22px;">Could not load: '+_ce(e&&e.message||e)+' <button class="bsm" onclick="_closeSalesBd()">Close</button></div>'; }
+    var d=await (await jGet(API+'?action=sales_teams&month='+encodeURIComponent(month||''), 3000, 60000)).json();
+    if(!d||!d.ok){ ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:720px;width:100%;padding:22px;">Couldn\'t load'+((d&&d.error)?(': '+_ce(d.error)):'.')+'<br><span style="font-size:12px;color:var(--t3)">Make sure the latest Apps Script is deployed.</span><div style="margin-top:12px;"><button class="bsm" onclick="_closeSalesBd()">Close</button></div></div>'; return; }
+    _renderTeamSales(d, _scMonthLabel(month));
+  }catch(e){ ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:720px;width:100%;padding:22px;">Could not load — redeploy the Apps Script and try again.<div style="margin-top:12px;"><button class="bsm" onclick="_closeSalesBd()">Close</button></div></div>'; }
 }
-function _closeSalesBd(){ var ov=document.getElementById('sales-bd'); if(ov) ov.remove(); }
-function _peso(n){ return '₱'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}); }
-function _renderSalesBreakdown(d){
+window.openSalesBreakdown=function(){ openTeamSales(); };   // back-compat: any Team Sales cell opens the one-frame view
+function _renderTeamSales(d, label){
   var ov=document.getElementById('sales-bd'); if(!ov) return;
-  if(!d||!d.ok){ ov.innerHTML='<div style="background:#fff;border-radius:16px;max-width:680px;width:100%;padding:22px;">No data. <button class="bsm" onclick="_closeSalesBd()">Close</button></div>'; return; }
   var cutoffs=(d.cutoffs||[]).map(function(c){
-    var det=c.detail||{};
-    var head='<div style="font-size:12.5px;font-weight:800;color:var(--t1);margin:14px 0 6px;">'+_ce(c.label||c.period)+
-      (det.score!=null?(' · <span style="color:#0891b2;">score '+det.score.toFixed(2)+'</span> · rank '+det.rank+' of '+det.of):(' · <span style="color:var(--t3);font-weight:600;">no score</span>'))+'</div>';
-    if(det.reason && det.score==null){ head+='<div style="font-size:11.5px;color:#b45309;background:rgba(180,83,9,.08);border-radius:8px;padding:7px 10px;margin-bottom:6px;">'+_ce(det.reason)+'</div>'; }
-    var teams=det.teams||[];
-    if(!teams.length) return head+'<div style="font-size:12px;color:var(--t3);padding:4px 0 10px;">No team sales this cutoff.</div>';
+    var head='<div style="font-size:12.5px;font-weight:800;color:var(--t1);margin:16px 0 6px;">'+_ce(c.label||c.period)+' <span style="color:var(--t3);font-weight:600;">· '+(c.count||0)+' team'+((c.count===1)?'':'s')+'</span></div>';
+    if(!c.ranked){ head+='<div style="font-size:11.5px;color:#b45309;background:rgba(180,83,9,.08);border-radius:8px;padding:7px 10px;margin-bottom:6px;">'+(!c.count?'No sales recorded for this cutoff yet.':'Only one team has sales — no spread to rank, so no score this cutoff.')+'</div>'; }
+    var teams=c.teams||[]; if(!teams.length) return head;
     var rows=teams.map(function(t){
-      return '<tr style="'+(t.mine?'background:rgba(8,145,178,.09);font-weight:700;':'')+'">'+
+      return '<tr>'+
         '<td style="padding:5px 8px;">'+t.rank+'</td>'+
-        '<td style="padding:5px 8px;text-transform:capitalize;">'+_ce(t.project)+(t.mine?' <span style="color:#0891b2;font-size:10px;">← this VA</span>':'')+'</td>'+
+        '<td style="padding:5px 8px;text-transform:capitalize;font-weight:600;">'+_ce(t.project)+'</td>'+
         '<td style="padding:5px 8px;text-align:right;">'+_peso(t.revenue)+'</td>'+
         '<td style="padding:5px 8px;text-align:right;color:var(--t3);">'+_peso(t.payroll)+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;">'+_peso(t.net)+'</td>'+
         '<td style="padding:5px 8px;text-align:center;">'+t.head+'</td>'+
-        '<td style="padding:5px 8px;text-align:right;font-weight:700;">'+_peso(t.net_per_head)+'</td></tr>';
+        '<td style="padding:5px 8px;text-align:right;font-weight:700;">'+_peso(t.net_per_head)+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;font-weight:800;color:#0891b2;">'+(t.score!=null?t.score.toFixed(2):'—')+'</td></tr>';
     }).join('');
     return head+'<div style="overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'+
       '<thead><tr style="color:var(--t3);text-align:left;border-bottom:1px solid var(--border);">'+
-      '<th style="padding:5px 8px;">#</th><th style="padding:5px 8px;">Project / Team</th><th style="padding:5px 8px;text-align:right;">Revenue</th><th style="padding:5px 8px;text-align:right;">Payroll</th><th style="padding:5px 8px;text-align:center;">Head</th><th style="padding:5px 8px;text-align:right;">Net / head</th></tr></thead>'+
+      '<th style="padding:5px 8px;">#</th><th style="padding:5px 8px;">Project / Team</th><th style="padding:5px 8px;text-align:right;">Revenue</th><th style="padding:5px 8px;text-align:right;">Payroll</th><th style="padding:5px 8px;text-align:right;">Net</th><th style="padding:5px 8px;text-align:center;">Head</th><th style="padding:5px 8px;text-align:right;">Net / head</th><th style="padding:5px 8px;text-align:right;">Score</th></tr></thead>'+
       '<tbody>'+rows+'</tbody></table></div>';
   }).join('');
-  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:720px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
+  var monthly=(d.monthly||[]);
+  var monthHtml = monthly.length ? ('<div style="font-size:12.5px;font-weight:800;color:var(--t1);margin:16px 0 6px;">📅 Monthly team score (avg of cutoffs)</div>'+
+    '<div style="overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="color:var(--t3);text-align:left;border-bottom:1px solid var(--border);"><th style="padding:5px 8px;">Project / Team</th><th style="padding:5px 8px;text-align:right;">Team Sales score</th></tr></thead><tbody>'+
+    monthly.map(function(m){ return '<tr><td style="padding:5px 8px;text-transform:capitalize;font-weight:600;">'+_ce(m.project)+'</td><td style="padding:5px 8px;text-align:right;font-weight:800;color:#0891b2;">'+(m.score!=null?m.score.toFixed(2):'—')+'</td></tr>'; }).join('')+'</tbody></table></div>') : '';
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:760px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
     '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
-      '<div style="font-size:16px;font-weight:800;color:var(--t1);">📊 Team Sales — '+_ce(d.name||d.employee_id)+'</div><span style="flex:1;"></span>'+
+      '<div style="font-size:16px;font-weight:800;color:var(--t1);">📊 Team Sales computation — '+_ce(label||d.month)+'</div><span style="flex:1;"></span>'+
       '<button class="bsm" onclick="_closeSalesBd()">✕ Close</button></div>'+
     '<div style="padding:16px 20px;">'+
-      '<div style="font-size:12px;color:var(--t2);background:rgba(8,145,178,.06);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;">'+
-        'Monthly Team Sales score: <b style="color:#0891b2;font-size:15px;">'+(d.monthly!=null?d.monthly.toFixed(2):'—')+'</b> <span style="color:var(--t3);">(average of the two cutoffs below)</span><br>'+
-        '<span style="font-size:11px;color:var(--t3);">Score = the VA’s team ranked by <b>net revenue per head</b> = (project revenue − payroll) ÷ headcount, stretched into 50–100 against the other teams that cutoff.</span></div>'+
-      cutoffs+
+      '<div style="font-size:11.5px;color:var(--t2);background:rgba(8,145,178,.06);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:4px;">'+
+        '<b>Net / head</b> = (project revenue − payroll) ÷ headcount. Teams are ranked by Net/head each cutoff and stretched into a <b>50–100 score</b>. Every VA on a team gets that team’s score; the monthly Team Sales score is the average of the two cutoffs.</div>'+
+      cutoffs + monthHtml +
     '</div></div>';
 }
 // ── Award nominees: top-5 candidates per award; admin picks the winner ──
