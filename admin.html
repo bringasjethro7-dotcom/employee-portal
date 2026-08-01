@@ -1093,6 +1093,8 @@ body{background-attachment:initial !important}
           <button class="bsm" id="sc-recompute-btn" onclick="recomputeScorecards()" title="Force-refresh all scores (clear the cache and recompute)">↻ Recompute</button>
           <button class="bsm" id="sc-teams-btn" onclick="openTeamSales()" style="color:#0e7490;border-color:rgba(8,145,178,.35);">📊 Team Sales</button>
           <button class="bsm" id="sc-cert-btn" onclick="openCertPicker()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏅 Certificates &amp; Awards</button>
+          <button class="bsm" id="sc-integrity-btn" onclick="openIntegrityCheck()" style="color:#b91c1c;border-color:rgba(185,28,28,.35);" title="Scan for coordinated or padded output">🔎 Integrity Check</button>
+          <button class="bsm" id="sc-inno-btn" onclick="openInnoReview()" style="color:#7c3aed;border-color:rgba(124,58,237,.35);" title="Review and grade this month's innovation ideas">💡 Innovation Ideas</button>
           <button class="bsm" onclick="openScorecardForm()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add / Edit</button>
         </div>
       </div>
@@ -1168,6 +1170,11 @@ body{background-attachment:initial !important}
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Client Feedback (0–100)</label>
               <input type="number" id="sc-form-csat" class="sinp" min="0" max="100" step="1" placeholder="from client link" style="width:100%;" />
               <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">Override only — normally set by the client's rating link (10% weight)</p>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">💡 Innovation (0–100)</label>
+              <input type="number" id="sc-form-inno" class="sinp" min="0" max="100" step="1" placeholder="grade this month's idea" style="width:100%;" />
+              <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">1 idea/month required · <a href="#" onclick="openInnoRubric();return false;" style="color:var(--o3);">grading rubric</a> · 5% weight · blank = no idea (0)</p>
             </div>
           </div>
           <div style="display:flex;gap:8px;">
@@ -5718,6 +5725,160 @@ function _renderCertPicker(){
     '</div></div>';
 }
 function _closeCertPicker(){ var ov=document.getElementById('cert-picker'); if(ov) ov.remove(); }
+
+/* ════════ INTEGRITY CHECK — flag coordinated / padded output ════════ */
+async function openIntegrityCheck(){
+  var btn=document.getElementById('sc-integrity-btn'); var old=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Scanning…'; }
+  try{
+    var month=(document.getElementById('sc-month-filter')||{}).value||'';
+    var r=await jGet(API+'?action=scorecard_anomalies&month='+encodeURIComponent(month)+'&_='+Date.now(), 4000, 120000);
+    var d=await r.json();
+    _renderIntegrity(d, month);
+  }catch(e){ alert('Could not run the integrity check: '+(e&&e.message||e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old||'🔎 Integrity Check'; } }
+}
+function _closeIntegrity(){ var ov=document.getElementById('integrity-modal'); if(ov) ov.remove(); }
+function _integBtn(f){ return '<button class="bsm" style="padding:3px 9px;font-size:11px;color:#b91c1c;border-color:rgba(185,28,28,.3);margin-left:6px;" onclick="issueIntegrityDemerit(\''+encodeURIComponent(f.employee_id)+'\',\''+encodeURIComponent(f.name)+'\')">⚠ Demerit</button>'; }
+async function issueIntegrityDemerit(idEnc, nameEnc){
+  var id=decodeURIComponent(idEnc), name=decodeURIComponent(nameEnc);
+  var pts=prompt('Issue an Integrity demerit to '+name+'.\n\nHow many demerit points? (each point = −10 on the Demerit score)','2');
+  if(pts===null) return; pts=parseFloat(pts); if(isNaN(pts)||pts<=0){ toast('Cancelled — no valid points.'); return; }
+  var note=prompt('Optional note (what was found):','')||'';
+  try{
+    var url=API+'?action=issue_integrity_demerit&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(name)+'&points='+encodeURIComponent(pts)+'&note='+encodeURIComponent(note)+'&_='+Date.now();
+    var r=await fetch(url); var d=await r.json();
+    if(d&&d.ok){ toast('Integrity demerit issued to '+name+' ('+pts+' pt'+(pts===1?'':'s')+').'); }
+    else toast('Could not issue demerit: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Connection error issuing demerit.'); }
+}
+/* ════════ INNOVATION REVIEW QUEUE ════════ */
+var _INNO_DATA=null;
+async function openInnoReview(){
+  var btn=document.getElementById('sc-inno-btn'); var old=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Loading…'; }
+  try{
+    var month=(document.getElementById('sc-month-filter')||{}).value||'';
+    var r=await jGet(API+'?action=list_innovations&month='+encodeURIComponent(month)+'&_='+Date.now(), 4000, 120000);
+    _INNO_DATA=await r.json(); _renderInnoReview();
+  }catch(e){ alert('Could not load innovation ideas: '+(e&&e.message||e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old||'💡 Innovation Ideas'; } }
+}
+function _closeInnoReview(){ var ov=document.getElementById('inno-review'); if(ov) ov.remove(); }
+function _renderInnoReview(){
+  var d=_INNO_DATA||{}; var items=d.items||[], missing=d.missing||[];
+  var ov=document.getElementById('inno-review'); if(!ov){ ov=document.createElement('div'); ov.id='inno-review'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
+  var areaColor={portal:'#1d4ed8','altr tool':'#7c3aed',altr:'#7c3aed',sop:'#0e7490','your sop':'#0e7490'};
+  var cards=items.length? items.map(function(it,i){
+    var ac=areaColor[String(it.area||'').toLowerCase()]||'#6b7280';
+    var graded=it.status==='graded';
+    return '<div style="border:1px solid var(--border);border-radius:11px;padding:12px 13px;margin-bottom:9px;background:'+(graded?'rgba(34,197,94,.05)':'#fff')+';">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">'+
+        '<b style="font-size:13px;">'+_ce(it.name)+'</b>'+
+        (it.area?'<span style="font-size:10px;font-weight:700;color:#fff;background:'+ac+';border-radius:100px;padding:2px 8px;">'+_ce(it.area)+'</span>':'')+
+        '<span style="flex:1;"></span>'+
+        (graded?'<span style="font-size:12px;font-weight:800;color:#15803d;">Graded '+it.score+'/100</span>':'<span style="font-size:11px;color:#b45309;font-weight:700;">● pending</span>')+'</div>'+
+      (it.title?'<div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:3px;">'+_ce(it.title)+'</div>':'')+
+      '<div style="font-size:12px;color:var(--t2);line-height:1.5;margin-bottom:8px;white-space:pre-wrap;">'+_ce(it.idea)+'</div>'+
+      '<div style="display:flex;align-items:center;gap:7px;">'+
+        '<input type="number" id="inno-score-'+i+'" min="0" max="100" step="1" value="'+(it.score!=null?it.score:'')+'" placeholder="/100" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;">'+
+        '<input type="text" id="inno-fb-'+i+'" value="'+_ce(it.feedback||'').replace(/"/g,'&quot;')+'" placeholder="feedback (optional)" style="flex:1;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;">'+
+        '<button class="bsm" style="color:#7c3aed;border-color:rgba(124,58,237,.3);" onclick="gradeInno('+i+',\''+encodeURIComponent(it.id)+'\')">'+(graded?'Update':'Grade')+'</button>'+
+      '</div></div>';
+  }).join('') : '<div style="padding:20px;text-align:center;color:var(--t3);font-size:13px;">No ideas submitted yet for this month.</div>';
+  var missHtml = missing.length? '<div style="margin-top:6px;padding:10px 12px;background:rgba(180,83,9,.06);border:1px solid var(--border);border-radius:10px;"><div style="font-size:12px;font-weight:800;color:#b45309;margin-bottom:5px;">⏳ Not submitted ('+missing.length+')</div><div style="font-size:11.5px;color:var(--t3);line-height:1.6;">'+missing.map(function(m){return _ce(m.name);}).join(' · ')+'</div></div>' : '<div style="margin-top:6px;padding:10px 12px;background:rgba(34,197,94,.07);border-radius:10px;font-size:12px;color:#15803d;font-weight:600;">✓ Everyone active has submitted this month.</div>';
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:680px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
+    '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
+      '<div style="font-size:16px;font-weight:800;color:var(--t1);">💡 Innovation Ideas — '+_ce(d.month||'')+'</div><span style="flex:1;"></span>'+
+      '<button class="bsm" onclick="openInnoRubric()">Rubric</button>'+
+      '<button class="bsm" onclick="remindInno()" style="color:#b45309;border-color:rgba(180,83,9,.3);">🔔 Remind pending'+(missing.length?(' ('+missing.length+')'):'')+'</button>'+
+      '<button class="bsm" onclick="_closeInnoReview()">✕</button></div>'+
+    '<div style="padding:16px 20px;">'+
+      '<div style="font-size:11px;color:var(--t3);margin-bottom:12px;">Grade each idea /100 (grading writes straight to the Innovation score on their scorecard). No idea = 0.</div>'+
+      cards+missHtml+
+    '</div></div>';
+}
+async function gradeInno(i, idEnc){
+  var score=(document.getElementById('inno-score-'+i)||{}).value;
+  if(score===''||isNaN(parseFloat(score))){ toast('Enter a score 0–100.'); return; }
+  var fb=(document.getElementById('inno-fb-'+i)||{value:''}).value;
+  try{
+    var r=await fetch(API+'?action=grade_innovation&id='+idEnc+'&score='+encodeURIComponent(score)+'&feedback='+encodeURIComponent(fb)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ toast('Graded '+score+'/100 — saved to scorecard.'); openInnoReview(); }
+    else toast('Could not grade: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Connection error grading.'); }
+}
+async function remindInno(){
+  var month=(_INNO_DATA&&_INNO_DATA.month)||(document.getElementById('sc-month-filter')||{}).value||'';
+  try{
+    var r=await fetch(API+'?action=innovation_remind&month='+encodeURIComponent(month)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok) toast(d.reminded?('Reminded '+d.reminded+' contractor'+(d.reminded===1?'':'s')+'.'):'Nobody to remind — all submitted.');
+    else toast('Could not send reminders.');
+  }catch(e){ toast('Connection error.'); }
+}
+function openInnoRubric(){
+  var ov=document.getElementById('inno-rubric'); if(!ov){ ov=document.createElement('div'); ov.id='inno-rubric'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:100001;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
+  var rows=[
+    ['Relevance','Targets something real we use — the portal, ALTR tool, or their own project SOP.'],
+    ['Impact','How much time saved, quality gained, or errors avoided if adopted.'],
+    ['Feasibility','Realistic to build with our current tools and people.'],
+    ['Clarity','Specific and actionable — not vague. You can picture doing it.'],
+    ['Originality','A fresh improvement, not a restatement of the obvious.']
+  ];
+  var rowsHtml=rows.map(function(r){ return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,107,26,.12);color:var(--o3);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0;">20</div><div><div style="font-weight:700;font-size:13px;color:var(--t1);">'+r[0]+'</div><div style="font-size:12px;color:var(--t3);">'+r[1]+'</div></div></div>'; }).join('');
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:520px;width:100%;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);overflow:hidden;">'+
+    '<div style="padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;"><div style="font-size:16px;font-weight:800;">💡 Innovation — Grading Rubric</div><span style="flex:1;"></span><button class="bsm" onclick="document.getElementById(\'inno-rubric\').remove()">✕</button></div>'+
+    '<div style="padding:14px 20px;">'+
+      '<div style="font-size:12px;color:var(--t3);margin-bottom:8px;">Every VA submits <b>1 idea per month</b> (required). Grade the idea out of 100 — five parts, 20 points each. No idea submitted = <b>0</b>.</div>'+
+      rowsHtml+
+      '<div style="margin-top:12px;padding:10px 12px;background:rgba(34,197,94,.08);border-radius:10px;font-size:12px;color:#15803d;">Tip: an idea that actually gets <b>implemented</b> should score 90–100.</div>'+
+    '</div></div>';
+}
+function _renderIntegrity(d, month){
+  var ov=document.getElementById('integrity-modal'); if(!ov){ ov=document.createElement('div'); ov.id='integrity-modal'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
+  var flags=(d&&d.flags)||[];
+  var uni=flags.filter(function(f){return f.type==='uniform';});
+  var rnd=flags.filter(function(f){return f.type==='round';});
+  var body='';
+  if(!flags.length){
+    body='<div style="padding:26px;text-align:center;color:#15803d;font-weight:600;">✓ No anomalies detected for '+_ce(month||'this month')+'. Output looks clean.</div>';
+  } else {
+    if(uni.length){
+      body+='<div style="font-size:13px;font-weight:800;color:#b45309;margin:4px 0 6px;">⚠ Matching output across a team ('+uni.length+')</div>'+
+        '<div style="font-size:11px;color:var(--t3);margin-bottom:8px;">3+ teammates on the same task producing near-identical output per hour — a sign numbers may be coordinated.</div>';
+      uni.forEach(function(f){
+        body+='<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:9px;margin-bottom:5px;background:rgba(234,88,12,.05);">'+
+          '<span style="flex:1;font-size:12.5px;font-weight:600;">'+_ce(f.name)+'</span>'+
+          '<span style="font-size:11px;color:var(--t3);">'+_ce(f.task)+'</span>'+
+          '<span style="font-size:12px;font-weight:700;color:#b45309;">'+f.qph+'/hr</span>'+
+          '<span style="font-size:10.5px;color:var(--t3);">'+f.teammates+' matched · cv '+f.team_cv+'</span>'+_integBtn(f)+'</div>';
+      });
+    }
+    if(rnd.length){
+      body+='<div style="font-size:13px;font-weight:800;color:#b45309;margin:14px 0 6px;">⚠ Mostly round numbers ('+rnd.length+')</div>'+
+        '<div style="font-size:11px;color:var(--t3);margin-bottom:8px;">90%+ of approved output lands on round tens — a hallmark of typed-in rather than measured counts.</div>';
+      rnd.forEach(function(f){
+        body+='<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:9px;margin-bottom:5px;background:rgba(234,88,12,.05);">'+
+          '<span style="flex:1;font-size:12.5px;font-weight:600;">'+_ce(f.name)+'</span>'+
+          '<span style="font-size:12px;font-weight:700;color:#b45309;">'+f.round_share+'% round</span>'+
+          '<span style="font-size:10.5px;color:var(--t3);">'+f.entries+' entries</span>'+_integBtn(f)+'</div>';
+      });
+    }
+  }
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:620px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
+    '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
+      '<div style="font-size:16px;font-weight:800;color:var(--t1);">🔎 Integrity Check — '+_ce(month||'this month')+'</div><span style="flex:1;"></span>'+
+      '<button class="bsm" onclick="_closeIntegrity()">✕ Close</button></div>'+
+    '<div style="padding:16px 20px;">'+
+      '<div style="font-size:11px;color:var(--t3);margin-bottom:12px;">Detection only — nothing here changes a score. Use it to decide who to review or spot-check.</div>'+
+      body+
+    '</div></div>';
+}
 function printSelectedCerts(){
   var c=_CERT_CTX; if(!c) return;
   var awards=[];
@@ -5759,6 +5920,7 @@ function editScorecard(sc) {
   document.getElementById('sc-form-note').value  = sc.note || '';
   document.getElementById('sc-form-vp').value    = sc.violation_points || '';
   document.getElementById('sc-form-csat').value  = (sc.csat!=null && sc.csat!=='') ? sc.csat : '';
+  var inoEl=document.getElementById('sc-form-inno'); if(inoEl) inoEl.value=(sc.innovation!=null && sc.innovation!=='') ? sc.innovation : '';
 }
 
 async function submitScorecard() {
@@ -5773,12 +5935,14 @@ async function submitScorecard() {
 
   try {
   var vp = document.getElementById('sc-form-vp').value || '0';
+  var inno = (document.getElementById('sc-form-inno')||{value:''}).value;
     var url = API + '?action=save_scorecard' +
       '&employee_id='      + encodeURIComponent(empId) +
       '&full_name='        + encodeURIComponent(fullName) +
       '&month='            + encodeURIComponent(month) +
       '&note='             + encodeURIComponent(note||'') +
-      '&violation_points=' + encodeURIComponent(vp);
+      '&violation_points=' + encodeURIComponent(vp) +
+      '&innovation='       + encodeURIComponent(inno);
     var res  = await fetch(url);
     var data = await res.json();
     if (data.success) {

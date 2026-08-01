@@ -5305,6 +5305,29 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
         <button onclick="scPickEmployee('')" style="background:none;border:none;color:#c084fc;font:600 12.5px/1 inherit;cursor:pointer;text-decoration:underline;margin-left:6px;">back to mine</button>
       </div>
 
+      <!-- INNOVATION IDEA (monthly, part of your scorecard) -->
+      <div id="sc-inno-card" class="card" style="margin-bottom:1.25rem;padding:1.1rem 1.3rem;border:1px solid rgba(124,58,237,.28);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">
+          <span style="font-size:18px;">💡</span>
+          <div style="flex:1;">
+            <p style="font-size:13.5px;font-weight:700;color:var(--text-1);margin:0;">Innovation Idea <span id="sc-inno-month" style="color:var(--text-3);font-weight:500;font-size:12px;"></span></p>
+            <p style="font-size:11.5px;color:var(--text-3);margin:2px 0 0;">One idea a month to improve the portal, the ALTR tool, or your own SOP. It counts toward your scorecard.</p>
+          </div>
+          <span id="sc-inno-status" style="font-size:11px;font-weight:700;border-radius:100px;padding:3px 10px;white-space:nowrap;"></span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <select id="sc-inno-area" style="flex:1;min-width:140px;background:var(--card2);border:1px solid var(--border);color:var(--text-1);border-radius:9px;padding:8px 10px;font:inherit;font-size:12.5px;">
+            <option value="">Area…</option><option>Portal</option><option>ALTR Tool</option><option>My SOP</option><option>Other</option>
+          </select>
+          <input id="sc-inno-title" placeholder="Title (short)" maxlength="120" style="flex:2;min-width:180px;background:var(--card2);border:1px solid var(--border);color:var(--text-1);border-radius:9px;padding:8px 10px;font:inherit;font-size:12.5px;">
+        </div>
+        <textarea id="sc-inno-idea" rows="3" maxlength="1200" placeholder="Describe your idea — what to improve and how it helps the team." style="width:100%;box-sizing:border-box;background:var(--card2);border:1px solid var(--border);color:var(--text-1);border-radius:9px;padding:8px 10px;font:inherit;font-size:12.5px;resize:vertical;"></textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:9px;">
+          <button class="btn-sm" onclick="submitMyInnovation()" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;border:none;">Submit idea</button>
+          <span id="sc-inno-msg" style="font-size:11.5px;color:var(--text-3);"></span>
+        </div>
+      </div>
+
       <!-- OVERALL SCORE -->
       <div id="sc-overall-card" class="card" style="display:flex;align-items:center;gap:1.5rem;margin-bottom:1.25rem;padding:1.4rem 1.5rem;">
         <div style="position:relative;width:104px;height:104px;flex-shrink:0;">
@@ -7731,9 +7754,52 @@ function _scFinalHidden(key){
   }catch(e){ return (key === monthKeyPHT()); }
 }
 
+// ── INNOVATION IDEA (monthly, feeds the Innovation criterion) ──
+function _myEmpId(){ return (window._currentEmpData && window._currentEmpData.employee_id) || (typeof scEmpId!=='undefined'&&scEmpId) || ''; }
+function _inoMonthLabel(mk){ var p=String(mk).split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(p[1],10)-1]+' '+p[0]; }
+function _escInno(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+async function loadMyInnovation(){
+  var id=_myEmpId(); if(!id) return;
+  var mk=monthKeyPHT();
+  var monEl=document.getElementById('sc-inno-month'); if(monEl) monEl.textContent='· '+_inoMonthLabel(mk);
+  var st=document.getElementById('sc-inno-status');
+  try{
+    var r=await fetch(APPS_SCRIPT_URL+'?action=my_innovation&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.found){
+      var a=document.getElementById('sc-inno-area'), t=document.getElementById('sc-inno-title'), i=document.getElementById('sc-inno-idea');
+      if(a&&!a.value) a.value=d.area||''; if(t&&!t.value) t.value=d.title||''; if(i&&!i.value) i.value=d.idea||'';
+      if(st){
+        if(d.status==='graded'){ st.textContent='Graded '+d.score+'/100'; st.style.background='rgba(34,197,94,.15)'; st.style.color='#16a34a'; }
+        else { st.textContent='Submitted ✓'; st.style.background='rgba(124,58,237,.15)'; st.style.color='#7c3aed'; }
+      }
+      var msg=document.getElementById('sc-inno-msg');
+      if(msg && d.status==='graded' && d.feedback) msg.textContent='Feedback: '+d.feedback;
+    } else if(st){ st.textContent='Not submitted'; st.style.background='rgba(245,158,11,.15)'; st.style.color='#d97706'; }
+  }catch(e){}
+}
+async function submitMyInnovation(){
+  var id=_myEmpId(); var msg=document.getElementById('sc-inno-msg');
+  if(!id){ if(msg){msg.textContent='Please reload and try again.';msg.style.color='#ef4444';} return; }
+  var area=(document.getElementById('sc-inno-area')||{value:''}).value.trim();
+  var title=(document.getElementById('sc-inno-title')||{value:''}).value.trim();
+  var idea=(document.getElementById('sc-inno-idea')||{value:''}).value.trim();
+  if(!idea && !title){ if(msg){msg.textContent='Write your idea first.';msg.style.color='#ef4444';} return; }
+  if(msg){ msg.textContent='Saving…'; msg.style.color='var(--text-3)'; }
+  try{
+    var mk=monthKeyPHT();
+    var name=(window._currentEmpData&&window._currentEmpData.full_name)||id;
+    var url=APPS_SCRIPT_URL+'?action=submit_innovation&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(name)+'&month='+encodeURIComponent(mk)+'&area='+encodeURIComponent(area)+'&title='+encodeURIComponent(title)+'&idea='+encodeURIComponent(idea)+'&_='+Date.now();
+    var r=await fetch(url); var d=await r.json();
+    if(d&&d.ok){ if(msg){msg.textContent='Saved ✓ You can edit it anytime this month.';msg.style.color='#16a34a';} loadMyInnovation(); }
+    else { if(msg){msg.textContent='Could not save'+((d&&d.error)?(': '+d.error):'.');msg.style.color='#ef4444';} }
+  }catch(e){ if(msg){msg.textContent='Connection error — try again.';msg.style.color='#ef4444';} }
+}
+
 async function loadScorecard() {
   if (!scEmpId) return;
   loadMyDemerits();
+  try{ loadMyInnovation(); }catch(e){}
   var key = scMonthKey(scYear, scMonth);
   // Hide the OVERALL / final score until it's officially released. A month's final score
   // opens on the 5th of the FOLLOWING month (e.g. July opens Aug 5); before that — including
@@ -18977,8 +19043,8 @@ body.light .jul4-lbscore{color:#059669}
   function renderNext(){
     var cv=el('tet-next'); if(!cv||!M||!M.queue||!M.queue.length) return; var ctx=cv.getContext('2d');
     ctx.clearRect(0,0,cv.width,cv.height);
-    var q=M.queue.slice(0,NEXT_N), n=q.length;
-    var wts=[1.42,1.16,0.98,0.84,0.72].slice(0,n), sw=0, i; for(i=0;i<n;i++) sw+=wts[i];
+    var q=M.queue.slice(0,2), n=q.length;   // show only 2 upcoming: one big box, one small
+    var wts=[1.6,0.72].slice(0,n), sw=0, i; for(i=0;i<n;i++) sw+=wts[i];
     var gap=5, avail=cv.height-gap*(n+1), y=gap;
     for(i=0;i<n;i++){
       var bh=avail*(wts[i]/sw), bx=4, bw=cv.width-8;
@@ -18987,7 +19053,7 @@ body.light .jul4-lbscore{color:#059669}
       ctx.fillStyle=(i===0)?'rgba(255,255,255,.07)':'rgba(255,255,255,.028)'; ctx.fill();
       ctx.lineWidth=1; ctx.strokeStyle=(i===0)?'rgba(255,170,110,.55)':'rgba(255,255,255,.12)'; ctx.stroke(); ctx.restore();
       var m=STATES[q[i]][0], rows=m.length, cols=m[0].length;
-      var cs=Math.min((bw-10)/cols, (bh-10)/rows, i===0?18:15);
+      var cs=Math.min((bw-10)/cols, (bh-10)/rows, i===0?20:13);
       var ox=bx+(bw-cols*cs)/2, oy=y+(bh-rows*cs)/2;
       for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){ if(m[r][c]){
         var color=COLORS[m[r][c]], px=ox+c*cs, py=oy+r*cs, rad=Math.max(2,cs*0.17);
@@ -29028,7 +29094,7 @@ window.EB_UNITS_MORE3 = [
     var lbl=cv.parentNode&&cv.parentNode.querySelector('.mi small'); if(lbl) lbl.textContent=(p.team==='morn'?'Morning':'Night')+' · '+(p.lines||0)+' ln'; }
   function warn(){ var w=el('t3-warn'); if(w) w.textContent=T.pending>0?('⚠ '+T.pending+' incoming — clear to cancel'):''; }
   function drawMini(id,type){ var cv=el(id); if(!cv)return; var ctx=cv.getContext('2d'),A=api(),C=COLS(); ctx.clearRect(0,0,cv.width,cv.height); ctx.fillStyle='#0b1120'; ctx.fillRect(0,0,cv.width,cv.height); if(!type)return; var p=PIECES[type],cells=[],minx=9,miny=9,maxx=0,maxy=0; for(var r=0;r<p.length;r++)for(var cc=0;cc<p.length;cc++){ if(p[r][cc]){ cells.push([cc,r,p[r][cc]]); if(cc<minx)minx=cc; if(cc>maxx)maxx=cc; if(r<miny)miny=r; if(r>maxy)maxy=r; } } var wc=maxx-minx+1,hc=maxy-miny+1,cs=Math.min((cv.width-6)/wc,(cv.height-6)/hc,11),ox=(cv.width-wc*cs)/2-minx*cs,oy=(cv.height-hc*cs)/2-miny*cs; ctx.save(); ctx.translate(ox,oy); cells.forEach(function(ce){ var col=C[ce[2]]; if(A&&A.block) A.block(ctx,ce[0],ce[1],cs,col); else { ctx.fillStyle=col; ctx.fillRect(ce[0]*cs+1,ce[1]*cs+1,cs-2,cs-2); } }); ctx.restore(); }
-  function drawNext(){ var cv=el('t3-next'); if(!cv) return; var ctx=cv.getContext('2d'),A=api(),C=COLS(); ctx.clearRect(0,0,cv.width,cv.height); var q=(T.queue||[]).slice(0,5); if(!q.length && T.nextT) q=[T.nextT]; var n=q.length; if(!n) return; var wts=[1.42,1.16,0.98,0.84,0.72].slice(0,n), sw=0, i; for(i=0;i<n;i++) sw+=wts[i]; var gap=3, avail=cv.height-gap*(n+1), y=gap; for(i=0;i<n;i++){ var bh=avail*(wts[i]/sw), bx=3, bw=cv.width-6; ctx.save(); ctx.fillStyle=(i===0)?'rgba(255,255,255,.07)':'rgba(255,255,255,.03)'; ctx.strokeStyle=(i===0)?'rgba(140,200,255,.5)':'rgba(255,255,255,.12)'; ctx.lineWidth=1; if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,y,bw,bh,5); ctx.fill(); ctx.stroke(); } else { ctx.fillRect(bx,y,bw,bh); ctx.strokeRect(bx,y,bw,bh); } ctx.restore(); var p=PIECES[q[i]],cells=[],minx=9,miny=9,maxx=0,maxy=0,r,cc; for(r=0;r<p.length;r++)for(cc=0;cc<p.length;cc++){ if(p[r][cc]){ cells.push([cc,r,p[r][cc]]); if(cc<minx)minx=cc; if(cc>maxx)maxx=cc; if(r<miny)miny=r; if(r>maxy)maxy=r; } } var wc=maxx-minx+1,hc=maxy-miny+1, cs=Math.min((bw-7)/wc,(bh-7)/hc, i===0?12:9), ox=bx+(bw-wc*cs)/2-minx*cs, oy=y+(bh-hc*cs)/2-miny*cs; ctx.save(); ctx.translate(ox,oy); cells.forEach(function(ce){ var col=C[ce[2]]; if(A&&A.block) A.block(ctx,ce[0],ce[1],cs,col); else { ctx.fillStyle=col; ctx.fillRect(ce[0]*cs+1,ce[1]*cs+1,cs-2,cs-2); } }); ctx.restore(); y+=bh+gap; } }
+  function drawNext(){ var cv=el('t3-next'); if(!cv) return; var ctx=cv.getContext('2d'),A=api(),C=COLS(); ctx.clearRect(0,0,cv.width,cv.height); var q=(T.queue||[]).slice(0,2); if(!q.length && T.nextT) q=[T.nextT]; var n=q.length; if(!n) return; var wts=[1.6,0.72].slice(0,n), sw=0, i; for(i=0;i<n;i++) sw+=wts[i]; var gap=3, avail=cv.height-gap*(n+1), y=gap; for(i=0;i<n;i++){ var bh=avail*(wts[i]/sw), bx=3, bw=cv.width-6; ctx.save(); ctx.fillStyle=(i===0)?'rgba(255,255,255,.07)':'rgba(255,255,255,.03)'; ctx.strokeStyle=(i===0)?'rgba(140,200,255,.5)':'rgba(255,255,255,.12)'; ctx.lineWidth=1; if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,y,bw,bh,5); ctx.fill(); ctx.stroke(); } else { ctx.fillRect(bx,y,bw,bh); ctx.strokeRect(bx,y,bw,bh); } ctx.restore(); var p=PIECES[q[i]],cells=[],minx=9,miny=9,maxx=0,maxy=0,r,cc; for(r=0;r<p.length;r++)for(cc=0;cc<p.length;cc++){ if(p[r][cc]){ cells.push([cc,r,p[r][cc]]); if(cc<minx)minx=cc; if(cc>maxx)maxx=cc; if(r<miny)miny=r; if(r>maxy)maxy=r; } } var wc=maxx-minx+1,hc=maxy-miny+1, cs=Math.min((bw-7)/wc,(bh-7)/hc, i===0?12:9), ox=bx+(bw-wc*cs)/2-minx*cs, oy=y+(bh-hc*cs)/2-miny*cs; ctx.save(); ctx.translate(ox,oy); cells.forEach(function(ce){ var col=C[ce[2]]; if(A&&A.block) A.block(ctx,ce[0],ce[1],cs,col); else { ctx.fillStyle=col; ctx.fillRect(ce[0]*cs+1,ce[1]*cs+1,cs-2,cs-2); } }); ctx.restore(); y+=bh+gap; } }
   function drawHold(){ drawMini('t3-hold',T.hold); }
 
   /* ---------- scoring ---------- */
@@ -29352,7 +29418,7 @@ window.EB_UNITS_MORE3 = [
     var lbl=cv.parentNode&&cv.parentNode.querySelector('.mi small'); if(lbl) lbl.textContent=(p.team==='b'?'Red':'Amber')+' · '+(p.lines||0)+' ln'; }
   function warn(){ var w=el('d2-warn'); if(w) w.textContent=T.pending>0?('⚠ '+T.pending+' incoming — clear to cancel'):''; }
   function drawMini(id,type){ var cv=el(id); if(!cv)return; var ctx=cv.getContext('2d'),A=api(),C=COLS(); ctx.clearRect(0,0,cv.width,cv.height); ctx.fillStyle='#0b1120'; ctx.fillRect(0,0,cv.width,cv.height); if(!type)return; var p=PIECES[type],cells=[],minx=9,miny=9,maxx=0,maxy=0; for(var r=0;r<p.length;r++)for(var cc=0;cc<p.length;cc++){ if(p[r][cc]){ cells.push([cc,r,p[r][cc]]); if(cc<minx)minx=cc; if(cc>maxx)maxx=cc; if(r<miny)miny=r; if(r>maxy)maxy=r; } } var wc=maxx-minx+1,hc=maxy-miny+1,cs=Math.min((cv.width-6)/wc,(cv.height-6)/hc,11),ox=(cv.width-wc*cs)/2-minx*cs,oy=(cv.height-hc*cs)/2-miny*cs; ctx.save(); ctx.translate(ox,oy); cells.forEach(function(ce){ var col=C[ce[2]]; if(A&&A.block) A.block(ctx,ce[0],ce[1],cs,col); else { ctx.fillStyle=col; ctx.fillRect(ce[0]*cs+1,ce[1]*cs+1,cs-2,cs-2); } }); ctx.restore(); }
-  function drawNext(){ var cv=el('d2-next'); if(!cv) return; var ctx=cv.getContext('2d'),A=api(),C=COLS(); ctx.clearRect(0,0,cv.width,cv.height); var q=(T.queue||[]).slice(0,5); if(!q.length && T.nextT) q=[T.nextT]; var n=q.length; if(!n) return; var wts=[1.42,1.16,0.98,0.84,0.72].slice(0,n), sw=0, i; for(i=0;i<n;i++) sw+=wts[i]; var gap=3, avail=cv.height-gap*(n+1), y=gap; for(i=0;i<n;i++){ var bh=avail*(wts[i]/sw), bx=3, bw=cv.width-6; ctx.save(); ctx.fillStyle=(i===0)?'rgba(255,255,255,.07)':'rgba(255,255,255,.03)'; ctx.strokeStyle=(i===0)?'rgba(140,200,255,.5)':'rgba(255,255,255,.12)'; ctx.lineWidth=1; if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,y,bw,bh,5); ctx.fill(); ctx.stroke(); } else { ctx.fillRect(bx,y,bw,bh); ctx.strokeRect(bx,y,bw,bh); } ctx.restore(); var p=PIECES[q[i]],cells=[],minx=9,miny=9,maxx=0,maxy=0,r,cc; for(r=0;r<p.length;r++)for(cc=0;cc<p.length;cc++){ if(p[r][cc]){ cells.push([cc,r,p[r][cc]]); if(cc<minx)minx=cc; if(cc>maxx)maxx=cc; if(r<miny)miny=r; if(r>maxy)maxy=r; } } var wc=maxx-minx+1,hc=maxy-miny+1, cs=Math.min((bw-7)/wc,(bh-7)/hc, i===0?12:9), ox=bx+(bw-wc*cs)/2-minx*cs, oy=y+(bh-hc*cs)/2-miny*cs; ctx.save(); ctx.translate(ox,oy); cells.forEach(function(ce){ var col=C[ce[2]]; if(A&&A.block) A.block(ctx,ce[0],ce[1],cs,col); else { ctx.fillStyle=col; ctx.fillRect(ce[0]*cs+1,ce[1]*cs+1,cs-2,cs-2); } }); ctx.restore(); y+=bh+gap; } }
+  function drawNext(){ var cv=el('d2-next'); if(!cv) return; var ctx=cv.getContext('2d'),A=api(),C=COLS(); ctx.clearRect(0,0,cv.width,cv.height); var q=(T.queue||[]).slice(0,2); if(!q.length && T.nextT) q=[T.nextT]; var n=q.length; if(!n) return; var wts=[1.6,0.72].slice(0,n), sw=0, i; for(i=0;i<n;i++) sw+=wts[i]; var gap=3, avail=cv.height-gap*(n+1), y=gap; for(i=0;i<n;i++){ var bh=avail*(wts[i]/sw), bx=3, bw=cv.width-6; ctx.save(); ctx.fillStyle=(i===0)?'rgba(255,255,255,.07)':'rgba(255,255,255,.03)'; ctx.strokeStyle=(i===0)?'rgba(140,200,255,.5)':'rgba(255,255,255,.12)'; ctx.lineWidth=1; if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,y,bw,bh,5); ctx.fill(); ctx.stroke(); } else { ctx.fillRect(bx,y,bw,bh); ctx.strokeRect(bx,y,bw,bh); } ctx.restore(); var p=PIECES[q[i]],cells=[],minx=9,miny=9,maxx=0,maxy=0,r,cc; for(r=0;r<p.length;r++)for(cc=0;cc<p.length;cc++){ if(p[r][cc]){ cells.push([cc,r,p[r][cc]]); if(cc<minx)minx=cc; if(cc>maxx)maxx=cc; if(r<miny)miny=r; if(r>maxy)maxy=r; } } var wc=maxx-minx+1,hc=maxy-miny+1, cs=Math.min((bw-7)/wc,(bh-7)/hc, i===0?12:9), ox=bx+(bw-wc*cs)/2-minx*cs, oy=y+(bh-hc*cs)/2-miny*cs; ctx.save(); ctx.translate(ox,oy); cells.forEach(function(ce){ var col=C[ce[2]]; if(A&&A.block) A.block(ctx,ce[0],ce[1],cs,col); else { ctx.fillStyle=col; ctx.fillRect(ce[0]*cs+1,ce[1]*cs+1,cs-2,cs-2); } }); ctx.restore(); y+=bh+gap; } }
   function drawHold(){ drawMini('d2-hold',T.hold); }
 
   /* ---------- scoring ---------- */
