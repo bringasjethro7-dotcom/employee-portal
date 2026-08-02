@@ -18142,6 +18142,11 @@ body.light .jul4-lbscore{color:#059669}
   #tet-spec .sp-cell.dead{opacity:.42}
   #tet-spec .sp-nm{font-size:12px;font-weight:800;color:#ffece0;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tet-spec .sp-sc{font-size:11px;color:#cdd6f5}
+  /* TV spectator mode (?spectate=1) — big boards for the big screen */
+  body.tv-spec #tet-spec-grid{gap:1.6vw;align-content:center}
+  body.tv-spec #tet-spec .sp-cell canvas{width:auto;height:min(66vh,30vw);aspect-ratio:1/2}
+  body.tv-spec #tet-spec .sp-nm{font-size:2vh;max-width:26vw}
+  body.tv-spec #tet-spec .sp-sc{font-size:1.6vh}
   /* live crowd counter shown to the players */
   #tet-watch-count{position:fixed;top:12px;right:16px;z-index:9500;display:none;font-family:'Sora','Inter',sans-serif;font-weight:800;font-size:12.5px;color:#ffd0a8;background:rgba(20,8,4,.72);border:1px solid rgba(255,150,60,.45);border-radius:999px;padding:5px 13px;backdrop-filter:blur(4px);pointer-events:none;box-shadow:0 6px 18px -8px rgba(0,0,0,.7)}
   #tet-watch-count.on{display:block;animation:wcPop .3s ease}
@@ -20900,7 +20905,7 @@ body.light .jul4-lbscore{color:#059669}
   function _specRender(){ var g=el('tet-spec-grid'); if(!g||!el('tet-spec').classList.contains('on')) return; var ids=Object.keys(SPEC.players);
     if(SPEC.teams){ ids.sort(function(a,b){ return ((SPEC.teams[String(a)]==='a')?0:1)-((SPEC.teams[String(b)]==='a')?0:1); }); }
     g.innerHTML=ids.map(function(id){ var pl=SPEC.players[id]; var team=pl.team||'';
-      return '<div class="sp-cell '+team+(pl.alive===false?' dead':'')+'"><canvas id="spcv-'+id+'" width="120" height="240"></canvas><div class="sp-nm">'+esc(pl.name||id)+(pl.alive===false?' · OUT':'')+'</div><div class="sp-sc">'+(pl.score||0).toLocaleString()+' · '+(pl.lines||0)+'L</div></div>'; }).join('');
+      return '<div class="sp-cell '+team+(pl.alive===false?' dead':'')+'"><canvas id="spcv-'+id+'" width="240" height="480"></canvas><div class="sp-nm">'+esc(pl.name||id)+(pl.alive===false?' · OUT':'')+'</div><div class="sp-sc">'+(pl.score||0).toLocaleString()+' · '+(pl.lines||0)+'L</div></div>'; }).join('');
     ids.forEach(function(id){ var pl=SPEC.players[id]; var cv=el('spcv-'+id); if(!cv) return; var ctx=cv.getContext('2d'); var cs=cv.width/W; ctx.clearRect(0,0,cv.width,cv.height); ctx.fillStyle='#070b16'; ctx.fillRect(0,0,cv.width,cv.height);
       if(pl.grid){ var rows=String(pl.grid).split('|'); for(var y=0;y<H&&y<rows.length;y++){ var row=rows[y]||''; for(var x=0;x<W;x++){ var v=+(row[x]||0); if(v){ blockAs(ctx,x,y,cs,(v===8?'#5b6b82':(COLORS[v]||'#5b6b82')),pl.skin||'classic'); } } } }
     });
@@ -29636,5 +29641,43 @@ window.EB_UNITS_MORE3 = [
   #tet-rank-modal .hub-prof,#tet-rank-modal .rk-pod.first,#tet-rank-modal .rk-row.me{ animation:none !important; }
 }
 </style>
+<script>
+/* ── TV SPECTATOR auto-launch ── open with ?spectate=1 (or #spectate) to jump straight to the
+   live-matches watcher on the big screen. Auto-enters the running match and enlarges the boards. */
+(function(){
+  function want(){ return /[?&]spectate=1\b/.test(location.search) || /(^|[#&])spectate\b/.test(location.hash); }
+  if(!want()) return;
+  document.body.classList.add('tv-spec');
+  // one-time hint to unlock audio (browsers need a real gesture for the players' SFX)
+  var hint=document.createElement('div');
+  hint.style.cssText='position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(6,9,18,.9);color:#fff;font:800 22px system-ui,sans-serif;text-align:center;cursor:pointer;flex-direction:column;gap:10px';
+  hint.innerHTML='<div style="font-size:34px">📺 Spectator Mode</div><div style="font-size:16px;color:#ffbf8a;font-weight:700">Click anywhere to start & enable sound</div>';
+  function launch(){
+    if(hint.parentNode) hint.remove();
+    var tries=0;
+    var t=setInterval(function(){
+      tries++;
+      if(typeof window.tetWatchLive==='function'){
+        clearInterval(t);
+        try{ window.tetWatchLive(); }catch(e){}
+        // auto-enter the first live match once the list renders
+        var a=0, w=setInterval(function(){ a++;
+          var btn=document.querySelector('#tet-spec-list .lv-watch');
+          if(btn){ btn.click(); clearInterval(w); }
+          else if(a>30) clearInterval(w);
+        }, 700);
+        // go fullscreen for the TV
+        try{ var x=document.documentElement; (x.requestFullscreen||x.webkitRequestFullscreen||function(){}).call(x); }catch(e){}
+      }
+      if(tries>60) clearInterval(t);   // give the app up to ~30s to load
+    }, 500);
+  }
+  document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(hint); });
+  if(document.body){ document.body.appendChild(hint); }
+  hint.addEventListener('click', launch);
+  // also allow keyboard to start
+  document.addEventListener('keydown', function h(e){ document.removeEventListener('keydown',h); launch(); });
+})();
+</script>
 </body>
 </html>
