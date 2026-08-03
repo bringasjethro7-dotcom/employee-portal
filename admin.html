@@ -1095,6 +1095,7 @@ body{background-attachment:initial !important}
           <button class="bsm" id="sc-cert-btn" onclick="openCertPicker()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏅 Certificates &amp; Awards</button>
           <button class="bsm" id="sc-integrity-btn" onclick="openIntegrityCheck()" style="color:#b91c1c;border-color:rgba(185,28,28,.35);" title="Scan for coordinated or padded output">🔎 Integrity Check</button>
           <button class="bsm" id="sc-inno-btn" onclick="openInnoReview()" style="color:#7c3aed;border-color:rgba(124,58,237,.35);" title="Review and grade this month's innovation ideas">💡 Innovation Ideas</button>
+          <button class="bsm" id="sc-qar-btn" onclick="openQaChain()" style="color:#15803d;border-color:rgba(21,128,61,.35);" title="Peer → Lead → Manager QA review chain">🔗 QA Chain</button>
           <button class="bsm" onclick="openScorecardForm()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add / Edit</button>
         </div>
       </div>
@@ -1247,6 +1248,7 @@ body{background-attachment:initial !important}
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <span style="font-size:12px;color:var(--t2);">Contractors pick from this list in the Time Tracker.</span>
           <button class="bsm" onclick="loadProjectsAdmin()">↻ Refresh</button>
+          <button class="bsm" onclick="openDataCenter()" style="color:#0e7490;border-color:rgba(8,145,178,.35);">🗄 Data Center</button>
         </div>
       </div>
       <div class="tw">
@@ -2999,6 +3001,74 @@ async function addTrackerProject(){
     document.getElementById('pj-rate').value='';
     setTimeout(loadProjectsAdmin,600);
   }catch(e){ if(typeof toast==='function') toast('Could not add.'); }
+}
+
+/* ════════ PROJECT DATA CENTER — outputs DB per project (feeds Productivity) ════════ */
+var _DC={rows:[],projects:[],cur:''};
+function _dcEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+async function openDataCenter(){
+  var ov=document.getElementById('dc-modal'); if(!ov){ ov=document.createElement('div'); ov.id='dc-modal'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:860px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);padding:0;">'+
+    '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:15px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
+      '<div style="font-size:16px;font-weight:800;">🗄 Project Data Center</div>'+
+      '<select id="dc-project" onchange="dcLoad()" style="margin-left:8px;padding:6px 9px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;background:#fff;min-width:150px;"><option value="">All projects</option></select>'+
+      '<span style="flex:1;"></span><button class="bsm" onclick="document.getElementById(\'dc-modal\').remove()">✕ Close</button></div>'+
+    '<div style="padding:14px 20px;">'+
+      '<div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Outputs live here — not in the tracker. ALTR counts are imported; other projects log volume per VA per day. Productivity matches these to tracked hours automatically.</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:rgba(8,145,178,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px;">'+
+        '<input class="sinp" id="dc-proj-in" placeholder="Project" style="width:120px;">'+
+        '<select id="dc-emp" class="sinp" style="width:170px;"><option value="">Contractor…</option></select>'+
+        '<input class="sinp" id="dc-date" type="date" style="width:135px;">'+
+        '<input class="sinp" id="dc-task" placeholder="Task (optional)" style="width:120px;">'+
+        '<input class="sinp" id="dc-vol" type="number" step="any" min="0" placeholder="Volume" style="width:85px;">'+
+        '<button class="bsm" onclick="dcSave()" style="color:#0e7490;border-color:rgba(8,145,178,.35);">+ Log output</button>'+
+      '</div>'+
+      '<div id="dc-chart" style="margin-bottom:12px;"></div>'+
+      '<div id="dc-list" style="font-size:12.5px;">Loading…</div>'+
+    '</div></div>';
+  var sel=document.getElementById('dc-emp');
+  var list=(typeof emps!=='undefined'&&emps)?emps.filter(function(e){return e&&e.employee_id;}):[];
+  sel.innerHTML='<option value="">Contractor…</option>'+list.map(function(e){return '<option value="'+_dcEsc(e.employee_id)+'">'+_dcEsc(e.full_name||e.employee_id)+'</option>';}).join('');
+  try{ document.getElementById('dc-date').value=new Date().toISOString().slice(0,10); }catch(e){}
+  dcLoad();
+}
+async function dcLoad(){
+  var pj=(document.getElementById('dc-project')||{}).value||'';
+  try{
+    var r=await jGet(API+'?action=list_project_outputs&project='+encodeURIComponent(pj)+'&_='+Date.now(), 3000, 60000);
+    var d=await r.json(); if(!d||!d.ok) throw new Error(d&&d.error||'error');
+    _DC.rows=d.rows||[]; _DC.projects=d.projects||[];
+    var ps=document.getElementById('dc-project');
+    if(ps && ps.options.length<=1 && _DC.projects.length){ ps.innerHTML='<option value="">All projects</option>'+_DC.projects.map(function(p){return '<option'+(p===pj?' selected':'')+'>'+_dcEsc(p)+'</option>';}).join(''); }
+    dcRender();
+  }catch(e){ var l=document.getElementById('dc-list'); if(l) l.innerHTML='<span style="color:#b91c1c;">Could not load — redeploy the Apps Script (list_project_outputs).</span>'; }
+}
+function dcRender(){
+  var rows=_DC.rows||[];
+  // per-day totals → completion bar graph
+  var byDay={}; rows.forEach(function(r){ byDay[r.date]=(byDay[r.date]||0)+(r.volume||0); });
+  var days=Object.keys(byDay).sort().slice(-14); var max=1; days.forEach(function(k){ if(byDay[k]>max) max=byDay[k]; });
+  var chart=document.getElementById('dc-chart');
+  if(chart){ chart.innerHTML = days.length? ('<div style="font-size:11px;font-weight:800;color:var(--t3);margin-bottom:5px;">DAILY OUTPUT · last '+days.length+' day'+(days.length===1?'':'s')+'</div>'+
+    '<div style="display:flex;align-items:flex-end;gap:5px;height:90px;">'+days.map(function(k){ var h=Math.max(5,Math.round(byDay[k]/max*82));
+      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;"><div title="'+k+' · '+byDay[k]+'" style="width:100%;max-width:38px;height:'+h+'px;border-radius:5px 5px 0 0;background:linear-gradient(180deg,#22d3ee,#0e7490);"></div><div style="font-size:9px;color:var(--t3);">'+k.slice(5)+'</div><div style="font-size:9.5px;font-weight:700;">'+byDay[k]+'</div></div>'; }).join('')+'</div>') : ''; }
+  var l=document.getElementById('dc-list'); if(!l) return;
+  if(!rows.length){ l.innerHTML='<div style="color:var(--t3);padding:8px;">No outputs logged yet'+((document.getElementById('dc-project')||{}).value?' for this project':'')+'.</div>'; return; }
+  var last=rows.slice(-40).reverse();
+  l.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="text-align:left;color:var(--t3);"><th style="padding:4px 6px;">Date</th><th>Project</th><th>Contractor</th><th>Task</th><th style="text-align:right;">Volume</th><th>Source</th></tr>'+
+    last.map(function(r){ return '<tr style="border-top:1px solid var(--border);"><td style="padding:4px 6px;">'+r.date+'</td><td>'+_dcEsc(r.project)+'</td><td>'+_dcEsc(r.employee_id)+'</td><td>'+_dcEsc(r.task||'—')+'</td><td style="text-align:right;font-weight:700;">'+r.volume+'</td><td style="color:var(--t3);">'+_dcEsc(r.source||'')+'</td></tr>'; }).join('')+'</table>';
+}
+async function dcSave(){
+  var pj=(document.getElementById('dc-proj-in')||{}).value.trim()||((document.getElementById('dc-project')||{}).value||'');
+  var emp=(document.getElementById('dc-emp')||{}).value, date=(document.getElementById('dc-date')||{}).value, task=(document.getElementById('dc-task')||{}).value.trim(), vol=(document.getElementById('dc-vol')||{}).value;
+  if(!pj||!emp||!date||vol===''){ toast('Project, contractor, date and volume are required.'); return; }
+  try{
+    var r=await fetch(API+'?action=save_project_output&project='+encodeURIComponent(pj)+'&employee_id='+encodeURIComponent(emp)+'&date='+encodeURIComponent(date)+'&task='+encodeURIComponent(task)+'&volume='+encodeURIComponent(vol)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ toast('Output logged.'); document.getElementById('dc-vol').value=''; dcLoad(); }
+    else toast('Could not save: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Connection error.'); }
 }
 async function deleteTrackerProject(row){
   if(!confirm('Delete this project/task from the list?')) return;
@@ -5600,7 +5670,8 @@ var _AWMETA={
   perfect:{title:'Perfect Attendance',emoji:'🎖️',color:'#B45309',cite:'for flawless attendance — present and on time every single day, with no lates all month long.'},
   spotless:{title:'Spotless Record',emoji:'✨',color:'#6D28D9',cite:'for the cleanest record on the team — discipline, professionalism, and reliability all month long.'},
   sales:{title:'Sales MVP',emoji:'💰',color:'#15803D',cite:'for the strongest individual revenue contribution — the results that move the whole company forward.'},
-  workhorse:{title:'Workhorse Award',emoji:'🐎',color:'#B91C1C',cite:'for the most productive hours tracked this month — sheer dedication and a relentless work ethic.'}
+  workhorse:{title:'Workhorse Award',emoji:'🐎',color:'#B91C1C',cite:'for the most productive hours tracked this month — sheer dedication and a relentless work ethic.'},
+  bestidea:{title:'Best Idea Award',emoji:'💡',color:'#7C3AED',cite:'for the month’s best innovation idea — a real, feasible improvement we are putting into action.'}
 };
 function _ce(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 /* ── Event-based (manually assigned) certificates ── */
@@ -5656,7 +5727,7 @@ async function _earlyBirdList(month){
   try{ var d=await (await jGet(API+'?action=early_bird'+(month?'&month='+encodeURIComponent(month):''), 4000, 120000)).json(); var rows=(d&&d.rows)||[]; var e=rows.filter(function(r){return r.avg_minutes!=null && r.days>=5;}); if(e.length<3) e=rows.filter(function(r){return r.avg_minutes!=null;}); e.sort(function(a,b){return a.avg_minutes-b.avg_minutes;}); return e; }
   catch(e){ return []; }
 }
-function _awardNominees(rows, ebRows, ex){
+function _awardNominees(rows, ebRows, ex, ideas){
   ex=ex||{}; var hours=ex.hours||{}, present=ex.present||{}, lates=ex.lates||{}, names=ex.names||{}, mvp=ex.mvp||[];
   function photoOf(id){ var r=(rows||[]).filter(function(x){return String(x.employee_id||'').toLowerCase()===String(id||'').toLowerCase();})[0]; return r?r.photo:''; }
   function nameOf(id){ var r=(rows||[]).filter(function(x){return String(x.employee_id||'').toLowerCase()===String(id||'').toLowerCase();})[0]; return (r&&r.full_name)||names[String(id).toLowerCase()]||id; }
@@ -5674,6 +5745,14 @@ function _awardNominees(rows, ebRows, ex){
   var wk=Object.keys(hours).map(function(k){ return {id:k,h:hours[k]||0}; }).filter(function(o){return o.h>0;});
   wk.sort(function(a,b){ return b.h-a.h; });
   wk.slice(0,5).forEach(function(o){ out.workhorse.push(mk('workhorse', o.id, 'Logged <b>'+o.h.toFixed(1)+'</b> productive hours')); });
+  // Best Idea — top graded innovation ideas of the month (admin score first, bot score as fallback)
+  out.bestidea=[];
+  (ideas||[]).map(function(it){ return { it:it, sc:(it.score!=null?it.score:(it.bot_score!=null?it.bot_score:null)) }; })
+    .filter(function(x){ return x.sc!=null && x.sc>0; })
+    .sort(function(a,b){ return b.sc-a.sc; })
+    .slice(0,5).forEach(function(x){ var m=_AWMETA.bestidea;
+      out.bestidea.push({ title:m.title,emoji:m.emoji,color:m.color,cite:m.cite,name:x.it.name||x.it.employee_id,id:x.it.employee_id,photo:photoOf(x.it.employee_id),
+        metricText:'“'+_ce(x.it.title||x.it.area||'Idea')+'” · <b>'+x.sc+'/100</b>'+(x.it.implement?' · 🚀 implementing':'') }); });
   return out;
 }
 async function openCertPicker(){
@@ -5685,7 +5764,8 @@ async function openCertPicker(){
     if(fin){ all=_scRankSort(_scFilterActive(_attachPhotos(fin.rows||[]))).filter(_scValid); ex=fin.ex||{}; ebRows=(fin.eb_list&&fin.eb_list.length)?fin.eb_list:(fin.eb?[fin.eb]:[]); }
     else { var data=await _scRanked(); all=data.rows.filter(_scValid); var r=await Promise.all([_awardExtras(month), _earlyBirdList(month)]); ex=r[0]||{}; ebRows=r[1]||[]; }
     if(!all.length){ alert('No ranked scorecards for this month yet.'); return; }
-    _CERT_CTX={ all:all, month:month, monthLabel:_scMonthLabel(month), noms:_awardNominees(all, ebRows, ex), finalized:!!fin };
+    var ideas=[]; try{ var ir=await jGet(API+'?action=list_innovations&month='+encodeURIComponent(month)+'&_='+Date.now(), 3000, 60000); var idd=await ir.json(); ideas=(idd&&idd.items)||[]; }catch(_i){}
+    _CERT_CTX={ all:all, month:month, monthLabel:_scMonthLabel(month), noms:_awardNominees(all, ebRows, ex, ideas), finalized:!!fin };
     _evtReset();
     _renderCertPicker();
   }catch(e){ alert('Could not load nominees: '+(e&&e.message||e)); }
@@ -5697,7 +5777,7 @@ function _renderCertPicker(){
   ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
   var top5=c.all.slice(0,5);
   var placeHtml=top5.map(function(r,i){ return '<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0;"><b style="width:20px;color:#c2410c;">'+(i+1)+'.</b><span style="flex:1;">'+_ce(r.full_name||r.employee_id)+'</span><b style="color:#c2410c;">'+(parseFloat(r.overall).toFixed(2))+'</b></div>'; }).join('');
-  var order=[['early','🌅 Early Bird'],['perfect','🎖️ Perfect Attendance'],['spotless','✨ Spotless Record'],['sales','💰 Sales MVP'],['workhorse','🐎 Workhorse']];
+  var order=[['early','🌅 Early Bird'],['perfect','🎖️ Perfect Attendance'],['spotless','✨ Spotless Record'],['sales','💰 Sales MVP'],['workhorse','🐎 Workhorse'],['bestidea','💡 Best Idea']];
   var awHtml=order.map(function(o){
     var key=o[0], list=c.noms[key]||[];
     var rows=list.length? list.map(function(n,i){
@@ -5780,7 +5860,9 @@ function _renderInnoReview(){
         '<span style="flex:1;"></span>'+
         (graded?'<span style="font-size:12px;font-weight:800;color:#15803d;">Graded '+it.score+'/100</span>':'<span style="font-size:11px;color:#b45309;font-weight:700;">● pending</span>')+'</div>'+
       (it.title?'<div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:3px;">'+_ce(it.title)+'</div>':'')+
-      '<div style="font-size:12px;color:var(--t2);line-height:1.5;margin-bottom:8px;white-space:pre-wrap;">'+_ce(it.idea)+'</div>'+
+      (it.bot_score!=null?('<div style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;color:#7c3aed;background:rgba(124,58,237,.1);border-radius:100px;padding:3px 10px;margin-bottom:6px;">🤖 Bot: '+it.bot_score+'/100'+(it.implement?' · 🚀 IMPLEMENT':'')+'</div>'+(it.bot_feedback?('<div style="font-size:11px;color:var(--t3);margin-bottom:6px;">'+_ce(it.bot_feedback)+'</div>'):'')):'')+
+      (it.problem?('<div style="font-size:12px;color:var(--t2);line-height:1.5;margin-bottom:8px;"><b style="color:#b91c1c;">Problem:</b> '+_ce(it.problem)+'<br><b style="color:#15803d;">Solution:</b> '+_ce(it.solution)+'<br><b style="color:#b45309;">Why:</b> '+_ce(it.importance)+'</div>')
+                 :('<div style="font-size:12px;color:var(--t2);line-height:1.5;margin-bottom:8px;white-space:pre-wrap;">'+_ce(it.idea)+'</div>'))+
       '<div style="display:flex;align-items:center;gap:7px;">'+
         '<input type="number" id="inno-score-'+i+'" min="0" max="100" step="1" value="'+(it.score!=null?it.score:'')+'" placeholder="/100" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;">'+
         '<input type="text" id="inno-fb-'+i+'" value="'+_ce(it.feedback||'').replace(/"/g,'&quot;')+'" placeholder="feedback (optional)" style="flex:1;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;">'+
@@ -5817,6 +5899,93 @@ async function remindInno(){
     var d=await r.json();
     if(d&&d.ok) toast(d.reminded?('Reminded '+d.reminded+' contractor'+(d.reminded===1?'':'s')+'.'):'Nobody to remind — all submitted.');
     else toast('Could not send reminders.');
+  }catch(e){ toast('Connection error.'); }
+}
+/* ════════ QA REVIEW CHAIN — peer → lead → manager ════════ */
+var _QAR={items:[],month:''};
+async function openQaChain(){
+  var btn=document.getElementById('sc-qar-btn'); var old=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Loading…'; }
+  try{
+    var month=(document.getElementById('sc-month-filter')||{}).value||'';
+    var r=await jGet(API+'?action=qa_review_list&month='+encodeURIComponent(month)+'&_='+Date.now(), 3000, 60000);
+    var d=await r.json(); if(!d||!d.ok) throw new Error((d&&d.error)||'redeploy needed');
+    _QAR={items:d.items||[],month:d.month}; _renderQaChain();
+  }catch(e){ alert('Could not load the QA chain: '+(e&&e.message||e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old||'🔗 QA Chain'; } }
+}
+function _closeQaChain(){ var ov=document.getElementById('qar-modal'); if(ov) ov.remove(); }
+function _renderQaChain(){
+  var ov=document.getElementById('qar-modal'); if(!ov){ ov=document.createElement('div'); ov.id='qar-modal'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
+  var emplist=(typeof emps!=='undefined'&&emps)?emps.filter(function(e){return e&&e.employee_id;}):[];
+  var opts='<option value="">Contractor…</option>'+emplist.map(function(e){return '<option value="'+_ce(e.employee_id)+'">'+_ce(e.full_name||e.employee_id)+'</option>';}).join('');
+  var rows=(_QAR.items||[]).map(function(it,i){
+    var st=it.mgr_status==='approved'?'<span style="color:#15803d;font-weight:800;">✓ approved · '+it.final_score+'</span>':'<span style="color:#b45309;font-weight:700;">● pending</span>';
+    return '<tr style="border-top:1px solid var(--border);"><td style="padding:5px 6px;">'+_ce(it.name||it.employee_id)+'</td><td style="text-align:center;">W'+it.week+'</td>'+
+      '<td style="text-align:center;">'+(it.peer_score!=null?it.peer_score+(it.peer_name?(' <span style="color:var(--t3);font-size:10px;">('+_ce(it.peer_name)+')</span>'):''):'—')+'</td>'+
+      '<td style="text-align:center;">'+(it.lead_score!=null?it.lead_score:'—')+'</td><td style="text-align:center;">'+st+'</td>'+
+      '<td style="text-align:right;">'+(it.mgr_status!=='approved'?('<button class="bsm" style="padding:3px 9px;font-size:11px;color:#15803d;border-color:rgba(21,128,61,.3);" onclick="qarApprove(\''+encodeURIComponent(it.employee_id)+'\','+it.week+')">Approve</button>'):'')+'</td></tr>';
+  }).join('');
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:760px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
+    '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:15px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
+      '<div style="font-size:16px;font-weight:800;">🔗 QA Review Chain — '+_ce(_QAR.month||'')+'</div><span style="flex:1;"></span><button class="bsm" onclick="_closeQaChain()">✕</button></div>'+
+    '<div style="padding:14px 20px;">'+
+      '<div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Every VA · every week: <b>Peer (teammate, 30&nbsp;min) → Team Lead (30&nbsp;min) → Manager approval</b>. Only approved finals reach the scorecard. Missed errors dock the reviewer too.</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:rgba(21,128,61,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;">'+
+        '<select id="qar-emp" class="sinp" style="width:160px;">'+opts+'</select>'+
+        '<select id="qar-week" class="sinp" style="width:70px;"><option value="1">W1</option><option value="2">W2</option><option value="3">W3</option><option value="4">W4</option></select>'+
+        '<select id="qar-stage" class="sinp" style="width:80px;"><option value="peer">Peer</option><option value="lead">Lead</option></select>'+
+        '<select id="qar-rev" class="sinp" style="width:160px;"><option value="">Reviewer…</option>'+opts.replace('Contractor…','Reviewer…')+'</select>'+
+        '<input id="qar-score" class="sinp" type="number" min="0" max="100" placeholder="/100" style="width:70px;">'+
+        '<button class="bsm" onclick="qarSubmit()" style="color:#15803d;border-color:rgba(21,128,61,.3);">Save review</button>'+
+      '</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:rgba(185,28,28,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px;">'+
+        '<span style="font-size:11.5px;font-weight:800;color:#b91c1c;">Reviewer missed an error:</span>'+
+        '<select id="qar-pen-rev" class="sinp" style="width:160px;">'+opts.replace('Contractor…','Reviewer…')+'</select>'+
+        '<input id="qar-pen-pts" class="sinp" type="number" min="0.25" max="5" step="0.25" value="1" style="width:65px;" title="demerit points">'+
+        '<button class="bsm" style="color:#b91c1c;border-color:rgba(185,28,28,.3);" onclick="qarPenalize()">⚠ Dock reviewer</button>'+
+      '</div>'+
+      (rows?('<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="text-align:left;color:var(--t3);"><th style="padding:4px 6px;">Contractor</th><th style="text-align:center;">Week</th><th style="text-align:center;">Peer</th><th style="text-align:center;">Lead</th><th style="text-align:center;">Status</th><th></th></tr>'+rows+'</table>')
+           :'<div style="color:var(--t3);padding:8px;">No reviews recorded this month yet.</div>')+
+    '</div></div>';
+}
+async function qarSubmit(){
+  var emp=(document.getElementById('qar-emp')||{}).value, wk=(document.getElementById('qar-week')||{}).value, st=(document.getElementById('qar-stage')||{}).value;
+  var rev=(document.getElementById('qar-rev')||{}).value, sc=(document.getElementById('qar-score')||{}).value;
+  if(!emp||!sc){ toast('Pick a contractor and score.'); return; }
+  if(st==='peer'&&!rev){ toast('Peer reviews need the reviewer (a teammate).'); return; }
+  try{
+    var name=''; try{ name=(emps.find(function(e){return e.employee_id===emp;})||{}).full_name||emp; }catch(_e){}
+    var rname=''; try{ rname=(emps.find(function(e){return e.employee_id===rev;})||{}).full_name||rev; }catch(_e){}
+    var r=await fetch(API+'?action=qa_review_submit&employee_id='+encodeURIComponent(emp)+'&full_name='+encodeURIComponent(name)+'&month='+encodeURIComponent(_QAR.month)+'&week='+encodeURIComponent(wk)+'&stage='+encodeURIComponent(st)+'&reviewer_id='+encodeURIComponent(rev)+'&reviewer_name='+encodeURIComponent(rname)+'&score='+encodeURIComponent(sc)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ toast(st==='peer'?'Peer review saved.':'Lead review saved.'); openQaChain(); }
+    else if(d&&d.error==='SELF_REVIEW') toast('A VA can\'t peer-review their own work.');
+    else toast('Could not save: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Connection error.'); }
+}
+async function qarApprove(empEnc, week){
+  var emp=decodeURIComponent(empEnc);
+  var fin=prompt('Manager approval — final QA score for week '+week+'.\nLeave as-is to accept the Lead\'s score, or type an override:','');
+  if(fin===null) return;
+  try{
+    var r=await fetch(API+'?action=qa_review_approve&employee_id='+encodeURIComponent(emp)+'&month='+encodeURIComponent(_QAR.month)+'&week='+encodeURIComponent(week)+'&final='+encodeURIComponent(fin)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ toast('Approved — final '+d.final+' pushed to the scorecard.'); openQaChain(); }
+    else toast('Could not approve: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Connection error.'); }
+}
+async function qarPenalize(){
+  var rev=(document.getElementById('qar-pen-rev')||{}).value, pts=(document.getElementById('qar-pen-pts')||{}).value;
+  if(!rev){ toast('Pick the reviewer.'); return; }
+  if(!confirm('Dock this reviewer '+pts+' demerit point(s) for a missed error?')) return;
+  try{
+    var rname=''; try{ rname=(emps.find(function(e){return e.employee_id===rev;})||{}).full_name||rev; }catch(_e){}
+    var r=await fetch(API+'?action=qa_review_penalize&reviewer_id='+encodeURIComponent(rev)+'&reviewer_name='+encodeURIComponent(rname)+'&points='+encodeURIComponent(pts)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&(d.ok)) toast('Reviewer docked '+pts+' pt(s).');
+    else toast('Could not dock: '+((d&&d.error)||'error'));
   }catch(e){ toast('Connection error.'); }
 }
 function openInnoRubric(){
@@ -5882,7 +6051,7 @@ function _renderIntegrity(d, month){
 function printSelectedCerts(){
   var c=_CERT_CTX; if(!c) return;
   var awards=[];
-  ['early','perfect','spotless','sales','workhorse'].forEach(function(key){
+  ['early','perfect','spotless','sales','workhorse','bestidea'].forEach(function(key){
     var list=c.noms[key]||[]; if(!list.length) return;
     var sel=document.querySelector('input[name="nom-'+key+'"]:checked');
     var idx=sel?parseInt(sel.value,10):0; var pick=list[idx]||list[0];
