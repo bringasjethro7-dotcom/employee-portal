@@ -3368,7 +3368,7 @@ async function loadPayslipsAdmin(){
     try{ var fr=await jGet(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.ok) fund=fd; }catch(_e){}
     var payBanks={};
     try{ var bkr=await jGet(API+'?action=get_banks&_='+Date.now()); var bkd=await bkr.json(); payBanks=(bkd&&bkd.banks)||{}; }catch(_b){}
-    var mpOf=function(id){ return fund.main_project[id]||''; };
+    var mpOf=function(id, period){ var mb=(fund.main_by_period||{})[period||'']; return (mb&&mb[id])||fund.main_project[id]||''; };
     var isFunded=function(period,proj){ return !!(proj && fund.paid[period||''] && fund.paid[period||''][String(proj).toLowerCase()]); };
     if(empSel && empSel.options.length<=1){
       payEmps.forEach(function(e){ empSel.innerHTML+='<option value="'+payEsc(e.employee_id)+'">'+payEsc(e.full_name||e.employee_id)+'</option>'; });
@@ -3378,8 +3378,8 @@ async function loadPayslipsAdmin(){
     var rows=[];
     payEmps.forEach(function(e){
       if(fEmp && e.employee_id!==fEmp) return;
-      var proj=mpOf(e.employee_id);
       (e.payslips||[]).forEach(function(p){
+        var proj=mpOf(e.employee_id, p.period);   // main project varies per cutoff (from worklogs)
         var paid=!!p.paid;
         if(fStatus==='paid'&&!paid) return;
         if(fStatus==='pending'&&paid) return;
