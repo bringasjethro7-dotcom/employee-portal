@@ -4571,6 +4571,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
       </button>
       <button class="tab-btn" onclick="switchTab('payslips', this)" title="Payslip"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Payslip</button>
       <button class="tab-btn" id="tabbtn-live" style="display:none;" onclick="switchTab('live', this)" title="Team Live"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M5 12a7 7 0 0 1 7-7m7 7a7 7 0 0 1-7 7"/><path d="M3 12h2m14 0h2"/></svg> Team Live</button>
+      <button class="tab-btn" id="tabbtn-myprod" onclick="switchTab('myprod', this); try{loadMyProd();}catch(e){}" title="Productivity"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Productivity</button>
       <button class="tab-btn" onclick="switchTab('profile', this)" title="My Profile"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> My Profile</button>
     </div>
 
@@ -5542,6 +5543,22 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
     </div>
 
 <!-- PROFILE -->
+    <div class="tab-panel" id="tab-myprod">
+      <p class="section-eyebrow">My productivity — this cutoff</p>
+      <div class="kpi-row" id="mp-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1rem;"></div>
+      <div class="card" style="padding:1.1rem 1.3rem;margin-bottom:1rem;">
+        <div class="card-head" style="margin-bottom:.6rem;"><b>Per task — you vs team</b><span style="font-size:11px;color:var(--text-3);">tool outputs ÷ tracked hours · this cutoff</span></div>
+        <div id="mp-tasks"><div style="color:var(--text-3);font-size:13px;padding:8px 0;">Loading…</div></div>
+      </div>
+      <div class="card" style="padding:1.1rem 1.3rem;margin-bottom:1rem;">
+        <div class="card-head" style="margin-bottom:.6rem;"><b>Daily breakdown</b><span style="font-size:11px;color:var(--text-3);">business days · resets 8 AM PHT</span></div>
+        <div id="mp-days"></div>
+      </div>
+      <div class="card" id="mp-gaps-card" style="padding:1.1rem 1.3rem;margin-bottom:1rem;border-color:rgba(245,158,11,.35) !important;">
+        <div class="card-head" style="margin-bottom:.6rem;"><b>⚠ Hours without tool outputs</b><span style="font-size:11px;color:var(--text-3);">task-days you tracked but your tool counted nothing — fix these in your tool</span></div>
+        <div id="mp-gaps"></div>
+      </div>
+    </div>
     <div class="tab-panel" id="tab-profile">
 
       <!-- ATTENDANCE SUMMARY CARD -->
@@ -13855,6 +13872,34 @@ async function sendEodReport(){
   if (!supaClient) { showToast('Chat isn’t ready yet.'); return; }
   var text = buildMyEodText();
   if (!text) { showToast('No tracked tasks to report yet — Time In and track your work first.'); return; }
+  // 🗄 TOOL-UPDATE CHECK — before the EOD goes out, every tracked task on a tool-covered
+  // project must have outputs recorded in the tool today. If not: prompt the VA to update
+  // their tool first (they can still send, but it's a conscious choice).
+  try {
+    var _TOOLPROJ = ['reddit','ember','john','arlo','newfans','altr'];
+    var _bd = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date(Date.now()-8*3600*1000));
+    var _pm = await fetch(APPS_SCRIPT_URL+'?action=po_mine&employee_id='+encodeURIComponent(chatEmpId)+'&from='+_bd+'&to='+_bd+'&_='+Date.now()).then(function(r){ return r.json(); });
+    var _outs = (_pm && _pm.rows) || [];
+    var _ents = (window._trkTodayEntries||[]).filter(function(e){ return e && e.status!=='running' && e.status!=='paused' && e.end && !(typeof isIdleProject==='function' && isIdleProject(e.project)); });
+    var _missing = {}, _ord = [];
+    _ents.forEach(function(e){
+      var proj=String(e.project||'').toLowerCase();
+      var covered=_TOOLPROJ.some(function(tp){ return proj.indexOf(tp)>=0; });
+      if(!covered) return;   // no tool for this project — nothing to require
+      var task=String(e.task||e.description||'').toLowerCase();
+      var hit=_outs.some(function(o){
+        var ot=String(o.task||'').toLowerCase(), op=String(o.project||'').toLowerCase();
+        var tOk = ot===task || (task && ot && (task.indexOf(ot)>=0 || ot.indexOf(task)>=0));
+        var pOk = !op || !proj || proj.indexOf(op)>=0 || op.indexOf(proj)>=0;
+        return tOk && pOk;
+      });
+      if(!hit){ var k=(e.task||e.description||'Task')+(e.project?(' ('+e.project+')'):''); if(!_missing[k]){ _missing[k]=1; _ord.push(k); } }
+    });
+    if(_ord.length){
+      var _ok = confirm('⚠ Hold on — update your tool first!\n\nYour tool has NO recorded outputs today for:\n' + _ord.map(function(x){ return '  • '+x; }).join('\n') + '\n\nOpen your tool and tick the work you completed, then send your EOD.\n\nSend anyway WITHOUT the tool updated?');
+      if(!_ok){ showToast('Good call — update your tool, then send your EOD 👍'); return; }
+    }
+  } catch(_tc){}
   var btn = document.getElementById('eod-send-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   try {
@@ -29917,11 +29962,11 @@ body.light .hero-date{ font-weight:700 !important; color:#8a93a3 !important; }
 /* ═══ UI v2 — dark sidebar skin (matched to the admin implementation) ═══ */
 @media(min-width:1000px){
   body.light #dashboard-screen .tabs{
-    position:fixed !important; top:0 !important; bottom:0 !important; left:0 !important;
-    height:auto !important; max-height:none !important;
+    position:fixed !important; top:0 !important; bottom:-48px !important; left:0 !important;
+    height:auto !important; max-height:none !important; padding-bottom:62px !important;
     background:linear-gradient(180deg,#14171d 0%,#0b0e12 100%) !important;
     border:none !important; border-right:1px solid rgba(255,255,255,.05) !important;
-    border-radius:0 26px 26px 0 !important;
+    border-radius:0 26px 0 0 !important;   /* round the top-right only — bottom runs past the viewport, gap impossible */
     box-shadow:10px 0 44px rgba(15,23,42,.22) !important;
   }
   body.light #dashboard-screen .tabs::-webkit-scrollbar{ width:0; }
@@ -30033,6 +30078,90 @@ body.light .section-eyebrow::before{
   background:linear-gradient(90deg, var(--orange-1), var(--orange-3));
 }
 </style>
+
+
+<script>
+/* ── My Productivity (VA-facing Prod Hub) — read-only, personal ── */
+var _mpLoaded=false;
+function _mpBiz(){ try{ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date(Date.now()-8*3600*1000)); }catch(e){ return new Date().toISOString().slice(0,10); } }
+function _mpCutoff(){ var d=_mpBiz(); var y=d.slice(0,4), m=d.slice(5,7), day=parseInt(d.slice(8,10),10);
+  if(day<=15) return {from:y+'-'+m+'-01', to:y+'-'+m+'-15'};
+  var last=new Date(parseInt(y,10), parseInt(m,10), 0).getDate();
+  return {from:y+'-'+m+'-16', to:y+'-'+m+'-'+last}; }
+function _mpEsc(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+async function loadMyProd(force){
+  if(_mpLoaded && !force) return;
+  var emp=null; try{ emp=JSON.parse(sessionStorage.getItem('emp_data')||'null'); }catch(e){}
+  var id=emp&&emp.employee_id; if(!id) return;
+  var c=_mpCutoff(), today=_mpBiz();
+  var FLOOR='2026-08-04'; var gapsFrom=(c.from<FLOOR)?FLOOR:c.from;
+  var q=function(u){ return fetch(APPS_SCRIPT_URL+u+'&_='+Date.now()).then(function(r){return r.json();}).catch(function(){return null;}); };
+  var res=await Promise.all([
+    q('?action=get_worklog&employee_id='+encodeURIComponent(id)+'&from='+c.from+'&to='+c.to),
+    q('?action=po_mine&employee_id='+encodeURIComponent(id)+'&from='+c.from+'&to='+c.to),
+    q('?action=eod_match&from='+gapsFrom+'&to='+today+'&employee_id='+encodeURIComponent(id)),
+    q('?action=productivity&scope=all&from='+c.from+'&to='+c.to)
+  ]);
+  var wl=(res[0]&&res[0].worklog)||[], mine=(res[1]&&res[1].rows)||[], gaps=(res[2]&&res[2].gaps)||[], team=(res[3]&&res[3].team)||[];
+  // hours per task + per day (approved-ish rows only)
+  var hrsTask={}, hrsDay={}, outTask={}, outDay={};
+  var TK=function(p,t){ return String(p||'').toLowerCase()+'||'+String(t||'Task'); };
+  var TLBL={};
+  wl.forEach(function(r){ var st=String(r.status||'').toLowerCase(); if(st==='running'||st==='rejected'||st==='appeal') return;
+    var h=parseFloat(r.hours)||0; if(!(h>0)) return;
+    var k=TK(r.project, r.task); hrsTask[k]=(hrsTask[k]||0)+h; TLBL[k]={t:String(r.task||'Task'), p:String(r.project||'')};
+    var d=String(r.date||'').slice(0,10); hrsDay[d]=(hrsDay[d]||0)+h; });
+  mine.forEach(function(r){ var k=TK(r.project, r.task); outTask[k]=(outTask[k]||0)+r.n; TLBL[k]=TLBL[k]||{t:r.task, p:r.project}; outDay[r.date]=(outDay[r.date]||0)+r.n; });
+  var teamQph={}; team.forEach(function(t){ teamQph[TK(t.project, t.task)]=t.qph; });
+  var totalH=0, totalO=0; Object.keys(hrsDay).forEach(function(d){ totalH+=hrsDay[d]; }); mine.forEach(function(r){ totalO+=r.n; });
+  var myQph=totalH>0?Math.round(totalO/totalH*100)/100:0;
+  // KPIs
+  var K=function(lbl,val,sub,col){ return '<div class="kpi" style="padding:14px 16px;"><div style="font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);">'+lbl+'</div><div style="font-family:\'Sora\',sans-serif;font-size:24px;font-weight:800;'+(col?('color:'+col+';'):'')+'margin-top:4px;">'+val+'</div>'+(sub?('<div style="font-size:11px;color:var(--text-3);margin-top:2px;">'+sub+'</div>'):'')+'</div>'; };
+  var el=document.getElementById('mp-kpis');
+  if(el) el.innerHTML=K('Hours tracked', (Math.round(totalH*10)/10)+'h', c.from.slice(5)+' → '+c.to.slice(5))+K('Tool outputs', totalO.toLocaleString(), 'auto-counted by your tools')+K('My output / hour', myQph, 'across all tasks', myQph>0?'#0f766e':'')+K('Gaps to fix', gaps.length, gaps.length?'see below ⚠':'all matched ✅', gaps.length?'#b45309':'#0f766e');
+  // per task
+  var tasks={}; Object.keys(hrsTask).forEach(function(t){ tasks[t]=1; }); Object.keys(outTask).forEach(function(t){ tasks[t]=1; });
+  var rows=Object.keys(tasks).map(function(t){
+    var h=Math.round((hrsTask[t]||0)*10)/10, o=outTask[t]||0;
+    var q=(h>0&&o>0)?Math.round(o/h*100)/100:0; var tq=teamQph[t];
+    var badge='';
+    if(q>0&&tq>0){ var up=q>=tq; badge='<span style="font-size:11px;font-weight:800;color:'+(up?'#0f766e':'#b45309')+';">'+(up?'▲ above team':'▼ below team')+'</span>'; }
+    var _l=TLBL[t]||{t:t,p:''};
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed var(--border);flex-wrap:wrap;">'+
+      '<b style="flex:1;min-width:160px;font-size:13px;">'+_mpEsc(_l.t)+(_l.p?(' <span style="font-weight:600;font-size:10.5px;color:var(--text-3);">'+_mpEsc(_l.p)+'</span>'):'')+'</b>'+
+      '<span style="font-size:12.5px;color:var(--text-2);min-width:70px;text-align:right;">'+o.toLocaleString()+' out</span>'+
+      '<span style="font-size:12.5px;color:var(--text-2);min-width:56px;text-align:right;">'+h+'h</span>'+
+      '<span style="font-size:13px;font-weight:800;min-width:70px;text-align:right;">'+(q||'—')+'/hr</span>'+
+      '<span style="font-size:11.5px;color:var(--text-3);min-width:86px;text-align:right;">team '+(tq!=null?tq:'—')+'/hr</span>'+
+      '<span style="min-width:92px;text-align:right;">'+badge+'</span></div>';
+  }).join('');
+  var tEl=document.getElementById('mp-tasks');
+  if(tEl) tEl.innerHTML=rows||'<div style="color:var(--text-3);font-size:13px;padding:6px 0;">No tracked tasks this cutoff yet.</div>';
+  // per day
+  var days={}; Object.keys(hrsDay).forEach(function(d){ days[d]=1; }); Object.keys(outDay).forEach(function(d){ days[d]=1; });
+  var dRows=Object.keys(days).sort().reverse().map(function(d){
+    var h=Math.round((hrsDay[d]||0)*10)/10, o=outDay[d]||0;
+    return '<div style="display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px dashed var(--border);">'+
+      '<span style="flex:1;font-size:12.5px;font-weight:700;">'+_mpEsc(d)+'</span>'+
+      '<span style="font-size:12.5px;color:var(--text-2);min-width:70px;text-align:right;">'+h+'h</span>'+
+      '<span style="font-size:12.5px;font-weight:800;min-width:90px;text-align:right;">'+o.toLocaleString()+' outputs</span></div>';
+  }).join('');
+  var dEl=document.getElementById('mp-days');
+  if(dEl) dEl.innerHTML=dRows||'<div style="color:var(--text-3);font-size:13px;padding:6px 0;">Nothing tracked yet this cutoff.</div>';
+  // gaps
+  var gEl=document.getElementById('mp-gaps'), gCard=document.getElementById('mp-gaps-card');
+  if(gEl){
+    if(!gaps.length){ gEl.innerHTML='<div style="color:#0f766e;font-size:13px;font-weight:700;">✅ Every tracked task-day has matching tool outputs. Keep it up!</div>'; if(gCard) gCard.style.borderColor='rgba(16,185,129,.35)'; }
+    else gEl.innerHTML=gaps.map(function(g){
+      return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px dashed var(--border);flex-wrap:wrap;">'+
+        '<span style="font-size:12px;font-weight:700;min-width:84px;">'+_mpEsc(g.date)+'</span>'+
+        '<span style="flex:1;font-size:12.5px;color:var(--text-2);min-width:150px;">'+_mpEsc(g.project)+' · '+_mpEsc(g.task)+'</span>'+
+        '<span style="font-size:12.5px;font-weight:800;color:#b45309;">'+g.hours+'h — no outputs</span></div>';
+    }).join('');
+  }
+  _mpLoaded=true;
+}
+</script>
 
 </body>
 </html>
