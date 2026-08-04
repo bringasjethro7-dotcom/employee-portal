@@ -5706,7 +5706,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
 // ─────────────────────────────────────────────
 // CONFIG — update these two values
 // ─────────────────────────────────────────────
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbOUn-0xO4r8H4bw4nA7YMfVb0yByOLL4TuRPKvtPh2rjY-b3rOJ5aBoIc8sOmO9kP/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec";
 
 // ── Shared READ helper: timeout + 1 retry + in-flight dedupe + short TTL cache ──
 // Reads only (resolves a Response so callers keep using .json()). Writes stay on fetch().
@@ -6114,9 +6114,28 @@ function checkSessionValid(){
     .catch(function(){ _sessInvalidStreak = 0; })   // fail-open: network hiccup never logs anyone out
 }
 function _sessVisCheck(){ if (!document.hidden) checkSessionValid(); }   // fast detect on tab focus
+// ── VA PULSE: ONE 30s background request = session check + team live timers ──
+async function vaPulse(){
+  if (document.hidden) return;
+  var d0; try { d0 = sessionStorage.getItem('emp_data'); } catch(e){ return; }
+  if (!d0) return;
+  var emp; try { emp = JSON.parse(d0); } catch(e){ return; }
+  var id = emp && emp.employee_id; if (!id) return;
+  try{
+    var r = await fetch(APPS_SCRIPT_URL + '?action=va_pulse&employee_id=' + encodeURIComponent(id) + '&device=' + encodeURIComponent(_devId()) + '&_=' + Date.now());
+    var d = await r.json(); if(!d || !d.ok) return;
+    if (d.session && d.session.ok && d.session.valid === false) {
+      _sessInvalidStreak++;
+      if (_sessInvalidStreak >= 2) _forceLogoutOtherDevice(); else setTimeout(checkSessionValid, 4000);
+    } else _sessInvalidStreak = 0;
+    if (d.running && d.running.running) {
+      try { _empLiveRows = d.running.running || []; _empLiveBase = Date.now(); empRenderLive(); } catch(_lv){}
+    }
+  }catch(e){}
+}
 function startSessionGuard(){
   stopSessionGuard();
-  try { window._sessGuard = setInterval(checkSessionValid, 25000); } catch(e){}
+  try { window._sessGuard = setInterval(vaPulse, 60000); } catch(e){}   // pulse = session + live in ONE request
   try { document.addEventListener('visibilitychange', _sessVisCheck); } catch(e){}
 }
 function stopSessionGuard(){
@@ -6859,7 +6878,7 @@ function empHms(s){ s=Math.max(0,Math.floor(s||0)); var h=Math.floor(s/3600),m=M
 function empLiveStart(){
   empFetchRunning();
   if(_empLiveTimer) clearInterval(_empLiveTimer);
-  _empLiveTimer=setInterval(function(){ if(document.hidden) return; empFetchRunning(); }, 25000);   // pause polling in background tabs; local tick keeps the display live
+  _empLiveTimer=setInterval(function(){ if(document.hidden) return; empFetchRunning(); }, 90000);   // backup only — the 30s vaPulse feeds live rows; local tick keeps the display smooth
   if(_empLiveTick) clearInterval(_empLiveTick);
   _empLiveTick=setInterval(empTickLive, 1000);
 }
@@ -10939,7 +10958,7 @@ function _barEntries() {
 function refreshTimeBar() { try { renderTimeBar(_barEntries()); } catch(e) {} }
 // Self-heal: re-render the bar from the durable union every 15s, so it can never
 // be left blank by a transient empty render.
-setInterval(function(){ if (document.hidden) return; if (document.getElementById('time-bar-wrap')) { try { refreshTimeBar(); } catch(e) {} } }, 30000);
+setInterval(function(){ if (document.hidden) return; if (document.getElementById('time-bar-wrap')) { try { refreshTimeBar(); } catch(e) {} } }, 60000);
 function updateTimerDisplay() {
   if (!trkRunning) return;
   var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
@@ -12459,7 +12478,7 @@ function pollActiveTracker(){
 // Keep the backend "who's active" signal fresh so the chat Online list stays accurate
 // even if Supabase realtime/presence is unavailable. Paused while the tab is hidden to
 // avoid hammering the Apps Script backend. (~45s)
-setInterval(function(){ if(document.hidden) return; try { pollActiveTracker(); } catch(e){} }, 45000);
+setInterval(function(){ if(document.hidden) return; try { pollActiveTracker(); } catch(e){} }, 120000);
 // Create/update an unread-count badge on a bubble
 function setBubbleUnread(id, count){
   var el = _bubbleEls[id];
@@ -12764,7 +12783,7 @@ function syncPresenceBubbles(opts){
 // Periodic sweep so ghost (stale) bubbles pop even without a presence event
 setInterval(function(){ if (Object.keys(_bubbleEls).length) syncPresenceBubbles({ silent: true }); }, 30000);
 // Refresh team-wide working/paused rings from the backend every 20s
-setInterval(function(){ if (Object.keys(_bubbleEls).length) pollActiveTracker(); }, 20000);
+setInterval(function(){ if (!document.hidden && Object.keys(_bubbleEls).length) pollActiveTracker(); }, 90000);
 // Watch my own work status (timer/idle) and propagate ring changes to everyone
 var _lastMyStatus = null;
 setInterval(function(){
