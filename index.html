@@ -4843,6 +4843,14 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
         <div class="skel" style="height:200px;margin-top:18px;"></div>
       </div>
       <div id="overview-content" style="display:none;">
+        <!-- 🛠 MY TOOLS — auto-created shortcuts to the tools this contractor uses -->
+        <div class="card" id="mytools-strip" style="display:none;padding:.95rem 1.15rem;margin-bottom:1rem;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:9px;">
+            <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">My tools</p>
+            <span style="font-size:11px;color:var(--text-3);">your project tools · one click</span>
+          </div>
+          <div id="mytools-row" style="display:flex;gap:9px;flex-wrap:wrap;"></div>
+        </div>
         <!-- KPI dashboard row -->
         <p class="section-eyebrow" style="display:none;">This month</p>
         <div class="kpi-row" id="kpi-row" style="display:none;">
@@ -30161,6 +30169,49 @@ async function loadMyProd(force){
   }
   _mpLoaded=true;
 }
+</script>
+
+
+<script>
+/* 🛠 MY TOOLS — shortcuts appear automatically once a contractor has signed into a tool. */
+var TOOLREG={
+  'reddit':      { n:'Reddit Altz',   u:'https://internals.jmbvirtuals.com/reddit.html' },
+  'reddit-casey':{ n:'Reddit Casey',  u:'https://internals.jmbvirtuals.com/reddit-casey.html' },
+  'ember':       { n:'Ember (Snapchat)', u:'https://internals.jmbvirtuals.com/ember.html' },
+  'john':        { n:'Project John (X)', u:'https://internals.jmbvirtuals.com/john.html' },
+  'ig-reels':    { n:'IG Reels (Arlo)',  u:'https://internals.jmbvirtuals.com/ig-reels.html' },
+  'newfans':     { n:'NewFans (Wallpost)', u:'https://internals.jmbvirtuals.com/newfans.html' },
+  'altr':        { n:'ALTR Media',    u:'https://internals.jmbvirtuals.com/altr.html' }
+};
+var _mtDone=false;
+async function loadMyToolShortcuts(){
+  if(_mtDone) return;
+  var emp=null; try{ emp=JSON.parse(sessionStorage.getItem('emp_data')||'null'); }catch(e){}
+  var id=emp&&emp.employee_id; if(!id) return;
+  _mtDone=true;
+  try{
+    var d=await fetch(APPS_SCRIPT_URL+'?action=my_tools&employee_id='+encodeURIComponent(id)+'&_='+Date.now()).then(function(r){ return r.json(); });
+    var m=(d&&d.tools)||{};
+    var keys=Object.keys(m).filter(function(k){ return TOOLREG[k]; }).sort(function(a,b){ return (m[b]||0)-(m[a]||0); });
+    if(!keys.length){ _mtDone=true; return; }
+    var row=document.getElementById('mytools-row'), strip=document.getElementById('mytools-strip');
+    if(!row||!strip) return;
+    row.innerHTML=keys.map(function(k){
+      var t=TOOLREG[k];
+      return '<a href="'+t.u+'" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;'+
+        'background:linear-gradient(180deg, rgba(255,107,26,.10), rgba(255,107,26,.05));border:1px solid rgba(255,107,26,.28);'+
+        'border-radius:12px;padding:9px 14px;color:#c2410c;font-weight:800;font-size:12.5px;transition:transform .14s, box-shadow .14s;" '+
+        'onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 8px 20px rgba(255,107,26,.2)\'" '+
+        'onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">'+
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a5 5 0 0 0-7.07 7.07l-3.18 3.18a2 2 0 1 0 2.83 2.83l3.18-3.18A5 5 0 0 0 17.7 9.3z"/></svg>'+
+        t.n+
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>'+
+        '</a>';
+    }).join('');
+    strip.style.display='';
+  }catch(e){ _mtDone=false; }
+}
+setInterval(function(){ if(!document.hidden) loadMyToolShortcuts(); }, 4000);
 </script>
 
 </body>
