@@ -6094,15 +6094,24 @@ function _devId(){
     return s;
   } catch(e) { return 'sess-x'; }
 }
+var _sessInvalidStreak = 0;
 function checkSessionValid(){
+  if (document.hidden) return;   // background tabs never self-logout
   var d; try { d = sessionStorage.getItem('emp_data'); } catch(e){ return; }
   if (!d) return;
   var emp; try { emp = JSON.parse(d); } catch(e){ return; }
   var id = emp && emp.employee_id; if (!id) return;
   fetch(APPS_SCRIPT_URL + '?action=check_session&employee_id=' + encodeURIComponent(id) + '&device=' + encodeURIComponent(_devId()) + '&_=' + Date.now())
     .then(function(r){ return r.json(); })
-    .then(function(res){ if (res && res.ok && res.valid === false) _forceLogoutOtherDevice(); })
-    .catch(function(){});   // fail-open: network hiccup never logs anyone out
+    .then(function(res){
+      if (res && res.ok && res.valid === false) {
+        // Two-strike rule: one stale/raced read must never kick an active VA.
+        _sessInvalidStreak++;
+        if (_sessInvalidStreak >= 2) _forceLogoutOtherDevice();
+        else setTimeout(checkSessionValid, 4000);   // quick re-verify
+      } else _sessInvalidStreak = 0;
+    })
+    .catch(function(){ _sessInvalidStreak = 0; })   // fail-open: network hiccup never logs anyone out
 }
 function _sessVisCheck(){ if (!document.hidden) checkSessionValid(); }   // fast detect on tab focus
 function startSessionGuard(){
