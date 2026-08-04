@@ -836,7 +836,7 @@ body{background-attachment:initial !important}
       <div id="live-now" class="live-grid"><div class="es" style="grid-column:1/-1;">Loading…</div></div>
 
       <!-- 🗄 LIVE PROJECT PROGRESS — every tool's task bars in one glance (auto-refreshes) -->
-      <div class="live-title2" style="margin-top:18px;">🗄 Project progress — live from the tools <span id="pp-updated" style="font-size:10.5px;color:var(--t3);font-weight:500;"></span></div>
+      <div class="live-title2" style="margin-top:18px;">🗄 Individual progress — live from the tools <span id="pp-updated" style="font-size:10.5px;color:var(--t3);font-weight:500;"></span></div>
       <div id="pp-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:10px;"><div class="es">Loading…</div></div>
 
       <div class="live-range-bar">
@@ -1874,54 +1874,37 @@ function liveStatus(rn){
 async function loadProjectProgress(){
   var grid=document.getElementById('pp-grid'); if(!grid) return;
   try{
-    var r=await jGet(API+'?action=po_progress_all&_='+Date.now(), 3000, 60000);
+    // INDIVIDUAL progress — one card per VA, a bar per tool board they worked (from the
+    // tools' daily completion snapshots). Sorted best-first; resets 8:00 AM PHT.
+    var r=await jGet(API+'?action=po_va_progress&_='+Date.now(), 12000, 60000);
     var d=await r.json(); if(!d||!d.ok) throw new Error((d&&d.error)||'redeploy needed');
-    var byProj={}; (d.rows||[]).forEach(function(row){ (byProj[row.project]=byProj[row.project]||[]).push(row); });
-    var projects=Object.keys(byProj).sort();
-    if(!projects.length){ grid.innerHTML='<div class="es">No project outputs yet today — bars appear as the tools push data.</div>'; return; }
-    grid.innerHTML=projects.map(function(pj){
-      var rows=byProj[pj].map(function(t){
-        if(t.target>0){
-          var full=t.pct>=100;
-          return '<div style="margin-bottom:9px;">'+
-            '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">'+
-              '<b>'+_ce(t.task)+'</b>'+
-              '<span style="font-weight:800;color:'+(full?'#16a34a':'#0e7490')+';">'+t.done+' / '+t.target+(t.period==='pool'?' pool':' today')+' · '+t.pct+'%'+(full?' ✓':'')+'</span></div>'+
-            '<div style="height:8px;background:var(--card2);border-radius:5px;overflow:hidden;">'+
-              '<div style="height:100%;width:'+t.pct+'%;border-radius:5px;background:'+(full?'linear-gradient(90deg,#22c55e,#16a34a)':'linear-gradient(90deg,#22d3ee,#0e7490)')+';transition:width .4s;"></div></div>'+
-          '</div>';
-        }
-        return '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:7px;padding:5px 0;border-bottom:1px dashed var(--border);">'+
-          '<b>'+_ce(t.task)+'</b><span style="color:var(--t2);font-weight:700;">'+t.today+' today · '+t.alltime+' total</span></div>';
+    var nameOf={}; try{ (emps||[]).forEach(function(e){ nameOf[String(e.employee_id).toLowerCase()]=e.full_name||e.employee_id; }); }catch(_e){}
+    var byVa={}; (d.rows||[]).forEach(function(row){ var k=String(row.employee_id).toLowerCase(); (byVa[k]=byVa[k]||[]).push(row); });
+    var keys=Object.keys(byVa);
+    if(!keys.length){ grid.innerHTML='<div class="es">No individual progress yet today — bars appear as VAs work their tool boards (resets 8 AM PHT).</div>'; return; }
+    var cards=keys.map(function(k){
+      var rows=byVa[k]; var avg=Math.round(rows.reduce(function(sm,x){ return sm+x.pct; },0)/rows.length);
+      return { k:k, rows:rows, avg:avg };
+    }).sort(function(a,b){ return b.avg-a.avg; });
+    grid.innerHTML=cards.map(function(c){
+      var bars=c.rows.sort(function(a,b){ return a.project<b.project?-1:1; }).map(function(v){
+        var full=v.pct>=100, col=full?'#16a34a':(v.pct>=70?'#d97706':'#dc2626');
+        return '<div style="margin-bottom:8px;">'+
+          '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">'+
+            '<b>'+_ce(v.project)+'</b>'+
+            '<span style="font-weight:800;color:'+col+';">'+v.done+' / '+v.total+' · '+v.pct+'%'+(full?' ✓':'')+'</span></div>'+
+          '<div style="height:8px;background:var(--card2);border-radius:5px;overflow:hidden;">'+
+            '<div style="height:100%;width:'+Math.min(100,v.pct)+'%;border-radius:5px;background:'+col+';transition:width .4s;"></div></div>'+
+        '</div>';
       }).join('');
+      var avgCol=c.avg>=100?'#16a34a':(c.avg>=70?'#d97706':'#dc2626');
       return '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">'+
-        '<div style="font-size:13px;font-weight:800;color:var(--o3);margin-bottom:9px;">'+_ce(pj)+'</div>'+rows+'</div>';
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;">'+
+          '<div style="font-size:13px;font-weight:800;color:var(--o3);">👤 '+_ce(nameOf[c.k]||c.rows[0].employee_id)+'</div>'+
+          '<span style="font-size:11.5px;font-weight:800;color:'+avgCol+';">'+c.avg+'%</span></div>'+bars+'</div>';
     }).join('');
     var u=document.getElementById('pp-updated'); if(u) u.textContent='· updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-    try{ await loadVaBoards(grid); }catch(_vb){}
-  }catch(e){ grid.innerHTML='<div class="es">Could not load progress — redeploy the Apps Script (po_progress_all).</div>'; }
-}
-// 👤 Per-VA board completion across EVERY project tool (from each tool's daily snapshot).
-async function loadVaBoards(grid){
-  var r=await jGet(API+'?action=po_va_progress&_='+Date.now(), 12000, 60000);
-  var d=await r.json(); if(!d||!d.ok||!(d.rows||[]).length) return;
-  var nameOf={}; try{ (emps||[]).forEach(function(e){ nameOf[String(e.employee_id).toLowerCase()]=e.full_name||e.employee_id; }); }catch(_e){}
-  var byProj={}; d.rows.forEach(function(row){ (byProj[row.project]=byProj[row.project]||[]).push(row); });
-  var html=Object.keys(byProj).sort().map(function(pj){
-    var vas=byProj[pj].sort(function(a,b){ return b.pct-a.pct; }).map(function(v){
-      var full=v.pct>=100, col=full?'#16a34a':(v.pct>=70?'#d97706':'#dc2626');
-      return '<div style="margin-bottom:8px;">'+
-        '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">'+
-          '<b>'+_ce(nameOf[String(v.employee_id).toLowerCase()]||v.employee_id)+'</b>'+
-          '<span style="font-weight:800;color:'+col+';">'+v.done+' / '+v.total+' · '+v.pct+'%'+(full?' ✓':'')+'</span></div>'+
-        '<div style="height:8px;background:var(--card2);border-radius:5px;overflow:hidden;">'+
-          '<div style="height:100%;width:'+Math.min(100,v.pct)+'%;border-radius:5px;background:'+col+';transition:width .4s;"></div></div>'+
-      '</div>';
-    }).join('');
-    return '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">'+
-      '<div style="font-size:13px;font-weight:800;color:var(--o3);margin-bottom:9px;">👤 '+_ce(pj)+' — per VA</div>'+vas+'</div>';
-  }).join('');
-  grid.innerHTML+=html;
+  }catch(e){ grid.innerHTML='<div class="es">Could not load — redeploy the Apps Script (po_va_progress).</div>'; }
 }
 async function loadLive(){
   try{ loadProjectProgress(); }catch(_pp){}
