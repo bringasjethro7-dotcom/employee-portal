@@ -16,7 +16,7 @@
 
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE = 'jmb-portal-v7';
+const CACHE = 'jmb-portal-v8';
 const ASSETS = [
   '/manifest.webmanifest',
   '/icons/icon-192-v2.png',
