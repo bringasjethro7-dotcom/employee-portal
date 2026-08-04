@@ -835,6 +835,10 @@ body{background-attachment:initial !important}
       </div>
       <div id="live-now" class="live-grid"><div class="es" style="grid-column:1/-1;">Loading…</div></div>
 
+      <!-- 🗄 LIVE PROJECT PROGRESS — every tool's task bars in one glance (auto-refreshes) -->
+      <div class="live-title2" style="margin-top:18px;">🗄 Project progress — live from the tools <span id="pp-updated" style="font-size:10.5px;color:var(--t3);font-weight:500;"></span></div>
+      <div id="pp-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:10px;"><div class="es">Loading…</div></div>
+
       <div class="live-range-bar">
         <div class="live-title2">Hours rendered — range analysis</div>
         <div class="live-controls">
@@ -1558,8 +1562,16 @@ function _jText(url,tries,timeout,delay){
       });
   });
 }
+// Per-endpoint default client TTLs — how long a repeat read is served instantly from memory.
+// Writes always jBust() or pass ttl=0, so acting on something still refetches fresh.
+var _jTTL={ get_all_employees:45000, admin_bootstrap:8000, get_tracker_projects:120000, get_banks:60000,
+  get_notif_templates:120000, get_worklog:15000, get_attendance:15000, get_all_scorecards:20000,
+  get_finalized:30000, get_leave_requests:15000, get_coe_requests:15000, redeem_list:15000,
+  lead_demerit_list:15000, get_all_demerit_disputes:15000, get_appeals:15000, payslip_funding:20000,
+  po_progress_all:12000, list_innovations:15000, qa_review_list:15000, get_all_qa_weekly:20000 };
 function jGet(url, ttl, timeout){
-  ttl = (ttl==null?1500:ttl); var TO = timeout||15000;   // heavy endpoints can pass a longer timeout
+  if(ttl==null){ var _act=(String(url).match(/[?&]action=([a-z_]+)/)||[])[1]; ttl=(_act&&_jTTL[_act]!=null)?_jTTL[_act]:1500; }
+  var TO = timeout||15000;   // heavy endpoints can pass a longer timeout
   var key=_jKey(url), now=Date.now(), c=_jCache[key];
   if(ttl>0 && c && (now-c.t)<ttl){
     // Serve from cache. Once it's past half its TTL, refresh in the BACKGROUND so the next read
@@ -1575,7 +1587,18 @@ function jGet(url, ttl, timeout){
   if(ttl>0) _jInflight[key]=p;
   return p.then(function(t){ return new Response(t); });
 }
-function jBust(){ _jCache={}; }
+function jBust(){ _jCache={}; try{ sessionStorage.removeItem('_jSnap'); }catch(e){} }
+// Persist the hottest GET caches across reloads — the admin shell paints instantly on reopen,
+// then stale-while-revalidate refreshes in the background.
+(function(){ try{ var _s=JSON.parse(sessionStorage.getItem('_jSnap')||'{}'); Object.keys(_s).forEach(function(k){ if(!_jCache[k]) _jCache[k]=_s[k]; }); }catch(e){} })();
+setInterval(function(){ try{
+  var keep={}, now=Date.now();
+  Object.keys(_jCache).forEach(function(k){
+    if(!/action=(get_all_employees|admin_bootstrap|get_tracker_projects|get_all_scorecards|get_worklog)/.test(k)) return;
+    var c=_jCache[k]; if(c && c.txt && c.txt.length<300000 && (now-c.t)<10*60*1000) keep[k]={t:c.t, txt:c.txt};
+  });
+  sessionStorage.setItem('_jSnap', JSON.stringify(keep));
+}catch(e){} }, 12000);
 // ── loading-skeleton helpers ──
 function sklBar(w,h){ return '<div class="skl" style="width:'+(w||'100%')+';height:'+(h||14)+'px;margin:7px 0;"></div>'; }
 function sklTableRows(cols,n){ var o=''; n=n||6; for(var i=0;i<n;i++){ o+='<tr>'; for(var c=0;c<cols;c++){ o+='<td>'+sklBar(c===0?'70%':'55%')+'</td>'; } o+='</tr>'; } return o; }   // call after a write to force fresh reads
@@ -1847,7 +1870,38 @@ function liveStatus(rn){
   if(c.indexOf('micro')>=0||c.indexOf('break')>=0) return 'micro';
   return 'none'; // No task / other idle
 }
+/* ── 🗄 LIVE PROJECT PROGRESS — every tool's task bars, grouped per project ── */
+async function loadProjectProgress(){
+  var grid=document.getElementById('pp-grid'); if(!grid) return;
+  try{
+    var r=await jGet(API+'?action=po_progress_all&_='+Date.now(), 3000, 60000);
+    var d=await r.json(); if(!d||!d.ok) throw new Error((d&&d.error)||'redeploy needed');
+    var byProj={}; (d.rows||[]).forEach(function(row){ (byProj[row.project]=byProj[row.project]||[]).push(row); });
+    var projects=Object.keys(byProj).sort();
+    if(!projects.length){ grid.innerHTML='<div class="es">No project outputs yet today — bars appear as the tools push data.</div>'; return; }
+    grid.innerHTML=projects.map(function(pj){
+      var rows=byProj[pj].map(function(t){
+        if(t.target>0){
+          var full=t.pct>=100;
+          return '<div style="margin-bottom:9px;">'+
+            '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">'+
+              '<b>'+_ce(t.task)+'</b>'+
+              '<span style="font-weight:800;color:'+(full?'#16a34a':'#0e7490')+';">'+t.done+' / '+t.target+(t.period==='pool'?' pool':' today')+' · '+t.pct+'%'+(full?' ✓':'')+'</span></div>'+
+            '<div style="height:8px;background:var(--card2);border-radius:5px;overflow:hidden;">'+
+              '<div style="height:100%;width:'+t.pct+'%;border-radius:5px;background:'+(full?'linear-gradient(90deg,#22c55e,#16a34a)':'linear-gradient(90deg,#22d3ee,#0e7490)')+';transition:width .4s;"></div></div>'+
+          '</div>';
+        }
+        return '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:7px;padding:5px 0;border-bottom:1px dashed var(--border);">'+
+          '<b>'+_ce(t.task)+'</b><span style="color:var(--t2);font-weight:700;">'+t.today+' today · '+t.alltime+' total</span></div>';
+      }).join('');
+      return '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">'+
+        '<div style="font-size:13px;font-weight:800;color:var(--o3);margin-bottom:9px;">'+_ce(pj)+'</div>'+rows+'</div>';
+    }).join('');
+    var u=document.getElementById('pp-updated'); if(u) u.textContent='· updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  }catch(e){ grid.innerHTML='<div class="es">Could not load progress — redeploy the Apps Script (po_progress_all).</div>'; }
+}
 async function loadLive(){
+  try{ loadProjectProgress(); }catch(_pp){}
   var sel=document.getElementById('live-emp');
   if(sel && sel.options.length<=1){
     try{ var r=await jGet(API+'?action=get_all_employees'); var d=await r.json(); (d.employees||[]).forEach(function(e){ sel.innerHTML+='<option value="'+e.employee_id+'">'+escAdmin(e.full_name||e.employee_id)+'</option>'; }); }catch(e){}
@@ -2026,17 +2080,33 @@ async function loadDashboard(opts){
   var list=document.getElementById('dash-list');
   if(!list) return;
   if(!opts.silent) list.innerHTML='<div class="es">Loading…</div>';
-  // Demerit disputes card: how many are pending
-  jGet(API+'?action=get_all_demerit_disputes&status=pending&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
-    var n=((d&&d.disputes)||[]).length; var el=document.getElementById('dc-demdisp'); if(el) el.textContent=n;
-  }).catch(function(){});
   try{
-    var R=await Promise.all([
-      jGet(API+'?action=get_leave_requests').then(function(r){return r.json();}).catch(function(){return {};}),
-      jGet(API+'?action=get_coe_requests').then(function(r){return r.json();}).catch(function(){return {};}),
-      jGet(API+'?action=redeem_list&status=pending').then(function(r){return r.json();}).catch(function(){return {};}),
-      jGet(API+'?action=lead_demerit_list').then(function(r){return r.json();}).catch(function(){return {};})
-    ]);
+    // ONE bootstrap request replaces the 5 dashboard fetches; it also pre-seeds the client
+    // cache for employees / running / projects / appeals so the next panels open instantly.
+    var R=null;
+    try{
+      var _br=await jGet(API+'?action=admin_bootstrap&_='+Date.now()); var _bd=await _br.json();
+      if(_bd && _bd.ok){
+        R=[_bd.leave||{}, _bd.coe||{}, _bd.redeem||{}, _bd.lead_demerits||{}];
+        var _dn=((_bd.disputes&&_bd.disputes.disputes)||[]).length; var _de=document.getElementById('dc-demdisp'); if(_de) _de.textContent=_dn;
+        var _seed=function(act,obj){ try{ if(obj&&!obj.error) _jCache[_jKey(API+'?action='+act)]={t:Date.now(), txt:JSON.stringify(obj)}; }catch(_e){} };
+        _seed('get_all_employees', _bd.employees); _seed('get_running', _bd.running);
+        _seed('get_tracker_projects', _bd.projects); _seed('get_appeals', _bd.appeals);
+        _seed('po_progress_all', _bd.progress); _seed('get_all_demerit_disputes&status=pending', _bd.disputes);
+      }
+    }catch(_be){}
+    if(!R){
+      // Older deployment or bundle failure — fall back to individual fetches.
+      jGet(API+'?action=get_all_demerit_disputes&status=pending&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+        var n=((d&&d.disputes)||[]).length; var el=document.getElementById('dc-demdisp'); if(el) el.textContent=n;
+      }).catch(function(){});
+      R=await Promise.all([
+        jGet(API+'?action=get_leave_requests').then(function(r){return r.json();}).catch(function(){return {};}),
+        jGet(API+'?action=get_coe_requests').then(function(r){return r.json();}).catch(function(){return {};}),
+        jGet(API+'?action=redeem_list&status=pending').then(function(r){return r.json();}).catch(function(){return {};}),
+        jGet(API+'?action=lead_demerit_list').then(function(r){return r.json();}).catch(function(){return {};})
+      ]);
+    }
     var leave=(R[0].requests||[]).filter(function(r){return (r.status||'pending')==='pending';});
     var coe=(R[1].requests||[]).filter(function(r){return (r.status||'pending').toLowerCase()==='pending';});
     var redeem=(R[2].requests||[]).filter(function(r){return (r.status||'pending').toLowerCase()==='pending';});
@@ -5863,9 +5933,10 @@ function _renderInnoReview(){
       (it.bot_score!=null?('<div style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;color:#7c3aed;background:rgba(124,58,237,.1);border-radius:100px;padding:3px 10px;margin-bottom:6px;">🤖 Bot: '+it.bot_score+'/100'+(it.implement?' · 🚀 IMPLEMENT':'')+'</div>'+(it.bot_feedback?('<div style="font-size:11px;color:var(--t3);margin-bottom:6px;">'+_ce(it.bot_feedback)+'</div>'):'')):'')+
       (it.problem?('<div style="font-size:12px;color:var(--t2);line-height:1.5;margin-bottom:8px;"><b style="color:#b91c1c;">Problem:</b> '+_ce(it.problem)+'<br><b style="color:#15803d;">Solution:</b> '+_ce(it.solution)+'<br><b style="color:#b45309;">Why:</b> '+_ce(it.importance)+'</div>')
                  :('<div style="font-size:12px;color:var(--t2);line-height:1.5;margin-bottom:8px;white-space:pre-wrap;">'+_ce(it.idea)+'</div>'))+
-      '<div style="display:flex;align-items:center;gap:7px;">'+
+      '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">'+
         '<input type="number" id="inno-score-'+i+'" min="0" max="100" step="1" value="'+(it.score!=null?it.score:'')+'" placeholder="/100" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;">'+
-        '<input type="text" id="inno-fb-'+i+'" value="'+_ce(it.feedback||'').replace(/"/g,'&quot;')+'" placeholder="feedback (optional)" style="flex:1;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;">'+
+        '<input type="text" id="inno-fb-'+i+'" value="'+_ce(it.feedback||'').replace(/"/g,'&quot;')+'" placeholder="feedback (optional)" style="flex:1;min-width:140px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;">'+
+        (!graded && it.bot_score!=null ? '<button class="bsm" style="color:#15803d;border-color:rgba(21,128,61,.35);" onclick="approveBotInno('+i+',\''+encodeURIComponent(it.id)+'\','+it.bot_score+')" title="Release the bot\'s grade to the VA as-is">✓ Approve bot '+it.bot_score+'</button>' : '')+
         '<button class="bsm" style="color:#7c3aed;border-color:rgba(124,58,237,.3);" onclick="gradeInno('+i+',\''+encodeURIComponent(it.id)+'\')">'+(graded?'Update':'Grade')+'</button>'+
       '</div></div>';
   }).join('') : '<div style="padding:20px;text-align:center;color:var(--t3);font-size:13px;">No ideas submitted yet for this month.</div>';
@@ -5880,6 +5951,12 @@ function _renderInnoReview(){
       '<div style="font-size:11px;color:var(--t3);margin-bottom:12px;">Grade each idea /100 (grading writes straight to the Innovation score on their scorecard). No idea = 0.</div>'+
       cards+missHtml+
     '</div></div>';
+}
+async function approveBotInno(i, idEnc, botScore){
+  var s=document.getElementById('inno-score-'+i); if(s) s.value=botScore;
+  var fb=document.getElementById('inno-fb-'+i);
+  if(fb && !fb.value){ var it=(_INNO_DATA&&_INNO_DATA.items||[])[i]; if(it&&it.bot_feedback) fb.value=it.bot_feedback; }
+  gradeInno(i, idEnc);
 }
 async function gradeInno(i, idEnc){
   var score=(document.getElementById('inno-score-'+i)||{}).value;
