@@ -836,7 +836,7 @@ body{background-attachment:initial !important}
       <div id="live-now" class="live-grid"><div class="es" style="grid-column:1/-1;">Loading…</div></div>
 
       <!-- 🗄 LIVE PROJECT PROGRESS — every tool's task bars in one glance (auto-refreshes) -->
-      <div class="live-title2" style="margin-top:18px;">🗄 Individual progress — live from the tools <span id="pp-updated" style="font-size:10.5px;color:var(--t3);font-weight:500;"></span></div>
+      <div class="live-title2" style="margin-top:18px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Individual progress — live from the tools <span id="pp-updated" style="font-size:10.5px;color:var(--t3);font-weight:500;"></span></div>
       <div id="pp-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:10px;"><div class="es">Loading…</div></div>
 
       <div class="live-range-bar">
@@ -1878,7 +1878,7 @@ async function loadProjectProgress(){
     // tools' daily completion snapshots). Sorted best-first; resets 8:00 AM PHT.
     var r=await jGet(API+'?action=po_va_progress&_='+Date.now(), 12000, 60000);
     var d=await r.json(); if(!d||!d.ok) throw new Error((d&&d.error)||'redeploy needed');
-    var nameOf={}; try{ (emps||[]).forEach(function(e){ nameOf[String(e.employee_id).toLowerCase()]=e.full_name||e.employee_id; }); }catch(_e){}
+    var nameOf={}, photoOf={}; try{ (emps||[]).forEach(function(e){ var k=String(e.employee_id).toLowerCase(); nameOf[k]=e.full_name||e.employee_id; photoOf[k]=(typeof convertDrive==='function')?convertDrive(e.photo||''):String(e.photo||''); }); }catch(_e){}
     var byVa={}; (d.rows||[]).forEach(function(row){ var k=String(row.employee_id).toLowerCase(); (byVa[k]=byVa[k]||[]).push(row); });
     var keys=Object.keys(byVa);
     if(!keys.length){ grid.innerHTML='<div class="es">No individual progress yet today — bars appear as VAs work their tool boards (resets 8 AM PHT).</div>'; return; }
@@ -1886,22 +1886,23 @@ async function loadProjectProgress(){
       var rows=byVa[k]; var avg=Math.round(rows.reduce(function(sm,x){ return sm+x.pct; },0)/rows.length);
       return { k:k, rows:rows, avg:avg };
     }).sort(function(a,b){ return b.avg-a.avg; });
+    var USVG='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
     grid.innerHTML=cards.map(function(c){
+      var nm=_ce(nameOf[c.k]||c.rows[0].employee_id);
+      var ph=photoOf[c.k]||'';
+      var av=ph?('<img src="'+ph+'" alt="" class="ivp-av">')
+               :('<span class="ivp-av" style="display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#ff8a3d,#dc2626);">'+USVG+'</span>');
       var bars=c.rows.sort(function(a,b){ return a.project<b.project?-1:1; }).map(function(v){
-        var full=v.pct>=100, col=full?'#16a34a':(v.pct>=70?'#d97706':'#dc2626');
-        return '<div style="margin-bottom:8px;">'+
-          '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">'+
-            '<b>'+_ce(v.project)+'</b>'+
-            '<span style="font-weight:800;color:'+col+';">'+v.done+' / '+v.total+' · '+v.pct+'%'+(full?' ✓':'')+'</span></div>'+
-          '<div style="height:8px;background:var(--card2);border-radius:5px;overflow:hidden;">'+
-            '<div style="height:100%;width:'+Math.min(100,v.pct)+'%;border-radius:5px;background:'+col+';transition:width .4s;"></div></div>'+
+        return '<div class="ivp-proj">'+
+          '<div class="ivp-projhead"><b>'+_ce(v.project)+'</b>'+
+            '<span>'+v.done+' / '+v.total+' · '+v.pct+'%</span></div>'+
+          '<div class="ivp-bar"><i style="width:'+Math.min(100,v.pct)+'%;"></i></div>'+
         '</div>';
       }).join('');
-      var avgCol=c.avg>=100?'#16a34a':(c.avg>=70?'#d97706':'#dc2626');
-      return '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">'+
-        '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;">'+
-          '<div style="font-size:13px;font-weight:800;color:var(--o3);">👤 '+_ce(nameOf[c.k]||c.rows[0].employee_id)+'</div>'+
-          '<span style="font-size:11.5px;font-weight:800;color:'+avgCol+';">'+c.avg+'%</span></div>'+bars+'</div>';
+      return '<div class="ivp-row">'+av+
+        '<div class="ivp-main"><div class="ivp-name">'+nm+'</div>'+bars+'</div>'+
+        '<div class="ivp-pct'+(c.avg>=100?' full':'')+'">'+c.avg+'<small>%</small></div>'+
+      '</div>';
     }).join('');
     var u=document.getElementById('pp-updated'); if(u) u.textContent='· updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
   }catch(e){ grid.innerHTML='<div class="es">Could not load — redeploy the Apps Script (po_va_progress).</div>'; }
@@ -6689,5 +6690,39 @@ body{
 }
 </style>
 
+
+<style id="ivp-style">
+/* Individual progress — one long premium row per VA */
+#pp-grid .ivp-row{ grid-column:1 / -1; display:flex; align-items:center; gap:16px;
+  background:var(--card); border:1px solid rgba(15,23,42,.06); border-radius:16px;
+  padding:14px 20px; box-shadow:0 1px 2px rgba(15,23,42,.04), 0 10px 28px rgba(15,23,42,.06);
+  transition:transform .18s ease, box-shadow .18s ease; }
+#pp-grid .ivp-row:hover{ transform:translateY(-2px); box-shadow:0 3px 6px rgba(15,23,42,.06), 0 18px 44px rgba(15,23,42,.11); }
+.ivp-av{ width:44px; height:44px; border-radius:50%; object-fit:cover; flex:0 0 auto;
+  box-shadow:0 0 0 2px #fff, 0 0 0 4px rgba(234,88,12,.35), 0 4px 12px rgba(15,23,42,.18); }
+.ivp-main{ flex:1; min-width:0; }
+.ivp-name{ font-weight:800; font-size:14px; color:var(--t1); margin-bottom:6px; letter-spacing:-.01em; }
+.ivp-proj{ margin-bottom:7px; } .ivp-proj:last-child{ margin-bottom:0; }
+.ivp-projhead{ display:flex; justify-content:space-between; align-items:baseline; font-size:11.5px; margin-bottom:3px; }
+.ivp-projhead b{ color:var(--t2); font-weight:700; }
+.ivp-projhead span{ font-weight:800; color:var(--t2); font-variant-numeric:tabular-nums; }
+.ivp-bar{ height:12px; border-radius:7px; background:rgba(127,29,29,.07);
+  box-shadow:inset 0 1px 2px rgba(127,29,29,.12); overflow:hidden; position:relative; }
+.ivp-bar i{ display:block; height:100%; border-radius:7px; position:relative;
+  background:linear-gradient(90deg,#ffa25c 0%,#ff6b1a 45%,#dc2626 100%);
+  box-shadow:0 0 12px rgba(255,107,26,.45), inset 0 1px 0 rgba(255,255,255,.35);
+  transition:width .9s cubic-bezier(.22,1,.36,1); }
+.ivp-bar i::after{ content:""; position:absolute; inset:0;
+  background:linear-gradient(105deg, transparent 30%, rgba(255,255,255,.5) 48%, transparent 62%);
+  animation:ivpShine 2.6s ease-in-out infinite; }
+@keyframes ivpShine{ 0%{ transform:translateX(-130%);} 55%,100%{ transform:translateX(130%);} }
+.ivp-pct{ flex:0 0 auto; min-width:72px; text-align:right; font-family:'Inter',sans-serif;
+  font-size:30px; font-weight:900; letter-spacing:-.02em; line-height:1;
+  background:linear-gradient(135deg,#ff6b1a,#dc2626); -webkit-background-clip:text; background-clip:text;
+  -webkit-text-fill-color:transparent; }
+.ivp-pct.full{ background:linear-gradient(135deg,#16a34a,#15803d); -webkit-background-clip:text; background-clip:text; }
+.ivp-pct small{ font-size:15px; font-weight:800; }
+@media(prefers-reduced-motion:reduce){ .ivp-bar i::after{ animation:none; } }
+</style>
 </body>
 </html>
