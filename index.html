@@ -13884,7 +13884,7 @@ async function sendEodReport(){
   // project must have outputs recorded in the tool today. If not: prompt the VA to update
   // their tool first (they can still send, but it's a conscious choice).
   try {
-    var _TOOLPROJ = ['reddit','ember','john','arlo','newfans','altr'];
+    var _TOOLPROJ = ['reddit','ember','john','arlo','newfans','altr','shopify','design'];
     var _bd = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date(Date.now()-8*3600*1000));
     var _pm = await fetch(APPS_SCRIPT_URL+'?action=po_mine&employee_id='+encodeURIComponent(chatEmpId)+'&from='+_bd+'&to='+_bd+'&_='+Date.now()).then(function(r){ return r.json(); });
     var _outs = (_pm && _pm.rows) || [];
@@ -13908,13 +13908,18 @@ async function sendEodReport(){
       if(!_ok){ showToast('Good call — update your tool, then send your EOD 👍'); return; }
     }
   } catch(_tc){}
+  // 🔒 PRIVATE RECAP — the VA reviews THEIR OWN total hours per task before sending.
+  // Nobody else ever sees these numbers: the EOD channel only gets a confirmation stub,
+  // while the real hours live in the tracker → Productivity Hub (admin only).
+  var _recap = confirm('YOUR EOD RECAP — only you can see this:\n\n' + text + '\n\nSend to Productivity now?');
+  if(!_recap){ showToast('EOD not sent — review your tracker and try again.'); return; }
   var btn = document.getElementById('eod-send-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   try {
-    var rec = { sender_id: chatEmpId, sender_name: chatEmpName, message: text, receiver_id: null, channel_id: 'eod', is_read: false };
+    var rec = { sender_id: chatEmpId, sender_name: chatEmpName, message: 'EOD sent to Productivity ✅', receiver_id: null, channel_id: 'eod', is_read: false };
     var r = await supaClient.from('messages').insert([rec]);
     if (r.error) { showToast('Send failed: ' + (r.error.message || 'unknown')); throw r.error; }
-    showToast('EOD sent ✅');
+    showToast('EOD sent to Productivity ✅');
   } catch(e) { console.error('sendEodReport:', e); }
   finally { if (btn) { btn.disabled = false; btn.innerHTML = 'Send my EOD'; } }
 }
@@ -30181,7 +30186,8 @@ var TOOLREG={
   'john':        { n:'Project John (X)', u:'https://internals.jmbvirtuals.com/john.html' },
   'ig-reels':    { n:'IG Reels (Arlo)',  u:'https://internals.jmbvirtuals.com/ig-reels.html' },
   'newfans':     { n:'NewFans (Wallpost)', u:'https://internals.jmbvirtuals.com/newfans.html' },
-  'altr':        { n:'ALTR Media',    u:'https://internals.jmbvirtuals.com/altr.html' }
+  'altr':        { n:'ALTR Media',    u:'https://internals.jmbvirtuals.com/altr.html' },
+  'design-shopify': { n:'Design & Shopify', u:'https://internals.jmbvirtuals.com/design-shopify.html' }
 };
 var _mtDone=false;
 async function loadMyToolShortcuts(){
