@@ -9273,8 +9273,26 @@ function openEodReceipt() {
 function closeEodReceipt() {
   var o = document.getElementById('eod-receipt'); if (o) o.classList.remove('show');
 }
+var _eodRefetched = false;
 function buildEodReceipt() {
-  var ents = (window._trkTodayEntries || []).filter(function(e){ return e && e.status !== 'running' && e.status !== 'paused' && e.end; });
+  // Build from the SAME durable union the timeline uses (local cache + server) — the EOD list
+  // can no longer say "no tasks" while the graph shows a full day (server fetch had failed).
+  var _byId = {};
+  try { _loadTodayCache().forEach(function(e){ if (e && e.entry_id) _byId[e.entry_id] = e; }); } catch(_c){}
+  (window._trkTodayEntries || []).forEach(function(e){ if (e && e.entry_id) _byId[e.entry_id] = e; });
+  var ents = Object.keys(_byId).map(function(k){ return _byId[k]; })
+    .filter(function(e){ return e && e.status !== 'running' && e.status !== 'paused' && e.end; });
+  // Still empty? Refetch from the server ONCE before concluding there's nothing.
+  if (!ents.length && !_eodRefetched) {
+    _eodRefetched = true;
+    var el0 = document.getElementById('eod-list');
+    if (el0) el0.innerHTML = '<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading your tasks…</div>';
+    var o0 = document.getElementById('eod-receipt'); if (o0) o0.classList.add('show');
+    Promise.resolve(loadTodayEntries()).then(function(){ setTimeout(buildEodReceipt, 300); })
+      .catch(function(){ setTimeout(buildEodReceipt, 300); });
+    return;
+  }
+  _eodRefetched = false;
   ents.sort(function(a,b){ return parseTrkTime(a.start) - parseTrkTime(b.start); });
   var prodCount = 0, prodMins = 0, idleMins = 0;
   var seenTasks = {};
@@ -10074,7 +10092,29 @@ async function loadTodayEntries() {
     renderTodayEntries(entries);
     try { renderAttTable(); } catch(e) {}   // reflect today's tracked lunch/idle in Recent logs
   } catch(e) {
-    document.getElementById('cfy-today-wrap').innerHTML = '<div class="cfy-no-entries">Could not load entries.</div>';
+    // Server fetch failed — NEVER lose local truth over it.
+    // 1) The running timer survives on the local marker (the old path skipped this entirely,
+    //    which is how a refresh under load "lost" the timer and invited a double-start).
+    try{
+      if (!trkRunning) {
+        var _fmk = _readActiveMarker();
+        if (_fmk && _fmk.entry_id && (Date.now() - _fmk.ts) < TRK_RESUME_WINDOW_MS && (!_fmk.date || _fmk.date === shiftDate())) {
+          var _fcarried = (Number(_fmk.baseSecs) || 0) + Math.max(0, (Date.now() - (Number(_fmk.segStartMs) || Date.now())) / 1000);
+          trkSetRunning({ entry_id: _fmk.entry_id, project: _fmk.project, category: _fmk.category, task: _fmk.task, description: _fmk.description, baseSecs: _fcarried, segStart: Date.now() });
+          trkOwns = true;
+          trkRestoreFields({ project: _fmk.project, category: _fmk.category, task: _fmk.task, description: _fmk.description });
+          _trkPost('tracker_resume', { entry_id: _fmk.entry_id });
+          _saveActiveMarker();
+          startTimerDisplay(); updateOwnershipUI(); renderTimerButtons(); updateButtons();
+        }
+      }
+    }catch(_fr){}
+    // 2) Today's completed entries hydrate from the durable cache so the graph AND EOD agree.
+    try{ if (!(window._trkTodayEntries || []).length) { window._trkTodayEntries = _loadTodayCache(); refreshTimeBar(); } }catch(_fh){}
+    document.getElementById('cfy-today-wrap').innerHTML = '<div class="cfy-no-entries">Server is busy — your timer and today\'s bars are safe. Retrying…</div>';
+    // 3) Auto-retry until the server answers.
+    try{ clearTimeout(window._lteRetryT); }catch(_ft){}
+    window._lteRetryT = setTimeout(loadTodayEntries, 20000);
   }
 }
 
@@ -10810,6 +10850,23 @@ async function startTimer() {
     if ((_pe.project || '') === (f.proj || '') && (_pe.category || '') === (f.cat || '') &&
         (_pe.task || '') === (f.task || '') && (_pe.description || '') === (f.desc || '')) {
       resumeTask(_pe.entry_id);
+      return;
+    }
+  }
+  // 🔒 DOUBLE-START GUARD — if a timer from before a refresh is still alive (marker fresh,
+  // never intentionally stopped), RESUME it instead of creating a second overlapping entry.
+  // This is the direct fix for doubled hours: the "lost" bar was still running server-side.
+  if (!trkRunning) {
+    var _gmk = _readActiveMarker();
+    if (_gmk && _gmk.entry_id && (Date.now() - _gmk.ts) < TRK_RESUME_WINDOW_MS && (!_gmk.date || _gmk.date === shiftDate())) {
+      var _gcarried = (Number(_gmk.baseSecs) || 0) + Math.max(0, (Date.now() - (Number(_gmk.segStartMs) || Date.now())) / 1000);
+      trkSetRunning({ entry_id: _gmk.entry_id, project: _gmk.project, category: _gmk.category, task: _gmk.task, description: _gmk.description, baseSecs: _gcarried, segStart: Date.now() });
+      trkOwns = true;
+      trkRestoreFields({ project: _gmk.project, category: _gmk.category, task: _gmk.task, description: _gmk.description });
+      _trkPost('tracker_resume', { entry_id: _gmk.entry_id });
+      _saveActiveMarker();
+      startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI(); refreshTimeBar();
+      showToast('Your previous timer was still running — resumed it (no time lost). Stop it first if you meant to switch tasks.');
       return;
     }
   }
