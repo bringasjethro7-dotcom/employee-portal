@@ -1547,19 +1547,51 @@ const API  = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJ
 // Never use for writes (set_/save_/resolve_/record_/purge_/otp_ …) — those stay on fetch().
 var _jCache={}, _jInflight={};
 function _jKey(u){ return String(u).replace(/[?&]_=\d+/,''); }
-function _jText(url,tries,timeout,delay){
-  tries=tries||1; delay=delay||400;
+/* ═══ AFX FETCH CHAIN — priority gate → dedupe → SWR cache → stale fallback → health HUD ═══
+   Every admin read flows through a 5-slot concurrency gate with 3 priority lanes:
+     P0 user actions · P1 visible panel loads (default) · P2 background revalidations/polls.
+   Panel storms can no longer fire 20 parallel requests that starve the VAs' backend slots —
+   reads queue politely, retries re-enter the queue (never hold a slot), and every request
+   feeds the health chip (bottom-right) so fetch trouble is VISIBLE before anyone reports it. */
+var _afx={ max:5, active:0, q:[[],[],[]], ok:0, fail:0, ms:0, n:0, lastErr:0, degraded:0 };
+function _afxPump(){
+  while(_afx.active<_afx.max){
+    var job=_afx.q[0].shift()||_afx.q[1].shift()||_afx.q[2].shift();
+    if(!job) return;
+    _afx.active++; job();
+  }
+}
+function _afxRun(fn, pri){
   return new Promise(function(res,rej){
-    var ctrl=window.AbortController?new AbortController():null;
-    var to=setTimeout(function(){ try{ ctrl&&ctrl.abort(); }catch(e){} }, timeout||15000);
-    fetch(url, ctrl?{signal:ctrl.signal}:undefined)
-      .then(function(r){ return r.text(); })
-      .then(function(t){ clearTimeout(to); res(t); })
-      .catch(function(e){ clearTimeout(to);
-        // retry with exponential backoff (helps flaky Apps Script / mobile connections)
-        if(tries>1){ setTimeout(function(){ _jText(url,tries-1,timeout,Math.min(delay*2,4000)).then(res,rej); }, delay); }
+    _afx.q[Math.max(0,Math.min(2,(pri==null?1:pri)))].push(function(){
+      fn().then(function(v){ _afx.active--; _afxPump(); res(v); },
+                function(e){ _afx.active--; _afxPump(); rej(e); });
+    });
+    _afxPump();
+  });
+}
+function _jText(url,tries,timeout,delay,pri){
+  tries=tries||1; delay=delay||400;
+  function attempt(){
+    return _afxRun(function(){
+      return new Promise(function(res,rej){
+        var t0=Date.now();
+        var ctrl=window.AbortController?new AbortController():null;
+        var to=setTimeout(function(){ try{ ctrl&&ctrl.abort(); }catch(e){} }, timeout||20000);
+        fetch(url, ctrl?{signal:ctrl.signal}:undefined)
+          .then(function(r){ return r.text(); })
+          .then(function(t){ clearTimeout(to); _afx.ok++; _afx.ms+=(Date.now()-t0); _afx.n++; res(t); })
+          .catch(function(e){ clearTimeout(to); _afx.fail++; _afx.lastErr=Date.now(); rej(e); });
+      });
+    }, pri);
+  }
+  return new Promise(function(res,rej){
+    (function go(left,d){
+      attempt().then(res, function(e){
+        if(left>1) setTimeout(function(){ go(left-1, Math.min(d*2,8000)); }, d+Math.random()*400);   // jittered backoff — no thundering herd
         else rej(e);
       });
+    })(tries, delay);
   });
 }
 // Per-endpoint default client TTLs — how long a repeat read is served instantly from memory.
@@ -1574,18 +1606,23 @@ function jGet(url, ttl, timeout){
   var TO = timeout||15000;   // heavy endpoints can pass a longer timeout
   var key=_jKey(url), now=Date.now(), c=_jCache[key];
   if(ttl>0 && c && (now-c.t)<ttl){
-    // Serve from cache. Once it's past half its TTL, refresh in the BACKGROUND so the next read
-    // is instant AND fresh — this never serves data older than the TTL (stale-while-revalidate).
+    // Serve from cache. Once it's past half its TTL, refresh in the BACKGROUND (P2 lane) so the
+    // next read is instant AND fresh — never serves data older than the TTL (stale-while-revalidate).
     if((now-c.t) > ttl/2 && !c.rev){
       c.rev=true;
-      _jText(url,2,TO).then(function(t){ _jCache[key]={t:Date.now(),txt:t}; }, function(){ c.rev=false; });
+      _jText(url,2,TO,400,2).then(function(t){ _jCache[key]={t:Date.now(),txt:t}; }, function(){ c.rev=false; });
     }
     return Promise.resolve(new Response(c.txt));
   }
   if(ttl>0 && _jInflight[key]) return _jInflight[key].then(function(t){ return new Response(t); });
   var p=_jText(url, ttl>0?3:2, TO).then(function(t){ if(ttl>0) _jCache[key]={t:Date.now(),txt:t}; delete _jInflight[key]; return t; }, function(e){ delete _jInflight[key]; throw e; });
   if(ttl>0) _jInflight[key]=p;
-  return p.then(function(t){ return new Response(t); });
+  return p.then(function(t){ return new Response(t); }, function(e){
+    // STALE BEATS BROKEN — if every retry failed but we hold ANY cached copy, serve it and
+    // flag the HUD amber. Panels keep working through server hiccups instead of erroring.
+    if(c && c.txt){ _afx.degraded=Date.now(); return new Response(c.txt); }
+    throw e;
+  });
 }
 function jBust(){ _jCache={}; try{ sessionStorage.removeItem('_jSnap'); }catch(e){} }
 // Persist the hottest GET caches across reloads — the admin shell paints instantly on reopen,
@@ -1599,6 +1636,49 @@ setInterval(function(){ try{
   });
   sessionStorage.setItem('_jSnap', JSON.stringify(keep));
 }catch(e){} }, 12000);
+// ── AFX HEALTH HUD — live fetch-chain status chip (bottom-right) ──
+// green = healthy · amber = queued/slow/serving stale · red = recent failures.
+// Click it for the numbers: in-flight, queued, average latency, ok/fail counts.
+(function(){
+  function mount(){
+    if(document.getElementById('afx-hud')) return;
+    var el=document.createElement('div'); el.id='afx-hud';
+    el.style.cssText='position:fixed;bottom:12px;right:12px;z-index:9999;font:700 10.5px Inter,system-ui,sans-serif;padding:5px 11px;border-radius:100px;background:rgba(15,23,42,.88);color:#fff;display:flex;gap:7px;align-items:center;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.28);opacity:.85;user-select:none;';
+    el.innerHTML='<span id="afx-dot" style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;flex:none;"></span><span id="afx-txt">fetch ok</span>';
+    el.title='Fetch chain health — click for details';
+    el.onclick=function(){
+      var queued=_afx.q[0].length+_afx.q[1].length+_afx.q[2].length;
+      var avg=_afx.n?Math.round(_afx.ms/_afx.n):0;
+      alert('AFX fetch chain\n\nIn flight: '+_afx.active+' / '+_afx.max+'\nQueued: '+queued+'\nAvg response: '+(avg/1000).toFixed(1)+'s\nOK: '+_afx.ok+' · Failed: '+_afx.fail+((Date.now()-_afx.degraded)<60000?'\n\n⚠ Serving cached data for some panels (server busy).':''));
+    };
+    document.body.appendChild(el);
+    setInterval(function(){
+      var dot=document.getElementById('afx-dot'), txt=document.getElementById('afx-txt'); if(!dot) return;
+      var queued=_afx.q[0].length+_afx.q[1].length+_afx.q[2].length;
+      var avg=_afx.n?Math.round(_afx.ms/_afx.n):0;
+      var errRecent=(Date.now()-_afx.lastErr)<30000, staleRecent=(Date.now()-_afx.degraded)<60000;
+      var col=errRecent?'#ef4444':(staleRecent||queued>3||avg>7000)?'#f59e0b':'#22c55e';
+      dot.style.background=col;
+      txt.textContent=errRecent?'fetch errors':staleRecent?'stale mode':(queued>0?(_afx.active+'·'+queued+' queued'):('fetch ok'+(avg?' · '+(avg/1000).toFixed(1)+'s':'')));
+    }, 2000);
+  }
+  if(document.body) mount(); else document.addEventListener('DOMContentLoaded', mount);
+})();
+// ── FOCUS BURST — coming back after ≥60s away quietly re-warms the hottest caches (P2 lane)
+var _afxLastFocus=Date.now();
+window.addEventListener('focus', function(){
+  if(Date.now()-_afxLastFocus<60000){ _afxLastFocus=Date.now(); return; }
+  _afxLastFocus=Date.now();
+  try{
+    Object.keys(_jCache).forEach(function(k){
+      if(!/action=(admin_bootstrap|get_all_employees|po_progress_all|get_worklog)/.test(k)) return;
+      var c=_jCache[k]; if(!c||c.rev) return;
+      c.rev=true;
+      _jText(k+(k.indexOf('?')>=0?'&':'?')+'_='+Date.now(),1,20000,400,2)
+        .then(function(t){ _jCache[k]={t:Date.now(),txt:t}; }, function(){ c.rev=false; });
+    });
+  }catch(e){}
+});
 // ── loading-skeleton helpers ──
 function sklBar(w,h){ return '<div class="skl" style="width:'+(w||'100%')+';height:'+(h||14)+'px;margin:7px 0;"></div>'; }
 function sklTableRows(cols,n){ var o=''; n=n||6; for(var i=0;i<n;i++){ o+='<tr>'; for(var c=0;c<cols;c++){ o+='<td>'+sklBar(c===0?'70%':'55%')+'</td>'; } o+='</tr>'; } return o; }   // call after a write to force fresh reads
