@@ -1878,7 +1878,12 @@ async function loadProjectProgress(){
     // tools' daily completion snapshots). Sorted best-first; resets 8:00 AM PHT.
     var r=await jGet(API+'?action=po_va_progress&_='+Date.now(), 12000, 60000);
     var d=await r.json(); if(!d||!d.ok) throw new Error((d&&d.error)||'redeploy needed');
-    var nameOf={}, photoOf={}; try{ (emps||[]).forEach(function(e){ var k=String(e.employee_id).toLowerCase(); nameOf[k]=e.full_name||e.employee_id; photoOf[k]=(typeof convertDrive==='function')?convertDrive(e.photo||''):String(e.photo||''); }); }catch(_e){}
+    var nameOf={}, photoOf={}, keyByName={};
+    var _nrm=function(x){ return String(x||'').toLowerCase().replace(/[^a-z0-9]/g,''); };
+    try{ (emps||[]).forEach(function(e){ var k=String(e.employee_id).toLowerCase();
+      nameOf[k]=e.full_name||e.employee_id;
+      photoOf[k]=(typeof convertDrive==='function')?convertDrive(e.photo||''):String(e.photo||'');
+      keyByName[_nrm(e.full_name)]=k; }); }catch(_e){}
     var byVa={}; (d.rows||[]).forEach(function(row){ var k=String(row.employee_id).toLowerCase(); (byVa[k]=byVa[k]||[]).push(row); });
     var keys=Object.keys(byVa);
     if(!keys.length){ grid.innerHTML='<div class="es">No individual progress yet today — bars appear as VAs work their tool boards (resets 8 AM PHT).</div>'; return; }
@@ -1888,8 +1893,9 @@ async function loadProjectProgress(){
     }).sort(function(a,b){ return b.avg-a.avg; });
     var USVG='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
     grid.innerHTML=cards.map(function(c){
-      var nm=_ce(nameOf[c.k]||c.rows[0].employee_id);
-      var ph=photoOf[c.k]||'';
+      var rk=c.k; if(!nameOf[rk] && keyByName[_nrm(c.k)]) rk=keyByName[_nrm(c.k)];   // ALTR pushes names, not IDs — match by name
+      var nm=_ce(nameOf[rk]||c.rows[0].employee_id);
+      var ph=photoOf[rk]||'';
       var av=ph?('<img src="'+ph+'" alt="" class="ivp-av">')
                :('<span class="ivp-av" style="display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#ff8a3d,#dc2626);">'+USVG+'</span>');
       var bars=c.rows.sort(function(a,b){ return a.project<b.project?-1:1; }).map(function(v){
@@ -2160,7 +2166,7 @@ function dashAct(btn, url, okMsg){
 }
 function dashRedeem(btn, id, action){
   var it=_dashItem(btn); _dashDim(it);
-  fetch(API+'?action=redeem_resolve&id='+encodeURIComponent(id)+'&action='+action+'&by=Admin&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+  fetch(API+'?action=redeem_resolve&id='+encodeURIComponent(id)+'&decision='+action+'&by=Admin&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
     if(d && d.ok){ jBust(); if(it) it.remove(); if(typeof toast==='function') toast('Redemption '+(action==='approve'?'approved — points deducted.':'rejected.')); _dashResync(); }
     else { _dashUndim(it); if(typeof toast==='function') toast('Could not '+action+((d&&d.error)?(': '+d.error):'.')); }
   }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Network error.'); });
@@ -6481,7 +6487,7 @@ async function loadRedemptions(){
 async function resolveRedeem(id, action){
   if(!confirm((action==='approve'?'Approve':'Reject')+' this redemption?'+(action==='approve'?' Points will be deducted from the contractor.':''))) return;
   try{
-    var r=await fetch(API+'?action=redeem_resolve&id='+encodeURIComponent(id)+'&action='+action+'&by=Admin&_='+Date.now());
+    var r=await fetch(API+'?action=redeem_resolve&id='+encodeURIComponent(id)+'&decision='+action+'&by=Admin&_='+Date.now());
     var d=await r.json();
     if(d&&d.ok){ loadRedemptions(); }
     else { alert('Could not '+action+((d&&d.error)?(': '+d.error):'.')); }
