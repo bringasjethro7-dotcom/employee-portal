@@ -6209,30 +6209,26 @@ async function loadScoreGraph(){
     '<div id="scgraph-body" style="display:flex;align-items:flex-end;gap:8px;"></div>';
   wrap.style.display = 'block';
   var host = document.getElementById('scgraph-body');
-  // newest RELEASED month: month M is released when today >= 5th of M+1
-  var now = new Date(), y = now.getFullYear(), m = now.getMonth();   // m = current (never shown)
-  var relY = y, relM = m - 1; if (relM < 0) { relM = 11; relY--; }
-  if (now.getDate() < 5) { relM--; if (relM < 0) { relM = 11; relY--; } }   // last month not open yet
-  var months = [];
-  for (var i = 5; i >= 0; i--) {   // oldest → newest, 6 released months
-    var mm = relM - i, yy = relY; while (mm < 0) { mm += 12; yy--; }
-    months.push({ y: yy, m: mm, key: yy + '-' + String(mm + 1).padStart(2, '0') });
-  }
-  async function scoreOf(mk){
-    try{
-      var ck = 'scg_' + id + '_' + mk;
-      var c = null; try{ c = JSON.parse(sessionStorage.getItem(ck) || 'null'); }catch(_c){}
-      if (c && (Date.now() - c.t) < 12*3600*1000) return c.v;
-      var r = await fetch(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk) + '&_=' + Date.now());
-      var j = await r.json();
-      var sc = j && j.scorecard;
-      var v = (sc && sc.overall != null && sc.overall !== '') ? parseFloat(sc.overall) : null;   // RAW score — bands compare exact values (94.99 is green, not purple)
-      try{ sessionStorage.setItem(ck, JSON.stringify({ v: v, t: Date.now() })); }catch(_s){}
-      return v;
-    }catch(e){ return null; }
-  }
-  var vals = [];
-  for (var k = 0; k < months.length; k++) vals.push(await scoreOf(months[k].key));   // sequential — gentle on the server
+  // ONE bundled request (sc_history) returns all 6 released months — cached 12h locally,
+  // 6h server-side. Patient 45s timeout: the first compute is heavy, every later hit is instant.
+  var months = [], vals = [];
+  try{
+    var ck = 'scg2_' + id, hist = null;
+    try{ var c = JSON.parse(sessionStorage.getItem(ck) || 'null'); if (c && (Date.now() - c.t) < 12*3600*1000) hist = c.m; }catch(_c){}
+    if (!hist) {
+      var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      var tm = ctl ? setTimeout(function(){ try{ctl.abort();}catch(_){} }, 45000) : null;
+      var j = await (await fetch(APPS_SCRIPT_URL + '?action=sc_history&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now(), ctl ? { signal: ctl.signal } : undefined)).json();
+      if (tm) clearTimeout(tm);
+      if (j && j.ok && j.months) { hist = j.months; try{ sessionStorage.setItem(ck, JSON.stringify({ m: hist, t: Date.now() })); }catch(_s){} }
+    }
+    if (!hist) { _scgLoaded = false; wrap.style.display = 'none'; setTimeout(loadScoreGraph, 60000); return; }   // busy — retry in a minute
+    hist.forEach(function(mo){
+      var p = String(mo.month || '').split('-');
+      months.push({ y: parseInt(p[0], 10), m: parseInt(p[1], 10) - 1, key: mo.month });
+      vals.push((mo.overall != null && mo.overall !== '') ? parseFloat(mo.overall) : null);   // RAW score — bands compare exact values
+    });
+  }catch(e){ _scgLoaded = false; wrap.style.display = 'none'; setTimeout(loadScoreGraph, 60000); return; }
   // Bands: 95.0–100 purple · 90.0–94.99 green · 80.0–89.99 yellow · ≤79.99 red
   function colorOf(v){ return v >= 95 ? '#a855f7' : v >= 90 ? '#22c55e' : v >= 80 ? '#eab308' : '#ef4444'; }
   if (!vals.some(function(v){ return v != null; })) {
