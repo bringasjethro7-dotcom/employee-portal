@@ -2333,14 +2333,23 @@ async function demApproveSelected(){
   var ids=Array.prototype.slice.call(document.querySelectorAll('.dm-disp-check:checked')).map(function(c){ return c.value; });
   if(!ids.length){ if(typeof toast==='function') toast('Select at least one dispute first.'); return; }
   if(!confirm('Approve '+ids.length+' dispute'+(ids.length>1?'s':'')+'? This VOIDS the demerit for each (removes it from their score).')) return;
-  var btn=event&&event.target; if(btn){ btn.disabled=true; btn.textContent='Approving…'; }
-  var ok=0, fail=0;
-  for(var i=0;i<ids.length;i++){
-    try{ var r=await fetch(API+'?action=resolve_demerit_dispute&id='+encodeURIComponent(ids[i])+'&status=approved&by=Admin&note='+encodeURIComponent('')+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) ok++; else fail++; }
-    catch(e){ fail++; }
+  var btn=event&&event.target; if(btn){ btn.disabled=true; btn.textContent='Approving '+ids.length+'…'; }
+  // ONE batched write — the old loop fired N serialized requests and saturated the backend
+  // for minutes (the AFX HUD caught it: 22 failed reads while 37 approvals crawled through).
+  // NO retry on a write: if it times out, refresh and re-select what's still pending.
+  try{
+    var ctl=window.AbortController?new AbortController():null;
+    var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(_){} },120000):null;
+    var r=await fetch(API+'?action=resolve_demerit_disputes_batch&ids='+encodeURIComponent(ids.join(','))+'&status=approved&by=Admin&note='+encodeURIComponent('')+'&_='+Date.now(), ctl?{signal:ctl.signal}:undefined);
+    if(tm) clearTimeout(tm);
+    var d=await r.json();
+    jBust();
+    if(d&&d.ok){ if(typeof toast==='function') toast('Approved '+d.done+' dispute'+(d.done!==1?'s':'')+(d.missing?(' · '+d.missing+' not found'):'')+'.'); }
+    else if(typeof toast==='function') toast('Could not approve: '+((d&&d.error)||'error'));
+  }catch(e){
+    jBust();
+    if(typeof toast==='function') toast('Request timed out — refresh below: approvals that went through will show resolved. Re-select only what is still pending.');
   }
-  jBust();
-  if(typeof toast==='function') toast('Approved '+ok+' dispute'+(ok!==1?'s':'')+(fail?(' · '+fail+' failed'):'')+'.');
   loadDemeritDisputes(); loadDemerits();
 }
 async function demResolveDispute(id,status){
