@@ -1580,7 +1580,9 @@ function _jText(url,tries,timeout,delay,pri){
         var to=setTimeout(function(){ try{ ctrl&&ctrl.abort(); }catch(e){} }, timeout||20000);
         fetch(url, ctrl?{signal:ctrl.signal}:undefined)
           .then(function(r){ return r.text(); })
-          .then(function(t){ clearTimeout(to); _afx.ok++; _afx.ms+=(Date.now()-t0); _afx.n++; res(t); })
+          .then(function(t){ clearTimeout(to);
+            if(!_jIsJson(t)){ _afx.fail++; _afx.lastErr=Date.now(); rej(new Error('Server busy — Google returned an error page. Retrying…')); return; }
+            _afx.ok++; _afx.ms+=(Date.now()-t0); _afx.n++; res(t); })
           .catch(function(e){ clearTimeout(to); _afx.fail++; _afx.lastErr=Date.now(); rej(e); });
       });
     }, pri);
@@ -1601,6 +1603,10 @@ var _jTTL={ get_all_employees:45000, admin_bootstrap:8000, get_tracker_projects:
   get_finalized:30000, get_leave_requests:15000, get_coe_requests:15000, redeem_list:15000,
   lead_demerit_list:15000, get_all_demerit_disputes:15000, get_appeals:15000, payslip_funding:20000,
   po_progress_all:12000, list_innovations:15000, qa_review_list:15000, get_all_qa_weekly:20000 };
+// Google sometimes answers with an HTML error page ("Sorry, cannot open the file…") instead of
+// JSON during a hiccup. That is NOT data: never cache it, and treat it as a retryable failure —
+// otherwise one blip gets cached and every panel keeps replaying it for the whole TTL.
+function _jIsJson(t){ var s=String(t||'').trim().charAt(0); return s==='{' || s==='['; }
 function jGet(url, ttl, timeout){
   if(ttl==null){ var _act=(String(url).match(/[?&]action=([a-z_]+)/)||[])[1]; ttl=(_act&&_jTTL[_act]!=null)?_jTTL[_act]:1500; }
   var TO = timeout||15000;   // heavy endpoints can pass a longer timeout
@@ -6088,7 +6094,8 @@ async function openQaChain(){
   try{
     var month=(document.getElementById('sc-month-filter')||{}).value||'';
     var r=await jGet(API+'?action=qa_review_list&month='+encodeURIComponent(month)+'&_='+Date.now(), 3000, 60000);
-    var d=await r.json(); if(!d||!d.ok) throw new Error((d&&d.error)||'redeploy needed');
+    var _t=await r.text(); var d=null; try{ d=JSON.parse(_t); }catch(_p){ throw new Error('Server was busy (Google error page) — try again in a moment.'); }
+    if(!d||!d.ok) throw new Error((d&&d.error)||'redeploy needed');
     _QAR={items:d.items||[],month:d.month}; _renderQaChain();
   }catch(e){ alert('Could not load the QA chain: '+(e&&e.message||e)); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old||'🔗 QA Chain'; } }
@@ -6171,7 +6178,7 @@ async function qarShowPairs(){
   try{
     var wk=(document.getElementById('qar-week')||{}).value||'1';
     var r=await jGet(API+'?action=qa_pairs&month='+encodeURIComponent(_QAR.month)+'&week='+encodeURIComponent(wk)+'&_='+Date.now(), 30000, 60000);
-    var d=await r.json();
+    var _txt=await r.text(); var d=null; try{ d=JSON.parse(_txt); }catch(_p){ throw new Error('Google returned an error page (server busy) — try again in a moment.'); }
     if(!d||!d.ok) throw new Error((d&&d.error)||'error');
     if(!(d.teams||[]).length){ box.innerHTML='<span style="color:var(--t3);">No tracked hours this month yet — pairs appear once work is logged.</span>'; return; }
     box.innerHTML='<div style="font-weight:800;margin-bottom:6px;">🔀 Week '+_ce(String(d.week))+' peer assignments <span style="font-weight:600;color:var(--t3);">· by team from tracked hours · same pairs all week, reshuffles next week</span></div>'+
@@ -6180,7 +6187,7 @@ async function qarShowPairs(){
           t.pairs.map(function(p){ return '<span style="display:inline-block;background:var(--card,#fff);border:1px solid var(--border);border-radius:100px;padding:3px 10px;margin:3px 4px 0 0;font-size:11px;">'+_ce(p.reviewer_name)+' <span style="color:#2563eb;font-weight:800;">→ checks →</span> '+_ce(p.reviewee_name)+'</span>'; }).join('')+
         '</div>';
       }).join('');
-  }catch(e){ box.innerHTML='<span style="color:#b91c1c;">Could not build pairs: '+_ce(String(e&&e.message||e))+' (redeploy the Apps Script if this persists)</span>'; }
+  }catch(e){ box.innerHTML='<span style="color:#b45309;">'+_ce(String(e&&e.message||e))+' <a href="#" onclick="var b=document.getElementById(\'qar-pairs-box\'); if(b) b.style.display=\'none\'; qarShowPairs(); return false;" style="color:#2563eb;font-weight:700;">Retry</a></span>'; }
 }
 async function qarPenalize(){
   var rev=(document.getElementById('qar-pen-rev')||{}).value, pts=(document.getElementById('qar-pen-pts')||{}).value;
