@@ -6110,7 +6110,7 @@ function _renderQaChain(){
     var st=it.mgr_status==='approved'?'<span style="color:#15803d;font-weight:800;">✓ approved · '+it.final_score+'</span>':'<span style="color:#b45309;font-weight:700;">● pending</span>';
     return '<tr style="border-top:1px solid var(--border);"><td style="padding:5px 6px;">'+_ce(it.name||it.employee_id)+'</td><td style="text-align:center;">W'+it.week+'</td>'+
       '<td style="text-align:center;">'+(it.peer_score!=null?it.peer_score+(it.peer_name?(' <span style="color:var(--t3);font-size:10px;">('+_ce(it.peer_name)+')</span>'):''):'—')+'</td>'+
-      '<td style="text-align:center;">'+(it.lead_score!=null?it.lead_score:'—')+
+      '<td style="text-align:center;">'+(it.lead_score!=null?it.lead_score:(it.lead_assigned_name?('<span style="font-size:10px;color:#b45309;">→ '+_ce(it.lead_assigned_name)+'</span>'):'—'))+
         (it.peer_penalty?('<div style="font-size:9.5px;color:#b91c1c;font-weight:800;">peer missed '+it.miss_gap+' · −'+it.peer_penalty+' pt both</div>')
           :(it.miss_gap!=null&&it.miss_gap>0?('<div style="font-size:9.5px;color:#b45309;">gap '+it.miss_gap+' (within tolerance)</div>'):''))+
       '</td><td style="text-align:center;">'+st+'</td>'+
@@ -6120,7 +6120,7 @@ function _renderQaChain(){
     '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:15px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
       '<div style="font-size:16px;font-weight:800;">🔗 QA Review Chain — '+_ce(_QAR.month||'')+'</div><span style="flex:1;"></span><button class="bsm" onclick="qarShowPairs()">🔀 Peer pairs</button><button class="bsm" onclick="_closeQaChain()">✕</button></div>'+
     '<div style="padding:14px 20px;">'+
-      '<div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Every VA · every week: <b>Peer (teammate, 30&nbsp;min minimum) → Team Lead → Manager approval</b> — in that order, enforced. Only approved finals reach the scorecard. Missed errors dock the reviewer too. Use <b>🔀 Peer pairs</b> for this week\'s shuffled who-checks-whom.</div>'+
+      '<div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Every VA · every week: <b>Peer (teammate, 20&nbsp;min max) → Team Lead → Manager approval</b> — in that order, enforced. Only approved finals reach the scorecard. Missed errors dock the reviewer too. Use <b>🔀 Peer pairs</b> for this week\'s shuffled who-checks-whom.</div>'+
       '<div id="qar-pairs-box" style="display:none;background:rgba(59,130,246,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px;"></div>'+
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:rgba(21,128,61,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;">'+
         '<select id="qar-emp" class="sinp" style="width:160px;">'+opts+'</select>'+
@@ -6128,7 +6128,7 @@ function _renderQaChain(){
         '<select id="qar-stage" class="sinp" style="width:80px;"><option value="peer">Peer</option><option value="lead">Lead</option></select>'+
         '<select id="qar-rev" class="sinp" style="width:160px;"><option value="">Reviewer…</option>'+opts.replace('Contractor…','Reviewer…')+'</select>'+
         '<input id="qar-score" class="sinp" type="number" min="0" max="100" placeholder="/100" style="width:70px;">'+
-        '<input id="qar-mins" class="sinp" type="number" min="30" step="5" value="30" style="width:70px;" title="peer session length (minutes, 30 minimum)">'+
+        '<input id="qar-mins" class="sinp" type="number" min="1" max="20" step="5" value="20" style="width:70px;" title="review length (minutes, 20 max)">'+
         '<button class="bsm" onclick="qarSubmit()" style="color:#15803d;border-color:rgba(21,128,61,.3);">Save review</button>'+
       '</div>'+
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:rgba(185,28,28,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px;">'+
@@ -6154,8 +6154,8 @@ async function qarSubmit(){
     var d=await r.json();
     if(d&&d.ok){ toast(st==='peer'?'Peer review saved.':'Lead review saved.'); openQaChain(); }
     else if(d&&d.error==='SELF_REVIEW') toast('A VA can\'t peer-review their own work.');
-    else if(d&&d.error==='MIN_30') toast('Peer sessions are 30 minutes minimum.');
-    else if(d&&d.error==='PEER_FIRST') toast('Order is enforced: the peer review (30 min) must be recorded before the lead\'s.');
+    
+    else if(d&&d.error==='PEER_FIRST') toast('Order is enforced: the peer review must be recorded before the lead\'s.');
     else toast('Could not save: '+((d&&d.error)||'error'));
   }catch(e){ toast('Connection error.'); }
 }
