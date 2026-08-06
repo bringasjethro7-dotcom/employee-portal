@@ -6243,8 +6243,8 @@ async function loadScoreGraph(){
   var id = attEmpId || (window._currentEmpData && window._currentEmpData.employee_id) || '';
   if (!id) return;
   _scgLoaded = true;
-  wrap.innerHTML = '<div id="scgraph-title" style="font-size:9.5px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;">Career graph · monthly score</div>' +
-    '<div id="scgraph-body" style="display:flex;align-items:flex-end;gap:8px;"></div>';
+  wrap.innerHTML = '<div id="scgraph-title" style="font-size:9px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:9px;">Career graph</div>' +
+    '<div id="scgraph-body" style="display:flex;align-items:flex-end;gap:10px;"></div>';
   wrap.style.display = 'block';
   var host = document.getElementById('scgraph-body');
   // ONE bundled request (sc_history) returns all 6 released months — cached 12h locally,
@@ -6293,31 +6293,45 @@ async function loadScoreGraph(){
         '<div style="width:100%;max-width:30px;height:4px;background:rgba(127,127,127,.18);border-radius:3px;"></div>' +
         '<div style="font-size:9px;color:var(--text-3);">' + label + '</div></div>';
     }
-    var h = Math.max(8, Math.round(v)); var col = colorOf(v);
+    var h = Math.max(10, Math.round(v)); var col = colorOf(v);
     var disp = Math.round(v * 10) / 10;   // show one decimal when present, band on the raw value
-    var star = awardIx[ix] ? '<span title="counts toward a promotion" style="font-size:8px;">⭐</span>' : '';
-    return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;" title="' + mo.key + ' · ' + disp + '/100' + (awardIx[ix] ? ' · counts toward a promotion' : '') + '">' +
-      '<div style="font-size:10px;font-weight:800;color:' + col + ';font-family:\'Sora\',\'Inter\',sans-serif;white-space:nowrap;">' + star + disp + '</div>' +
-      '<div style="width:100%;max-width:30px;height:52px;background:rgba(127,127,127,.14);border-radius:6px;display:flex;align-items:flex-end;overflow:hidden;' + (awardIx[ix] ? 'box-shadow:0 0 0 2px ' + (awardIx[ix]==='purple'?'#a855f7':'#22c55e') + ';' : '') + '">' +
-        '<div style="width:100%;height:' + h + '%;background:linear-gradient(180deg,' + col + ',' + col + 'cc);border-radius:6px 6px 0 0;transition:height .6s;"></div></div>' +
-      '<div style="font-size:9px;color:var(--text-3);">' + label + '</div></div>';
+    var aw = awardIx[ix];
+    // Premium bar: soft track, gradient fill, subtle glow + top hairline on award months.
+    return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;" title="' + mo.key + ' · ' + disp + '/100' + (aw ? ' · counts toward a promotion' : '') + '">' +
+      '<div style="font-size:10.5px;font-weight:800;color:' + col + ';font-family:\'Sora\',\'Inter\',sans-serif;white-space:nowrap;letter-spacing:-.01em;">' + disp + '</div>' +
+      '<div style="position:relative;width:100%;max-width:30px;height:56px;background:rgba(127,127,127,.10);border-radius:7px;display:flex;align-items:flex-end;overflow:hidden;' +
+        (aw ? 'box-shadow:inset 0 0 0 1px ' + col + '55, 0 3px 12px -2px ' + col + '66;' : 'box-shadow:inset 0 0 0 1px rgba(127,127,127,.10);') + '">' +
+        '<div style="width:100%;height:' + h + '%;background:linear-gradient(180deg,' + col + ',' + col + 'd0);border-radius:7px 7px 0 0;transition:height .7s cubic-bezier(.2,.8,.2,1);"></div>' +
+        (aw ? '<div style="position:absolute;left:5px;right:5px;top:3px;height:2px;border-radius:2px;background:' + col + ';opacity:.95;"></div>' : '') +
+      '</div>' +
+      '<div style="font-size:9px;color:var(--text-3);letter-spacing:.04em;text-transform:uppercase;font-weight:600;">' + label + '</div></div>';
   }).join('');
   // Footer: earned awards, or one compact line of progress toward the next one.
   (function(){
     var foot = document.getElementById('scgraph-foot');
-    if (!foot) { foot = document.createElement('div'); foot.id = 'scgraph-foot'; foot.style.cssText = 'margin-top:7px;font-size:10.5px;line-height:1.5;color:var(--text-3);'; wrap.appendChild(foot); }
-    var msgs = awards.map(function(a){
-      var mLbl = new Date(months[a.ix].y, months[a.ix].m, 1).toLocaleDateString('en-US', { month: 'short' });
-      return a.type === 'purple'
-        ? '🏆 <b style="color:#a855f7;">Purple ' + mLbl + '</b> — qualifies for a salary increase / promotion'
-        : '🏆 <b style="color:#22c55e;">3 greens in a row</b> (to ' + mLbl + ') = one purple — salary increase / promotion';
-    });
-    if (!msgs.length) {
-      msgs.push(gStreak > 0
-        ? '📈 ' + gStreak + '/3 consecutive greens — ' + (3 - gStreak) + ' more (or one 95+ month) = raise / promotion'
-        : '🎯 95+ month, or 3 greens in a row = raise / promotion');
+    if (!foot) { foot = document.createElement('div'); foot.id = 'scgraph-foot'; foot.style.cssText = 'margin-top:10px;font-size:10.5px;line-height:1.45;color:var(--text-3);'; wrap.appendChild(foot); }
+    var html;
+    if (awards.length) {
+      // Summarize — one refined line, never a repeated list.
+      var nP = awards.filter(function(a){ return a.type === 'purple'; }).length;
+      var nG = awards.length - nP;
+      var parts = [];
+      if (nP) parts.push('<b style="color:#a855f7;">' + nP + ' purple ' + (nP === 1 ? 'month' : 'months') + '</b>');
+      if (nG) parts.push('<b style="color:#22c55e;">' + nG + '× three greens in a row</b>');
+      var last = awards[awards.length - 1];
+      var lastLbl = new Date(months[last.ix].y, months[last.ix].m, 1).toLocaleDateString('en-US', { month: 'long' });
+      html = '<span style="display:inline-block;border-left:2px solid ' + (last.type === 'purple' ? '#a855f7' : '#22c55e') + ';padding-left:8px;">' +
+        '<b style="color:var(--text-1);letter-spacing:.02em;">Promotion earned</b> · ' + parts.join(' + ') +
+        '<br><span style="color:var(--text-3);">Qualifies for a salary increase or career-level promotion — latest ' + lastLbl + '.</span></span>';
+    } else if (gStreak > 0) {
+      html = '<span style="display:inline-block;border-left:2px solid rgba(127,127,127,.35);padding-left:8px;">' +
+        '<b style="color:var(--text-1);">' + gStreak + ' of 3</b> consecutive green months<br>' +
+        '<span style="color:var(--text-3);">' + (3 - gStreak) + ' more — or one 95+ month — earns a salary increase or promotion.</span></span>';
+    } else {
+      html = '<span style="display:inline-block;border-left:2px solid rgba(127,127,127,.35);padding-left:8px;">' +
+        '<span style="color:var(--text-3);">Score <b style="color:#a855f7;">95+</b> in a month, or <b style="color:#22c55e;">90+</b> three months running, to earn a salary increase or career-level promotion.</span></span>';
     }
-    foot.innerHTML = msgs.join('<br>');
+    foot.innerHTML = html;
   })();
 }
 // ── WHAT'S NEW — one-time announcement per update key ──
