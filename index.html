@@ -6436,7 +6436,7 @@ function loadMyQA(){
   };
   _bootGet('qa').then(function(_cq){
     if(_cq){ _done(_cq); return; }
-    fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
+    fetch(APPS_SCRIPT_URL+'?action=get_qa_weekly&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&viewer_id='+encodeURIComponent(scMyEmpId||id)+'&_='+Date.now())
       .then(function(r){return r.json();}).then(_done).catch(function(){});
   });
 }
@@ -6686,7 +6686,7 @@ async function renderKPIs(data) {
   renderCutoffHours(id);   // Hours tracked = productive tracked hours for the current cutoff
   var mk = monthKeyPHT();   // monthly cards roll over to the new month at 8 AM PHT on the 1st
   try {
-    var res = await jGet(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk));
+    var res = await jGet(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk) + '&viewer_id=' + encodeURIComponent(scMyEmpId||id));
     var j = await res.json();
     var sc = j.scorecard || {}, ab = j.attendance_breakdown || {};
     // Overall/final score is hidden on the dashboard too — it's the current month, revealed at the meeting.
@@ -7053,10 +7053,14 @@ function isMobileDevice() {
 // TEAM LIVE  — read-only running timers for CL7–CL9 leaders
 // ─────────────────────────────────────────────
 function _clRank(data){ var s=String((data&&(data.career_level||data.cl||data.cl_code||data.level))||''); var n=parseInt(s.replace(/[^0-9]/g,''),10); return isNaN(n)?0:n; }
+/* Accounts that keep Team Live. It used to be open to every CL7-9 lead, but Team Live exposes
+   who is working on what across the team, which is enough to infer standings while August's
+   scores are held. Edit this list to restore access. */
+var TEAMLIVE_ALLOW = ['JMBEAST','ADMIN'];
 function maybeShowTeamLive(data){
   var btn=document.getElementById('tabbtn-live'); if(!btn) return;
-  var r=_clRank(data);
-  btn.style.display = (r===7 || r===8 || r===9) ? '' : 'none';   // CL7–CL9 only
+  var id=String((data&&data.employee_id)||'').toUpperCase();
+  btn.style.display = (TEAMLIVE_ALLOW.indexOf(id)>=0) ? '' : 'none';
 }
 var _empLiveTimer=null, _empLiveTick=null, _empLiveRows=[], _empLiveBase=0;
 function empLiveStatus(rn){
@@ -8597,8 +8601,17 @@ function setScCoverage(sc, liveAtt, liveDem) {
 function loadProdCutoffs(empId, month){
   var box=document.getElementById('sc-prod-cutoffs'); if(!box || !empId) return;
   box.style.display='none';
-  fetch(APPS_SCRIPT_URL+'?action=prod_cutoffs&employee_id='+encodeURIComponent(empId)+'&month='+encodeURIComponent(month)+'&_='+Date.now())
+  fetch(APPS_SCRIPT_URL+'?action=prod_cutoffs&employee_id='+encodeURIComponent(empId)+'&month='+encodeURIComponent(month)+'&viewer_id='+encodeURIComponent(scMyEmpId||empId)+'&_='+Date.now())
     .then(function(r){ return r.json(); }).then(function(d){
+      /* A held month returns no scores at all — the server withholds them, so there is nothing
+         to reveal in the network tab either. Say so plainly instead of showing an empty card,
+         which reads as a bug. */
+      if(d && d.held){
+        box.style.display='block';
+        box.innerHTML='<div style="font-size:12px;color:var(--text-3);padding:8px 2px;line-height:1.5;">'+
+          '🔒 Productivity scores for this month are released after the month closes.</div>';
+        return;
+      }
       if(!d || !d.ok || !d.cutoffs) return;
       var any=d.cutoffs.some(function(c){ return c.score!=null; });
       if(!any) return;
@@ -11686,7 +11699,7 @@ var GS_ITEMS=[
   {t:'Leave request',tab:'attendance',h:'Request time off',kw:'leave vacation sick emergency time off request'},
   {t:'HR & Scorecard',tab:'scorecard',h:'Performance, QA, career',kw:'hr scorecard performance qa quality career level assessment'},
   {t:'Payslip',tab:'payslips',h:'View & download payslips',kw:'payslip salary pay download slip'},
-  {t:'Team Live',tab:'live',h:"Who's online",kw:'team live online presence who colleagues'},
+
   {t:'My Profile',tab:'profile',h:'Personal & job details',kw:'profile personal details rate id pin birthday photo'},
   {t:'JMB Points',tab:'overview',h:'Points & rewards',kw:'jmb points rewards balance',act:'points'},
   {t:'Redeem points',tab:'overview',h:'Cash or gifts',kw:'redeem rewards cash gift points cashout',act:'redeem'},
