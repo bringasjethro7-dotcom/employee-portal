@@ -10065,7 +10065,13 @@ var trkIdleDetector = null;   // system-wide idle detection (Chrome/Edge)
 var trkIdleReqDone  = false;
 
 function trkUid() { return Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
-function trkSetRunning(r) { trkRunning = r; cfyRunningId = r ? r.entry_id : null; }
+function trkSetRunning(r) {
+  // A different entry (or none) re-arms the 6-hour warnings — otherwise a VA who stops and
+  // restarts, exactly as the warning tells them to, would never be warned again that shift.
+  var newId = r ? r.entry_id : null;
+  if (newId !== cfyRunningId) { try{ _entryCapReset(); }catch(e){} }
+  trkRunning = r; cfyRunningId = newId;
+}
 
 // Init when the Time Tracker tab is first opened
 async function initClockify(empData) {
@@ -11231,9 +11237,40 @@ function refreshTimeBar() { try { renderTimeBar(_barEntries()); } catch(e) {} }
 // Self-heal: re-render the bar from the durable union every 15s, so it can never
 // be left blank by a transient empty render.
 setInterval(function(){ if (document.hidden) return; if (document.getElementById('time-bar-wrap')) { try { refreshTimeBar(); } catch(e) {} } }, 60000);
+/* ── SINGLE-ENTRY CAP WARNING ──
+   The server stops crediting one unbroken entry at MAX_ENTRY_HOURS (6). That ceiling exists to
+   stop a tab left running all day billing a full shift — the heartbeat can't catch it, because
+   an open browser keeps beating whether or not anyone is at the desk.
+   But a VA who genuinely works one task for eight hours would just lose the excess, discover it
+   on a short payslip, and reasonably conclude the portal ate their time. So warn them while
+   they can still act: stop the timer and start it again, and the next entry counts from zero.
+   Fires once per entry; the flags reset whenever a new entry starts. */
+var ENTRY_CAP_SECS   = 6 * 3600;
+var ENTRY_WARN_SECS  = ENTRY_CAP_SECS - 30 * 60;   // 5h30 — plenty of room to act
+var ENTRY_FINAL_SECS = ENTRY_CAP_SECS - 5 * 60;    // 5h55 — last call
+var _entryWarned = { warn:false, final:false, capped:false };
+function _entryCapReset(){ _entryWarned = { warn:false, final:false, capped:false }; }
+function _entryCapCheck(secs){
+  try{
+    if(secs >= ENTRY_CAP_SECS && !_entryWarned.capped){
+      _entryWarned.capped = true;
+      for(var i=0;i<4;i++) setTimeout(function(){ try{ _beepCountdown(1); }catch(e){} }, i*260);
+      showToast('⛔ This entry has reached the 6-hour limit — time past this point is NOT being counted. Stop the timer and start it again now.', 'error');
+    } else if(secs >= ENTRY_FINAL_SECS && !_entryWarned.final){
+      _entryWarned.final = true;
+      for(var j=0;j<3;j++) setTimeout(function(){ try{ _beepCountdown(3); }catch(e){} }, j*300);
+      showToast('⏰ 5 minutes until this entry stops counting. Stop and restart the timer to keep tracking.', 'error');
+    } else if(secs >= ENTRY_WARN_SECS && !_entryWarned.warn){
+      _entryWarned.warn = true;
+      try{ _beepCountdown(8); }catch(e){}
+      showToast('⚠️ This entry has been running 5h30m. One entry stops counting at 6 hours — stop and restart the timer to keep the clock going.', 'warn');
+    }
+  }catch(e){}
+}
 function updateTimerDisplay() {
   if (!trkRunning) return;
   var secs = Math.floor(trkRunning.baseSecs + (trkRunning.segStart ? (Date.now() - trkRunning.segStart) / 1000 : 0));
+  _entryCapCheck(secs);
   var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
@@ -17733,6 +17770,21 @@ body.light .jul4-lbscore{color:#059669}
               <canvas id="tet-ad-cv" width="236" height="104" style="flex:0 0 auto;border-radius:12px;background:rgba(2,16,28,.5);box-shadow:inset 0 1px 4px rgba(0,0,0,.6);"></canvas>
             </div>
           </div>
+          <!-- RAVAGER — the silhouette-aware drop. Its own card because the selling point isn't a
+               finish, it's a behaviour, and that only lands if you show the shape changing. -->
+          <div id="tet-ad-ravager" onclick="tetOpenDesigns()" style="cursor:pointer;margin:0 0 14px;border-radius:20px;overflow:hidden;position:relative;background:linear-gradient(140deg,#120806 0%,#2a0f07 34%,#7a2408 70%,#ff7a1a 100%);box-shadow:0 20px 46px -20px rgba(255,122,26,.8);border:1px solid rgba(255,190,120,.24);">
+            <div style="position:absolute;inset:0;background:linear-gradient(115deg,rgba(255,255,255,.22) 0%,rgba(255,255,255,0) 44%);pointer-events:none;"></div>
+            <div style="position:relative;z-index:1;display:flex;align-items:center;gap:20px;padding:22px 26px;flex-wrap:wrap;">
+              <div style="flex:1;min-width:200px;color:#fff3ea;">
+                <span style="display:inline-block;background:#ffb27a;color:#3a1102;font-weight:800;font-size:11px;letter-spacing:1.5px;padding:4px 11px;border-radius:20px;margin-bottom:9px;">🔥 NEW COLLECTOR</span>
+                <div style="font-size:24px;font-weight:900;line-height:1.04;letter-spacing:-.6px;text-shadow:0 2px 12px rgba(0,0,0,.5);">Ravager</div>
+                <div style="font-size:13px;opacity:.95;margin-top:7px;">The first design that <b>knows what it's touching</b>. Barbs grow on the outside of your stack; where blocks meet, the spikes vanish and magma runs through the seam.</div>
+                <div style="margin-top:11px;font-size:12px;color:#ffd9bd;font-weight:700;">Clean stacks look like armour. Messy ones look like a bramble.</div>
+                <span style="display:inline-block;margin-top:12px;background:#fff3ea;color:#5a1c02;font-weight:800;font-size:13px;padding:9px 18px;border-radius:11px;box-shadow:0 8px 20px -8px rgba(0,0,0,.6);">30,000 coins — See it in the Locker →</span>
+              </div>
+              <canvas id="tet-ad-rav" width="236" height="104" style="flex:0 0 auto;border-radius:12px;background:rgba(12,4,2,.55);box-shadow:inset 0 1px 4px rgba(0,0,0,.6);"></canvas>
+            </div>
+          </div>
           <!-- Collector spotlight — its own ad, separate from the New Drop card above -->
           <div id="tet-ad-prisma" onclick="tetOpenDesigns()" style="cursor:pointer;margin:0 0 14px;border-radius:20px;overflow:hidden;position:relative;background:linear-gradient(140deg,#0b2b34 0%,#0f3d4a 38%,#1f6f7e 72%,#5ce1e6 100%);box-shadow:0 20px 46px -20px rgba(92,225,230,.85);border:1px solid rgba(255,255,255,.22);">
             <div style="position:absolute;inset:0;background:linear-gradient(115deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,0) 40%);pointer-events:none;"></div>
@@ -19548,7 +19600,7 @@ body.light .jul4-lbscore{color:#059669}
     (function loop(ts){ if(!M){ return; }
       ts = ts||0;
       var fx = M.flash || (M.particles && M.particles.length);
-      var inf = ((EQUIPPED==='azero'||EQUIPPED==='inferno'||EQUIPPED==='emoji'||EQUIPPED==='prisma'||EQUIPPED==='holo'||EQUIPPED==='abyss'||EQUIPPED==='mirage'||EQUIPPED==='rgbgamer'||EQUIPPED==='matrix'||EQUIPPED==='lavalamp'||EQUIPPED==='kaleido') && M.playing);          // animated skins keep the fx loop alive
+      var inf = ((EQUIPPED==='azero'||EQUIPPED==='inferno'||EQUIPPED==='emoji'||EQUIPPED==='prisma'||EQUIPPED==='holo'||EQUIPPED==='abyss'||EQUIPPED==='mirage'||EQUIPPED==='rgbgamer'||EQUIPPED==='matrix'||EQUIPPED==='lavalamp'||EQUIPPED==='kaleido'||EQUIPPED==='ravager') && M.playing);          // animated skins keep the fx loop alive
       if(fx){ if(!M._fxTs || ts-M._fxTs>=30){ M._fxTs=ts; draw(); } }   // cap flash/particle redraws at ~30fps (perf)
       else if(inf){ if(!M._infTs || ts-M._infTs>=33){ M._infTs=ts; draw(); } }   // ~30fps glow pulse
       if(fx || inf){ M._raf=requestAnimationFrame(loop); } else { M._fx=false; }
@@ -20669,7 +20721,77 @@ body.light .jul4-lbscore{color:#059669}
         return cv;
       }
       return function(c,px,py,cs,col,glow){ var s=Math.max(2,Math.round(cs)); var fi=Math.floor(Date.now()/80)%FR; var k=col+'|'+s+'|'+(glow?1:0); var arr=cache[k]||(cache[k]=[]); var t=arr[fi]||(arr[fi]=render(String(col),s,!!glow,fi)); c.drawImage(t,px,py); };
-    })() }
+    })() },
+
+    /* ── RAVAGER · collector ──
+       The first skin that knows what is NEXT TO IT. Every other design draws a cell in
+       isolation; this one reads its neighbours and behaves differently on an edge than in the
+       middle of a mass:
+         · barbs grow only on sides with NO neighbour, so a landed shape is spiked along its
+           silhouette and smooth inside — a stack looks like one welded slab, not a grid of
+           spiked squares;
+         · where two cells DO touch, the barbs vanish and a magma seam lights across the join.
+       That is also why it stays readable at real playing scale: all the detail lives on the
+       outline, and the outline is the thing you actually read when deciding where to drop.
+       Neighbours come from _RVB, published by the board pass. When it is absent — the next-piece
+       and hold panels, the shop preview — every side reads as an edge, which is correct: a piece
+       in the air genuinely has no neighbours. */
+    ravager:{ name:'Ravager', cost:30000, tier:'iconic', cell:function(c,px,py,cs,col,glow){
+      var m=Math.max(1,cs*0.02), a=px+m, b=py+m, w=cs-2*m, r=Math.max(2,cs*0.14);
+      var t=(Date.now()/4200)%1;
+      var gx=Math.round(px/cs), gy=Math.round(py/cs);
+      var pulse=0.5+0.5*Math.sin(t*6.283+(gx+gy)*0.5);
+      function nb(dx,dy){
+        if(!_RVB) return false;
+        var X=gx+dx, Y=gy+dy;
+        if(X<0||Y<0||Y>=_RVB.g.length||X>=_RVB.w) return false;
+        return !!_RVB.g[Y][X];
+      }
+      var up=nb(0,-1), dn=nb(0,1), lf=nb(-1,0), rt=nb(1,0);
+      var sides=[[0,-1,up],[0,1,dn],[-1,0,lf],[1,0,rt]];
+
+      // barbs — silhouette only
+      c.save();
+      for(var si=0;si<4;si++){
+        var d=sides[si]; if(d[2]) continue;
+        var n=3, len=cs*0.26*(0.8+0.2*pulse);
+        for(var k=0;k<n;k++){
+          var f=(k+0.5)/n;
+          var cx=a+(d[0]===0? w*f : (d[0]<0?0:w));
+          var cy=b+(d[1]===0? w*f : (d[1]<0?0:w));
+          var g=c.createLinearGradient(cx,cy,cx+d[0]*len,cy+d[1]*len);
+          g.addColorStop(0,col); g.addColorStop(1,'rgba(255,255,255,0)');
+          c.fillStyle=g; c.beginPath();
+          var ox=d[1]!==0? w*0.13:0, oy=d[0]!==0? w*0.13:0;
+          c.moveTo(cx-ox,cy-oy); c.lineTo(cx+d[0]*len,cy+d[1]*len); c.lineTo(cx+ox,cy+oy); c.closePath(); c.fill();
+        }
+      }
+      c.restore();
+
+      // carbon body
+      rr(c,a,b,w,w,r);
+      var bg=c.createLinearGradient(a,b,a,b+w);
+      bg.addColorStop(0,'#1a1d24'); bg.addColorStop(1,'#08090d');
+      c.fillStyle=bg; c.fill();
+
+      // magma seams toward joined neighbours
+      c.save(); rr(c,a,b,w,w,r); c.clip();
+      for(var sj=0;sj<4;sj++){
+        var e=sides[sj]; if(!e[2]) continue;
+        var sx=a+w/2+e[0]*w/2, sy=b+w/2+e[1]*w/2;
+        var rg=c.createRadialGradient(sx,sy,0,sx,sy,w*0.75);
+        rg.addColorStop(0,col);
+        rg.addColorStop(0.45,'rgba(255,120,0,'+(0.30+0.35*pulse)+')');
+        rg.addColorStop(1,'rgba(0,0,0,0)');
+        c.fillStyle=rg; c.fillRect(a,b,w,w);
+      }
+      c.restore();
+
+      c.strokeStyle='rgba(255,255,255,0.13)'; c.lineWidth=Math.max(1,cs*0.035);
+      rr(c,a,b,w,w,r); c.stroke();
+      if(glow){ c.save(); c.globalCompositeOperation='screen'; c.shadowColor=col; c.shadowBlur=cs*0.55;
+        rr(c,a,b,w,w,r); c.fillStyle='rgba(255,255,255,0.06)'; c.fill(); c.restore(); }
+    } }
   };
   // ── THE CHOCOLATE COUNTER ──
   // Seven pieces, seven DIFFERENT confections — not seven shades of brown. Each has its own
@@ -20844,6 +20966,11 @@ body.light .jul4-lbscore{color:#059669}
   // removes them from the picker (Object.keys(DESIGNS)); anyone who had one equipped safely
   // falls back to Classic via the ||DESIGNS.classic guards below. ──
   ['pixel','glossy','gem','bubble','star','candy','galaxy','ice','marble','gold','aurora'].forEach(function(_k){ try{ delete DESIGNS[_k]; }catch(_e){} });
+  /* The board Ravager reads to find its neighbours. Set for the duration of a board pass and
+     cleared afterwards, so panels that draw loose pieces (next, hold, shop preview) fall back
+     to "no neighbours" — which is the truth for a piece that isn't on the board yet. */
+  var _RVB=null;
+  function _rvbSet(g,w){ _RVB=(g&&g.length)?{g:g,w:w}:null; }
   function block(ctx,x,y,cs,color,glow){ (DESIGNS[EQUIPPED]||DESIGNS.classic).cell(ctx,x*cs,y*cs,cs,color,glow); }
   // Same, but drawn in SOMEONE ELSE'S design — used for the opponent board and for
   // spectating, so a player's unlocked skin is visible to everyone watching them.
@@ -20879,8 +21006,9 @@ body.light .jul4-lbscore{color:#059669}
     for(var y=0;y<H;y++)for(var x=0;x<W;x++){ var v=M.grid[y][x]; if(v){ block(bc,x,y,cs, v===8?'#5b6b82':COLORS[v]); } }
     _brdSig=sig; return _brdCache;
   }
-  function draw(){ var cv=el('tet-me'); if(!cv||!M) return; if((EQUIPPED==='azero'||EQUIPPED==='inferno'||EQUIPPED==='emoji'||EQUIPPED==='prisma'||EQUIPPED==='holo'||EQUIPPED==='abyss'||EQUIPPED==='mirage'||EQUIPPED==='rgbgamer'||EQUIPPED==='matrix'||EQUIPPED==='lavalamp'||EQUIPPED==='kaleido')&&M.playing){ ensureFx(); } var ctx=cv.getContext('2d'); var cs=cv.width/W;
+  function draw(){ var cv=el('tet-me'); if(!cv||!M) return; if((EQUIPPED==='azero'||EQUIPPED==='inferno'||EQUIPPED==='emoji'||EQUIPPED==='prisma'||EQUIPPED==='holo'||EQUIPPED==='abyss'||EQUIPPED==='mirage'||EQUIPPED==='rgbgamer'||EQUIPPED==='matrix'||EQUIPPED==='lavalamp'||EQUIPPED==='kaleido'||EQUIPPED==='ravager')&&M.playing){ ensureFx(); } var ctx=cv.getContext('2d'); var cs=cv.width/W;
     ctx.clearRect(0,0,cv.width,cv.height);
+    _rvbSet(M.grid, W);                        // neighbour context for silhouette-aware skins
     try{ ctx.drawImage(staticBoard(cv),0,0); }
     catch(_sb){ drawBoardBg(ctx,cv); grid(ctx,cv,cs); for(var yy=0;yy<H;yy++)for(var xx=0;xx<W;xx++){ var vv=M.grid[yy][xx]; if(vv){ block(ctx,xx,yy,cs, vv===8?'#5b6b82':COLORS[vv]); } } }
     if(M.cur){
@@ -20889,6 +21017,7 @@ body.light .jul4-lbscore{color:#059669}
       if(gy>M.cur.y){ for(r=0;r<m.length;r++)for(c=0;c<m[r].length;c++){ if(m[r][c]) ghostCell(ctx,M.cur.x+c,gy+r,cs,COLORS[m[r][c]]); } }
       for(r=0;r<m.length;r++)for(c=0;c<m[r].length;c++){ if(m[r][c]) block(ctx,M.cur.x+c,M.cur.y+r,cs,COLORS[m[r][c]],true); }
     }
+    _rvbSet(null,0);                           // falling piece drawn; panels below get no context
     if(M.flash){ var e=(Date.now()-M.flash.t0)/230; if(e<1){ ctx.save(); ctx.globalAlpha=(1-e)*0.9; ctx.fillStyle='#fff'; M.flash.ys.forEach(function(ry){ ctx.fillRect(0,ry*cs,cv.width,cs); }); ctx.restore(); } else { M.flash=null; } }
     if(M.particles && M.particles.length){ ctx.save();
       for(var pi=M.particles.length-1;pi>=0;pi--){ var p=M.particles[pi];
@@ -23004,9 +23133,57 @@ body.light .jul4-lbscore{color:#059669}
     for(var r=0;r<2;r++){ for(var c=0;c<n;c++){ var d=DESIGNS[skins[c]]; if(!d)continue; var col=pal[(c+r*2)%pal.length]; try{ d.cell(ctx, ox+c*(cs+gx), oy+r*(cs+gy), cs, col, true); }catch(e){} } }
   }
   function tetAdTick(t){ var m=el('tet-rank-modal'); if(!m||!m.classList.contains('open')){ _tetAdRAF=null; return; }
+    try{ ravAdFrame(); }catch(_ra){}
     // ads hidden — don't burn a rAF loop painting a canvas nobody can see
     var _ad=el('tet-hub-ad'); if(_ad&&getComputedStyle(_ad).display==='none'){ _tetAdRAF=null; return; }
     if(!_tetAdLast||t-_tetAdLast>=70){ _tetAdLast=t; drawTetAd(); } _tetAdRAF=requestAnimationFrame(tetAdTick); }
+  /* The Ravager ad animates the one thing a still image cannot show: a block LOSING its spikes
+     when something lands beside it. Two cells drift together, the barbs between them retract,
+     and the seam lights. Everything else about the skin is secondary to that. */
+  function ravAdFrame(){
+    var cv=el('tet-ad-rav'); if(!cv) return;
+    var c=cv.getContext('2d'); c.clearRect(0,0,cv.width,cv.height);
+    var t=(Date.now()/2600)%1;
+    var cs=Math.min(46, cv.height*0.44);
+    var close=Math.max(0,Math.min(1,(Math.sin(t*6.283)+1)/2));   // 0 apart → 1 touching
+    var gapPx=cs*0.85*(1-close);
+    var cy=(cv.height-cs)/2, cx=(cv.width-(cs*2+gapPx))/2;
+    var joined=close>0.86;
+    function cell(px,py,col,edges){
+      var m=cs*0.02, a=px+m, b=py+m, w=cs-2*m, r=cs*0.14;
+      var pulse=0.5+0.5*Math.sin(t*12.57);
+      [[0,-1,1],[0,1,1],[-1,0,edges.l],[1,0,edges.r]].forEach(function(d){
+        if(!d[2]) return;                                   // has a neighbour → no barbs
+        var n=3, len=cs*0.26*(0.8+0.2*pulse);
+        for(var k=0;k<n;k++){
+          var f=(k+0.5)/n;
+          var sx=a+(d[0]===0? w*f : (d[0]<0?0:w));
+          var sy=b+(d[1]===0? w*f : (d[1]<0?0:w));
+          var g=c.createLinearGradient(sx,sy,sx+d[0]*len,sy+d[1]*len);
+          g.addColorStop(0,col); g.addColorStop(1,'rgba(255,255,255,0)');
+          c.fillStyle=g; c.beginPath();
+          var ox=d[1]!==0? w*0.13:0, oy=d[0]!==0? w*0.13:0;
+          c.moveTo(sx-ox,sy-oy); c.lineTo(sx+d[0]*len,sy+d[1]*len); c.lineTo(sx+ox,sy+oy); c.closePath(); c.fill();
+        }
+      });
+      rr(c,a,b,w,w,r);
+      var bg=c.createLinearGradient(a,b,a,b+w); bg.addColorStop(0,'#1a1d24'); bg.addColorStop(1,'#08090d');
+      c.fillStyle=bg; c.fill();
+      if(joined){
+        c.save(); rr(c,a,b,w,w,r); c.clip();
+        var sx2=a+w/2+(edges.l?0:-w/2)+(edges.r?0:w/2);
+        var rg=c.createRadialGradient(sx2,b+w/2,0,sx2,b+w/2,w*0.8);
+        rg.addColorStop(0,col); rg.addColorStop(0.45,'rgba(255,120,0,'+(0.35+0.35*pulse)+')'); rg.addColorStop(1,'rgba(0,0,0,0)');
+        c.fillStyle=rg; c.fillRect(a,b,w,w); c.restore();
+      }
+      c.strokeStyle='rgba(255,255,255,0.13)'; c.lineWidth=Math.max(1,cs*0.035); rr(c,a,b,w,w,r); c.stroke();
+    }
+    cell(cx, cy, '#ff8a1e', { l:1, r:joined?0:1 });
+    cell(cx+cs+gapPx, cy, '#ff3860', { l:joined?0:1, r:1 });
+    c.font='700 10px system-ui,sans-serif'; c.textAlign='center';
+    c.fillStyle=joined?'rgba(255,214,170,.95)':'rgba(255,255,255,.5)';
+    c.fillText(joined?'seams fuse':'spiked on every open edge', cv.width/2, cv.height-9);
+  }
   function startTetAd(){ if(_tetAdRAF) return; _tetAdLast=0; _tetAdRAF=requestAnimationFrame(tetAdTick); azAdProgress(); }
   /* The unlock ad reads the player's actual rank, so it says "18 ranks to go" instead of a
      generic pitch — and stops advertising something they already own. */
@@ -23041,7 +23218,7 @@ body.light .jul4-lbscore{color:#059669}
     ctx.restore();
   }
   // Animated skins keep their Locker preview moving to entice buyers.
-  var ANIMATED_SKINS={azero:1,inferno:1,emoji:1,prisma:1,holo:1,abyss:1,mirage:1,rgbgamer:1,matrix:1,lavalamp:1,kaleido:1};
+  var ANIMATED_SKINS={azero:1,inferno:1,emoji:1,prisma:1,holo:1,abyss:1,mirage:1,rgbgamer:1,matrix:1,lavalamp:1,kaleido:1,ravager:1};
   var _thmPrevRAF=null;
   function _animatePreviews(host){
     if(_thmPrevRAF){ cancelAnimationFrame(_thmPrevRAF); _thmPrevRAF=null; }
@@ -23443,7 +23620,11 @@ body.light .jul4-lbscore{color:#059669}
      so nobody on a night shift or a day off misses the season changeover. After the window it
      reverts to once-per-season automatically. AZ_INTRO_UNTIL is a PHT wall-clock cutoff.
      Skip is always available, so anyone in a hurry is one click away from the dashboard. */
-  var AZ_INTRO_UNTIL='2026-08-14T23:59:59+08:00';   // end of Friday
+  /* LAUNCH WINDOW CLOSED. It ran on every dashboard open so nobody missed the changeover; that
+     job is done and a film on every open becomes a toll. Set to a past date, which puts the
+     film back to once per season for anyone who has never seen it — and Replay is still there
+     for anyone who wants it. To run a window again, set this to a future PHT cutoff. */
+  var AZ_INTRO_UNTIL='2026-08-08T23:59:59+08:00';   // launch window ended
   function azInLaunchWindow(){ try{ return Date.now() < new Date(AZ_INTRO_UNTIL).getTime(); }catch(e){ return false; } }
   function azIntroSeen(){
     try{
