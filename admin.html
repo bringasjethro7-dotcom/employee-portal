@@ -1099,7 +1099,9 @@ body{background-attachment:initial !important}
           <button class="bsm" id="sc-cert-btn" onclick="openCertPicker()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏅 Certificates &amp; Awards</button>
           <button class="bsm" id="sc-integrity-btn" onclick="openIntegrityCheck()" style="color:#b91c1c;border-color:rgba(185,28,28,.35);" title="Scan for coordinated or padded output">🔎 Integrity Check</button>
           <button class="bsm" id="sc-inno-btn" onclick="openInnoReview()" style="color:#7c3aed;border-color:rgba(124,58,237,.35);" title="Review and grade this month's innovation ideas">💡 Innovation Ideas</button>
-          <button class="bsm" id="sc-qar-btn" onclick="openQaChain()" style="color:#15803d;border-color:rgba(21,128,61,.35);" title="Peer → Lead → Manager QA review chain">🔗 QA Chain</button>
+          <!-- QA Chain button removed. The peer → lead → manager review chain was retired when QA
+               moved to the screenshot Factory with a single admin approval; the screen behind
+               this opened a queue nobody works and offered actions that write to a dead flow. -->
           <button class="bsm" onclick="openScorecardForm()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add / Edit</button>
         </div>
       </div>
@@ -1602,7 +1604,7 @@ var _jTTL={ get_all_employees:45000, admin_bootstrap:8000, get_tracker_projects:
   get_notif_templates:120000, get_worklog:15000, get_attendance:15000, get_all_scorecards:20000,
   get_finalized:30000, get_leave_requests:15000, get_coe_requests:15000, redeem_list:15000,
   lead_demerit_list:15000, get_all_demerit_disputes:15000, get_appeals:15000, payslip_funding:20000,
-  po_progress_all:12000, list_innovations:15000, qa_review_list:15000, get_all_qa_weekly:20000 };
+  po_progress_all:12000, list_innovations:15000, get_all_qa_weekly:20000 };   // qa_review_list dropped with the chain
 // Google sometimes answers with an HTML error page ("Sorry, cannot open the file…") instead of
 // JSON during a hiccup. That is NOT data: never cache it, and treat it as a retryable failure —
 // otherwise one blip gets cached and every panel keeps replaying it for the whole TTL.
@@ -2267,10 +2269,13 @@ function dashLeadDem(btn, id, empId, action){
 
 /* ════════ DEMERITS ════════ */
 var DEM_CATALOG={
-  'Attendance':[['Late',0.15],['No-call-no-show',0.75]],
+  'Attendance':[['Late',0.15],['No-call no-show',1.00],['Idle over 90 min in a shift',0.30],['Shift swap without notice',0.15]],
   'Break':[['Short lunch (under 50 min)',0.30],['Over break (lunch over 70 min)',0.30],['No break — 6+ hrs without lunch',0.50],['Unauthorized break',0.30]],
   'Time tracking':[['Super-early task (before 7:15 shift start)',0.15],['Forgot Time In/Out',0.15],['Idle auto-stop',0.15],['Untracked work / no volume',0.15],['Overwork — over 11 productive hrs (no approval)',0.30]],
-  'Conduct':[['Minor policy violation',0.30],['Unprofessional behavior',0.50],['Serious misconduct',0.75]]
+  'Tool discipline':[['Tool not updated — hours with no tool output',0.30],['Backdated bulk entry — output ticked after shift',0.30],['EOD not sent',0.30],['Wrong project tagged',0.15],['Duplicate account entry',0.15]],
+  'Quality':[['Missed peer review deadline',0.30],['Rushed review — well under the target time',0.30],['Falsified QA — audit passed without reviewing the work',0.75]],
+  'Conduct':[['Unresponsive during shift',0.30],['Output leveling / coordination',0.75],['Disrespectful conduct',0.75],['Client contact without approval',0.75],['Minor policy violation',0.30],['Unprofessional behavior',0.50],['Serious misconduct',0.75]],
+  'Integrity':[['Sharing credentials',1.00],['Falsified output',1.00],['Falsified hours',1.00]]
 };
 var DEM_STATE={rows:[],standings:[]};
 function _demEmps(){ return (typeof emps!=='undefined'&&emps&&emps.length)?emps:[]; }
@@ -6088,122 +6093,11 @@ async function remindInno(){
 }
 /* ════════ QA REVIEW CHAIN — peer → lead → manager ════════ */
 var _QAR={items:[],month:''};
-async function openQaChain(){
-  var btn=document.getElementById('sc-qar-btn'); var old=btn?btn.textContent:'';
-  if(btn){ btn.disabled=true; btn.textContent='Loading…'; }
-  try{
-    var month=(document.getElementById('sc-month-filter')||{}).value||'';
-    var r=await jGet(API+'?action=qa_review_list&month='+encodeURIComponent(month)+'&_='+Date.now(), 3000, 60000);
-    var _t=await r.text(); var d=null; try{ d=JSON.parse(_t); }catch(_p){ throw new Error('Server was busy (Google error page) — try again in a moment.'); }
-    if(!d||!d.ok) throw new Error((d&&d.error)||'redeploy needed');
-    _QAR={items:d.items||[],month:d.month}; _renderQaChain();
-  }catch(e){ alert('Could not load the QA chain: '+(e&&e.message||e)); }
-  finally{ if(btn){ btn.disabled=false; btn.textContent=old||'🔗 QA Chain'; } }
-}
-function _closeQaChain(){ var ov=document.getElementById('qar-modal'); if(ov) ov.remove(); }
-function _renderQaChain(){
-  var ov=document.getElementById('qar-modal'); if(!ov){ ov=document.createElement('div'); ov.id='qar-modal'; document.body.appendChild(ov); }
-  ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
-  var emplist=(typeof emps!=='undefined'&&emps)?emps.filter(function(e){return e&&e.employee_id;}):[];
-  var opts='<option value="">Contractor…</option>'+emplist.map(function(e){return '<option value="'+_ce(e.employee_id)+'">'+_ce(e.full_name||e.employee_id)+'</option>';}).join('');
-  var rows=(_QAR.items||[]).map(function(it,i){
-    var st=it.mgr_status==='approved'?'<span style="color:#15803d;font-weight:800;">✓ approved · '+it.final_score+'</span>':'<span style="color:#b45309;font-weight:700;">● pending</span>';
-    return '<tr style="border-top:1px solid var(--border);"><td style="padding:5px 6px;">'+_ce(it.name||it.employee_id)+'</td><td style="text-align:center;">W'+it.week+'</td>'+
-      '<td style="text-align:center;">'+(it.peer_score!=null?it.peer_score+(it.peer_name?(' <span style="color:var(--t3);font-size:10px;">('+_ce(it.peer_name)+')</span>'):''):'—')+'</td>'+
-      '<td style="text-align:center;">'+(it.lead_score!=null?it.lead_score:(it.lead_assigned_name?('<span style="font-size:10px;color:#b45309;">→ '+_ce(it.lead_assigned_name)+'</span>'):'—'))+
-        (it.peer_penalty?('<div style="font-size:9.5px;color:#b91c1c;font-weight:800;">peer missed '+it.miss_gap+' · −'+it.peer_penalty+' pt both</div>')
-          :(it.miss_gap!=null&&it.miss_gap>0?('<div style="font-size:9.5px;color:#b45309;">gap '+it.miss_gap+' (within tolerance)</div>'):''))+
-      '</td><td style="text-align:center;">'+st+'</td>'+
-      '<td style="text-align:right;">'+(it.mgr_status!=='approved'?('<button class="bsm" style="padding:3px 9px;font-size:11px;color:#15803d;border-color:rgba(21,128,61,.3);" onclick="qarApprove(\''+encodeURIComponent(it.employee_id)+'\','+it.week+')">Approve</button>'):'')+'</td></tr>';
-  }).join('');
-  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:760px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
-    '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:15px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
-      '<div style="font-size:16px;font-weight:800;">🔗 QA Review Chain — '+_ce(_QAR.month||'')+'</div><span style="flex:1;"></span><button class="bsm" onclick="qarShowPairs()">🔀 Peer pairs</button><button class="bsm" onclick="_closeQaChain()">✕</button></div>'+
-    '<div style="padding:14px 20px;">'+
-      '<div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Every VA · every week: <b>Peer (teammate, 20&nbsp;min max) → Team Lead → Manager approval</b> — in that order, enforced. Only approved finals reach the scorecard. Missed errors dock the reviewer too. Use <b>🔀 Peer pairs</b> for this week\'s shuffled who-checks-whom.</div>'+
-      '<div id="qar-pairs-box" style="display:none;background:rgba(59,130,246,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;font-size:12px;"></div>'+
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:rgba(21,128,61,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;">'+
-        '<select id="qar-emp" class="sinp" style="width:160px;">'+opts+'</select>'+
-        '<select id="qar-week" class="sinp" style="width:70px;"><option value="1">W1</option><option value="2">W2</option><option value="3">W3</option><option value="4">W4</option></select>'+
-        '<select id="qar-stage" class="sinp" style="width:80px;"><option value="peer">Peer</option><option value="lead">Lead</option></select>'+
-        '<select id="qar-rev" class="sinp" style="width:160px;"><option value="">Reviewer…</option>'+opts.replace('Contractor…','Reviewer…')+'</select>'+
-        '<input id="qar-score" class="sinp" type="number" min="0" max="100" placeholder="/100" style="width:70px;">'+
-        '<input id="qar-mins" class="sinp" type="number" min="1" max="20" step="5" value="20" style="width:70px;" title="review length (minutes, 20 max)">'+
-        '<button class="bsm" onclick="qarSubmit()" style="color:#15803d;border-color:rgba(21,128,61,.3);">Save review</button>'+
-      '</div>'+
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:rgba(185,28,28,.05);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px;">'+
-        '<span style="font-size:11.5px;font-weight:800;color:#b91c1c;">Reviewer missed an error:</span>'+
-        '<select id="qar-pen-rev" class="sinp" style="width:160px;">'+opts.replace('Contractor…','Reviewer…')+'</select>'+
-        '<input id="qar-pen-pts" class="sinp" type="number" min="0.25" max="5" step="0.25" value="1" style="width:65px;" title="demerit points">'+
-        '<button class="bsm" style="color:#b91c1c;border-color:rgba(185,28,28,.3);" onclick="qarPenalize()">⚠ Dock reviewer</button>'+
-      '</div>'+
-      (rows?('<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="text-align:left;color:var(--t3);"><th style="padding:4px 6px;">Contractor</th><th style="text-align:center;">Week</th><th style="text-align:center;">Peer</th><th style="text-align:center;">Lead</th><th style="text-align:center;">Status</th><th></th></tr>'+rows+'</table>')
-           :'<div style="color:var(--t3);padding:8px;">No reviews recorded this month yet.</div>')+
-    '</div></div>';
-}
-async function qarSubmit(){
-  var emp=(document.getElementById('qar-emp')||{}).value, wk=(document.getElementById('qar-week')||{}).value, st=(document.getElementById('qar-stage')||{}).value;
-  var rev=(document.getElementById('qar-rev')||{}).value, sc=(document.getElementById('qar-score')||{}).value;
-  if(!emp||!sc){ toast('Pick a contractor and score.'); return; }
-  if(st==='peer'&&!rev){ toast('Peer reviews need the reviewer (a teammate).'); return; }
-  try{
-    var name=''; try{ name=(emps.find(function(e){return e.employee_id===emp;})||{}).full_name||emp; }catch(_e){}
-    var rname=''; try{ rname=(emps.find(function(e){return e.employee_id===rev;})||{}).full_name||rev; }catch(_e){}
-    var mins=(document.getElementById('qar-mins')||{}).value||'30';
-    var r=await fetch(API+'?action=qa_review_submit&employee_id='+encodeURIComponent(emp)+'&full_name='+encodeURIComponent(name)+'&month='+encodeURIComponent(_QAR.month)+'&week='+encodeURIComponent(wk)+'&stage='+encodeURIComponent(st)+'&reviewer_id='+encodeURIComponent(rev)+'&reviewer_name='+encodeURIComponent(rname)+'&score='+encodeURIComponent(sc)+'&mins='+encodeURIComponent(mins)+'&_='+Date.now());
-    var d=await r.json();
-    if(d&&d.ok){ toast(st==='peer'?'Peer review saved.':'Lead review saved.'); openQaChain(); }
-    else if(d&&d.error==='SELF_REVIEW') toast('A VA can\'t peer-review their own work.');
-    
-    else if(d&&d.error==='PEER_FIRST') toast('Order is enforced: the peer review must be recorded before the lead\'s.');
-    else toast('Could not save: '+((d&&d.error)||'error'));
-  }catch(e){ toast('Connection error.'); }
-}
-async function qarApprove(empEnc, week){
-  var emp=decodeURIComponent(empEnc);
-  var fin=prompt('Manager approval — final QA score for week '+week+'.\nLeave as-is to accept the Lead\'s score, or type an override:','');
-  if(fin===null) return;
-  try{
-    var r=await fetch(API+'?action=qa_review_approve&employee_id='+encodeURIComponent(emp)+'&month='+encodeURIComponent(_QAR.month)+'&week='+encodeURIComponent(week)+'&final='+encodeURIComponent(fin)+'&_='+Date.now());
-    var d=await r.json();
-    if(d&&d.ok){ toast('Approved — final '+d.final+' pushed to the scorecard.'); openQaChain(); }
-    else if(d&&d.error==='PEER_FIRST') toast('Chain order: no peer review recorded yet for this week.');
-    else if(d&&d.error==='LEAD_FIRST') toast('Chain order: the team lead must review before manager approval.');
-    else toast('Could not approve: '+((d&&d.error)||'error'));
-  }catch(e){ toast('Connection error.'); }
-}
-// 🔀 Shuffled peer pairs — "exchange papers" per team, deterministic for the chosen week.
-async function qarShowPairs(){
-  var box=document.getElementById('qar-pairs-box'); if(!box) return;
-  if(box.style.display!=='none'){ box.style.display='none'; return; }
-  box.style.display='block';
-  box.innerHTML='<span style="color:var(--t3);">Building this week\'s pairs from tracked hours…</span>';
-  try{
-    var wk=(document.getElementById('qar-week')||{}).value||'1';
-    var r=await jGet(API+'?action=qa_pairs&month='+encodeURIComponent(_QAR.month)+'&week='+encodeURIComponent(wk)+'&_='+Date.now(), 30000, 60000);
-    var _txt=await r.text(); var d=null; try{ d=JSON.parse(_txt); }catch(_p){ throw new Error('Google returned an error page (server busy) — try again in a moment.'); }
-    if(!d||!d.ok) throw new Error((d&&d.error)||'error');
-    if(!(d.teams||[]).length){ box.innerHTML='<span style="color:var(--t3);">No tracked hours this month yet — pairs appear once work is logged.</span>'; return; }
-    box.innerHTML='<div style="font-weight:800;margin-bottom:6px;">🔀 Week '+_ce(String(d.week))+' peer assignments <span style="font-weight:600;color:var(--t3);">· by team from tracked hours · same pairs all week, reshuffles next week</span></div>'+
-      d.teams.map(function(t){
-        return '<div style="margin-bottom:7px;"><b style="font-size:11.5px;">'+_ce(t.team)+'</b> <span style="color:var(--t3);font-size:10.5px;">· '+t.members+' VAs</span><br>'+
-          t.pairs.map(function(p){ return '<span style="display:inline-block;background:var(--card,#fff);border:1px solid var(--border);border-radius:100px;padding:3px 10px;margin:3px 4px 0 0;font-size:11px;">'+_ce(p.reviewer_name)+' <span style="color:#2563eb;font-weight:800;">→ checks →</span> '+_ce(p.reviewee_name)+'</span>'; }).join('')+
-        '</div>';
-      }).join('');
-  }catch(e){ box.innerHTML='<span style="color:#b45309;">'+_ce(String(e&&e.message||e))+' <a href="#" onclick="var b=document.getElementById(\'qar-pairs-box\'); if(b) b.style.display=\'none\'; qarShowPairs(); return false;" style="color:#2563eb;font-weight:700;">Retry</a></span>'; }
-}
-async function qarPenalize(){
-  var rev=(document.getElementById('qar-pen-rev')||{}).value, pts=(document.getElementById('qar-pen-pts')||{}).value;
-  if(!rev){ toast('Pick the reviewer.'); return; }
-  if(!confirm('Dock this reviewer '+pts+' demerit point(s) for a missed error?')) return;
-  try{
-    var rname=''; try{ rname=(emps.find(function(e){return e.employee_id===rev;})||{}).full_name||rev; }catch(_e){}
-    var r=await fetch(API+'?action=qa_review_penalize&reviewer_id='+encodeURIComponent(rev)+'&reviewer_name='+encodeURIComponent(rname)+'&points='+encodeURIComponent(pts)+'&_='+Date.now());
-    var d=await r.json();
-    if(d&&(d.ok)) toast('Reviewer docked '+pts+' pt(s).');
-    else toast('Could not dock: '+((d&&d.error)||'error'));
-  }catch(e){ toast('Connection error.'); }
-}
+/* The QA review-chain screen (openQaChain / _renderQaChain / qarSubmit / qarApprove /
+   qarShowPairs / qarPenalize) lived here. Removed with the chain itself — QA now comes
+   from the Factory: screenshots are auto-checked and an admin approves the week. Weekly
+   scores are still edited through Add / Edit; nothing else used these. */
+
 function openInnoRubric(){
   var ov=document.getElementById('inno-rubric'); if(!ov){ ov=document.createElement('div'); ov.id='inno-rubric'; document.body.appendChild(ov); }
   ov.style.cssText='position:fixed;inset:0;z-index:100001;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
