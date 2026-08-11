@@ -5079,7 +5079,7 @@ async function toggleAssessmentOpen(){
     else toast('Could not update.'); }
   catch(e){ toast('Could not update.'); }
 }
-async function loadAdminScorecard() {
+async function loadAdminScorecard(force) {
   loadAssessmentOpen();
   // Populate employee dropdown
   if (!scAdminEmps.length) {
@@ -5166,7 +5166,7 @@ async function _scRenderRows() {
   var empId = document.getElementById('sc-emp-filter').value;
   var month = document.getElementById('sc-month-filter').value;
   try {
-    var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '') + '&_=' + Date.now();
+    var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '') + (force ? '&force=1' : '') + '&_=' + Date.now();
     var res  = await jGet(url, 12000, 120000);   // very long timeout — cold all-employee compute can exceed a minute
     var data = await res.json();
     var rows = data.scorecards || [];
@@ -5790,7 +5790,10 @@ function _revNext(){
 // ── Force-refresh all scores (clear server cache + recompute) ──
 async function recomputeScorecards(){
   var btn=document.getElementById('sc-recompute-btn'); var old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='Recomputing…'; }
-  try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); try{ jBust(); }catch(_){} await loadAdminScorecard(); if(typeof toast==='function') toast('Scores recomputed — Team Sales refreshed.'); }
+  /* force=1 on the reload as well as busting the version. bust_scorecards bumps sc_ver, but the
+     admin bundle is also held in its own short cache and the client keeps a copy in jGet — an
+     admin pressing Recompute is explicitly asking for fresh numbers, so bypass every layer. */
+  try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); try{ jBust(); }catch(_){} await loadAdminScorecard(true); if(typeof toast==='function') toast('Scores recomputed — Team Sales refreshed.'); }
   catch(e){ if(typeof toast==='function') toast('Recompute failed — try again.'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old||'↻ Recompute'; } }
 }
