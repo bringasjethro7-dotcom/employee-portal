@@ -1555,7 +1555,12 @@ function _jKey(u){ return String(u).replace(/[?&]_=\d+/,''); }
    Panel storms can no longer fire 20 parallel requests that starve the VAs' backend slots —
    reads queue politely, retries re-enter the queue (never hold a slot), and every request
    feeds the health chip (bottom-right) so fetch trouble is VISIBLE before anyone reports it. */
-var _afx={ max:5, active:0, q:[[],[],[]], ok:0, fail:0, ms:0, n:0, lastErr:0, degraded:0 };
+/* max:2, not 5. Firing five at once at a backend that executes ONE AT A TIME does not make
+   anything faster — it just builds a five-deep queue where the last arrival waits for four full
+   round-trips before it starts, then times out. Two keeps the pipe busy while a slow call is in
+   flight without stacking a queue behind it. Throughput is set by the server; concurrency here
+   only decides how many callers are left waiting. */
+var _afx={ max:2, active:0, q:[[],[],[]], ok:0, fail:0, ms:0, n:0, lastErr:0, degraded:0 };
 function _afxPump(){
   while(_afx.active<_afx.max){
     var job=_afx.q[0].shift()||_afx.q[1].shift()||_afx.q[2].shift();
@@ -1609,9 +1614,20 @@ var _jTTL={ get_all_employees:45000, admin_bootstrap:8000, get_tracker_projects:
 // JSON during a hiccup. That is NOT data: never cache it, and treat it as a retryable failure —
 // otherwise one blip gets cached and every panel keeps replaying it for the whole TTL.
 function _jIsJson(t){ var s=String(t||'').trim().charAt(0); return s==='{' || s==='['; }
+/* PER-ENDPOINT TIMEOUTS.
+   Apps Script runs one execution at a time PER USER. The admin dashboard fires a dozen reads,
+   so they queue: the first answers in 3s, the fifth has already waited 30s before it even
+   starts. A flat 15s cap therefore did not measure "is the server slow" — it guaranteed that
+   everything behind the first two heavy calls failed, which is exactly what the HUD showed
+   (OK 2 · Failed 9) and why panels fell back to cached data.
+   These are ceilings, not waits: a fast reply still returns immediately. */
+var _jTO={ get_all_scorecards:120000, get_all_qa_weekly:90000, admin_bootstrap:90000,
+  get_worklog:60000, get_attendance:60000, po_progress_all:60000, list_innovations:45000,
+  get_finalized:45000, scorecard_anomalies:120000, early_bird:45000, sales_breakdown:60000 };
 function jGet(url, ttl, timeout){
-  if(ttl==null){ var _act=(String(url).match(/[?&]action=([a-z_]+)/)||[])[1]; ttl=(_act&&_jTTL[_act]!=null)?_jTTL[_act]:1500; }
-  var TO = timeout||15000;   // heavy endpoints can pass a longer timeout
+  var _act=(String(url).match(/[?&]action=([a-z_]+)/)||[])[1];
+  if(ttl==null){ ttl=(_act&&_jTTL[_act]!=null)?_jTTL[_act]:1500; }
+  var TO = timeout || (_act&&_jTO[_act]) || 45000;
   var key=_jKey(url), now=Date.now(), c=_jCache[key];
   if(ttl>0 && c && (now-c.t)<ttl){
     // Serve from cache. Once it's past half its TTL, refresh in the BACKGROUND (P2 lane) so the
@@ -5113,7 +5129,7 @@ async function loadAdminScorecard(force) {
   var month = document.getElementById('sc-month-filter').value;
   var tbody = document.getElementById('sc-body');
   if(!_scSnapPaint()) tbody.innerHTML = sklTableRows(10, 6);   // instant paint from last snapshot, else skeleton
-  await _scRenderRows();     // refresh in the background
+  await _scRenderRows(force);     // refresh in the background (force skips every cache layer)
   startScLive();             // keep the ranking live while this tab is open
   try{ updateFinalizeUI(month); }catch(_f){}   // show whether the selected month is finalized
 }
@@ -5161,15 +5177,23 @@ function _scSnapKey(){ return 'sc_snap_'+(document.getElementById('sc-emp-filter
 function _scSnapPaint(){ try{ var s=JSON.parse(localStorage.getItem(_scSnapKey())||'null'); if(s&&s.rows&&s.rows.length){ _scPaint(s.rows); return true; } }catch(e){} return false; }
 // Fetch through jGet (client cache + stale-while-revalidate + retry), paint, and remember the
 // result so reopening the tab is instant. The 20s poller reuses this with no "Loading" flash.
-async function _scRenderRows() {
+async function _scRenderRows(force) {
   var tbody = document.getElementById('sc-body'); if (!tbody) return;
   var empId = document.getElementById('sc-emp-filter').value;
   var month = document.getElementById('sc-month-filter').value;
   try {
-    var url = API + '?action=get_all_scorecards' + (empId ? '&employee_id=' + empId : '') + (month ? '&month=' + month : '') + (force ? '&force=1' : '') + '&_=' + Date.now();
-    var res  = await jGet(url, 12000, 120000);   // very long timeout — cold all-employee compute can exceed a minute
+    /* One bundled call for the tab. Falls back to the old endpoint if the bundle is missing,
+       so an un-deployed script still renders the table instead of showing nothing. */
+    var url = API + '?action=' + (empId ? 'get_all_scorecards' : 'scorecard_tab')
+            + (empId ? '&employee_id=' + empId : '')
+            + (month ? '&month=' + month : '') + (force ? '&force=1' : '') + '&_=' + Date.now();
+    var res  = await jGet(url, force?0:12000, 120000);   // force = no client cache either
     var data = await res.json();
-    var rows = data.scorecards || [];
+    /* The bundle nests it one level deeper — scorecard_tab returns { scorecards:{ scorecards:[…] } }
+       because it wraps getAllScorecards' own payload. Handle both shapes so the single-employee
+       path and an un-deployed script still render. */
+    var _sc = data.scorecards;
+    var rows = (_sc && _sc.scorecards) ? _sc.scorecards : (Array.isArray(_sc) ? _sc : []);
     _scPaint(rows);
     try{ localStorage.setItem(_scSnapKey(), JSON.stringify({ rows:rows, ts:Date.now() })); }catch(_e){}
   } catch(e) {
