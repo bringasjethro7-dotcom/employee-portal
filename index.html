@@ -20988,7 +20988,14 @@ body.light .jul4-lbscore{color:#059669}
   // ── Retired block designs — pulled from the shop and the game entirely. Deleting the keys
   // removes them from the picker (Object.keys(DESIGNS)); anyone who had one equipped safely
   // falls back to Classic via the ||DESIGNS.classic guards below. ──
-  ['pixel','glossy','gem','bubble','star','candy','galaxy','ice','marble','gold','aurora'].forEach(function(_k){ try{ delete DESIGNS[_k]; }catch(_e){} });
+  /* RETIRED FROM SALE — NOT CONFISCATED.
+     These were DELETED from DESIGNS, which took them away from the people who had already paid
+     for them: an owner's board fell back to Classic and the design vanished from the Locker.
+     JMB014 is equipped on Gem, bought and paid for, and has been playing on Classic ever since.
+     They are now flagged instead. The shop skips them, the renderer still knows how to draw
+     them, and an owner keeps what they bought. */
+  var RETIRED_DESIGNS = ['pixel','glossy','gem','bubble','star','candy','galaxy','ice','marble','gold','aurora'];
+  RETIRED_DESIGNS.forEach(function(_k){ try{ if(DESIGNS[_k]) DESIGNS[_k].retired=true; }catch(_e){} });
   /* The board Ravager reads to find its neighbours. Set for the duration of a board pass and
      cleared afterwards, so panels that draw loose pieces (next, hold, shop preview) fall back
      to "no neighbours" — which is the truth for a piece that isn't on the board yet. */
@@ -23262,7 +23269,13 @@ body.light .jul4-lbscore{color:#059669}
     var coins=(w&&w.coins!=null)?w.coins:((typeof _tetCos!=='undefined'&&_tetCos&&_tetCos.coins!=null)?_tetCos.coins:((_tetWallet&&_tetWallet.coins!=null)?_tetWallet.coins:0));
     var rating=(w&&w.rating!=null)?w.rating:0;
     _setTetCoins(coins);
-    var ids=Object.keys(DESIGNS).filter(function(id){ return !DESIGNS[id].hidden; });   // retired cheap skins hidden from shop
+    /* Hide retired designs from the shop, but keep showing one you already own — otherwise a
+       paid-for design silently disappears from the Locker and there is no way to equip it. */
+    var ids=Object.keys(DESIGNS).filter(function(id){
+      if(DESIGNS[id].hidden) return false;
+      if(DESIGNS[id].retired) return owned.indexOf(id)>=0;
+      return true;
+    });
     // ── categories: Regular (standard coin skins) · Premium (top-tier coin skins) · Iconic (rank-earned flagships) ──
     function catOf(t){ if(t.tier) return t.tier; if(t.req) return 'iconic'; if((t.cost||0)>=5000) return 'premium'; return 'regular'; }
     function cardHTML(id){
