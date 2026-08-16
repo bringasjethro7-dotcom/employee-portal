@@ -5452,10 +5452,13 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
           <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;">5% weight · Project revenue</p>
         </div>
 
-        <!-- Client Feedback (CSAT) -->
+        <!-- Reviewer Grade — took the CSAT slot Aug 2026. How well this person reviews their
+             colleagues in the weekly QA peer review: accuracy vs the AI re-check, disputes upheld
+             against them, engagement, time. The element ids still say csat because the server
+             field kept its name; only the label changed. -->
         <div class="card" style="padding:1rem;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-            <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">Client Feedback</p>
+            <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">Reviewer Grade</p>
             <span id="sc-csat-badge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(14,165,164,0.14);color:#0ea5a4;">—</span>
           </div>
           <p id="sc-csat-num" style="font-size:26px;font-weight:700;color:var(--text-1);margin:0 0 10px;">—</p>
@@ -5505,13 +5508,32 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
           <span style="font-size:18px;">💡</span>
           <div style="flex:1;">
             <p style="font-size:13.5px;font-weight:700;color:var(--text-1);margin:0;">Innovation Idea <span id="sc-inno-month" style="color:var(--text-3);font-weight:500;font-size:12px;"></span></p>
-            <p style="font-size:11.5px;color:var(--text-3);margin:2px 0 0;">One idea a month to improve the portal, the ALTR tool, or your own SOP. It counts toward your scorecard.</p>
+            <p style="font-size:11.5px;color:var(--text-3);margin:2px 0 0;">One idea a month to improve ANY of our tools — from the portal to the Moma IG Reels tool — or your own SOP. It counts toward your scorecard.</p>
           </div>
           <span id="sc-inno-status" style="font-size:11px;font-weight:700;border-radius:100px;padding:3px 10px;white-space:nowrap;"></span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-          <select id="sc-inno-area" style="flex:1;min-width:140px;background:var(--card2);border:1px solid var(--border);color:var(--text-1);border-radius:9px;padding:8px 10px;font:inherit;font-size:12.5px;">
-            <option value="">Area…</option><option>Portal</option><option>ALTR Tool</option><option>My SOP</option><option>Other</option>
+          <select id="sc-inno-area" onchange="innoAreaChanged()" style="flex:1;min-width:160px;background:var(--card2);border:1px solid var(--border);color:var(--text-1);border-radius:9px;padding:8px 10px;font:inherit;font-size:12.5px;">
+            <option value="">Area…</option>
+            <option>Portal</option>
+            <option>Productivity Hub</option>
+            <option>QA Review</option>
+            <option>ALTR Media Tool</option>
+            <option>Reddit Tool (Altz)</option>
+            <option>Reddit Tool (Casey)</option>
+            <option>X Tool (John)</option>
+            <option>IG Reels Tool (Arlo/Stefan)</option>
+            <option>Snapchat Tool (Ember)</option>
+            <option>Moma IG Reels Tool</option>
+            <option>NewFans Tool / CRM</option>
+            <option>Torchlight Tool (Shopify/Design)</option>
+            <option>Posting Assistant</option>
+            <option>Wallboard</option>
+            <option>My SOP</option>
+            <option>Other</option>
+          </select>
+          <select id="sc-inno-sop" style="display:none;flex:1;min-width:180px;background:var(--card2);border:1px solid var(--border);color:var(--text-1);border-radius:9px;padding:8px 10px;font:inherit;font-size:12.5px;">
+            <option value="">Loading SOPs…</option>
           </select>
           <input id="sc-inno-title" placeholder="Title (short)" maxlength="120" style="flex:2;min-width:180px;background:var(--card2);border:1px solid var(--border);color:var(--text-1);border-radius:9px;padding:8px 10px;font:inherit;font-size:12.5px;">
         </div>
@@ -8041,10 +8063,28 @@ async function loadMyInnovation(){
     } else if(st){ st.textContent='Not submitted'; st.style.background='rgba(245,158,11,.15)'; st.style.color='#d97706'; }
   }catch(e){}
 }
+var _innoSops=null;
+async function innoAreaChanged(){
+  var area=(document.getElementById('sc-inno-area')||{value:''}).value.trim();
+  var sel=document.getElementById('sc-inno-sop'); if(!sel) return;
+  if(area!=='My SOP'){ sel.style.display='none'; return; }
+  sel.style.display='';
+  if(_innoSops) return;                                  // already loaded
+  try{
+    var r=await fetch(APPS_SCRIPT_URL+'?action=sop_list&_='+Date.now()); var d=await r.json();
+    _innoSops=(d&&d.rows)||[];
+    sel.innerHTML='<option value="">Which SOP?…</option>'+_innoSops.map(function(x){
+      var label=(x.project?x.project+' — ':'')+(x.title||'');
+      return '<option>'+label.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>';
+    }).join('');
+  }catch(e){ sel.innerHTML='<option value="">Could not load SOP list — type it in the problem box</option>'; }
+}
 async function submitMyInnovation(){
   var id=_myEmpId(); var msg=document.getElementById('sc-inno-msg');
   if(!id){ if(msg){msg.textContent='Please reload and try again.';msg.style.color='#ef4444';} return; }
   var area=(document.getElementById('sc-inno-area')||{value:''}).value.trim();
+  var sop=(document.getElementById('sc-inno-sop')||{value:''}).value.trim();
+  if(area==='My SOP' && !sop){ if(msg){msg.textContent='Pick which SOP your idea improves.';msg.style.color='#ef4444';} return; }
   var title=(document.getElementById('sc-inno-title')||{value:''}).value.trim();
   var prob=(document.getElementById('sc-inno-problem')||{value:''}).value.trim();
   var sol=(document.getElementById('sc-inno-solution')||{value:''}).value.trim();
@@ -8054,7 +8094,7 @@ async function submitMyInnovation(){
   try{
     var mk=monthKeyPHT();
     var name=(window._currentEmpData&&window._currentEmpData.full_name)||id;
-    var url=APPS_SCRIPT_URL+'?action=submit_innovation&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(name)+'&month='+encodeURIComponent(mk)+'&area='+encodeURIComponent(area)+'&title='+encodeURIComponent(title)+'&problem='+encodeURIComponent(prob)+'&solution='+encodeURIComponent(sol)+'&importance='+encodeURIComponent(imp)+'&_='+Date.now();
+    var url=APPS_SCRIPT_URL+'?action=submit_innovation&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(name)+'&month='+encodeURIComponent(mk)+'&area='+encodeURIComponent(area)+'&title='+encodeURIComponent(title)+'&problem='+encodeURIComponent(prob)+'&solution='+encodeURIComponent(sol)+'&importance='+encodeURIComponent(imp)+'&sop='+encodeURIComponent(area==='My SOP'?sop:'')+'&_='+Date.now();
     var r=await fetch(url); var d=await r.json();
     if(d&&d.ok){ if(msg){ msg.textContent='Submitted ✓ — the 🤖 bot has pre-graded your idea; your score unlocks once admin approves it. You can revise until then.'; msg.style.color='#16a34a'; } loadMyInnovation(); }
     else if(d&&d.error==='NEED_STRUCTURE'){ if(msg){msg.textContent='All three parts are required.';msg.style.color='#ef4444';} }
