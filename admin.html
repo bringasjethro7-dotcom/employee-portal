@@ -1118,8 +1118,8 @@ body{background-attachment:initial !important}
       <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 16px;cursor:pointer;" onclick="toggleCfPanel()">
           <div style="font-size:13px;color:var(--t1);">
-            <b>Client Feedback links</b> <span style="color:var(--t3);font-size:11px;">· CSAT 1–10 · one rating per project each month</span>
-            <div style="font-size:11px;color:var(--t3);margin-top:3px;">Share each project's link with the client. Their rating becomes the Client Feedback score (10%) for everyone on that project.</div>
+            <b>Client Feedback links</b> <span style="color:var(--t3);font-size:11px;">· legacy · stopped scoring Aug 2026</span>
+            <div style="font-size:11px;color:var(--t3);margin-top:3px;">These client ratings fed the old Client Feedback 5%. From August 2026 that slot is the <b>Reviewer Grade</b>, computed automatically from QA peer reviews — client ratings still record here but no longer reach the scorecard.</div>
           </div>
           <button class="bsm" id="cf-panel-toggle" style="white-space:nowrap;" onclick="event.stopPropagation();toggleCfPanel()">Manage</button>
         </div>
@@ -1139,7 +1139,7 @@ body{background-attachment:initial !important}
             <th>Assessment</th>
             <th>Team Sales</th>
             <th>Demerit</th>
-            <th>Client FB</th>
+            <th>Reviewer Grade</th>
             <th>Innovation</th>
             <th>Overall</th>
           </tr></thead>
@@ -1175,8 +1175,14 @@ body{background-attachment:initial !important}
           </div>
           <div class="m2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
             <div>
-              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Client Feedback (0–100)</label>
-              <input type="number" id="sc-form-csat" class="sinp" min="0" max="100" step="1" placeholder="from client link" style="width:100%;" />
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Reviewer Grade (auto)</label>
+              <!-- Read-only since Aug 2026: this 5% is the reviewer grade, computed weekly from how
+                   the person reviews colleagues (accuracy vs the AI re-check, upheld disputes,
+                   engagement, time) and averaged over the month. It is deliberately not editable
+                   here — a hand-typed number would silently overwrite a measured one, and the
+                   pre-Aug months this box used to serve are settled. Manage it from QA Review →
+                   Results. -->
+              <input type="number" id="sc-form-csat" class="sinp" min="0" max="100" step="1" placeholder="auto — from QA Review" style="width:100%;" disabled title="Computed from their weekly reviewing. See QA Review → Results." />
               <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">Override only — normally set by the client's rating link (10% weight)</p>
             </div>
             <div>
@@ -1217,6 +1223,8 @@ body{background-attachment:initial !important}
             <option value="15">Markup +15%</option>
             <option value="20">Markup +20%</option>
           </select>
+          <label style="font-size:11px;color:var(--t3);" title="Unpaid amount carried over from a previous invoice — shown as its own line and added to the total due. Leave 0 when the client is fully settled.">Outstanding (USD)
+            <input class="sinp" id="wl-outstanding" type="number" min="0" step="any" placeholder="0.00" style="width:100px;"></label>
           <button class="bsm" onclick="generateInvoice()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Generate Invoice</button>
           <button class="bsm" onclick="exportWorkLogCSV()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
           <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
@@ -3770,7 +3778,10 @@ async function generateInvoice(){
   // Prior invoices for this project → the invoice window shows an amount trend.
   var history=[];
   try{ var rh=await fetch(API+'?action=invoice_history&project='+encodeURIComponent(project)+'&_='+Date.now()); var dh=await rh.json(); history=(dh&&dh.history)||[]; }catch(e){}
-  openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100, history);
+  /* Outstanding balance from a previous cutoff the client only part-paid. Carried as its own
+     line on the invoice so the client sees exactly what is old debt and what is new work. */
+  var outstanding=parseFloat((document.getElementById('wl-outstanding')||{}).value)||0;
+  openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100, history, outstanding);
 }
 // Build a no-print comparative trend panel (bars of prior invoice amounts + % change vs last).
 function buildInvoiceTrend(history, subtotal, project){
@@ -3803,7 +3814,8 @@ function buildInvoiceTrend(history, subtotal, project){
     '<div style="font-size:11px;color:#9ca3af;margin-top:8px;">Prior average $'+avg.toLocaleString(undefined,{maximumFractionDigits:2})+' · '+history.length+' prior invoice'+(history.length!==1?'s':'')+' · amounts in USD · this panel is not printed</div>'+
   '</div>';
 }
-function openInvoiceWindow(project, from, to, lines, subtotal, history){
+function openInvoiceWindow(project, from, to, lines, subtotal, history, outstanding){
+  outstanding=Math.round((parseFloat(outstanding)||0)*100)/100;
   var invNo='';   // no number until the invoice is RECORDED (assigned server-side, starts at 762)
   var trendHtml=buildInvoiceTrend(history||[], subtotal, project);
   var today=new Date(); var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
@@ -3859,7 +3871,18 @@ function openInvoiceWindow(project, from, to, lines, subtotal, history){
       '<div class="metaright"><div class="mrow"><span>INVOICE</span><b id="inv-no" contenteditable="true">'+(invNo||'PREVIEW — not recorded')+'</b></div><div class="mrow"><span>DATE</span><b contenteditable="true">'+invDate(todayStr)+'</b></div><div class="mrow"><span>TERMS</span><b contenteditable="true">DUE IN 48 HRS</b></div></div></div>'+
     '<table class="items"><thead><tr><th>SERVICE</th><th class="num">TOTAL HOURS</th><th class="num">RATE/HR</th><th class="num">AMOUNT</th></tr></thead><tbody>'+
       '<tr class="grp"><td colspan="4">'+escAdmin(project)+'</td></tr>'+rowsHtml+'</tbody></table>'+
-    '<div class="totals"><div class="trow"><span>SUBTOTAL</span><b>'+invMoney(subtotal)+'</b></div></div>'+
+    /* When an outstanding balance exists the totals become three lines — this period's work,
+       the carried balance, and the real amount due — so a part-paying client is never confused
+       about what the number is made of. Revenue recorded in Sales stays the SUBTOTAL: the
+       outstanding was already booked as revenue the period it was invoiced, and adding it again
+       would double-count. */
+    '<div class="totals"><div style="display:block;">'+
+      (outstanding>0
+        ? ('<div class="trow" style="border-top:none;padding-top:0;"><span>THIS PERIOD</span><b>'+invMoney(subtotal)+'</b></div>'+
+           '<div class="trow" style="border-top:1px solid #e5e7eb;padding-top:8px;"><span style="color:#b45309;">OUTSTANDING BALANCE (previous invoice)</span><b style="color:#b45309;">'+invMoney(outstanding)+'</b></div>'+
+           '<div class="trow"><span>TOTAL DUE</span><b>'+invMoney(Math.round((subtotal+outstanding)*100)/100)+'</b></div>')
+        : ('<div class="trow"><span>SUBTOTAL</span><b>'+invMoney(subtotal)+'</b></div>'))+
+    '</div></div>'+
     '<div class="foot"><div class="ftitle">PAYMENT OPTIONS</div><div class="qrow">'+
       '<div class="qcard"><img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data='+encodeURIComponent('0x937119525166bfbc8f1b5af09ce467e9c40612f3')+'" alt="Binance QR"/><div class="qlbl">Binance · USDT</div><div class="qsub">ETH network</div></div>'+
       '<div class="qcard"><img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data='+encodeURIComponent('https://www.paypal.com/paypalme/JethroBringas')+'" alt="PayPal QR"/><div class="qlbl">PayPal</div><div class="qsub">Jethro Bringas</div></div>'+
@@ -5432,7 +5455,7 @@ async function exportRankingsPptx(){
       {l:'Assess', v:dash(r.assessment),    c:'9333EA'},
       {l:'Sales',  v:dash(r.team_sales),    c:'0891B2'},
       {l:'Demerit',v:dash(r.demerit_score), c:(parseFloat(r.demerit_score)>=100?'16A34A':(dash(r.demerit_score)==='—'?'94A3B8':'DC2626'))},
-      {l:'CSAT',   v:dash(r.csat),          c:'0EA5A4'}
+      {l:'Rev Grade', v:dash(r.csat),       c:'0EA5A4'}
     ]; };
     for(var k=rows.length-1;k>=0;k--){
       var r=rows[k], rank=k+1, rc=rankCol(rank);
