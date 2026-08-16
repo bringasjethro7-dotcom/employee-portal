@@ -17133,6 +17133,7 @@ body.light .jul4-lbscore{color:#059669}
     <div id="tl-roster" style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;margin-bottom:16px;"></div>
     <div id="tl-auto" style="display:none;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);border-radius:11px;padding:12px;text-align:center;font-weight:800;font-size:14px;color:#fbbf24;margin-bottom:8px;">Auto-starting…</div>
     <button id="tl-join" onclick="tourneyJoin()" style="display:none;width:100%;background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border:none;border-radius:11px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:8px;">✋ Join tournament</button>
+    <button id="tl-spec" onclick="tourneySpectate()" style="display:none;width:100%;background:linear-gradient(135deg,#7c3aed,#4c1d95);color:#fff;border:none;border-radius:11px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:8px;">📺 Join as spectator</button>
     <button id="tl-launch" onclick="tourneyLaunch()" style="display:none;width:100%;background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:11px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:8px;">▶ Start</button>
     <button onclick="tourneyLeaveLobby()" style="width:100%;background:transparent;border:1px solid rgba(255,255,255,.18);color:#cdd6f5;border-radius:11px;padding:10px;font-weight:600;font-size:13px;cursor:pointer;">Leave</button>
   </div>
@@ -19684,6 +19685,7 @@ body.light .jul4-lbscore{color:#059669}
         .on('broadcast',{event:'tjoin'},   function(p){ onTJoin(p.payload); })
         .on('broadcast',{event:'troster'}, function(p){ onTRoster(p.payload); })
         .on('broadcast',{event:'tstart'},  function(p){ onTStart(p.payload); })
+        .on('broadcast',{event:'tspec'},   function(p){ onTSpec(p.payload); })
         .subscribe(function(st){ if(st==='SUBSCRIBED'){ lobbyReady=true; var q=lobbyQueue.slice(); lobbyQueue=[]; q.forEach(function(m){ try{ lobby.send(m); }catch(e){} }); } });
     }catch(e){}
   };
@@ -20386,7 +20388,7 @@ body.light .jul4-lbscore{color:#059669}
   // Skill-Ladder bot practice keeps the old 3:00 / 3-KO rules.
   var BK_TIME=120, BK_KOS=5;   // grand-finals ruleset: every versus match is 2:00
   // Build stamp — lets us tell instantly whether a browser is running the current file or a cached one.
-  var TET_BUILD='TET-2026.08.16-grandfinal';
+  var TET_BUILD='TET-2026.08.17-spectator';
   try{
     var _bs=Math.floor(BK_TIME/60)+':'+(BK_TIME%60<10?'0':'')+(BK_TIME%60);
     console.log('%c'+TET_BUILD+'%c  duel & bracket: '+_bs+' · '+BK_KOS+' KO · combo ['+COMBO_TABLE.join(',')+'] · cap '+MAX_SEND,
@@ -21887,10 +21889,11 @@ body.light .jul4-lbscore{color:#059669}
   function onTRoster(p){
     if(!TL || TL.started || !p || p.tid!==TL.tid || !p.players) return;
     var changed=false;
-    for(var id in p.players){ if(p.players.hasOwnProperty(id) && !TL.players[id]){ TL.players[id]=p.players[id]; changed=true; } }
+    for(var id in p.players){ if(p.players.hasOwnProperty(id) && !TL.players[id] && !(TL.specs&&TL.specs[id])){ TL.players[id]=p.players[id]; changed=true; } }
     if(changed){ renderLobby(); _sendRoster(); }   // propagate the newly-merged union onward
   }
   function onTJoin(p){ if(!TL || p.tid!==TL.tid) return;
+    if(TL.specs && TL.specs[String(p.id)]) return;   // declared spectator — never seed them
     var isNew = !TL.players[p.id];
     TL.players[p.id]=p.name; renderLobby();
     if(isNew) _sendRoster();   // rebroadcast the union so a dropped join can't split the bracket
@@ -21902,6 +21905,25 @@ body.light .jul4-lbscore{color:#059669}
     var tries=0; (function r(){ if(!TL||TL.started) return; lobbySend('tjoin',{tid:TL.tid, id:eid(), name:ename()}); _sendRoster(); if(++tries<6) setTimeout(r,900); })();
     renderLobby();
   };
+  // 📺 SPECTATOR JOIN — you're IN the event (doors, opening reel, every round, the ceremony)
+  // but never seeded in the bracket. Built for the big screen: the client simply follows the
+  // tournament it can already compute — bracket between rounds, live broadcast during matches.
+  window.tourneySpectate=function(){
+    if(!TL || TL.started) return;
+    TL.spec=true; ac();
+    if(!TL.specs) TL.specs={};
+    TL.specs[String(eid())]=1;
+    delete TL.players[eid()];                 // un-seed myself (hosts are auto-rostered)
+    // Tell every client, and keep telling — roster gossip must never union me back in.
+    var tries=0; (function r(){ if(!TL||TL.started) return; lobbySend('tspec',{tid:TL.tid, id:eid()}); if(++tries<6) setTimeout(r,900); })();
+    renderLobby();
+    showToast('📺 You\'re in as spectator — the broadcast starts with the tournament.');
+  };
+  function onTSpec(p){ if(!TL || !p || p.tid!==TL.tid) return;
+    if(!TL.specs) TL.specs={};
+    TL.specs[String(p.id)]=1;
+    if(TL.players[p.id]){ delete TL.players[p.id]; renderLobby(); }
+  }
   window.tourneyLaunch=function(){
     if(!TL) return; if(Object.keys(TL.players).length<2){ showToast('Need at least 2 players.'); return; }
     var seed=TL.tid; TL.started=true;
@@ -21909,7 +21931,7 @@ body.light .jul4-lbscore{color:#059669}
     lobbySend('tstart',{tid:TL.tid, seed:seed, players:players});
     beginBracket(TL.tid, players);
   };
-  function onTStart(p){ if(!TL || p.tid!==TL.tid) return; if(!TL.players[eid()]) return; // I didn't join
+  function onTStart(p){ if(!TL || p.tid!==TL.tid) return; if(!TL.players[eid()] && !TL.spec) return; // neither playing nor spectating
     if(M && M.playing) return;
     TL.started=true; beginBracket(p.tid, p.players);
   }
@@ -21924,6 +21946,20 @@ body.light .jul4-lbscore{color:#059669}
       '<span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;box-shadow:0 0 7px #22c55e;"></span>'+esc(TL.players[id])+((TL.host && id===TL.host)?' <span style="color:#ffb020;font-size:10px;">HOST</span>':'')+(id===eid()?' <span style="color:#c9905f;font-size:10px;">(you)</span>':'')+'</div>'; }).join('');
     el('tl-count').textContent=ids.length+' player'+(ids.length!==1?'s':'');
     var joined=!!TL.players[eid()];
+    var specBtn=el('tl-spec');
+    if(specBtn) specBtn.style.display=(joined||TL.spec)?'none':'block';
+    if(TL.spec && !joined){
+      if(TL.nightly){
+        var _gr2=bkIsGrand(TL.tid), _dy2=bkIsDay(TL.tid);
+        el('tl-title').textContent=_gr2?'👑 THE GRAND FINAL':_dy2?'☀️ Day Tetris Tournament':'🏆 Nightly Tetris Tournament';
+      }
+      if(el('tl-join')) el('tl-join').style.display='none';
+      var _ln=el('tl-launch');
+      if(_ln){ var _hostSpec=(!TL.nightly && TL.host && String(TL.host)===String(eid())); _ln.style.display=_hostSpec?'block':'none'; if(_hostSpec) _ln.textContent='▶ Start ('+Object.keys(TL.players).length+' players)'; }
+      if(el('tl-auto')){ el('tl-auto').style.display='block'; el('tl-auto').innerHTML='📺 SPECTATOR — you\'re in the broadcast booth. The show starts with the tournament.'; }
+      el('tl-count').textContent=ids.length+' player'+(ids.length!==1?'s':'');
+      return;
+    }
     if(TL.nightly){
       // Scheduled = no host, no launcher. You either Join, or you don't and it starts without you.
       var _gr = bkIsGrand(TL.tid), _dy = bkIsDay(TL.tid);
@@ -22772,8 +22808,9 @@ body.light .jul4-lbscore{color:#059669}
       try{ sfxInvite(); }catch(e){}
       setTimeout(function(){ if(TB && !TB.done && TB.botId===String(eid())) bkPlayBot(); }, 2600);
     } else {
-      bkRender(TB.alive.indexOf(me)>=0 ? null : 'You are out — watching the matches live.');
-      setTimeout(spAuto, 3000);
+      var _isSpec=(TB.order.indexOf(me)<0);
+      bkRender(TB.alive.indexOf(me)>=0 ? null : (_isSpec ? '📺 SPECTATOR BROADCAST — '+TB.roundLabel+' · following the matches live.' : 'You are out — watching the matches live.'));
+      setTimeout(spAuto, _isSpec?1400:3000);
     }
   }
   function bkBot(){ return BOTS[6] || {lv:7, name:'Stacker Sven'}; }   // Level 7 bot
@@ -25603,7 +25640,7 @@ body.light .jul4-lbscore{color:#059669}
     }
     if(doorsShut && TL && TL.nightly && !TL.started){
       var pe=el('tet-nightly-pop'); if(pe) pe.style.display='none';
-      if(!TL.players[eid()]){
+      if(!TL.players[eid()] && !TL.spec){
         // You never joined — the tournament runs without you. Just close the lobby.
         TL=null; el('tourney-lobby').style.display='none';
       } else {
