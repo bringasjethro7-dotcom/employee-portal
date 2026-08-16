@@ -5378,7 +5378,7 @@ async function updateFinalizeUI(month){
 async function finalizeMonth(){
   var month=document.getElementById('sc-month-filter').value; if(!month){ toast('Pick a month first.'); return; }
   var lbl=_scMonthLabel(month);
-  if(!confirm('Finalize '+lbl+'?\n\nThis locks the rankings and all 5 awards for '+lbl+' into a frozen snapshot — the numbers can no longer change, and the Reveal and Certificates will print from it.\n\nYou can Re-finalize later to refresh the snapshot with the latest data.')) return;
+  if(!confirm('Finalize '+lbl+'?\n\nThis locks the rankings and all monthly awards for '+lbl+' into a frozen snapshot — the numbers can no longer change, and the Reveal and Certificates will print from it.\n\nYou can Re-finalize later to refresh the snapshot with the latest data.')) return;
   var btn=document.getElementById('sc-final-btn'); var old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='Finalizing…'; }
   try{
     var d=await (await jGet(API+'?action=finalize_scorecard&month='+encodeURIComponent(month)+'&by=Admin', 0, 90000)).json();
@@ -5556,7 +5556,7 @@ async function _awardExtras(month){
   try{ return await (await jGet(API+'?action=award_extras'+(month?'&month='+encodeURIComponent(month):''), 4000, 120000)).json(); }
   catch(e){ return {}; }
 }
-// The five monthly awards: Early Bird, Perfect Attendance, Spotless Record, Sales MVP, Workhorse.
+// The monthly awards: Early Bird, Perfect Attendance, Spotless Record, Sales MVP, Workhorse, and from Aug 2026 Innovation and Best Reviewer.
 function _scAwards(rows, eb, ex){
   ex=ex||{}; var hours=ex.hours||{}, present=ex.present||{}, lates=ex.lates||{}, names=ex.names||{};
   function photoOf(id){ var r=(rows||[]).filter(function(x){ return String(x.employee_id||'').toLowerCase()===String(id||'').toLowerCase(); })[0]; return r?r.photo:''; }
@@ -5602,6 +5602,22 @@ function _scAwards(rows, eb, ex){
     cite:'for the most productive hours tracked this month — sheer dedication and a relentless work ethic.',
     name:names[whBest.k]||whBest.k, id:whBest.k, photo:photoOf(whBest.k),
     metricText:'Logged <b>'+whBest.h.toFixed(1)+' productive hours</b> this month.' }); }
+  // 6 + 7 exist from Aug 2026 — before that, the csat slot held Client Feedback and Innovation wasn't scored.
+  var _awMonth=''; try{ _awMonth=document.getElementById('sc-month-filter').value||''; }catch(_e){}
+  if(!_awMonth || _awMonth>='2026-08'){
+    // 6 · Innovation Award — the highest ADMIN-APPROVED innovation score of the month
+    var inBest=null; (rows||[]).forEach(function(r){ var iv=num(r.innovation); if(iv==null||iv<=0) return; if(!inBest||iv>inBest.iv) inBest={r:r,iv:iv}; });
+    if(inBest){ out.push({ title:'Innovation Award', emoji:'💡', color:'#7C3AED',
+      cite:'for the best innovation idea of the month — seeing what slows the team down and designing the fix.',
+      name:inBest.r.full_name||inBest.r.employee_id, id:inBest.r.employee_id, photo:inBest.r.photo,
+      metricText:'Innovation score: <b>'+inBest.iv.toFixed(0)+'/100</b>'+(inBest.iv>=90?' — marked for implementation.':'.') }); }
+    // 7 · Best Reviewer — the highest Reviewer Grade (how fairly and thoroughly they QA colleagues)
+    var rvBest=null; (rows||[]).forEach(function(r){ var g=num(r.csat); if(g==null||g<=0) return; if(!rvBest||g>rvBest.g) rvBest={r:r,g:g}; });
+    if(rvBest){ out.push({ title:'Best Reviewer Award', emoji:'🔍', color:'#0EA5A4',
+      cite:'for the sharpest and fairest QA reviewing of the month — real attention to the evidence, sound judgement, and integrity throughout.',
+      name:rvBest.r.full_name||rvBest.r.employee_id, id:rvBest.r.employee_id, photo:rvBest.r.photo,
+      metricText:'Reviewer grade: <b>'+rvBest.g.toFixed(2)+'/100</b>.' }); }
+  }
   return out;
 }
 function _certHTML(rows, label, awards){
