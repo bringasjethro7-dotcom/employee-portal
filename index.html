@@ -18348,6 +18348,28 @@ body.light .jul4-lbscore{color:#059669}
   .reel-spot-badges .rsb:nth-child(3){animation-delay:.5s} .reel-spot-badges .rsb:nth-child(4){animation-delay:.6s}
   @keyframes badgeIn{ 0%{opacity:0;transform:translateY(10px) scale(.8)} 100%{opacity:1;transform:none} }
   .reel-spot.mine .reel-spot-av{ box-shadow:0 0 0 5px #fbbf24, 0 0 62px rgba(251,191,36,.75); }
+  /* 🎬 CINEMA PACK — every effect is transform/opacity only (GPU), zero game-thread cost */
+  .reel-inner.punch{ animation:camPunch .5s cubic-bezier(.2,.9,.3,1) }
+  @keyframes camPunch{ 0%{transform:scale(1.055)} 100%{transform:scale(1)} }
+  .act-title .reel-title{ animation:titleSlam .8s cubic-bezier(.16,1.2,.3,1) both }
+  @keyframes titleSlam{ 0%{transform:scale(2.4);opacity:0;filter:blur(10px)} 55%{transform:scale(.95);opacity:1;filter:blur(0)} 75%{transform:scale(1.04)} 100%{transform:scale(1)} }
+  .act-spot .reel-spot-nm{ animation:nameStamp .55s cubic-bezier(.2,1.3,.3,1) .08s both !important }
+  @keyframes nameStamp{ 0%{transform:scale(2.2) rotate(-3deg);opacity:0} 60%{transform:scale(.97) rotate(0);opacity:1} 100%{transform:scale(1)} }
+  .reel-rain{ position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .reel-rain i{ position:absolute; top:-6vh; width:3px; height:15px; border-radius:2px;
+      background:linear-gradient(180deg,#ffd54a,rgba(255,140,20,0)); animation:rainFall linear infinite; }
+  @keyframes rainFall{ to{ transform:translateY(115vh) } }
+  .reel-vortex{ position:absolute; width:74vmin; height:74vmin; border-radius:50%; pointer-events:none;
+      background:conic-gradient(from 0deg, transparent 0 66%, rgba(255,190,60,.22) 82%, transparent 100%);
+      animation:vortexSpin 1s linear infinite; }
+  .reel-vortex.v2{ width:52vmin; height:52vmin; animation-duration:.7s; animation-direction:reverse; opacity:.7; }
+  @keyframes vortexSpin{ to{ transform:rotate(360deg) } }
+  .reel-impactfx{ position:absolute; inset:0; pointer-events:none; z-index:9; animation:hitFrames .3s steps(1) forwards; }
+  @keyframes hitFrames{ 0%{background:#fff;opacity:.95} 33%{background:#000;opacity:.85} 66%{background:#fff;opacity:.7} 100%{background:transparent;opacity:0} }
+  .reel-shock{ position:absolute; left:50%; top:50%; width:26px; height:26px; margin:-13px; border-radius:50%;
+      border:3px solid rgba(255,213,74,.95); pointer-events:none; z-index:8; animation:shockOut .75s cubic-bezier(.1,.8,.3,1) forwards; }
+  @keyframes shockOut{ to{ transform:scale(26); opacity:0; border-width:1px } }
+  @media(prefers-reduced-motion:reduce){ .reel-inner.punch,.act-title .reel-title,.act-spot .reel-spot-nm,.reel-rain i,.reel-vortex,.reel-impactfx,.reel-shock{ animation:none } }
   /* 📺 spectator drama: the boards you're watching rock with every hit */
   .sb-stage{ position:relative; }
   .sb-stage.q1{ animation:tetGShake .24s ease }
@@ -22376,7 +22398,11 @@ body.light .jul4-lbscore{color:#059669}
     while(a.length >= 2) pairs.push([a.shift(), a.shift()]);
     if(a.length === 1) botMan = a[0];
 
-    function set(html, cls){ stage.innerHTML = '<div class="reel-inner '+(cls||'')+(grand?' grand':'')+'">'+html+'</div>'; }
+    function set(html, cls){ stage.innerHTML = '<div class="reel-inner punch '+(cls||'')+(grand?' grand':'')+'">'+html+'</div>'; }
+    /* one-shot effects — self-removing, transform/opacity only, no game impact */
+    function fxRain(n){ try{ var inner=stage.querySelector('.reel-inner'); if(!inner) return; var w=document.createElement('div'); w.className='reel-rain'; var h=''; for(var i2=0;i2<n;i2++){ h+='<i style="left:'+(Math.random()*100).toFixed(1)+'%;animation-duration:'+(0.9+Math.random()*1.4).toFixed(2)+'s;animation-delay:'+(Math.random()*1.1).toFixed(2)+'s"></i>'; } w.innerHTML=h; inner.appendChild(w); }catch(e){} }
+    function fxImpact(){ try{ var d=document.createElement('div'); d.className='reel-impactfx'; stage.appendChild(d); setTimeout(function(){ if(d.parentNode) d.parentNode.removeChild(d); },340); }catch(e){} }
+    function fxShock(){ try{ var d=document.createElement('div'); d.className='reel-shock'; stage.appendChild(d); setTimeout(function(){ if(d.parentNode) d.parentNode.removeChild(d); },800); }catch(e){} }
     function beat(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 
     (async function run(){
@@ -22393,7 +22419,9 @@ body.light .jul4-lbscore{color:#059669}
                 ? '👑 1,200 · 🥈 600 · 🥉 300 JMB Points — and the crown'
                 : '🥇 250 · 🥈 150 · 🥉 100 JMB Points')+'</div>', 'act-title');
         try{ sfxUrgent(0); }catch(e){}
-        await beat(2400);
+        await beat(620);                                        // let the title slam land…
+        try{ _specBomb(); tetShake('tet-reel'); fxImpact(); fxRain(grand?30:18); }catch(e){}   // …then the BOOM
+        await beat(1900);
 
         // ── ACT 2 — the roster walks in
         set('<div class="reel-kicker">'+roster.length+' PLAYER'+(roster.length!==1?'S':'')+'</div>' +
@@ -22425,7 +22453,7 @@ body.light .jul4-lbscore{color:#059669}
         // ── ACT 3 — THE CYCLONE DRAW. Cards are hurled to random spots faster and faster —
         //    genuinely impossible to track — then the whole field implodes into a golden core.
         set('<div class="reel-h2 shuffling">'+(grand?'THE FINAL DRAW':'DRAWING THE BRACKET')+'<span>.</span><span>.</span><span>.</span></div>' +
-            '<div class="reel-cyclone" id="reel-cyc"><i class="cyc-core"></i>' + roster.map(function(id){ return reelCard(id, 'cy'); }).join('') + '</div>',
+            '<div class="reel-cyclone" id="reel-cyc"><i class="reel-vortex"></i><i class="reel-vortex v2"></i><i class="cyc-core"></i>' + roster.map(function(id){ return reelCard(id, 'cy'); }).join('') + '</div>',
             'act-shuffle');
         try{ reelRiser(3000); }catch(e){}
         try{
@@ -22449,7 +22477,7 @@ body.light .jul4-lbscore{color:#059669}
             _cd=Math.max(62,_cd-9);                                        // spin up
           }
           cards.forEach(function(c){ c.style.transition='transform .3s cubic-bezier(.6,-.2,.7,1)'; c.style.transform='translate(0,0) rotate(720deg) scale(.04)'; });
-          try{ beep(120,0.32,'sawtooth',0.32); sfxWin(); tetShake('tet-reel'); reelFlash(); }catch(_i){}   // implosion
+          try{ _specBomb(); sfxWin(); tetShake('tet-reel'); fxImpact(); fxShock(); }catch(_i){}   // implosion detonates
           await beat(430);
         }catch(e){ await beat(2800); }
         await beat(320);
@@ -22468,7 +22496,7 @@ body.light .jul4-lbscore{color:#059669}
                 'act-final');
             try{ reelRiser(1500); }catch(e){}
             await beat(1000);                                                     // slow slide-in
-            try{ beep(90,0.42,'sawtooth',0.34); sfxWin(); tetShake('tet-reel'); reelFlash(); }catch(e){}   // VS slam
+            try{ _specBomb(); sfxWin(); tetShake('tet-reel'); fxImpact(); fxShock(); }catch(e){}   // VS slam — full impact-frame hit
             await beat(2000);                                                     // hold in slow-mo
           } else {
             set('<div class="reel-kicker">MATCH '+(pi+1)+' OF '+totalMatches+'</div>' +
@@ -22499,7 +22527,7 @@ body.light .jul4-lbscore{color:#059669}
         // ── curtain up: LET'S GO with a flash + confetti
         try{ reelRiser(900); }catch(e){}
         set('<div class="reel-title go">LET\'S<br><b>GO</b></div>', 'act-go');
-        try{ sfxWin(); reelFlash(); tetConfetti({count:220,dur:2800}); }catch(e){}
+        try{ _specBomb(); sfxWin(); fxImpact(); fxShock(); fxRain(24); tetConfetti({count:220,dur:2800}); }catch(e){}
         await beat(1300);
       }catch(err){ /* never let the show block the game */ }
       try{ reelMusStop(); }catch(e){}
