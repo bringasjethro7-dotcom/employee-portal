@@ -14247,8 +14247,16 @@ async function sendEodReport(){
   try {
     var _TOOLPROJ = ['reddit','ember','john','arlo','newfans','altr','shopify','design'];
     var _bd = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date(Date.now()-8*3600*1000));
-    var _pm = await fetch(APPS_SCRIPT_URL+'?action=po_mine&employee_id='+encodeURIComponent(chatEmpId)+'&from='+_bd+'&to='+_bd+'&_='+Date.now()).then(function(r){ return r.json(); });
+    var _pm = await fetch(APPS_SCRIPT_URL+'?action=po_mine&employee_id='+encodeURIComponent(chatEmpId)+'&from='+_bd+'&to='+_bd+'&board=1&_='+Date.now()).then(function(r){ return r.json(); });
     var _outs = (_pm && _pm.rows) || [];
+    /* CRM-style tools (NewFans deployments etc.) don't log per-task output rows — a completed,
+       screenshot-proofed board writes ONE "📋 Board Completion" snapshot for the project.
+       Collect which projects have a completed-board mark today, so those tasks count as
+       "logged in the tool" instead of tripping a false "update your tool" warning. */
+    var _boardProj = {};
+    _outs.forEach(function(o){
+      if(o.board || String(o.task||'')==='📋 Board Completion'){ var bp=String(o.project||'').toLowerCase(); if(bp) _boardProj[bp]=1; }
+    });
     var _ents = (window._trkTodayEntries||[]).filter(function(e){ return e && e.status!=='running' && e.status!=='paused' && e.end && !(typeof isIdleProject==='function' && isIdleProject(e.project)); });
     var _missing = {}, _ord = [];
     _ents.forEach(function(e){
@@ -14257,11 +14265,14 @@ async function sendEodReport(){
       if(!covered) return;   // no tool for this project — nothing to require
       var task=String(e.task||e.description||'').toLowerCase();
       var hit=_outs.some(function(o){
+        if(o.board) return false;                       // board snapshots match by PROJECT below, never by task
         var ot=String(o.task||'').toLowerCase(), op=String(o.project||'').toLowerCase();
         var tOk = ot===task || (task && ot && (task.indexOf(ot)>=0 || ot.indexOf(task)>=0));
         var pOk = !op || !proj || proj.indexOf(op)>=0 || op.indexOf(proj)>=0;
         return tOk && pOk;
       });
+      // completed CRM board today = the tool WAS updated for this project's tasks
+      if(!hit){ hit=Object.keys(_boardProj).some(function(bp){ return proj.indexOf(bp)>=0 || bp.indexOf(proj)>=0; }); }
       if(!hit){ var k=(e.task||e.description||'Task')+(e.project?(' ('+e.project+')'):''); if(!_missing[k]){ _missing[k]=1; _ord.push(k); } }
     });
     if(_ord.length){
