@@ -16947,9 +16947,14 @@ body.light .jul4-lbscore{color:#059669}
       '<button class="jul4-btn ghost" onclick="jul4Close()" style="margin-top:8px">Close</button>';
   }
   function renderStart(s){
+    var sw=!!s.shiftwars, mySh=(s.my_shift==='night')?'night':'morning';
+    var swBan=sw?('<div style="margin:0 0 12px;padding:11px 12px;border-radius:12px;background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(124,92,255,.18));border:1px solid rgba(251,191,36,.45);">'+
+      '<div style="font-weight:900;font-size:15px;letter-spacing:.04em;">⚔️ SHIFT WARS — ☀️ MORNING vs NIGHT 🌙</div>'+
+      '<div style="font-size:12px;color:#cdd6f5;margin-top:4px;">Best of <b>3 rounds</b> — every correct answer scores for <b>your shift</b>. Champion shift: <b style="color:#fbbf24">+100 JMB Points each</b> · Series MVPs take 250/150/100!</div>'+
+      '<div style="margin-top:7px;display:inline-block;padding:4px 12px;border-radius:999px;font-weight:800;font-size:12px;'+(mySh==='night'?'background:rgba(138,151,255,.2);color:#aab4ff;border:1px solid rgba(138,151,255,.5);':'background:rgba(251,191,36,.18);color:#fbbf24;border:1px solid rgba(251,191,36,.5);')+'">'+(mySh==='night'?'🌙 You fight for NIGHT SHIFT':'☀️ You fight for MORNING SHIFT')+'</div></div>'):'';
     body().innerHTML=
-      '<div class="jul4-flag">🎯 🧠 🎯</div>'+
-      '<div class="jul4-h">Daily Trivia</div>'+
+      '<div class="jul4-flag">'+(sw?'⚔️':'🎯 🧠 🎯')+'</div>'+
+      '<div class="jul4-h">'+(sw?'SHIFT WARS Trivia':'Daily Trivia')+'</div>'+swBan+
       '<div class="jul4-sub">'+(s.count||15)+' questions · <b style="color:#fbbf24">'+(s.seconds||12)+' seconds each</b>.<br>Top 3 win <b>JMB Points</b> — 🥇250 · 🥈150 · 🥉100.<br>Ranked by score, then speed. Closes in <b>'+fmtLeft(s.closes_in)+'</b>.</div>'+
       '<button class="jul4-btn" onclick="jul4Start()">▶️ Start</button>'+
       '<button class="jul4-btn ghost" onclick="jul4Close()" style="margin-top:8px">Maybe later</button>';
@@ -17063,6 +17068,148 @@ body.light .jul4-lbscore{color:#059669}
 
   /* ── Admin-triggered launch: 10-second alarm countdown, then the game starts ── */
   var alarmTimer=null;
+  /* ══════════ ⚔️ SHIFT WARS — big-screen host board ══════════
+     For the laptop on the projector: live tug-of-war between the shifts while the quiz runs,
+     then a game-show reveal — drumroll, winner splash, podium, MVP — when the session closes. */
+  var _swPoll=null, _swRevealed=false, _swSid=null;
+  function _swEl(){ return document.getElementById('sw-board'); }
+  window.swBoardClose=function(){ if(_swPoll){clearInterval(_swPoll);_swPoll=null;} var e=_swEl(); if(e) e.remove(); };
+  window.swBoardOpen=function(){
+    window.swBoardClose(); _swRevealed=false; _swSid=null;
+    var d=document.createElement('div'); d.id='sw-board';
+    d.style.cssText='position:fixed;inset:0;z-index:2147483000;background:radial-gradient(1200px 700px at 50% -10%,#1c1440,#0a0818 70%);color:#fff;font-family:inherit;display:flex;flex-direction:column;align-items:center;padding:34px 26px;overflow:auto;';
+    d.innerHTML='<style>'+
+      '#sw-board .swm{transition:width 1.1s cubic-bezier(.2,.9,.3,1.05);}'+
+      '@keyframes swPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}'+
+      '@keyframes swIn{from{opacity:0;transform:translateY(14px) scale(.92)}to{opacity:1;transform:none}}'+
+      '@keyframes swConf{to{transform:translateY(110vh) rotate(700deg);opacity:.9}}'+
+      '#sw-board .chip{animation:swIn .4s ease both;display:inline-flex;align-items:center;gap:6px;margin:3px;padding:6px 12px;border-radius:999px;font-size:13px;font-weight:700;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);}'+
+      '</style>'+
+      '<div style="font-size:15px;letter-spacing:.3em;color:#8f86c9;font-weight:800;">JMB VIRTUALS PRESENTS</div>'+
+      '<div style="font-size:52px;font-weight:900;letter-spacing:.04em;margin:6px 0 2px;background:linear-gradient(90deg,#fbbf24,#fff,#8a97ff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">⚔️ SHIFT WARS</div>'+
+      '<div style="font-size:19px;color:#cdd6f5;font-weight:700;margin-bottom:8px;">☀️ MORNING SHIFT &nbsp;vs&nbsp; NIGHT SHIFT 🌙</div>'+
+      '<div id="sw-series" style="font-size:24px;font-weight:900;color:#cdd6f5;margin-bottom:4px;letter-spacing:.08em;">BEST OF 3 · <span style="color:#fbbf24">☀️ 0</span> — <span style="color:#8a97ff">0 🌙</span></div>'+
+      '<div id="sw-status" style="font-size:15px;color:#8f86c9;margin-bottom:14px;">Connecting…</div>'+
+      '<div id="sw-ctrl" style="margin-bottom:18px;"></div>'+
+      '<div style="width:min(1050px,94vw);display:flex;align-items:center;gap:14px;margin-bottom:6px;">'+
+        '<div style="flex:1;text-align:left;"><span style="font-size:38px;font-weight:900;color:#fbbf24;" id="sw-avg-m">—</span><span style="color:#8f86c9;font-size:13px;"> avg correct</span><div style="color:#cdd6f5;font-size:13px;" id="sw-sub-m"></div></div>'+
+        '<div style="font-size:26px;font-weight:900;color:#6d648f;">VS</div>'+
+        '<div style="flex:1;text-align:right;"><span style="font-size:38px;font-weight:900;color:#8a97ff;" id="sw-avg-n">—</span><span style="color:#8f86c9;font-size:13px;"> avg correct</span><div style="color:#cdd6f5;font-size:13px;" id="sw-sub-n"></div></div>'+
+      '</div>'+
+      '<div style="width:min(1050px,94vw);height:34px;border-radius:999px;overflow:hidden;display:flex;background:#241d45;border:1px solid rgba(255,255,255,.14);box-shadow:0 0 34px rgba(124,92,255,.25);">'+
+        '<div id="sw-bar-m" class="swm" style="width:50%;background:linear-gradient(90deg,#b45309,#fbbf24);"></div>'+
+        '<div id="sw-bar-n" class="swm" style="flex:1;background:linear-gradient(90deg,#8a97ff,#4c3ee0);"></div>'+
+      '</div>'+
+      '<div style="width:min(1050px,94vw);display:flex;gap:20px;margin-top:20px;">'+
+        '<div style="flex:1;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.25);border-radius:16px;padding:14px;min-height:120px;"><div style="font-weight:900;color:#fbbf24;margin-bottom:8px;">☀️ MORNING — <span id="sw-cnt-m">0</span> in</div><div id="sw-chips-m" style="text-align:left;"></div></div>'+
+        '<div style="flex:1;background:rgba(138,151,255,.06);border:1px solid rgba(138,151,255,.25);border-radius:16px;padding:14px;min-height:120px;"><div style="font-weight:900;color:#8a97ff;margin-bottom:8px;">🌙 NIGHT — <span id="sw-cnt-n">0</span> in</div><div id="sw-chips-n" style="text-align:left;"></div></div>'+
+      '</div>'+
+      '<div id="sw-final" style="width:min(1050px,94vw);"></div>'+
+      '<button onclick="swBoardClose()" style="position:fixed;top:16px;right:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#cdd6f5;border-radius:10px;padding:8px 16px;font-weight:700;cursor:pointer;">✕</button>';
+    document.body.appendChild(d);
+    try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){}
+    _swTick(); _swPoll=setInterval(_swTick,4000);
+  };
+  function _swTick(){
+    jGet(APPS_SCRIPT_URL+'?action=trivia_shift_live'+(_swSid?('&session_id='+encodeURIComponent(_swSid)):'')+'&_='+Date.now())
+      .then(function(d){ if(!d||!d.ok||!_swEl()) return;
+        var ser=d.series||{best_of:3,rounds:[],wins:{morning:0,night:0},done:false};
+        var se=document.getElementById('sw-series');
+        if(se) se.innerHTML='BEST OF 3 · <span style="color:#fbbf24">☀️ '+(ser.wins.morning||0)+'</span> — <span style="color:#8a97ff">'+(ser.wins.night||0)+' 🌙</span>'+(ser.done?' · <span style="color:#22c55e">SERIES OVER</span>':(' · ROUND '+Math.min(3,ser.rounds.length+((d.exists&&!d.closed)?1:1))));
+        _swCtrl(d, ser);
+        if(!d.exists){ var st0=document.getElementById('sw-status'); if(st0) st0.textContent=ser.done?'':'Ready when you are, boss — press LAUNCH to start the round.'; return; }
+        _swSid=d.session_id;
+        var m=d.teams.morning, n=d.teams.night;
+        var st=document.getElementById('sw-status');
+        if(st) st.textContent = d.closed ? '' : ('🔴 LIVE — closes in '+fmtLeft(d.closes_in)+' · answers lock in as players finish');
+        document.getElementById('sw-avg-m').textContent=m.count?m.avg:'—';
+        document.getElementById('sw-avg-n').textContent=n.count?n.avg:'—';
+        document.getElementById('sw-sub-m').textContent=m.total+' total correct';
+        document.getElementById('sw-sub-n').textContent=n.total+' total correct';
+        document.getElementById('sw-cnt-m').textContent=m.count;
+        document.getElementById('sw-cnt-n').textContent=n.count;
+        var tot=(m.avg+n.avg)||1, pm=Math.max(12,Math.min(88, m.avg/tot*100));
+        if(!m.count&&!n.count) pm=50;
+        document.getElementById('sw-bar-m').style.width=pm+'%';
+        function chips(host,arr,closed){ host.innerHTML=arr.map(function(p){
+          return '<span class="chip">'+esc(p.full_name.split(',')[0])+(closed?(' <b style="color:#fbbf24">'+p.score+'/'+p.total+'</b>'):' <span style="color:#22c55e;">✓ locked in</span>')+'</span>'; }).join(''); }
+        chips(document.getElementById('sw-chips-m'), m.players, d.closed);
+        chips(document.getElementById('sw-chips-n'), n.players, d.closed);
+        if(d.closed && !_swRevealed && d.shiftwars){ _swRevealed=true; _swReveal(d, ser); }
+      }).catch(function(){});
+  }
+  function _swPass(){
+    var p=null; try{ p=localStorage.getItem('sw_host_pass'); }catch(e){}
+    if(!p){ p=prompt('Host pass:')||''; if(p){ try{ localStorage.setItem('sw_host_pass',p); }catch(e){} } }
+    return p;
+  }
+  function _swCtrl(d, ser){
+    var host=document.getElementById('sw-ctrl'); if(!host) return;
+    var liveOpen = d.exists && d.status==='open';
+    if(ser.done){ host.innerHTML=''; return; }
+    if(liveOpen){
+      host.innerHTML='<button onclick="swEndNow()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;border-radius:10px;padding:9px 20px;font-weight:800;font-size:13px;cursor:pointer;">⏹ End round & reveal now</button>';
+    } else {
+      var n=Math.min(3,(ser.rounds?ser.rounds.length:0)+1);
+      host.innerHTML='<button onclick="swLaunch()" style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#3a2400;border:none;border-radius:14px;padding:16px 44px;font-weight:900;font-size:20px;letter-spacing:.06em;cursor:pointer;box-shadow:0 0 34px rgba(251,191,36,.45);animation:swPulse 1.6s ease infinite;">▶ LAUNCH ROUND '+n+'</button>';
+    }
+  }
+  window.swLaunch=function(){
+    var p=_swPass(); if(!p) return;
+    var st=document.getElementById('sw-status'); if(st) st.textContent='Launching round…';
+    // fresh round → reset the reveal state and clear the last round's finale
+    _swRevealed=false; _swSid=null;
+    var fin=document.getElementById('sw-final'); if(fin) fin.innerHTML='';
+    fetch(APPS_SCRIPT_URL+'?action=trivia_launch_now&slot=shiftwars&pass='+encodeURIComponent(p)+'&_='+Date.now())
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d && d.error){ try{ localStorage.removeItem('sw_host_pass'); }catch(e){} var st2=document.getElementById('sw-status'); if(st2) st2.textContent='Launch failed: '+d.error; return; }
+        try{ sfxStart(); }catch(e){}
+        _swTick();
+      }).catch(function(){});
+  };
+  window.swEndNow=function(){
+    var p=_swPass(); if(!p) return;
+    if(!confirm('Close this round now and reveal the winner?')) return;
+    fetch(APPS_SCRIPT_URL+'?action=trivia_end_now&pass='+encodeURIComponent(p)+'&_='+Date.now())
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if(d && d.error){ try{ localStorage.removeItem('sw_host_pass'); }catch(e){} alert('Failed: '+d.error); return; } _swTick(); }).catch(function(){});
+  };
+  function _swReveal(d, ser){
+    // drumroll…
+    var i=0; var dr=setInterval(function(){ try{ beep(300+((i%2)*80),0.05,'square',0.12); }catch(e){} if(++i>18) clearInterval(dr); }, 130);
+    setTimeout(function(){
+      if(!_swEl()) return;
+      var win=d.winner|| (d.teams.morning.avg>=d.teams.night.avg?'morning':'night');
+      var wm=(win==='morning');
+      var clinched=!!(ser && ser.done);
+      try{ sfxWin(); }catch(e){}
+      var fin=document.getElementById('sw-final');
+      var rn=(ser&&ser.rounds)?ser.rounds.length:1;
+      var head = clinched
+        ? '<div style="font-size:15px;letter-spacing:.3em;color:#8f86c9;font-weight:800;">THE SERIES IS DECIDED</div>'+
+          '<div style="font-size:52px;font-weight:900;color:'+(wm?'#fbbf24':'#8a97ff')+';animation:swPulse 1.2s ease infinite;">'+((ser.champion==='morning')?'☀️ MORNING SHIFT':'🌙 NIGHT SHIFT')+' — CHAMPIONS!</div>'+
+          '<div style="font-size:17px;color:#cdd6f5;margin-top:6px;">Every champion-shift player takes <b style="color:#fbbf24">+'+(ser.bonus||d.bonus||100)+' JMB Points</b> · Series score '+(ser.wins.morning||0)+'—'+(ser.wins.night||0)+'</div>'
+        : '<div style="font-size:15px;letter-spacing:.3em;color:#8f86c9;font-weight:800;">ROUND '+rn+' RESULT</div>'+
+          '<div style="font-size:44px;font-weight:900;color:'+(wm?'#fbbf24':'#8a97ff')+';animation:swPulse 1.2s ease infinite;">'+(wm?'☀️ MORNING TAKES ROUND '+rn+'!':'🌙 NIGHT TAKES ROUND '+rn+'!')+'</div>'+
+          '<div style="font-size:17px;color:#cdd6f5;margin-top:6px;">Series: ☀️ '+((ser&&ser.wins.morning)||0)+' — '+((ser&&ser.wins.night)||0)+' 🌙 · first to 2 wins takes the bonus</div>';
+      var top3=clinched ? ((ser&&ser.mvp_top3&&ser.mvp_top3.length)?ser.mvp_top3:[]) : [];
+      fin.innerHTML='<div style="margin-top:26px;animation:swIn .5s ease both;text-align:center;">'+head+
+        (top3.length?('<div style="display:flex;gap:16px;justify-content:center;margin-top:22px;">'+top3.map(function(t,ix){
+          return '<div style="animation:swIn .5s '+(0.3+ix*0.25)+'s ease both;background:rgba(255,255,255,.06);border:1px solid '+(ix===0?'rgba(251,191,36,.6)':'rgba(255,255,255,.16)')+';border-radius:16px;padding:16px 22px;min-width:170px;">'+
+            '<div style="font-size:30px;">'+['🥇','🥈','🥉'][ix]+'</div><div style="font-weight:800;font-size:15px;">'+esc(t.full_name)+'</div>'+
+            '<div style="color:#8f86c9;font-size:13px;">'+t.score+' correct in the series · +'+t.points+' pts</div>'+(ix===0?'<div style="color:#fbbf24;font-weight:900;font-size:12px;margin-top:4px;">⭐ SERIES MVP</div>':'')+'</div>'; }).join('')+'</div>'):'')+
+        '</div>';
+      // confetti in the winner's colors
+      var cols=wm?['#fbbf24','#ffd97a','#fff']:['#8a97ff','#c3caff','#fff'];
+      for(var c=0;c<140;c++){ (function(c){ setTimeout(function(){ var p=document.createElement('div');
+        p.style.cssText='position:fixed;top:-4vh;left:'+(Math.random()*100)+'vw;width:10px;height:15px;border-radius:2px;z-index:2147483100;pointer-events:none;background:'+cols[c%cols.length]+';animation:swConf '+(2.4+Math.random()*2)+'s linear forwards;';
+        var b=_swEl(); if(b) b.appendChild(p); setTimeout(function(){p.remove();},5000); }, c*12); })(c); }
+      fin.scrollIntoView({behavior:'smooth',block:'end'});
+    }, 2500);
+  }
+  // Big-screen shortcut: open the portal with #shiftwars on the projector laptop.
+  if(String(location.hash||'')==='#shiftwars'){ setTimeout(function(){ try{ window.swBoardOpen(); }catch(e){} }, 1600); }
   window.jul4Alarm=function(){
     if(document.getElementById('jul4-alarm')) return;   // already counting down
     jul4InitAC();
