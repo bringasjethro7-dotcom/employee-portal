@@ -1537,7 +1537,16 @@ body{background-attachment:initial !important}
     };
   });
 })();
-const PASS = "JMBeast_020298";
+/* ── ADMIN PASSWORD — never in this file ──
+   This page is world-readable (view-source / public repo), so the password lives only in the
+   Apps Script's Script Properties. Login is verified server-side (verify_admin); the typed
+   password is kept for this browser session only, for the few actions that require it. */
+var PASS = (function(){ try{ return sessionStorage.getItem('adm_pass')||''; }catch(e){ return ''; } })();
+function admPass(){ if(!PASS){ PASS=prompt('Admin password:')||''; try{ sessionStorage.setItem('adm_pass', PASS); }catch(e){} } return PASS; }
+async function verifyAdminPass(p){
+  try{ var r=await fetch(API+'?action=verify_admin&pass='+encodeURIComponent(p)+'&_='+Date.now()); var d=await r.json(); return !!(d&&d.ok); }
+  catch(e){ return false; }
+}
 const API  = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec";
 
 // ── Shared READ helper: timeout + 1 retry + in-flight dedupe + short TTL cache ──
@@ -1736,9 +1745,10 @@ function enterAdmin(){
   setInterval(function(){ if(document.hidden) return; loadDashboard({ silent:true }); }, 60000);
   initAdminBubbles();   // floating bubbles of active accounts
 }
-function doLogin(){
+async function doLogin(){
   var p=document.getElementById('apass').value;
-  if(p===PASS){
+  if(await verifyAdminPass(p)){
+    PASS=p; try{ sessionStorage.setItem('adm_pass', p); }catch(e){}
     try { localStorage.setItem('admin_authed','1'); } catch(e) {}
     enterAdmin();
   } else {
@@ -1749,7 +1759,7 @@ function doLogin(){
 async function forceRefreshAll(){
   if(!confirm('Reload the portal for ALL signed-in users now?\n\nUse this after publishing a portal update — everyone’s open portal will refresh within ~1 minute.')) return;
   try{
-    var r = await fetch(API + '?action=set_refresh&pass=' + encodeURIComponent(PASS) + '&_=' + Date.now());
+    var r = await fetch(API + '?action=set_refresh&pass=' + encodeURIComponent(admPass()) + '&_=' + Date.now());
     var d = await r.json();
     if(d && d.ok){ alert('Done. All open portals will refresh within ~1 minute (v' + d.ver + ').'); }
     else { alert('Could not trigger refresh' + (d && d.error ? (': ' + d.error) : '.')); }
@@ -1951,7 +1961,7 @@ async function salesAdd(){
   if(usd===''||isNaN(parseFloat(usd))){ alert('Enter the invoice amount in USD.'); return; }
   if(fx===''||isNaN(parseFloat(fx))||parseFloat(fx)<=0){ alert('Enter the USD→PHP rate.'); return; }
   try{
-    var u=API+'?action=save_sales&token='+encodeURIComponent(_salesToken())+'&period='+encodeURIComponent(period)+'&invoice_usd='+encodeURIComponent(usd)+'&fx_rate='+encodeURIComponent(fx)+'&method='+encodeURIComponent(method)+'&client='+encodeURIComponent(client)+'&note='+encodeURIComponent(note)+'&by='+encodeURIComponent(PASS?'Admin':'')+'&_='+Date.now();
+    var u=API+'?action=save_sales&token='+encodeURIComponent(_salesToken())+'&period='+encodeURIComponent(period)+'&invoice_usd='+encodeURIComponent(usd)+'&fx_rate='+encodeURIComponent(fx)+'&method='+encodeURIComponent(method)+'&client='+encodeURIComponent(client)+'&note='+encodeURIComponent(note)+'&by='+encodeURIComponent('Admin')+'&_='+Date.now();
     var r=await fetch(u); var d=await r.json();
     if(d&&d.ok){ document.getElementById('sl-period').value=''; document.getElementById('sl-usd').value=''; document.getElementById('sl-client').value=''; document.getElementById('sl-note').value=''; _salesPayroll=0; salesRecompute(); loadSalesData(); }
     else if(d&&d.error==='LOCKED'){ salesLock(); }
@@ -2557,7 +2567,7 @@ function toggleForce(){
   var target=!_wbForce;
   if(target && !confirm('Enforce office codes RIGHT NOW, ignoring the Mon–Sat schedule?\n\nThis is for testing. Make sure the office wallboard is showing codes, or you may lock yourself out (admin account stays exempt). Remember to Stop test when done.')) return;
   var fb=document.getElementById('wb-force'); if(fb){ fb.disabled=true; fb.textContent='…'; }
-  fetch(API+'?action=office_otp_force&pass='+encodeURIComponent(PASS)+'&on='+(target?'1':'0')+'&_='+Date.now())
+  fetch(API+'?action=office_otp_force&pass='+encodeURIComponent(admPass())+'&on='+(target?'1':'0')+'&_='+Date.now())
     .then(function(r){ return r.json(); }).then(function(d){ if(fb) fb.disabled=false; if(d&&d.error){ alert(d.error); } loadWallboard(); })
     .catch(function(){ if(fb) fb.disabled=false; alert('Network error.'); });
 }
@@ -2568,7 +2578,7 @@ function toggleWallboard(){
     : 'Turn OFF office-code login?\n\nStaff will be able to log in normally from anywhere.';
   if(!confirm(msg)) return;
   var tg=document.getElementById('wb-toggle'); if(tg){ tg.disabled=true; tg.textContent='…'; }
-  fetch(API+'?action=office_otp_set&pass='+encodeURIComponent(PASS)+'&on='+(target?'1':'0')+'&_='+Date.now())
+  fetch(API+'?action=office_otp_set&pass='+encodeURIComponent(admPass())+'&on='+(target?'1':'0')+'&_='+Date.now())
     .then(function(r){ return r.json(); }).then(function(d){ if(tg) tg.disabled=false; if(d&&d.error){ alert(d.error); } loadWallboard(); })
     .catch(function(){ if(tg) tg.disabled=false; alert('Network error.'); });
 }
@@ -5593,7 +5603,13 @@ function _scAwards(rows, eb, ex){
   var _awMonth=''; try{ _awMonth=document.getElementById('sc-month-filter').value||''; }catch(_e){}
   if(!_awMonth || _awMonth>='2026-08'){
     // 6 · Innovation Award — the highest ADMIN-APPROVED innovation score of the month
-    var inBest=null; (rows||[]).forEach(function(r){ var iv=num(r.innovation); if(iv==null||iv<=0) return; if(!inBest||iv>inBest.iv) inBest={r:r,iv:iv}; });
+    /* Ties are broken by the admin's explicit pick for the month (Aug 2026: Suelto and Hamto
+       both scored 90 — the award goes to Suelto, chosen as the best idea of the month). */
+    var INNO_TIE_PICK={ '2026-08':'jmb001' };
+    var _pin=String(INNO_TIE_PICK[_awMonth]||'').toLowerCase();
+    var inBest=null; (rows||[]).forEach(function(r){ var iv=num(r.innovation); if(iv==null||iv<=0) return;
+      var isPin=(_pin && String(r.employee_id||'').toLowerCase()===_pin);
+      if(!inBest || iv>inBest.iv || (iv===inBest.iv && isPin)) inBest={r:r,iv:iv}; });
     if(inBest){ out.push({ title:'Innovation Award', emoji:'💡', color:'#7C3AED',
       cite:'for the best innovation idea of the month — seeing what slows the team down and designing the fix.',
       name:inBest.r.full_name||inBest.r.employee_id, id:inBest.r.employee_id, photo:inBest.r.photo,
@@ -6516,7 +6532,7 @@ function closeSettings(){ document.getElementById('settings-modal').style.displa
 async function launchTrivia(){
   if(!confirm('Launch a Daily Trivia session on ALL signed-in portals right now (for testing)?\n\nEveryone gets the alarm countdown, then the 15-question game starts. Window is ~7 minutes.')) return;
   try{
-    var r=await fetch(API+'?action=trivia_launch_now&slot=test&pass='+encodeURIComponent(PASS)+'&_='+Date.now());
+    var r=await fetch(API+'?action=trivia_launch_now&slot=test&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
     var d=await r.json();
     if(d&&d.ok){ alert('🎯 Session launched ('+(d.session_id||'')+'). Portals start the countdown within ~20 seconds.'); setTimeout(loadTriviaBoard,1500); }
     else { alert('Could not launch'+((d&&d.error)?(': '+d.error):'.')); }
