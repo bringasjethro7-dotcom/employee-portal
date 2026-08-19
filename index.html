@@ -11669,6 +11669,7 @@ function trkInBioBreak() {
 }
 function trkMarkActivity() {
   trkLastActivity = Date.now();
+  window._bioLastReal = Date.now();   // real input — the bio-break overstay guard trusts only this + the system idle detector
   if (trkWarnLastSec !== -1) hideInactiveWarn();   // any activity cancels the countdown instantly
   if (trkAutoPausedId) { var id = trkAutoPausedId; trkAutoPausedId = null; resumeTask(id); }
 }
@@ -15255,12 +15256,76 @@ function checkBioBreak() {
       var key = p.dateKey + ' ' + BIO_TIMES[i][0] + ':' + BIO_TIMES[i][1];
       if (localStorage.getItem('biobreak_last') !== key) {
         localStorage.setItem('biobreak_last', key);
-        fireBioBreak(_bioFmt(BIO_TIMES[i][0], BIO_TIMES[i][1]));
+        if (bioEnabled()) fireBioBreak(_bioFmt(BIO_TIMES[i][0], BIO_TIMES[i][1]));
+        try { _bioArm(); } catch(e) {}   // the 5-minute rule applies whether or not the chime is on
       }
       break;
     }
   }
 }
+
+// ── BIO-BREAK OVERSTAY GUARD ──
+// The break is 5 minutes. When one fires while a productive task timer is running, a visible
+// 5:00 countdown starts. If the VA shows NO real keyboard/mouse activity by the time it hits
+// zero — they left and never came back — the timer stops itself and a 0.30 demerit is logged
+// automatically: the same "Break outside schedule / over 5 minutes" rule leads issue by hand.
+// Coming back (any real input, or system-wide activity via the idle detector) disarms it.
+window._bioLastReal = window._bioLastReal || 0;
+var _bioWatch = null, _bioTick = null;
+function _bioArm() {
+  if (!trkRunning || !trkOwns) return;                                        // no live timer → nothing to guard
+  if (typeof isIdleProject === 'function' && trkRunning && isIdleProject(trkRunning.project)) return;  // lunch / no-task exempt
+  _bioWatch = { start: Date.now(), end: Date.now() + 5 * 60 * 1000, done: false };
+  if (!_bioTick) _bioTick = setInterval(_bioGuardTick, 1000);
+  _bioCdPaint(300);
+}
+function _bioGuardTick() {
+  if (!_bioWatch || _bioWatch.done) return;
+  if (!trkRunning || !trkOwns) { _bioDisarm(); return; }                      // timer already ended some other way
+  // Activity anywhere on the machine (permission granted) counts as being back.
+  if (trkIdleDetector && trkIdleDetector.userState === 'active' && trkIdleDetector.screenState === 'unlocked') window._bioLastReal = Date.now();
+  var left = Math.max(0, Math.ceil((_bioWatch.end - Date.now()) / 1000));
+  _bioCdPaint(left);
+  if (left > 0) return;
+  // Zero. "Still away" = no real activity in the final 4 minutes of the window (the 1-minute
+  // tolerance absorbs the idle detector's 60s lag and the walk-away moment itself).
+  var away = (Date.now() - (window._bioLastReal || 0)) >= 4 * 60 * 1000;
+  if (away) _bioEnforce(); else _bioDisarm();
+}
+function _bioDisarm() { if (_bioWatch) _bioWatch.done = true; _bioCdHide(); }
+function _bioEnforce() {
+  _bioWatch.done = true; _bioCdHide();
+  try { stopTimer(); } catch(e) {}
+  var emp = (window._currentEmpData && window._currentEmpData.employee_id) || (trkRunning && trkRunning.employee_id) || '';
+  var nm  = (window._currentEmpData && window._currentEmpData.full_name) || emp;
+  if (!emp) return;
+  var key = 'bio-' + emp + '-' + Math.floor(_bioWatch.start / 1000);
+  if (localStorage.getItem('bio_dem_last') === key) return;                  // never double-log one break
+  try { localStorage.setItem('bio_dem_last', key); } catch(e) {}
+  try {
+    fetch(APPS_SCRIPT_URL + '?action=log_demerit&employee_id=' + encodeURIComponent(emp)
+      + '&full_name=' + encodeURIComponent(nm)
+      + '&category=' + encodeURIComponent('☕ Break')
+      + '&infraction=' + encodeURIComponent('Bio break over 5 minutes — no activity when the countdown ended (auto)')
+      + '&points=0.30&by=' + encodeURIComponent('Auto — bio-break guard')
+      + '&source=auto_bio&key=' + encodeURIComponent(key) + '&_=' + Date.now());
+  } catch(e) {}
+  try { bumpDemeritDisplay(0.30); } catch(e) {}
+  try { showIdleStopped(); } catch(e) {}
+  try { if (typeof showToast === 'function') showToast('Bio break ran past 5 minutes — timer stopped · 0.30 demerit logged.'); } catch(e) {}
+}
+function _bioCdPaint(left) {
+  var el = document.getElementById('bio-cd');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'bio-cd';
+    el.style.cssText = 'position:fixed;right:18px;bottom:96px;z-index:9999;background:#0f766e;color:#fff;font:700 12px/1.4 system-ui,sans-serif;padding:8px 13px;border-radius:999px;box-shadow:0 8px 24px rgba(13,148,136,.45);';
+    document.body.appendChild(el);
+  }
+  el.style.display = 'block';
+  el.style.background = left <= 60 ? '#b45309' : '#0f766e';
+  el.textContent = '☕ Bio break · ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + ' — move your mouse when you\u2019re back';
+}
+function _bioCdHide() { var el = document.getElementById('bio-cd'); if (el) el.style.display = 'none'; }
 setInterval(checkBioBreak, 15000);
 setTimeout(checkBioBreak, 3000);
 document.addEventListener('click', function(e) {
