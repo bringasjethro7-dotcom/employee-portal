@@ -17282,9 +17282,25 @@ function loadMyRedemptions(){
   function bedStart(kind){
     if(bedTimer) clearInterval(bedTimer);
     if(muted) return;
-    var seq = kind==='lobby' ? [220,262,330,262] : [196,196,233,196,175,175,233,247];
-    var step= kind==='lobby' ? 480 : 300, i=0;
-    bedTimer=setInterval(function(){ if(muted) return; snd(function(){ _tone('triangle',seq[i%seq.length],_ac.currentTime,.16,.055); if(kind!=='lobby' && i%4===0) _tone('sine',seq[i%seq.length]/2,_ac.currentTime,.2,.05); }); i++; }, step);
+    /* 🎧 DANCE-FLOOR BED (Aug 21 rework — the old two-note loop was, per management, "so lame").
+       126 BPM four-on-the-floor: kick on every beat, offbeat hats, a driving Am–F–C–G bassline,
+       bright chord stabs and a joyful pentatonic hook riding on top. Lobby runs the same groove
+       slightly lighter so the room is already bouncing before the wheel spins. */
+    var step = kind==='lobby' ? 125 : 119;                       // 16th-note grid · 120 / 126 BPM
+    var ROOTS=[110,87.31,130.81,98];                              // Am · F · C · G — one chord per bar
+    var RIFF =[440,523.25,659.25,523.25,587.33,523.25,440,392,440,523.25,659.25,783.99,659.25,587.33,523.25,440];
+    var i=0;
+    bedTimer=setInterval(function(){ if(muted) return; snd(function(){
+      var t=_ac.currentTime, s16=i%16, bar=Math.floor(i/16)%4, root=ROOTS[bar];
+      if(s16%4===0){ _tone('sine',52,t,.11,.5); _tone('sine',104,t,.05,.2); }                 // KICK — four on the floor
+      if(s16%4===2) _tone('square',7000,t,.03,.05);                                            // open hat on the offbeat
+      if(s16%2===0) _tone('square',9000,t,.018,.028);                                          // ticking 8th hats
+      var bassOn = kind==='lobby' ? (s16%4===0||s16===6||s16===10) : (s16%2===0);
+      if(bassOn) _tone('sawtooth', root*(s16===14?1.5:1), t,.14,.10);                          // driving bassline
+      if(s16===0||s16===8){ _tone('triangle',root*4,t,.22,.06); _tone('triangle',root*5,t,.22,.05); _tone('triangle',root*6,t,.22,.05); }  // bright chord stab
+      if(kind!=='lobby' && s16%2===0) _tone('sine', RIFF[s16], t,.10,.055);                    // the joyful hook
+      if(kind!=='lobby' && s16===15 && bar===3) _tone('sawtooth',880,t,.25,.07);               // turnaround sparkle
+    }); i++; }, step);
   }
   window.tvaMute=function(){ muted=!muted; try{ localStorage.setItem('tva_mute',muted?'1':'0'); }catch(e){}
     var b=document.getElementById('tva-mute'); if(b) b.textContent=muted?'Sound off':'Sound on';
