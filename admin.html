@@ -3505,15 +3505,12 @@ async function loadPayslipsAdmin(){
         rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
       });
     });
-    // Partially-paid pending at the very top (money already moving — finish those first),
-    // then ready-to-pay (invoice paid) pending, then other pending, then paid — newest within each.
+    // Ready-to-pay (invoice paid) pending first, then other pending, then paid — newest within
+    // each. A partially-paid slip sits with the normal pending rows: it is simply awaiting the
+    // other client's invoice again, so it gets no special placement or highlight.
     rows.sort(function(a,b){
       if(a.paid!==b.paid) return a.paid?1:-1;
-      if(!a.paid && !b.paid){
-        var ap=a.partialPaid>0, bp=b.partialPaid>0;
-        if(ap!==bp) return ap?-1:1;
-        if(a.funded!==b.funded) return a.funded?-1:1;
-      }
+      if(!a.paid && !b.paid && a.funded!==b.funded) return a.funded?-1:1;
       return _payPeriodTime(b.period)-_payPeriodTime(a.period);
     });
     var sumEl=document.getElementById('pay-summary');
@@ -3553,8 +3550,7 @@ async function loadPayslipsAdmin(){
         ? '<span style="color:var(--t3);font-size:12px;">—</span>'
         : '<button class="bsm" onclick="openPayModal('+ri+')" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;white-space:nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M2 10h20M6 15h4"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>Pay</button>'+
           (showPartial?' <button class="bsm" onclick="openPartialModal('+ri+')" title="Pay only the portion funded by a settled client" style="background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.4);color:#2563eb;font-weight:600;white-space:nowrap;">◐ Partial</button>':'');
-      var trStyle=(!r.paid && r.partialPaid>0)?' style="background:rgba(139,92,246,.10);"'
-                 :((!r.paid && r.funded)?' style="background:rgba(34,197,94,.07);"':'');
+      var trStyle=(!r.paid && r.funded)?' style="background:rgba(34,197,94,.07);"':'';
       return '<tr'+trStyle+'><td><strong>'+payEsc(r.name)+'</strong></td><td>'+payEsc(r.period||'—')+'</td><td>'+projCell+'</td><td>'+(r.hours?payEsc(String(r.hours))+' hrs':'—')+'</td><td style="color:var(--t3);font-size:12px;white-space:nowrap;">'+(r.paid_date?payEsc(r.paid_date):'—')+'</td><td style="white-space:nowrap;">'+status+'</td><td>'+action+'</td></tr>';
     }).join('');
   }catch(e){ body.innerHTML='<tr><td colspan="7" class="es">Could not load payslips.</td></tr>'; }
@@ -3620,14 +3616,24 @@ function openPayModal(idx){
     ? '<div style="margin-top:4px;font-size:13px;">GoTyme: <b style="font-family:monospace;">'+payEsc(r.gotyme)+'</b> <button class="bsm" onclick="pgCopy(\''+payEsc(r.gotyme)+'\')">⧉</button></div>'
     : '<div style="margin-top:4px;color:var(--t3);font-size:12px;">No GoTyme number on file.</div>';
   // Deduction breakdown — shown only when a deduction is on file. The payslip itself keeps the gross.
+  /* With partials, the tranche already carried its pro-rata slice of the deduction (the
+     partial amount was computed from the NET). So the final view shows only the REMAINING
+     shares: remaining gross share − remaining deduction share = remaining to pay. Showing the
+     full deduction here made it look like it was being charged twice — it never was. */
+  var remFrac=(already>0 && net>0)? Math.max(0,(net-already)/net) : 1;
+  var dedRem=Math.round(ded*remFrac*100)/100, grossRem=Math.round(gross*remFrac*100)/100;
+  var dedUsed=Math.round((ded-dedRem)*100)/100;
   var breakdown = (ded>0||already>0)
-    ? '<div style="margin:10px auto 2px;max-width:236px;font-size:12.5px;text-align:left;background:#f8fafc;border:1px solid rgba(15,23,42,.10);border-radius:10px;padding:9px 12px;">'+
-        '<div style="display:flex;justify-content:space-between;color:var(--t2);"><span>Payslip (gross)</span><span style="font-family:monospace;">'+payMoney(gross)+'</span></div>'+
-        (ded>0?'<div style="display:flex;justify-content:space-between;color:#dc2626;margin-top:3px;"><span>Deductions</span><span style="font-family:monospace;">− '+payMoney(ded)+'</span></div>':'')+
-        (already>0?'<div style="display:flex;justify-content:space-between;color:#2563eb;margin-top:3px;"><span>◐ Already sent (partial)</span><span style="font-family:monospace;">− '+payMoney(already)+'</span></div>':'')+
+    ? '<div style="margin:10px auto 2px;max-width:248px;font-size:12.5px;text-align:left;background:#f8fafc;border:1px solid rgba(15,23,42,.10);border-radius:10px;padding:9px 12px;">'+
+        (already>0
+          ? '<div style="display:flex;justify-content:space-between;color:var(--t2);"><span>Gross — remaining share</span><span style="font-family:monospace;">'+payMoney(grossRem)+'</span></div>'+
+            (ded>0?'<div style="display:flex;justify-content:space-between;color:#dc2626;margin-top:3px;"><span>Deduction — remaining share</span><span style="font-family:monospace;">− '+payMoney(dedRem)+'</span></div>':'')
+          : '<div style="display:flex;justify-content:space-between;color:var(--t2);"><span>Payslip (gross)</span><span style="font-family:monospace;">'+payMoney(gross)+'</span></div>'+
+            (ded>0?'<div style="display:flex;justify-content:space-between;color:#dc2626;margin-top:3px;"><span>Deductions</span><span style="font-family:monospace;">− '+payMoney(ded)+'</span></div>':''))+
         '<div style="border-top:1px dashed rgba(15,23,42,.18);margin:6px 0;"></div>'+
         '<div style="display:flex;justify-content:space-between;font-weight:800;color:var(--t1);"><span>'+(already>0?'Remaining to pay':'Net to pay')+'</span><span style="font-family:monospace;">'+amtStr+'</span></div>'+
       '</div>'+
+      (already>0?'<div style="font-size:10.5px;color:var(--t3);margin-top:3px;">◐ ₱'+already.toLocaleString()+' already sent'+(dedUsed>0?(' — that tranche already absorbed ₱'+dedUsed.toLocaleString()+' of the ₱'+ded.toLocaleString()+' deduction'):'')+'.</div>':'')+
       (ded>0?'<div style="font-size:10.5px;color:var(--t3);margin-top:3px;">Deduction applied here only — the contractor\'s payslip still shows the gross.</div>':'')
     : '';
   document.getElementById('pay-modal-body').innerHTML=
