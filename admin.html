@@ -3482,6 +3482,7 @@ async function loadPayslipsAdmin(){
     // Funding: each contractor's main project + which (period → project) invoices are paid.
     var fund={main_project:{},paid:{}};
     try{ var fr=await jGet(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.ok) fund=fd; }catch(_e){}
+    window._payFund=fund;
     var payBanks={};
     try{ var bkr=await jGet(API+'?action=get_banks&_='+Date.now()); var bkd=await bkr.json(); payBanks=(bkd&&bkd.banks)||{}; }catch(_b){}
     var mpOf=function(id, period){ var mb=(fund.main_by_period||{})[period||'']; return (mb&&mb[id])||fund.main_project[id]||''; };
@@ -3499,7 +3500,9 @@ async function loadPayslipsAdmin(){
         var paid=!!p.paid;
         if(fStatus==='paid'&&!paid) return;
         if(fStatus==='pending'&&paid) return;
-        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0)});
+        var _parts=(p.partials||[]).slice(); if(p.partial) _parts.push(p.partial);
+        var _partSum=0; _parts.forEach(function(x){ _partSum+=parseFloat(x.amount)||0; });
+        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
       });
     });
     // Ready-to-pay (invoice paid) pending first, then other pending, then paid — newest period within each.
@@ -3519,7 +3522,8 @@ async function loadPayslipsAdmin(){
       (readyN?' · <b style="color:#16a34a;">'+readyN+' ready to pay</b> · <b style="color:#16a34a;">'+readyTotalStr+' total</b>':'');
     window._payRows=rows;
     body.innerHTML=rows.map(function(r,ri){
-      var status=r.paid?'<span style="color:#16a34a;font-weight:600;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><polyline points="20 6 9 17 4 12"/></svg>Paid</span>':'<span style="color:#f59e0b;font-weight:600;">● Pending</span>';
+      var status=r.paid?'<span style="color:#16a34a;font-weight:600;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><polyline points="20 6 9 17 4 12"/></svg>Paid</span>'
+        :(r.partialPaid>0?'<span style="color:#2563eb;font-weight:700;">◐ Partial · ₱'+r.partialPaid.toLocaleString()+'</span>':'<span style="color:#f59e0b;font-weight:600;">● Pending</span>');
       // Project / Invoice funding cell
       var projCell;
       if(!r.project){ projCell='<span style="color:var(--t3);font-size:11.5px;">no tracked project</span>'; }
@@ -3528,7 +3532,8 @@ async function loadPayslipsAdmin(){
       else{ projCell='<div style="font-size:12px;color:var(--t2);">'+payEsc(r.project)+'</div><span style="display:inline-block;margin-top:3px;font-size:10.5px;color:var(--t3);background:rgba(15,23,42,.07);border:1px solid var(--line);border-radius:20px;padding:1px 8px;white-space:nowrap;">Awaiting invoice</span>'; }
       var action=r.paid
         ? '<span style="color:var(--t3);font-size:12px;">—</span>'
-        : '<button class="bsm" onclick="openPayModal('+ri+')" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;white-space:nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M2 10h20M6 15h4"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>Pay</button>';
+        : '<button class="bsm" onclick="openPayModal('+ri+')" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;white-space:nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M2 10h20M6 15h4"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>Pay</button> '+
+          '<button class="bsm" onclick="openPartialModal('+ri+')" title="Pay only the portion funded by a settled client" style="background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.4);color:#2563eb;font-weight:600;white-space:nowrap;">◐ Partial</button>';
       var trStyle=(!r.paid && r.funded)?' style="background:rgba(34,197,94,.07);"':'';
       return '<tr'+trStyle+'><td><strong>'+payEsc(r.name)+'</strong></td><td>'+payEsc(r.period||'—')+'</td><td>'+projCell+'</td><td>'+(r.hours?payEsc(String(r.hours))+' hrs':'—')+'</td><td style="color:var(--t3);font-size:12px;white-space:nowrap;">'+(r.paid_date?payEsc(r.paid_date):'—')+'</td><td style="white-space:nowrap;">'+status+'</td><td>'+action+'</td></tr>';
     }).join('');
@@ -3619,6 +3624,80 @@ function openPayModal(idx){
   document.getElementById('pay-modal').style.display='flex';
 }
 function closePayModal(){ var m=document.getElementById('pay-modal'); if(m) m.style.display='none'; }
+
+/* ── MULTI-CLIENT PARTIAL PAYMENT ──
+   A cutoff funded by two clients where only one has settled: tick the client(s) being paid
+   now, the amount pre-fills as that share of the net (hours-weighted, editable), and on send
+   the tranche is recorded, the contractor is emailed the paid/outstanding breakdown, and the
+   row shows "◐ Partial" until the final tranche goes through the normal Pay button. */
+function openPartialModal(idx){
+  var r=(window._payRows||[])[idx]; if(!r) return; window._payCur=r;
+  var fund=window._payFund||{}; var split=((fund.projects_by_period||{})[r.period]||{})[r.empId]||[];
+  var gross=payAmt(r), ded=parseFloat(r.deductions)||0, net=Math.max(0,gross-ded);
+  var already=r.partialPaid||0, remaining=Math.max(0,Math.round((net-already)*100)/100);
+  var totH=0; split.forEach(function(x){ totH+=x.h; });
+  var isFunded=function(proj){ return !!((fund.paid||{})[r.period] && fund.paid[r.period][String(proj).toLowerCase()]); };
+  var rowsHtml = split.length ? split.map(function(x,i){
+      var f=isFunded(x.p);
+      return '<label style="display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px;cursor:pointer;'+(f?'background:rgba(34,197,94,.06);':'')+'">'+
+        '<input type="checkbox" class="ppm-chk" data-h="'+x.h+'" data-p="'+payEsc(x.p)+'"'+(f?' checked':'')+' onchange="ppmRecalc()">'+
+        '<span style="flex:1;font-size:13px;font-weight:600;">'+payEsc(x.p)+'</span>'+
+        '<span style="font-size:12px;color:var(--t2);font-family:monospace;">'+x.h.toFixed(2)+'h</span>'+
+        (f?'<span style="font-size:10px;font-weight:700;color:#16a34a;background:rgba(34,197,94,.12);border-radius:20px;padding:1px 7px;">💰 invoice paid</span>'
+          :'<span style="font-size:10px;color:var(--t3);background:rgba(15,23,42,.06);border-radius:20px;padding:1px 7px;">awaiting</span>')+
+      '</label>'; }).join('')
+    : '<div style="color:var(--t3);font-size:12px;padding:8px 2px;">No per-client hour split found for this period — enter the amount manually below.</div>';
+  document.getElementById('pay-modal-body').innerHTML=
+    '<div style="font-size:15px;font-weight:800;">◐ Partial payment — '+payEsc(r.name)+'</div>'+
+    '<div style="font-size:12px;color:var(--t2);margin:2px 0 12px;">'+payEsc(r.period)+' · '+(r.hours?payEsc(String(r.hours))+' hrs · ':'')+'net '+payMoney(net)+(already?(' · <b style="color:#2563eb;">₱'+already.toLocaleString()+' already sent</b>'):'')+'</div>'+
+    '<div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Pay the hours funded by…</div>'+
+    rowsHtml+
+    '<div style="display:flex;gap:10px;align-items:flex-end;margin-top:10px;">'+
+      '<div style="flex:1;"><div style="font-size:11px;color:var(--t3);margin-bottom:3px;">Amount to send now (₱)</div>'+
+        '<input id="ppm-amt" type="number" min="1" step="0.01" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font:700 14px monospace;"></div>'+
+      '<div style="flex:1;font-size:11.5px;color:var(--t2);" id="ppm-info"></div>'+
+    '</div>'+
+    '<input id="ppm-note" placeholder="Optional note to the contractor" style="width:100%;margin-top:9px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:12.5px;">'+
+    '<div style="display:flex;gap:8px;margin-top:14px;">'+
+      '<button class="bsm" onclick="closePayModal()" style="flex:1;">Cancel</button>'+
+      '<button class="bsm" id="ppm-send" onclick="doPartialPay()" style="flex:1.6;color:#fff;background:#2563eb;border-color:#2563eb;font-weight:700;">◐ Send partial &amp; email breakdown</button>'+
+    '</div>';
+  window._ppmCtx={ net:net, totH:totH, already:already };
+  document.getElementById('pay-modal').style.display='flex';
+  ppmRecalc();
+}
+function ppmRecalc(){
+  var ctx=window._ppmCtx||{net:0,totH:0,already:0};
+  var selH=0, selP=[], leftH=0, leftP=[];
+  document.querySelectorAll('.ppm-chk').forEach(function(c){
+    var h=parseFloat(c.dataset.h)||0;
+    if(c.checked){ selH+=h; selP.push(c.dataset.p); } else { leftH+=h; leftP.push(c.dataset.p); }
+  });
+  window._ppmSel={ selH:Math.round(selH*100)/100, selP:selP, leftH:Math.round(leftH*100)/100, leftP:leftP };
+  var amt=(ctx.totH>0)? Math.round(ctx.net*(selH/ctx.totH)*100)/100 : 0;
+  var el=document.getElementById('ppm-amt'); if(el && ctx.totH>0) el.value=amt>0?amt.toFixed(2):'';
+  var info=document.getElementById('ppm-info');
+  if(info) info.innerHTML=(selH?('Covers <b>'+selH.toFixed(2)+'h</b>'):'Nothing ticked')+
+    (leftH?('<br>Outstanding after: <b>'+leftH.toFixed(2)+'h</b> ('+leftP.join(', ')+')'):'<br>Nothing left outstanding — use the normal Pay instead?');
+}
+async function doPartialPay(){
+  var r=window._payCur, sel=window._ppmSel||{selH:0,selP:[],leftH:0,leftP:[]};
+  var amt=parseFloat((document.getElementById('ppm-amt')||{}).value);
+  if(!r) return;
+  if(isNaN(amt)||amt<=0){ if(typeof toast==='function') toast('Enter the amount to send.'); return; }
+  var note=(document.getElementById('ppm-note')||{}).value||'';
+  if(!confirm('Send PARTIAL payment?\n\n  '+r.name+' · '+r.period+'\n  Amount now: ₱'+amt.toLocaleString()+(sel.selP.length?('\n  Covers: '+sel.selH+'h — '+sel.selP.join(', ')):'')+(sel.leftP.length?('\n  Outstanding: '+sel.leftH+'h — '+sel.leftP.join(', ')):'')+'\n\nThe contractor will be emailed this exact breakdown.')) return;
+  var btn=document.getElementById('ppm-send'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
+  try{
+    var res=await fetch(API+'?action=payslip_partial&employee_id='+encodeURIComponent(r.empId)+'&period='+encodeURIComponent(r.period)+
+      '&amount='+encodeURIComponent(amt)+'&hours_paid='+encodeURIComponent(sel.selH||'')+'&client_paid='+encodeURIComponent(sel.selP.join(', '))+
+      '&hours_left='+encodeURIComponent(sel.leftH||'')+'&client_left='+encodeURIComponent(sel.leftP.join(', '))+
+      '&note='+encodeURIComponent(note)+'&by=Admin&_='+Date.now());
+    var d=await res.json();
+    if(d&&d.ok){ if(typeof toast==='function') toast('Partial sent — ₱'+amt.toLocaleString()+(d.emailed?' · contractor emailed.':' (no email on file).')); jBust(); closePayModal(); loadPayslipsAdmin(); }
+    else{ if(typeof toast==='function') toast('Not recorded: '+((d&&(d.message||d.error))||'error')); if(btn){ btn.disabled=false; btn.innerHTML='◐ Send partial &amp; email breakdown'; } }
+  }catch(e){ if(typeof toast==='function') toast('Connection error.'); if(btn){ btn.disabled=false; btn.innerHTML='◐ Send partial &amp; email breakdown'; } }
+}
 async function doPayModal(next){
   var r=window._payCur; if(!r) return;
   var b1=document.getElementById('pay-do'), b2=document.getElementById('pay-do-next');
