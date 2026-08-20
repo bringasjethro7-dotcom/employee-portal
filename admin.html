@@ -3609,7 +3609,10 @@ function payNet(r){ return Math.max(0, payAmt(r)-(parseFloat(r.deductions)||0));
 function openPayModal(idx){
   var r=(window._payRows||[])[idx]; if(!r) return; window._payCur=r;
   var gross=payAmt(r), ded=parseFloat(r.deductions)||0, net=Math.max(0,gross-ded);
-  var amtStr=payMoney(net);
+  /* Partials already sent come off here — the final Pay shows only what is still owed,
+     so the deduction (already spread pro-rata across the tranches) is never taken twice. */
+  var already=r.partialPaid||0, toPay=Math.max(0,Math.round((net-already)*100)/100);
+  var amtStr=payMoney(toPay);
   var qrImg = r.qr
     ? '<img src="'+convertDrive(r.qr)+'" alt="QR" style="width:230px;height:230px;object-fit:contain;border-radius:12px;background:#fff;padding:8px;">'
     : '<div style="width:230px;height:230px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--t3);font-size:12.5px;border:1px dashed var(--line);border-radius:12px;padding:16px;margin:auto;">No bank QR on file.<br><br>Add one via Contractors → Edit → Bank QR.</div>';
@@ -3617,20 +3620,21 @@ function openPayModal(idx){
     ? '<div style="margin-top:4px;font-size:13px;">GoTyme: <b style="font-family:monospace;">'+payEsc(r.gotyme)+'</b> <button class="bsm" onclick="pgCopy(\''+payEsc(r.gotyme)+'\')">⧉</button></div>'
     : '<div style="margin-top:4px;color:var(--t3);font-size:12px;">No GoTyme number on file.</div>';
   // Deduction breakdown — shown only when a deduction is on file. The payslip itself keeps the gross.
-  var breakdown = ded>0
+  var breakdown = (ded>0||already>0)
     ? '<div style="margin:10px auto 2px;max-width:236px;font-size:12.5px;text-align:left;background:#f8fafc;border:1px solid rgba(15,23,42,.10);border-radius:10px;padding:9px 12px;">'+
         '<div style="display:flex;justify-content:space-between;color:var(--t2);"><span>Payslip (gross)</span><span style="font-family:monospace;">'+payMoney(gross)+'</span></div>'+
-        '<div style="display:flex;justify-content:space-between;color:#dc2626;margin-top:3px;"><span>Deductions</span><span style="font-family:monospace;">− '+payMoney(ded)+'</span></div>'+
+        (ded>0?'<div style="display:flex;justify-content:space-between;color:#dc2626;margin-top:3px;"><span>Deductions</span><span style="font-family:monospace;">− '+payMoney(ded)+'</span></div>':'')+
+        (already>0?'<div style="display:flex;justify-content:space-between;color:#2563eb;margin-top:3px;"><span>◐ Already sent (partial)</span><span style="font-family:monospace;">− '+payMoney(already)+'</span></div>':'')+
         '<div style="border-top:1px dashed rgba(15,23,42,.18);margin:6px 0;"></div>'+
-        '<div style="display:flex;justify-content:space-between;font-weight:800;color:var(--t1);"><span>Net to pay</span><span style="font-family:monospace;">'+amtStr+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;font-weight:800;color:var(--t1);"><span>'+(already>0?'Remaining to pay':'Net to pay')+'</span><span style="font-family:monospace;">'+amtStr+'</span></div>'+
       '</div>'+
-      '<div style="font-size:10.5px;color:var(--t3);margin-top:3px;">Deduction applied here only — the contractor\'s payslip still shows the gross.</div>'
+      (ded>0?'<div style="font-size:10.5px;color:var(--t3);margin-top:3px;">Deduction applied here only — the contractor\'s payslip still shows the gross.</div>':'')
     : '';
   document.getElementById('pay-modal-body').innerHTML=
     '<div style="text-align:center;">'+qrImg+'</div>'+
     '<div style="margin-top:14px;text-align:center;">'+
       '<div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;">Amount to pay'+(ded>0?' (net)':'')+'</div>'+
-      '<div style="font-size:32px;font-weight:800;color:#16a34a;line-height:1.15;">'+amtStr+' <button class="bsm" style="vertical-align:middle;font-size:11px;" onclick="pgCopy(\''+net.toFixed(2)+'\')">⧉ Copy</button></div>'+
+      '<div style="font-size:32px;font-weight:800;color:#16a34a;line-height:1.15;">'+amtStr+' <button class="bsm" style="vertical-align:middle;font-size:11px;" onclick="pgCopy(\''+toPay.toFixed(2)+'\')">⧉ Copy</button></div>'+
       breakdown+
       '<div style="font-size:13px;color:var(--t1);margin-top:6px;"><b>'+payEsc(r.name)+'</b> · '+payEsc(r.period)+'</div>'+
       '<div style="font-size:12px;color:var(--t2);">'+(r.hours?payEsc(String(r.hours))+' hrs':'')+(r.project?(' · '+payEsc(r.project)):'')+'</div>'+
@@ -3688,7 +3692,7 @@ function openPartialModal(idx){
       '<button class="bsm" onclick="closePayModal()" style="flex:1;">Cancel</button>'+
       '<button class="bsm" id="ppm-send" onclick="doPartialPay()" style="flex:1.6;color:#fff;background:#2563eb;border-color:#2563eb;font-weight:700;">◐ Send partial &amp; email breakdown</button>'+
     '</div>';
-  window._ppmCtx={ net:net, totH:totH, already:already };
+  window._ppmCtx={ net:net, totH:totH, already:already, gross:gross, ded:ded };
   document.getElementById('pay-modal').style.display='flex';
   ppmRecalc();
 }
@@ -3703,8 +3707,19 @@ function ppmRecalc(){
   var amt=(ctx.totH>0)? Math.round(ctx.net*(selH/ctx.totH)*100)/100 : 0;
   var el=document.getElementById('ppm-amt'); if(el && ctx.totH>0) el.value=amt>0?amt.toFixed(2):'';
   var info=document.getElementById('ppm-info');
+  /* Show the deduction math for THIS tranche, live: the ticked hours' gross share, minus their
+     proportional slice of the deduction, equals the amount prefilled — no mental arithmetic. */
+  var dedShare=(ctx.totH>0)? Math.round((ctx.ded||0)*(selH/ctx.totH)*100)/100 : 0;
+  var grossShare=(ctx.totH>0)? Math.round((ctx.gross||0)*(selH/ctx.totH)*100)/100 : 0;
+  var math=(selH&&ctx.ded>0)
+    ? '<div style="margin-top:5px;font-size:11.5px;background:#f8fafc;border:1px solid rgba(15,23,42,.10);border-radius:8px;padding:6px 9px;">'+
+        '<div style="display:flex;justify-content:space-between;color:var(--t2);"><span>Gross for '+selH.toFixed(2)+'h</span><span style="font-family:monospace;">'+payMoney(grossShare)+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;color:#dc2626;"><span>Deduction share</span><span style="font-family:monospace;">− '+payMoney(dedShare)+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;font-weight:800;border-top:1px dashed rgba(15,23,42,.18);margin-top:3px;padding-top:3px;"><span>This tranche</span><span style="font-family:monospace;">'+payMoney(amt)+'</span></div>'+
+      '</div>'
+    : '';
   if(info) info.innerHTML=(selH?('Covers <b>'+selH.toFixed(2)+'h</b>'):'Nothing ticked')+
-    (leftH?('<br>Outstanding after: <b>'+leftH.toFixed(2)+'h</b> ('+leftP.join(', ')+')'):'<br>Nothing left outstanding — use the normal Pay instead?');
+    (leftH?('<br>Outstanding after: <b>'+leftH.toFixed(2)+'h</b> ('+leftP.join(', ')+')'):'<br>Nothing left outstanding — use the normal Pay instead?')+math;
 }
 async function doPartialPay(){
   var r=window._payCur, sel=window._ppmSel||{selH:0,selP:[],leftH:0,leftP:[]};
