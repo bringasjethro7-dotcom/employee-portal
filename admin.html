@@ -3737,7 +3737,13 @@ async function doPartialPay(){
     var d=await res.json();
     if(d&&d.ok){ if(typeof toast==='function') toast('Partial sent — ₱'+amt.toLocaleString()+(d.emailed?' · contractor emailed.':' (no email on file).')); jBust(); closePayModal(); loadPayslipsAdmin(); }
     else{ if(typeof toast==='function') toast('Not recorded: '+((d&&(d.message||d.error))||'error')); if(btn){ btn.disabled=false; btn.innerHTML='◐ Send partial &amp; email breakdown'; } }
-  }catch(e){ if(typeof toast==='function') toast('Connection error.'); if(btn){ btn.disabled=false; btn.innerHTML='◐ Send partial &amp; email breakdown'; } }
+  }catch(e){
+    /* A timeout does NOT mean it failed — the server often finishes after the browser gives up
+       (that's how the duplicate tranches happened). Keep the button locked and say so. */
+    if(typeof toast==='function') toast('No response — do NOT resend. The tranche may still have been recorded: close this, refresh the list and check the ◐ amount first.');
+    if(btn){ btn.disabled=true; btn.innerHTML='⚠ Check the list before retrying'; }
+    setTimeout(function(){ try{ jBust(); loadPayslipsAdmin(); }catch(_r){} }, 4000);
+  }
 }
 async function doPayModal(next){
   var r=window._payCur; if(!r) return;
