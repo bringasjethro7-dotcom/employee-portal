@@ -3505,10 +3505,15 @@ async function loadPayslipsAdmin(){
         rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
       });
     });
-    // Ready-to-pay (invoice paid) pending first, then other pending, then paid — newest period within each.
+    // Partially-paid pending at the very top (money already moving — finish those first),
+    // then ready-to-pay (invoice paid) pending, then other pending, then paid — newest within each.
     rows.sort(function(a,b){
       if(a.paid!==b.paid) return a.paid?1:-1;
-      if(!a.paid && !b.paid && a.funded!==b.funded) return a.funded?-1:1;
+      if(!a.paid && !b.paid){
+        var ap=a.partialPaid>0, bp=b.partialPaid>0;
+        if(ap!==bp) return ap?-1:1;
+        if(a.funded!==b.funded) return a.funded?-1:1;
+      }
       return _payPeriodTime(b.period)-_payPeriodTime(a.period);
     });
     var sumEl=document.getElementById('pay-summary');
@@ -3530,11 +3535,26 @@ async function loadPayslipsAdmin(){
       else if(r.paid){ projCell='<span style="color:var(--t3);font-size:12px;">'+payEsc(r.project)+'</span>'; }
       else if(r.funded){ projCell='<div style="font-size:12px;color:var(--t1);">'+payEsc(r.project)+'</div><span style="display:inline-block;margin-top:3px;font-size:10.5px;font-weight:700;color:#16a34a;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);border-radius:20px;padding:1px 8px;white-space:nowrap;">💰 Invoice paid — ready</span>'; }
       else{ projCell='<div style="font-size:12px;color:var(--t2);">'+payEsc(r.project)+'</div><span style="display:inline-block;margin-top:3px;font-size:10.5px;color:var(--t3);background:rgba(15,23,42,.07);border:1px solid var(--line);border-radius:20px;padding:1px 8px;white-space:nowrap;">Awaiting invoice</span>'; }
+      /* ◐ Partial only appears when it genuinely applies: the slip already has a partial
+         tranche recorded, or the VA worked for several clients this period and SOME (not all)
+         of those invoices are settled. A single-client slip, or nothing funded yet, or fully
+         funded — those are plain Pay situations, and the extra button was just noise. */
+      var showPartial=(r.partialPaid>0);
+      if(!showPartial){
+        try{
+          var _fund=window._payFund||{};
+          var _split=((_fund.projects_by_period||{})[r.period]||{})[r.empId]||[];
+          var _paidMap=(_fund.paid||{})[r.period]||{};
+          var _f=_split.filter(function(x){ return !!_paidMap[String(x.p).toLowerCase()]; }).length;
+          showPartial=(_split.length>1 && _f>0 && _f<_split.length);
+        }catch(_pp){}
+      }
       var action=r.paid
         ? '<span style="color:var(--t3);font-size:12px;">—</span>'
-        : '<button class="bsm" onclick="openPayModal('+ri+')" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;white-space:nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M2 10h20M6 15h4"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>Pay</button> '+
-          '<button class="bsm" onclick="openPartialModal('+ri+')" title="Pay only the portion funded by a settled client" style="background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.4);color:#2563eb;font-weight:600;white-space:nowrap;">◐ Partial</button>';
-      var trStyle=(!r.paid && r.funded)?' style="background:rgba(34,197,94,.07);"':'';
+        : '<button class="bsm" onclick="openPayModal('+ri+')" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;white-space:nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M2 10h20M6 15h4"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>Pay</button>'+
+          (showPartial?' <button class="bsm" onclick="openPartialModal('+ri+')" title="Pay only the portion funded by a settled client" style="background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.4);color:#2563eb;font-weight:600;white-space:nowrap;">◐ Partial</button>':'');
+      var trStyle=(!r.paid && r.partialPaid>0)?' style="background:rgba(139,92,246,.10);"'
+                 :((!r.paid && r.funded)?' style="background:rgba(34,197,94,.07);"':'');
       return '<tr'+trStyle+'><td><strong>'+payEsc(r.name)+'</strong></td><td>'+payEsc(r.period||'—')+'</td><td>'+projCell+'</td><td>'+(r.hours?payEsc(String(r.hours))+' hrs':'—')+'</td><td style="color:var(--t3);font-size:12px;white-space:nowrap;">'+(r.paid_date?payEsc(r.paid_date):'—')+'</td><td style="white-space:nowrap;">'+status+'</td><td>'+action+'</td></tr>';
     }).join('');
   }catch(e){ body.innerHTML='<tr><td colspan="7" class="es">Could not load payslips.</td></tr>'; }

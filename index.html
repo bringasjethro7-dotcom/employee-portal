@@ -4648,7 +4648,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
         <div class="wl-vol-head">
           <div class="wl-vol-icon"></div>
           <h3>End of day — review &amp; submit</h3>
-          <p>Check each task's time is accurate and enter your output. Submitting ends your day.</p>
+          <p>Check each task's time is accurate. Your outputs are already counted by your project tool — nothing to type here. Submitting ends your day.</p>
           <div class="wl-vol-summary" id="eod-summary"></div>
         </div>
         <div id="eod-list"></div>
@@ -9820,19 +9820,16 @@ function buildEodReceipt() {
     var idle = (typeof isIdleProject === 'function') && isIdleProject(e.project);
     var mins = entryMins(e);
     if (idle) idleMins += mins; else { prodMins += mins; prodCount++; }
-    var tkey = ((e.project||'') + '||' + (e.task||e.description||'')).toLowerCase().trim();
-    var isDup = false;
-    if (!idle) { if (seenTasks[tkey]) isDup = true; else seenTasks[tkey] = true; }
     var st = new Date(parseTrkTime(e.start)).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
     var et = new Date(parseTrkTime(e.end)).toLocaleTimeString('en-US',   { hour:'2-digit', minute:'2-digit', hour12:true });
     var label = e.task || e.description || e.project || 'Task';
     var sub = (e.project || '') + (e.category ? ' · ' + e.category : '');
-    var hasVol = e.volume !== '' && e.volume != null && !isNaN(parseFloat(e.volume));
+    /* OUTPUTS COME FROM THE TOOLS (Aug 2026). The EOD no longer asks for quantities — the
+       Data Center already counted them as the VA ticked work in their project tool. The right
+       side is informational only. */
     var right = idle
       ? '<span class="eod-idle">unproductive</span>'
-      : (isDup
-        ? '<input class="eod-vol" data-eid="' + encodeURIComponent(e.entry_id) + '" type="number" disabled value="" placeholder="↳ counted on 1st entry" title="Enter this task&#39;s total output on its first entry above" style="opacity:.5;cursor:not-allowed;">'
-        : '<input class="eod-vol" data-eid="' + encodeURIComponent(e.entry_id) + '" type="number" min="0" step="any" inputmode="decimal" value="' + (hasVol ? escapeHtml(String(e.volume)) : '') + '" placeholder="output qty">');
+      : '<span class="eod-idle" data-eid="' + encodeURIComponent(e.entry_id) + '" style="color:#16a34a;background:rgba(34,197,94,.1);">⏱ ' + fmtMins(mins) + '</span>';
     return '<div class="eod-row' + (idle ? ' idle' : '') + '">' +
       '<div class="eod-main"><div class="eod-task">' + escapeHtml(label) + '</div>' +
       '<div class="eod-meta">' + escapeHtml(sub) + '</div>' +
@@ -10071,15 +10068,13 @@ function loadMyAppeals(){
     }).catch(function(){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;color:#f87171;">Could not load.</div>'; });
 }
 function submitEOD() {
-  var inputs = document.querySelectorAll('#eod-list .eod-vol');
-  var ok = true, items = [];
-  inputs.forEach(function(inp){
-    if (inp.disabled) { items.push({ entry_id: decodeURIComponent(inp.getAttribute('data-eid')), volume: 0 }); return; }   // same-task duplicate — output counted on the first entry
-    var v = inp.value;
-    if (v === '' || isNaN(parseFloat(v)) || parseFloat(v) < 0) { inp.style.borderColor = '#ef4444'; ok = false; }
-    else { inp.style.borderColor = ''; items.push({ entry_id: decodeURIComponent(inp.getAttribute('data-eid')), volume: parseFloat(v) }); }
+  /* No output entry at EOD — the tools already counted it. The entries still need their status
+     flipped to "recorded", which tracker_set_volumes does without touching the volume cell
+     when no volume is sent. */
+  var items = [];
+  document.querySelectorAll('#eod-list [data-eid]').forEach(function(el){
+    items.push({ entry_id: decodeURIComponent(el.getAttribute('data-eid')) });
   });
-  if (!ok) { showToast('Enter your output for every task.'); return; }
   var btns = document.querySelectorAll('#eod-receipt .wl-vol-actions button');
   var sub  = document.querySelector('#eod-receipt .wl-vol-submit');
   btns.forEach(function(b){ b.disabled = true; });
@@ -11050,10 +11045,12 @@ async function syncWorklogOnTimeOut() {
     var workRows = rows.filter(function(r){ return !(typeof isIdleProject === 'function' && isIdleProject(r.project)); });
     idleRows.forEach(function(r){ try { recordIdleStop(r.entry_id); } catch(e) {} });
     if (!workRows.length) return;   // only idle this shift → nothing needs a volume
-    var trackedTotal    = workRows.reduce(function(s, r) { return s + (r.hours || 0); }, 0);
-    var attendanceTotal = (typeof getTotalHoursToday === 'function') ? getTotalHoursToday() : 0;
-    _pendingWorklog = { rows: workRows, clockifyTotal: trackedTotal, attendanceTotal: attendanceTotal };
-    showVolumePrompt(workRows, true);   // mandatory volume before recording
+    /* OUTPUTS COME FROM THE TOOLS (Aug 2026): the mandatory "Log your output" prompt is gone.
+       Entries are recorded directly — volumes stay blank in the worklog, and the Productivity
+       Hub reads real outputs from the Data Center as it already does. */
+    var _sil = workRows.map(function(r){ return { entry_id: r.entry_id }; });
+    fetch(APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(attEmpId) +
+          '&pending=false&items=' + encodeURIComponent(JSON.stringify(_sil)) + '&_=' + Date.now()).catch(function(){});
   } catch(e) { console.warn('worklog sync:', e); }
 }
 
@@ -32981,13 +32978,13 @@ async function loadMyProd(force){
 <script>
 /* 🛠 MY TOOLS — shortcuts appear automatically once a contractor has signed into a tool. */
 var TOOLREG={
-  'reddit':      { n:'Reddit Altz',   u:'https://internals.jmbvirtuals.com/reddit.html' },
-  'reddit-casey':{ n:'Reddit Casey',  u:'https://internals.jmbvirtuals.com/reddit-casey.html' },
-  'reddit-meg':  { n:'Reddit MeG Agency', u:'https://internals.jmbvirtuals.com/reddit-meg.html' },
+  'reddit':      { n:'Reddit Central', u:'https://internals.jmbvirtuals.com/reddit.html' },
+  'reddit-casey':{ n:'Reddit Central (Casey)', u:'https://internals.jmbvirtuals.com/reddit.html?base=casey' },
+  'reddit-meg':  { n:'Reddit Central (MeG)',   u:'https://internals.jmbvirtuals.com/reddit.html?base=meg' },
   'ember':       { n:'Ember (Snapchat)', u:'https://internals.jmbvirtuals.com/ember.html' },
   'john':        { n:'Project John (X)', u:'https://internals.jmbvirtuals.com/john.html' },
   'ig-reels':    { n:'IG Reels (Arlo)',  u:'https://internals.jmbvirtuals.com/ig-reels.html' },
-  'newfans':     { n:'NewFans (Wallpost)', u:'https://internals.jmbvirtuals.com/newfans.html' },
+  'newfans':     { n:'NewFans (FB Outreach)', u:'https://internals.jmbvirtuals.com/newfans.html' },
   'altr':        { n:'ALTR Media',    u:'https://internals.jmbvirtuals.com/altr.html' },
   'design-shopify': { n:'Design & Shopify', u:'https://internals.jmbvirtuals.com/design-shopify.html' }
 };
