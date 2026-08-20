@@ -9859,9 +9859,11 @@ function _postAppeal(p, cb) {
   var qs = Object.keys(p).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(p[k] == null ? '' : p[k]); }).join('&');
   fetch(base + '&' + qs + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
     var ok = !!(d && d.ok);
-    showToast(ok ? 'Appeal sent to admin for approval. ✅' : 'Could not send appeal.');
+    // The server now refuses duplicate claims — tell the VA WHY instead of a generic failure,
+    // or they will just try again (which is exactly how the Aug 19 double-pays happened).
+    showToast(ok ? 'Appeal sent to admin for approval. ✅' : ((d && d.message) || 'Could not send appeal.'));
     if (cb) cb(ok);
-  }).catch(function(){ showToast('Network error — appeal not sent.'); if (cb) cb(false); });
+  }).catch(function(){ showToast('Slow connection — do NOT resend. Check “My appeals” first: it may have gone through.'); if (cb) cb(false); });
 }
 // ── Appeal modal (replaces the old prompt chain) ──
 var _apMode = 'untracked', _apEntryId = '';
