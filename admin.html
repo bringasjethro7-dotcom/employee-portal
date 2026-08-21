@@ -1071,12 +1071,13 @@ body{background-attachment:initial !important}
     <!-- SCORECARD ADMIN -->
     <div id="p-qa" style="display:none;">
       <div class="toolbar">
-        <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Weekly QA</span> <span style="font-size:12px;color:var(--t3);margin-left:6px;">4 scores/month · scorecard QA = the month's average</span></div>
+        <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Weekly QA</span> <span style="font-size:12px;color:var(--t3);margin-left:6px;">4 scores/month · scorecard QA = the month's average · reviewer grades need your approval below</span></div>
         <div style="display:flex;gap:8px;align-items:center;">
           <label style="font-size:12px;color:var(--t3);">Month <input class="sinp" id="qa-month" type="month" style="width:150px;" onchange="loadQaGrid()"></label>
           <button class="bsm" onclick="loadQaGrid()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
       </div>
+      <div id="qa-approvals" style="margin:10px 0 14px;"></div>
       <div id="qa-disputes"></div>
       <div id="qa-body"><div class="es">Loading…</div></div>
     </div>
@@ -2413,10 +2414,48 @@ async function autoScanDemerits(days, silent){
 /* ════════ WEEKLY QA GRID ════════ */
 function _qaMonthVal(){ var el=document.getElementById('qa-month'); if(el&&!el.value){ var n=new Date(); el.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); } return el?el.value:''; }
 function _qaAvgOf(w){ var v=[]; for(var k=1;k<=4;k++){ var x=w&&w[k]; if(x!==''&&x!=null&&!isNaN(x)) v.push(Number(x)); } return v.length?Math.round(v.reduce(function(a,b){return a+b;},0)/v.length*100)/100:null; }
+/* ⏳ REVIEWER GRADES AWAITING APPROVAL — the reviewer's submit parks here. Tick "client
+   findings" when the client raised QA issues that week (automatic −10%), then Approve:
+   the final score hits the scorecard on both portals and the VA gets the auto result email. */
+async function loadQaApprovals(){
+  var host=document.getElementById('qa-approvals'); if(!host) return;
+  var month=_qaMonthVal();
+  try{
+    var r=await fetch(API+'?action=qa_approvals&month='+encodeURIComponent(month)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
+    var d=await r.json();
+    if(!d||!d.ok){ host.innerHTML=(d&&d.error==='UNAUTHORIZED')?'<div class="es">QA approvals: wrong admin password.</div>':''; return; }
+    var pend=(d.rows||[]).filter(function(x){ return x.status!=='approved'; });
+    var done=(d.rows||[]).filter(function(x){ return x.status==='approved'; }).length;
+    if(!pend.length){ host.innerHTML=done?('<div style="font-size:12px;color:var(--t3);">✓ No reviewer grades waiting — '+done+' approved this month.</div>'):''; return; }
+    var nmOf=function(id){ var e=_demEmps().filter(function(x){return String(x.employee_id).toLowerCase()===String(id).toLowerCase();})[0]; return e?(e.full_name||id):id; };
+    host.innerHTML='<div style="border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.05);border-radius:12px;padding:12px 14px;">'+
+      '<div style="font-size:13px;font-weight:700;color:#b45309;margin-bottom:8px;">⏳ Reviewer grades awaiting your approval ('+pend.length+') — not visible to the VA until approved</div>'+
+      pend.map(function(x){
+        var key=x.employee_id+'|'+x.week;
+        return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 0;border-top:1px solid rgba(15,23,42,.06);">'+
+          '<b style="font-size:13px;">'+x.employee_id+' · '+nmOf(x.employee_id)+'</b>'+
+          '<span style="font-size:12px;color:var(--t2);">week '+x.week+' · <b>'+x.score+'</b> (raw '+x.raw+' · coverage '+x.coverage+'%) · by '+x.by+'</span>'+
+          '<label style="font-size:12px;color:#b91c1c;display:flex;gap:5px;align-items:center;margin-left:auto;"><input type="checkbox" id="qaap-cl-'+x.employee_id+'-'+x.week+'"> Client findings this week (−10%)</label>'+
+          '<button class="bsm" style="color:#16a34a;border-color:rgba(34,197,94,.4);" onclick="qaApprove(\''+x.employee_id+'\','+x.week+')">✓ Approve → scorecard + email</button>'+
+        '</div>';
+      }).join('')+'</div>';
+  }catch(e){ host.innerHTML=''; }
+}
+async function qaApprove(emp, week){
+  var month=_qaMonthVal();
+  var cl=(document.getElementById('qaap-cl-'+emp+'-'+week)||{}).checked?1:0;
+  if(!confirm('Approve '+emp+' week '+week+(cl?' WITH the client-findings −10%':'')+'?\n\nThe final score lands on the scorecard and the VA is emailed the result.')) return;
+  try{
+    var r=await fetch(API+'?action=qa_approve&employee_id='+encodeURIComponent(emp)+'&month='+encodeURIComponent(month)+'&week='+week+'&client='+cl+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ toast('Approved — final '+d.final+(cl?' (client −10%)':'')+' · VA emailed.'); loadQaApprovals(); loadQaGrid(); }
+    else toast('Not approved: '+((d&&(d.message||d.error))||'error'));
+  }catch(e){ toast('Connection error.'); }
+}
 async function loadQaGrid(){
   var month=_qaMonthVal(); var box=document.getElementById('qa-body'); if(!box) return;
   box.innerHTML='<div class="es">Loading…</div>';
-  loadQaDisputes();
+  loadQaDisputes(); loadQaApprovals();
   if(!_demEmps().length){ try{ var er=await jGet(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
   var map={}; try{ var r=await fetch(API+'?action=get_all_qa_weekly&month='+encodeURIComponent(month)+'&_='+Date.now()); var d=await r.json(); map=(d&&d.map)||{}; }catch(e){}
   var list=_demEmps().filter(function(e){return e.employee_id && String(e.status||'active').toLowerCase()!=='inactive';})
