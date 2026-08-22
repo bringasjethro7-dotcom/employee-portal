@@ -33050,73 +33050,94 @@ setInterval(function(){ if(!document.hidden) loadMyToolShortcuts(); }, 4000);
 </script>
 
 
-<!-- ══════════ WFH CHECK-IN GATE — auto speed test + setup photo before login ══════════ -->
+<!-- ══════════ WFH CHECK-IN GATE — auto speed test + setup photo + Discord proof ══════════ -->
 <div id="wfh-gate" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(8,12,20,.88);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
-  <div style="background:var(--card,#fff);color:var(--text-1,#111);border-radius:18px;max-width:460px;width:100%;max-height:94vh;overflow:auto;padding:22px 24px;box-shadow:0 40px 100px rgba(0,0,0,.5);">
-    <div style="display:flex;align-items:center;gap:8px;">
-      <div style="font-size:17px;font-weight:800;flex:1;">🏠 Work-from-home check-in</div>
-      <button onclick="wfhCancel()" title="Cancel — log in from the office instead" style="border:none;background:rgba(148,163,184,.15);border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;color:var(--text-2,#555);">✕</button>
+  <div style="background:var(--card,#fff);color:var(--text-1,#111);border-radius:20px;max-width:470px;width:100%;max-height:94vh;overflow:auto;padding:0;box-shadow:0 40px 100px rgba(0,0,0,.5);overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:18px 22px 16px;color:#fff;">
+      <div style="display:flex;align-items:center;gap:11px;">
+        <span style="width:38px;height:38px;border-radius:11px;background:rgba(255,107,26,.18);border:1px solid rgba(255,107,26,.4);display:flex;align-items:center;justify-content:center;flex:none;" id="wfh-hd-ico"></span>
+        <div style="flex:1;">
+          <div style="font-size:16px;font-weight:800;letter-spacing:-.01em;">Work-from-home check-in</div>
+          <div style="font-size:11.5px;color:rgba(255,255,255,.65);">Three steps, then your portal opens</div>
+        </div>
+        <button onclick="wfhCancel()" title="Cancel — log in from the office instead" style="border:none;background:rgba(255,255,255,.1);border-radius:50%;width:28px;height:28px;cursor:pointer;color:rgba(255,255,255,.7);display:flex;align-items:center;justify-content:center;" id="wfh-x-ico"></button>
+      </div>
+      <div id="wfh-steps" style="display:flex;gap:6px;margin-top:14px;"></div>
     </div>
-    <div style="font-size:12.5px;color:var(--text-2,#555);margin:4px 0 10px;">3 quick steps before your portal opens — just follow the highlighted step below.</div>
-    <div id="wfh-steps" style="display:flex;gap:6px;margin-bottom:14px;"></div>
-    <div id="wfh-body"></div>
+    <div id="wfh-body" style="padding:18px 22px 22px;"></div>
   </div>
 </div>
 <script>
-/* The gate is server-enforced: auth refuses until a PASSING check-in row exists for today.
-   The speed number is MEASURED here (Cloudflare's speed endpoint, ~20 MB timed download) —
-   nothing is typed in, nothing to fudge. Below the minimum → login stays blocked with the
-   instruction to work from the office today. */
+/* Server-enforced WFH gate: auth refuses until a PASSING check-in row exists for today.
+   Speed is MEASURED (3 parallel streams, Ookla-style) — nothing typed, nothing to fudge. */
 var WFH={ id:'', pin:'', min:25, mbps:0, ping:0, stream:null, shot:'', dshot:'' };
-/* Step tracker — always shows the 3 stations and which one you're on. */
-function wfhSteps(cur){
-  var S=[['1','📶 Speed'],['2','📷 Photo'],['3','🎧 Discord']];
-  var h=S.map(function(x,i){
-    var n=i+1, done=n<cur, on=n===cur;
-    return '<div style="flex:1;text-align:center;padding:7px 4px;border-radius:10px;font-size:11.5px;font-weight:800;'+
-      (done?'background:rgba(34,197,94,.12);color:#16a34a;border:1px solid rgba(34,197,94,.35);'
-       :on ?'background:rgba(255,107,26,.12);color:#c2410c;border:1px solid rgba(255,107,26,.45);'
-           :'background:rgba(148,163,184,.08);color:var(--text-3,#999);border:1px solid rgba(148,163,184,.2);')+'">'+
-      (done?'✓ ':'')+x[1]+'</div>';
-  }).join('');
-  var el=document.getElementById('wfh-steps'); if(el) el.innerHTML=h;
+/* ── SVG icon set (stroke style, matches the portal's icon language) ── */
+function wfhIco(n, sz, col){
+  sz=sz||18; col=col||'currentColor';
+  var P={
+    home:'<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/>',
+    x:'<path d="M6 6l12 12M18 6 6 18"/>',
+    wifi:'<path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16.2a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1.3" fill="'+col+'" stroke="none"/>',
+    cam:'<path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/>',
+    headset:'<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.6"/><rect x="17" y="14" width="4" height="6" rx="1.6"/><path d="M21 18v1a3 3 0 0 1-3 3h-4"/>',
+    check:'<path d="M4.5 12.5 10 18 19.5 7"/>',
+    alert:'<path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v5"/><circle cx="12" cy="18" r="1" fill="'+col+'" stroke="none"/>',
+    retry:'<path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 3v5h-5"/>',
+    shirt:'<path d="M8 4 4 7l2.5 3.5L8 9.5V20h8V9.5l1.5 1L20 7l-4-3-2 2h-4L8 4z"/>',
+    shield:'<path d="M12 3 5 6v5c0 4.5 3 8.2 7 10 4-1.8 7-5.5 7-10V6l-7-3z"/><path d="m9 12 2.2 2.2L15.5 10"/>',
+    monitor:'<rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M9 21h6M12 17.5V21"/>',
+    arrow:'<path d="M5 12h14M13 6l6 6-6 6"/>'
+  };
+  return '<svg viewBox="0 0 24 24" width="'+sz+'" height="'+sz+'" fill="none" stroke="'+col+'" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>';
 }
-function wfhCancel(){
-  if(!confirm('Cancel the WFH check-in?\n\nYou will not be able to open the portal from home until you complete it. Cancel only if you are heading to the office.')) return;
-  wfhFail();
+try{ document.getElementById('wfh-hd-ico').innerHTML=wfhIco('home',20,'#FF8A3D');
+     document.getElementById('wfh-x-ico').innerHTML=wfhIco('x',14,'rgba(255,255,255,.75)'); }catch(_i){}
+function wfhSteps(cur){
+  var S=[['wifi','Speed'],['cam','Photo'],['headset','Discord']];
+  var el=document.getElementById('wfh-steps'); if(!el) return;
+  el.innerHTML=S.map(function(x,i){
+    var n=i+1, done=n<cur, on=n===cur;
+    var col=done?'#4ade80':(on?'#FF8A3D':'rgba(255,255,255,.35)');
+    return '<div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 4px;border-radius:10px;font-size:11px;font-weight:800;letter-spacing:.02em;color:'+col+';'+
+      (done?'background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);'
+       :on ?'background:rgba(255,138,61,.12);border:1px solid rgba(255,138,61,.45);'
+           :'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);')+'">'+
+      (done?wfhIco('check',13,col):wfhIco(x[0],13,col))+'<span>'+x[1]+'</span></div>';
+  }).join('');
 }
 function wfhGateOpen(id, pin, min){
   WFH.id=id; WFH.pin=pin; WFH.min=min||25; WFH.mbps=0; WFH.shot=''; WFH.dshot='';
-  var g=document.getElementById('wfh-gate'); g.style.display='flex';
+  document.getElementById('wfh-gate').style.display='flex';
   var b=document.getElementById('login-btn'); if(b){ b.textContent='Sign in'; b.disabled=false; }
   wfhSpeedStep();
 }
 function wfhClose(){ try{ if(WFH.stream) WFH.stream.getTracks().forEach(function(t){t.stop();}); }catch(e){} WFH.stream=null;
   document.getElementById('wfh-gate').style.display='none'; }
+function wfhCancel(){
+  if(!confirm('Cancel the WFH check-in?\n\nYou will not be able to open the portal from home until you complete it. Cancel only if you are heading to the office.')) return;
+  wfhFail();
+}
+function wfhFail(){ wfhClose(); showError('WFH requirements not met — please log in from the office.'); }
 function _wfhBody(h){ document.getElementById('wfh-body').innerHTML=h; }
-/* ── STEP 1 · SPEED ── */
+/* ── STEP 1 · SPEED (3 parallel streams, Ookla-style) ── */
 async function wfhSpeedStep(){
   wfhSteps(1);
-  _wfhBody('<div style="text-align:center;padding:14px 0;">'+
-    '<div style="font-size:13px;font-weight:700;margin-bottom:10px;">📶 Step 1 — measuring your internet speed. Nothing to do, just wait ⏳</div>'+
-    '<div style="height:12px;border-radius:7px;background:rgba(148,163,184,.2);overflow:hidden;margin:0 20px;"><i id="wfh-bar" style="display:block;height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#16a34a);transition:width .3s;"></i></div>'+
-    '<div id="wfh-live" style="font-size:24px;font-weight:800;margin-top:12px;">— Mbps</div>'+
-    '<div style="font-size:11px;color:var(--text-3,#888);">Minimum required: <b>'+WFH.min+' Mbps</b> · this runs automatically, no input needed</div>'+
+  _wfhBody('<div style="text-align:center;padding:6px 0;">'+
+    '<div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:12px;">'+wfhIco('wifi',17,'#FF6B1A')+'<span>Measuring your internet speed — nothing to do, just wait</span></div>'+
+    '<div style="height:10px;border-radius:6px;background:rgba(148,163,184,.18);overflow:hidden;margin:0 14px;"><i id="wfh-bar" style="display:block;height:100%;width:0%;background:linear-gradient(90deg,#FF8A3D,#FF6B1A);transition:width .3s;border-radius:6px;"></i></div>'+
+    '<div id="wfh-live" style="font-size:30px;font-weight:800;margin-top:14px;letter-spacing:-.02em;">— <span style="font-size:14px;font-weight:700;color:var(--text-3,#999);">Mbps</span></div>'+
+    '<div style="font-size:11px;color:var(--text-3,#888);margin-top:2px;">Minimum required: <b>'+WFH.min+' Mbps</b></div>'+
   '</div>');
   try{
     var t0=performance.now();
     await fetch('https://speed.cloudflare.com/__down?bytes=1000000&_='+Date.now(),{cache:'no-store'}).then(function(r){return r.arrayBuffer();});
     WFH.ping=Math.round((performance.now()-t0)/2);
-    /* OOKLA-STYLE: 3 PARALLEL streams of 12 MB each (36 MB total). A single TCP stream
-       understates fast connections while its window ramps; three at once saturate the pipe
-       the same way commercial speed tests do. Bytes aggregate across all streams for the
-       live meter; Mbps = total bytes ÷ wall-clock time. */
     var PER=12000000, N=3, TOTAL=PER*N, got=0, t1=performance.now();
     function paint(){
       var el=(performance.now()-t1)/1000, live=el>0.3?Math.round(got*8/el/1e6*10)/10:0;
       var bar=document.getElementById('wfh-bar'), lv=document.getElementById('wfh-live');
       if(bar) bar.style.width=Math.min(100,got/TOTAL*100)+'%';
-      if(lv&&live) lv.textContent=live+' Mbps';
+      if(lv&&live) lv.innerHTML=live+' <span style="font-size:14px;font-weight:700;color:var(--text-3,#999);">Mbps</span>';
     }
     async function oneStream(i){
       var resp=await fetch('https://speed.cloudflare.com/__down?bytes='+PER+'&s='+i+'&_='+Date.now(),{cache:'no-store'});
@@ -33128,49 +33149,51 @@ async function wfhSpeedStep(){
     WFH.mbps=Math.round(got*8/secs/1e6*10)/10;
   }catch(e){ WFH.mbps=0; }
   if(WFH.mbps>=WFH.min){
-    _wfhBody('<div style="text-align:center;padding:8px 0;">'+
-      '<div style="font-size:30px;font-weight:800;color:#16a34a;">'+WFH.mbps+' Mbps ✓</div>'+
-      '<div style="font-size:12px;color:var(--text-2,#555);margin:4px 0 14px;">Above the '+WFH.min+' Mbps minimum — one more step.</div>'+
-      '<button class="btn-primary" onclick="wfhCamStep()" style="width:100%;">📷 Continue to setup photo</button></div>');
+    _wfhBody('<div style="text-align:center;padding:4px 0;">'+
+      '<div style="width:56px;height:56px;border-radius:50%;background:rgba(34,197,94,.12);border:1.5px solid rgba(34,197,94,.4);display:flex;align-items:center;justify-content:center;margin:2px auto 10px;">'+wfhIco('check',26,'#16a34a')+'</div>'+
+      '<div style="font-size:28px;font-weight:800;color:#16a34a;letter-spacing:-.02em;">'+WFH.mbps+' Mbps</div>'+
+      '<div style="font-size:12px;color:var(--text-2,#555);margin:4px 0 16px;">Above the '+WFH.min+' Mbps minimum — one more step.</div>'+
+      '<button class="btn-primary" onclick="wfhCamStep()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('cam',16,'#fff')+'<span>Continue to setup photo</span></button></div>');
   } else {
-    _wfhBody('<div style="text-align:center;padding:8px 0;">'+
-      '<div style="font-size:30px;font-weight:800;color:#dc2626;">'+WFH.mbps+' Mbps ✗</div>'+
-      '<div style="font-size:13px;color:var(--text-2,#555);margin:8px 0 4px;line-height:1.6;">Your connection is below the <b>'+WFH.min+' Mbps</b> minimum for working from home.<br><b>Please head to the office and work from there today.</b></div>'+
-      '<div style="font-size:11px;color:var(--text-3,#888);margin-bottom:12px;">This attempt was recorded. If your internet was just hiccuping, you can test again.</div>'+
-      '<button class="btn-primary" onclick="wfhSpeedStep()" style="width:100%;">↻ Test again</button>'+
-      '<button onclick="wfhFail()" style="width:100%;margin-top:8px;background:none;border:1px solid rgba(148,163,184,.4);border-radius:10px;padding:10px;cursor:pointer;color:var(--text-2,#555);font-weight:700;">I’ll work from the office</button></div>');
+    _wfhBody('<div style="text-align:center;padding:4px 0;">'+
+      '<div style="width:56px;height:56px;border-radius:50%;background:rgba(239,68,68,.1);border:1.5px solid rgba(239,68,68,.4);display:flex;align-items:center;justify-content:center;margin:2px auto 10px;">'+wfhIco('alert',26,'#dc2626')+'</div>'+
+      '<div style="font-size:28px;font-weight:800;color:#dc2626;letter-spacing:-.02em;">'+WFH.mbps+' Mbps</div>'+
+      '<div style="font-size:13px;color:var(--text-2,#555);margin:8px 0 4px;line-height:1.6;">Below the <b>'+WFH.min+' Mbps</b> minimum for working from home.<br><b>Please head to the office and work from there today.</b></div>'+
+      '<div style="font-size:11px;color:var(--text-3,#888);margin-bottom:14px;">This attempt was recorded. If your internet was just hiccuping, test again.</div>'+
+      '<button class="btn-primary" onclick="wfhSpeedStep()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('retry',16,'#fff')+'<span>Test again</span></button>'+
+      '<button onclick="wfhFail()" style="width:100%;margin-top:8px;background:none;border:1px solid rgba(148,163,184,.4);border-radius:10px;padding:10px;cursor:pointer;color:var(--text-2,#555);font-weight:700;">I will work from the office</button></div>');
     try{ fetch(APPS_SCRIPT_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({action:'wfh_checkin',employee_id:WFH.id,pin:WFH.pin,mbps:WFH.mbps,ping:WFH.ping})}).catch(function(){}); }catch(_r){}
   }
 }
-function wfhFail(){ wfhClose(); showError('WFH requirements not met — please log in from the office.'); }
-/* ── STEP 2 · SETUP PHOTO ── */
+/* ── STEP 2 · SETUP PHOTO (landscape enforced) ── */
 async function wfhCamStep(){
   wfhSteps(2);
   _wfhBody('<div style="text-align:center;">'+
-    '<div style="font-size:13px;font-weight:700;">📷 Setup photo — laptop POV</div>'+
-    '<div style="font-size:12px;color:var(--text-2,#555);margin:4px 0 8px;line-height:1.55;">Sit in front of your laptop and capture yourself at your workspace. <b>Landscape only</b> — hold the frame wide, not vertical (we crop to landscape automatically).</div>'+
-    '<div style="font-size:11.5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:8px 10px;color:#92400e;margin-bottom:10px;line-height:1.5;"><b>Dress code applies at home too:</b> wear a proper top — t-shirt, polo, or jacket. No sleeveless. Working from home is still working. 👔</div>'+
+    '<div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;">'+wfhIco('cam',17,'#FF6B1A')+'<span>Setup photo — laptop point of view</span></div>'+
+    '<div style="font-size:12px;color:var(--text-2,#555);margin:4px 0 8px;line-height:1.55;">Sit in front of your laptop and capture yourself at your workspace. <b>Landscape only</b> — we crop it wide automatically.</div>'+
+    '<div style="display:flex;gap:9px;align-items:flex-start;text-align:left;font-size:11.5px;background:rgba(245,158,11,.09);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:9px 11px;color:#92400e;margin-bottom:10px;line-height:1.5;">'+
+      '<span style="flex:none;margin-top:1px;">'+wfhIco('shirt',16,'#b45309')+'</span>'+
+      '<span><b>Dress code applies at home too:</b> wear a proper top — t-shirt, polo, or jacket. No sleeveless. Working from home is still working.</span></div>'+
     '<video id="wfh-vid" autoplay playsinline style="width:100%;border-radius:12px;background:#000;aspect-ratio:16/9;object-fit:cover;"></video>'+
     '<canvas id="wfh-cv" style="display:none;"></canvas>'+
     '<img id="wfh-prev" style="display:none;width:100%;border-radius:12px;">'+
     '<div id="wfh-cam-btns" style="margin-top:10px;">'+
-      '<button class="btn-primary" onclick="wfhSnap()" style="width:100%;">📸 Capture</button>'+
+      '<button class="btn-primary" onclick="wfhSnap()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('cam',16,'#fff')+'<span>Capture</span></button>'+
     '</div></div>');
   try{
     WFH.stream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:1280}, height:{ideal:720}, aspectRatio:{ideal:16/9} }, audio:false });
     document.getElementById('wfh-vid').srcObject=WFH.stream;
   }catch(e){
-    _wfhBody('<div style="text-align:center;padding:10px;"><div style="font-size:13px;font-weight:700;color:#dc2626;">Camera access is required</div>'+
+    _wfhBody('<div style="text-align:center;padding:10px;"><div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;color:#dc2626;">'+wfhIco('alert',16,'#dc2626')+'<span>Camera access is required</span></div>'+
       '<div style="font-size:12px;color:var(--text-2,#555);margin:6px 0 12px;">Allow camera access in your browser and try again — the setup photo is part of the WFH requirements.</div>'+
-      '<button class="btn-primary" onclick="wfhCamStep()" style="width:100%;">↻ Try camera again</button></div>');
+      '<button class="btn-primary" onclick="wfhCamStep()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('retry',16,'#fff')+'<span>Try camera again</span></button></div>');
   }
 }
 function wfhSnap(){
   var v=document.getElementById('wfh-vid'), c=document.getElementById('wfh-cv');
   if(!v||!v.videoWidth){ return; }
-  /* LANDSCAPE, always: crop the center of whatever the camera gives (phones hand us portrait)
-     to a 16:9 landscape frame — the saved photo can never come out vertical. */
+  /* LANDSCAPE, always: crop the center of whatever the camera gives to 16:9. */
   var R=16/9, vw=v.videoWidth, vh=v.videoHeight, sx=0, sy=0, sw=vw, sh=vh;
   if(vw/vh > R){ sw=Math.round(vh*R); sx=Math.round((vw-sw)/2); }
   else         { sh=Math.round(vw/R); sy=Math.round((vh-sh)/2); }
@@ -33180,63 +33203,96 @@ function wfhSnap(){
   v.style.display='none';
   var p=document.getElementById('wfh-prev'); p.src=WFH.shot; p.style.display='block';
   document.getElementById('wfh-cam-btns').innerHTML=
-    '<button class="btn-primary" onclick="wfhDiscordStep()" style="width:100%;">✓ Photo OK — next: Discord check</button>'+
-    '<button onclick="wfhRetake()" style="width:100%;margin-top:8px;background:none;border:1px solid rgba(148,163,184,.4);border-radius:10px;padding:10px;cursor:pointer;color:var(--text-2,#555);font-weight:700;">↻ Retake</button>';
-}
-/* ── STEP 3 · DISCORD SCREENSHOT — same window-capture the tools use (getDisplayMedia).
-   They pick the Discord window; we grab the frame ourselves. It must show them JOINED in
-   the group call with their camera ON. */
-async function wfhDiscordStep(){
-  wfhSteps(3);
-  try{ if(WFH.stream) WFH.stream.getTracks().forEach(function(t){t.stop();}); }catch(e){} WFH.stream=null;
-  _wfhBody('<div style="text-align:center;">'+
-    '<div style="font-size:13px;font-weight:700;">🎧 Last step — prove you\'re on the team call</div>'+
-    '<div style="text-align:left;font-size:12.5px;color:var(--text-2,#555);margin:8px 0 10px;line-height:1.5;background:rgba(148,163,184,.08);border-radius:10px;padding:9px 12px;">'+
-      '<div>1️⃣ Open <b>Discord</b></div>'+
-      '<div>2️⃣ Join the <b>team group call</b> · camera <b>ON</b></div>'+
-      '<div>3️⃣ Press the button below — Chrome will ask to <b>share</b>. That is just how a one-time screenshot works: <b>pick Discord, we snap ONE frame, and sharing stops by itself.</b> Nothing is recorded.</div>'+
-      '<div>4️⃣ <b>If Chrome jumps you to Discord, come straight back to this portal tab</b> — your screenshot and the Submit button are waiting here.</div>'+
-    '</div>'+
-    '<img id="wfh-dprev" style="display:none;width:100%;border-radius:12px;border:1px solid rgba(148,163,184,.3);">'+
-    '<div id="wfh-dbtns"><button class="btn-primary" onclick="wfhDiscordGrab()" style="width:100%;">📸 Take the Discord screenshot</button>'+
-    '<div style="font-size:10.5px;color:var(--text-3,#999);margin-top:6px;">One frame only · auto-stops in ~1 second · nothing is recorded or streamed</div></div>'+
-  '</div>');
-}
-async function wfhDiscordGrab(){
-  try{
-    var st=await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:1 }, audio:false });
-    var v=document.createElement('video'); v.srcObject=st; v.muted=true; await v.play();
-    await new Promise(function(r){ setTimeout(r,700); });   // let the frame settle (tab-switch safe)
-    var w=Math.min(1200,v.videoWidth), h=Math.round(v.videoHeight*w/v.videoWidth);
-    var c=document.getElementById('wfh-cv'); c.width=w; c.height=h;
-    c.getContext('2d').drawImage(v,0,0,w,h);
-    WFH.dshot=c.toDataURL('image/jpeg',0.65);
-    st.getTracks().forEach(function(t){t.stop();});   // sharing ends here — one frame, done
-    /* Chrome switches to the shared tab when a TAB is picked — call the VA back here. */
-    try{
-      var _t0=document.title; document.title='✅ CAPTURED — come back to the portal tab!';
-      var _fl=setInterval(function(){ document.title=(document.title===_t0)?'✅ CAPTURED — come back!':_t0; },900);
-      document.addEventListener('visibilitychange', function _wfhBk(){ if(!document.hidden){ clearInterval(_fl); document.title=_t0; document.removeEventListener('visibilitychange',_wfhBk); } });
-      var _acx=new (window.AudioContext||window.webkitAudioContext)();
-      [880,1174].forEach(function(f,i){ var o=_acx.createOscillator(), g=_acx.createGain();
-        o.frequency.value=f; o.connect(g); g.connect(_acx.destination);
-        g.gain.setValueAtTime(.25,_acx.currentTime+i*.18); g.gain.exponentialRampToValueAtTime(.001,_acx.currentTime+i*.18+.3);
-        o.start(_acx.currentTime+i*.18); o.stop(_acx.currentTime+i*.18+.32); });
-    }catch(_nb){}
-    var p=document.getElementById('wfh-dprev'); p.src=WFH.dshot; p.style.display='block';
-    document.getElementById('wfh-dbtns').innerHTML=
-      '<div style="font-size:11px;color:var(--text-3,#888);margin:6px 0;">Make sure the call panel and your camera tile are visible in the shot.</div>'+
-      '<button class="btn-primary" onclick="wfhSubmit(this)" style="width:100%;">✓ Submit &amp; open my portal</button>'+
-      '<button onclick="wfhDiscordStep()" style="width:100%;margin-top:8px;background:none;border:1px solid rgba(148,163,184,.4);border-radius:10px;padding:10px;cursor:pointer;color:var(--text-2,#555);font-weight:700;">↻ Recapture</button>';
-  }catch(e){ /* cancelled the picker — stay on the step */ }
+    '<button class="btn-primary" onclick="wfhDiscordStep()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('arrow',16,'#fff')+'<span>Photo OK — next: Discord check</span></button>'+
+    '<button onclick="wfhRetake()" style="width:100%;margin-top:8px;background:none;border:1px solid rgba(148,163,184,.4);border-radius:10px;padding:10px;cursor:pointer;color:var(--text-2,#555);font-weight:700;">Retake</button>';
 }
 function wfhRetake(){ WFH.shot='';
   document.getElementById('wfh-prev').style.display='none';
   var v=document.getElementById('wfh-vid'); v.style.display='block';
-  document.getElementById('wfh-cam-btns').innerHTML='<button class="btn-primary" onclick="wfhSnap()" style="width:100%;">📸 Capture</button>'; }
+  document.getElementById('wfh-cam-btns').innerHTML='<button class="btn-primary" onclick="wfhSnap()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('cam',16,'#fff')+'<span>Capture</span></button>'; }
+/* ── STEP 3 · DISCORD SCREENSHOT — one frame via the share dialog, then it stops itself ── */
+function _wfhNum(n){ return '<span style="flex:none;width:19px;height:19px;border-radius:50%;background:rgba(255,107,26,.14);color:#c2410c;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;">'+n+'</span>'; }
+async function wfhDiscordStep(){
+  wfhSteps(3);
+  try{ if(WFH.stream) WFH.stream.getTracks().forEach(function(t){t.stop();}); }catch(e){} WFH.stream=null;
+  _wfhBody('<div style="text-align:center;">'+
+    '<div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;">'+wfhIco('headset',17,'#FF6B1A')+'<span>Last step — prove you are on the team call</span></div>'+
+    '<div style="text-align:left;font-size:12.5px;color:var(--text-2,#555);margin:10px 0;line-height:1.55;background:rgba(148,163,184,.08);border-radius:12px;padding:11px 12px;display:flex;flex-direction:column;gap:7px;">'+
+      '<div style="display:flex;gap:8px;">'+_wfhNum(1)+'<span>Open <b>Discord</b></span></div>'+
+      '<div style="display:flex;gap:8px;">'+_wfhNum(2)+'<span>Join the <b>team group call</b> · camera <b>ON</b></span></div>'+
+      '<div style="display:flex;gap:8px;">'+_wfhNum(3)+'<span>Press the button — the browser will ask to <b>share</b>. That is just how a one-time screenshot works: pick Discord, <b>we snap one frame and sharing stops by itself</b>. Nothing is recorded.</span></div>'+
+      '<div style="display:flex;gap:8px;">'+_wfhNum(4)+'<span><b>If the browser jumps you to Discord, come straight back to this tab</b> — your screenshot and the submit button are waiting here.</span></div>'+
+    '</div>'+
+    '<img id="wfh-dprev" style="display:none;width:100%;border-radius:12px;border:1px solid rgba(148,163,184,.3);">'+
+    '<canvas id="wfh-cv" style="display:none;"></canvas>'+
+    '<div id="wfh-dbtns"><button class="btn-primary" onclick="wfhDiscordGrab()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('monitor',16,'#fff')+'<span>Take the Discord screenshot</span></button>'+
+    '<div style="font-size:10.5px;color:var(--text-3,#999);margin-top:6px;">One frame only · auto-stops · nothing is recorded or streamed</div></div>'+
+  '</div>');
+}
+async function wfhDiscordGrab(){
+  var st=null;
+  try{ st=await navigator.mediaDevices.getDisplayMedia({ video:true, audio:false }); }
+  catch(e){ return; }                                   // they cancelled the picker — stay put
+  var track=st.getVideoTracks()[0], dataUrl='';
+  function toJpg(w,h,drawFn){ var c=document.getElementById('wfh-cv');
+    var W=Math.min(1200,w), H=Math.round(h*W/w); c.width=W; c.height=H; drawFn(c.getContext('2d'),W,H);
+    return c.toDataURL('image/jpeg',0.65); }
+  /* PRIMARY: ImageCapture reads frames straight off the TRACK — works while this tab is hidden
+     (the browser jumps to the shared tab, so hidden is the NORMAL case here). */
+  try{
+    if(window.ImageCapture){
+      var ic=new ImageCapture(track);
+      for(var a=0;a<8 && !dataUrl;a++){
+        try{ await new Promise(function(r){ setTimeout(r,350); });
+          var bmp=await ic.grabFrame();
+          if(bmp && bmp.width) dataUrl=toJpg(bmp.width,bmp.height,function(x,W,H){ x.drawImage(bmp,0,0,W,H); });
+        }catch(_g){}
+      }
+    }
+  }catch(_ic){}
+  /* FALLBACK: video element — if the tab is hidden, wait for the VA to come back, then draw. */
+  if(!dataUrl){
+    try{
+      var v=document.createElement('video'); v.srcObject=st; v.muted=true; v.playsInline=true;
+      await v.play();
+      if(document.hidden){
+        document.title='Come back to the portal tab to finish the screenshot';
+        await new Promise(function(res){ document.addEventListener('visibilitychange', function h(){
+          if(!document.hidden){ document.removeEventListener('visibilitychange',h); res(); } }); });
+      }
+      await new Promise(function(r){ setTimeout(r,400); });
+      if(v.videoWidth) dataUrl=toJpg(v.videoWidth,v.videoHeight,function(x,W,H){ x.drawImage(v,0,0,W,H); });
+    }catch(_v){}
+  }
+  try{ st.getTracks().forEach(function(t){ t.stop(); }); }catch(_s){}   // sharing ends — one frame only
+  if(!dataUrl){
+    document.getElementById('wfh-dbtns').innerHTML=
+      '<div style="font-size:12px;color:#dc2626;font-weight:700;margin-bottom:8px;">The capture came back empty — that can happen on some browsers. Try again and pick the Discord <b>window</b> (not the tab) in the picker.</div>'+
+      '<button class="btn-primary" onclick="wfhDiscordGrab()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('retry',16,'#fff')+'<span>Try the screenshot again</span></button>';
+    return;
+  }
+  WFH.dshot=dataUrl;
+  /* call the VA back if the browser jumped them to the shared tab */
+  try{
+    var _t0='JMB Virtuals — Contractor Portal';
+    document.title='CAPTURED — come back to the portal tab';
+    var _fl=setInterval(function(){ document.title=(document.title===_t0)?'CAPTURED — come back!':_t0; },900);
+    document.addEventListener('visibilitychange', function _wfhBk(){ if(!document.hidden){ clearInterval(_fl); document.title=_t0; document.removeEventListener('visibilitychange',_wfhBk); } });
+    var _acx=new (window.AudioContext||window.webkitAudioContext)();
+    [880,1174].forEach(function(f,i){ var o=_acx.createOscillator(), g=_acx.createGain();
+      o.frequency.value=f; o.connect(g); g.connect(_acx.destination);
+      g.gain.setValueAtTime(.25,_acx.currentTime+i*.18); g.gain.exponentialRampToValueAtTime(.001,_acx.currentTime+i*.18+.3);
+      o.start(_acx.currentTime+i*.18); o.stop(_acx.currentTime+i*.18+.32); });
+  }catch(_nb){}
+  var p=document.getElementById('wfh-dprev'); p.src=WFH.dshot; p.style.display='block';
+  document.getElementById('wfh-dbtns').innerHTML=
+    '<div style="font-size:11px;color:var(--text-3,#888);margin:6px 0;">Make sure the call panel and your camera tile are visible in the shot.</div>'+
+    '<button class="btn-primary" onclick="wfhSubmit(this)" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">'+wfhIco('check',16,'#fff')+'<span>Submit and open my portal</span></button>'+
+    '<button onclick="wfhDiscordStep()" style="width:100%;margin-top:8px;background:none;border:1px solid rgba(148,163,184,.4);border-radius:10px;padding:10px;cursor:pointer;color:var(--text-2,#555);font-weight:700;">Recapture</button>';
+}
 async function wfhSubmit(btn){
   if(!WFH.shot) return;
-  btn.disabled=true; btn.textContent='Submitting…';
+  btn.disabled=true; btn.innerHTML='<span>Submitting…</span>';
   try{
     var r=await fetch(APPS_SCRIPT_URL,{ method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({ action:'wfh_checkin', employee_id:WFH.id, pin:WFH.pin, mbps:WFH.mbps, ping:WFH.ping, image:WFH.shot, image2:WFH.dshot||'' }) });
@@ -33244,10 +33300,11 @@ async function wfhSubmit(btn){
     if(d&&d.ok&&d.pass){
       wfhClose();
       var b=document.getElementById('login-btn'); if(b) b.click();   // auth passes now — straight in
-    } else if(d&&d.error==='PHOTO_REQUIRED'){ btn.disabled=false; btn.textContent='✓ Use this photo & open my portal'; wfhRetake(); }
-    else { btn.disabled=false; btn.textContent='✓ Use this photo & open my portal';
+    } else if(d&&d.error==='PHOTO_REQUIRED'){ btn.disabled=false; btn.innerHTML='<span>Submit and open my portal</span>'; wfhCamStep(); }
+    else if(d&&d.error==='DISCORD_REQUIRED'){ btn.disabled=false; btn.innerHTML='<span>Submit and open my portal</span>'; wfhDiscordStep(); }
+    else { btn.disabled=false; btn.innerHTML='<span>Submit and open my portal</span>';
       alert('Check-in not accepted: '+((d&&(d.message||d.error))||'error')+'. Try again.'); }
-  }catch(e){ btn.disabled=false; btn.textContent='✓ Use this photo & open my portal';
+  }catch(e){ btn.disabled=false; btn.innerHTML='<span>Submit and open my portal</span>';
     alert('Connection hiccup — press the button again.'); }
 }
 </script>
