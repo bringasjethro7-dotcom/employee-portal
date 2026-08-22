@@ -33053,8 +33053,12 @@ setInterval(function(){ if(!document.hidden) loadMyToolShortcuts(); }, 4000);
 <!-- ══════════ WFH CHECK-IN GATE — auto speed test + setup photo before login ══════════ -->
 <div id="wfh-gate" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(8,12,20,.88);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:16px;">
   <div style="background:var(--card,#fff);color:var(--text-1,#111);border-radius:18px;max-width:460px;width:100%;max-height:94vh;overflow:auto;padding:22px 24px;box-shadow:0 40px 100px rgba(0,0,0,.5);">
-    <div style="font-size:17px;font-weight:800;">🏠 Work-from-home check-in</div>
-    <div style="font-size:12.5px;color:var(--text-2,#555);margin:4px 0 14px;">Two quick steps before your portal opens: we measure your connection ourselves, then one setup photo.</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="font-size:17px;font-weight:800;flex:1;">🏠 Work-from-home check-in</div>
+      <button onclick="wfhCancel()" title="Cancel — log in from the office instead" style="border:none;background:rgba(148,163,184,.15);border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;color:var(--text-2,#555);">✕</button>
+    </div>
+    <div style="font-size:12.5px;color:var(--text-2,#555);margin:4px 0 10px;">3 quick steps before your portal opens — just follow the highlighted step below.</div>
+    <div id="wfh-steps" style="display:flex;gap:6px;margin-bottom:14px;"></div>
     <div id="wfh-body"></div>
   </div>
 </div>
@@ -33064,6 +33068,23 @@ setInterval(function(){ if(!document.hidden) loadMyToolShortcuts(); }, 4000);
    nothing is typed in, nothing to fudge. Below the minimum → login stays blocked with the
    instruction to work from the office today. */
 var WFH={ id:'', pin:'', min:25, mbps:0, ping:0, stream:null, shot:'', dshot:'' };
+/* Step tracker — always shows the 3 stations and which one you're on. */
+function wfhSteps(cur){
+  var S=[['1','📶 Speed'],['2','📷 Photo'],['3','🎧 Discord']];
+  var h=S.map(function(x,i){
+    var n=i+1, done=n<cur, on=n===cur;
+    return '<div style="flex:1;text-align:center;padding:7px 4px;border-radius:10px;font-size:11.5px;font-weight:800;'+
+      (done?'background:rgba(34,197,94,.12);color:#16a34a;border:1px solid rgba(34,197,94,.35);'
+       :on ?'background:rgba(255,107,26,.12);color:#c2410c;border:1px solid rgba(255,107,26,.45);'
+           :'background:rgba(148,163,184,.08);color:var(--text-3,#999);border:1px solid rgba(148,163,184,.2);')+'">'+
+      (done?'✓ ':'')+x[1]+'</div>';
+  }).join('');
+  var el=document.getElementById('wfh-steps'); if(el) el.innerHTML=h;
+}
+function wfhCancel(){
+  if(!confirm('Cancel the WFH check-in?\n\nYou will not be able to open the portal from home until you complete it. Cancel only if you are heading to the office.')) return;
+  wfhFail();
+}
 function wfhGateOpen(id, pin, min){
   WFH.id=id; WFH.pin=pin; WFH.min=min||25; WFH.mbps=0; WFH.shot=''; WFH.dshot='';
   var g=document.getElementById('wfh-gate'); g.style.display='flex';
@@ -33075,8 +33096,9 @@ function wfhClose(){ try{ if(WFH.stream) WFH.stream.getTracks().forEach(function
 function _wfhBody(h){ document.getElementById('wfh-body').innerHTML=h; }
 /* ── STEP 1 · SPEED ── */
 async function wfhSpeedStep(){
+  wfhSteps(1);
   _wfhBody('<div style="text-align:center;padding:14px 0;">'+
-    '<div style="font-size:13px;font-weight:700;margin-bottom:10px;">📶 Measuring your download speed…</div>'+
+    '<div style="font-size:13px;font-weight:700;margin-bottom:10px;">📶 Step 1 — measuring your internet speed. Nothing to do, just wait ⏳</div>'+
     '<div style="height:12px;border-radius:7px;background:rgba(148,163,184,.2);overflow:hidden;margin:0 20px;"><i id="wfh-bar" style="display:block;height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#16a34a);transition:width .3s;"></i></div>'+
     '<div id="wfh-live" style="font-size:24px;font-weight:800;margin-top:12px;">— Mbps</div>'+
     '<div style="font-size:11px;color:var(--text-3,#888);">Minimum required: <b>'+WFH.min+' Mbps</b> · this runs automatically, no input needed</div>'+
@@ -33085,15 +33107,23 @@ async function wfhSpeedStep(){
     var t0=performance.now();
     await fetch('https://speed.cloudflare.com/__down?bytes=1000000&_='+Date.now(),{cache:'no-store'}).then(function(r){return r.arrayBuffer();});
     WFH.ping=Math.round((performance.now()-t0)/2);
-    var BYTES=20000000, t1=performance.now();
-    var resp=await fetch('https://speed.cloudflare.com/__down?bytes='+BYTES+'&_='+Date.now(),{cache:'no-store'});
-    var reader=resp.body.getReader(), got=0;
-    while(true){ var c=await reader.read(); if(c.done) break; got+=c.value.length;
-      var el=(performance.now()-t1)/1000, live=Math.round(got*8/el/1e6*10)/10;
+    /* OOKLA-STYLE: 3 PARALLEL streams of 12 MB each (36 MB total). A single TCP stream
+       understates fast connections while its window ramps; three at once saturate the pipe
+       the same way commercial speed tests do. Bytes aggregate across all streams for the
+       live meter; Mbps = total bytes ÷ wall-clock time. */
+    var PER=12000000, N=3, TOTAL=PER*N, got=0, t1=performance.now();
+    function paint(){
+      var el=(performance.now()-t1)/1000, live=el>0.3?Math.round(got*8/el/1e6*10)/10:0;
       var bar=document.getElementById('wfh-bar'), lv=document.getElementById('wfh-live');
-      if(bar) bar.style.width=Math.min(100,got/BYTES*100)+'%';
-      if(lv) lv.textContent=live+' Mbps';
+      if(bar) bar.style.width=Math.min(100,got/TOTAL*100)+'%';
+      if(lv&&live) lv.textContent=live+' Mbps';
     }
+    async function oneStream(i){
+      var resp=await fetch('https://speed.cloudflare.com/__down?bytes='+PER+'&s='+i+'&_='+Date.now(),{cache:'no-store'});
+      var reader=resp.body.getReader();
+      while(true){ var c=await reader.read(); if(c.done) break; got+=c.value.length; paint(); }
+    }
+    await Promise.all([oneStream(1),oneStream(2),oneStream(3)]);
     var secs=(performance.now()-t1)/1000;
     WFH.mbps=Math.round(got*8/secs/1e6*10)/10;
   }catch(e){ WFH.mbps=0; }
@@ -33116,18 +33146,19 @@ async function wfhSpeedStep(){
 function wfhFail(){ wfhClose(); showError('WFH requirements not met — please log in from the office.'); }
 /* ── STEP 2 · SETUP PHOTO ── */
 async function wfhCamStep(){
+  wfhSteps(2);
   _wfhBody('<div style="text-align:center;">'+
     '<div style="font-size:13px;font-weight:700;">📷 Setup photo — laptop POV</div>'+
-    '<div style="font-size:12px;color:var(--text-2,#555);margin:4px 0 8px;line-height:1.55;">Sit in front of your laptop and capture yourself at your workspace.</div>'+
+    '<div style="font-size:12px;color:var(--text-2,#555);margin:4px 0 8px;line-height:1.55;">Sit in front of your laptop and capture yourself at your workspace. <b>Landscape only</b> — hold the frame wide, not vertical (we crop to landscape automatically).</div>'+
     '<div style="font-size:11.5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:8px 10px;color:#92400e;margin-bottom:10px;line-height:1.5;"><b>Dress code applies at home too:</b> wear a proper top — t-shirt, polo, or jacket. No sleeveless. Working from home is still working. 👔</div>'+
-    '<video id="wfh-vid" autoplay playsinline style="width:100%;border-radius:12px;background:#000;aspect-ratio:4/3;object-fit:cover;"></video>'+
+    '<video id="wfh-vid" autoplay playsinline style="width:100%;border-radius:12px;background:#000;aspect-ratio:16/9;object-fit:cover;"></video>'+
     '<canvas id="wfh-cv" style="display:none;"></canvas>'+
     '<img id="wfh-prev" style="display:none;width:100%;border-radius:12px;">'+
     '<div id="wfh-cam-btns" style="margin-top:10px;">'+
       '<button class="btn-primary" onclick="wfhSnap()" style="width:100%;">📸 Capture</button>'+
     '</div></div>');
   try{
-    WFH.stream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:1024} }, audio:false });
+    WFH.stream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:1280}, height:{ideal:720}, aspectRatio:{ideal:16/9} }, audio:false });
     document.getElementById('wfh-vid').srcObject=WFH.stream;
   }catch(e){
     _wfhBody('<div style="text-align:center;padding:10px;"><div style="font-size:13px;font-weight:700;color:#dc2626;">Camera access is required</div>'+
@@ -33138,8 +33169,13 @@ async function wfhCamStep(){
 function wfhSnap(){
   var v=document.getElementById('wfh-vid'), c=document.getElementById('wfh-cv');
   if(!v||!v.videoWidth){ return; }
-  var w=Math.min(900,v.videoWidth), h=Math.round(v.videoHeight*w/v.videoWidth);
-  c.width=w; c.height=h; c.getContext('2d').drawImage(v,0,0,w,h);
+  /* LANDSCAPE, always: crop the center of whatever the camera gives (phones hand us portrait)
+     to a 16:9 landscape frame — the saved photo can never come out vertical. */
+  var R=16/9, vw=v.videoWidth, vh=v.videoHeight, sx=0, sy=0, sw=vw, sh=vh;
+  if(vw/vh > R){ sw=Math.round(vh*R); sx=Math.round((vw-sw)/2); }
+  else         { sh=Math.round(vw/R); sy=Math.round((vh-sh)/2); }
+  var w=Math.min(1024,sw), h=Math.round(w/R);
+  c.width=w; c.height=h; c.getContext('2d').drawImage(v,sx,sy,sw,sh,0,0,w,h);
   WFH.shot=c.toDataURL('image/jpeg',0.7);
   v.style.display='none';
   var p=document.getElementById('wfh-prev'); p.src=WFH.shot; p.style.display='block';
@@ -33151,12 +33187,18 @@ function wfhSnap(){
    They pick the Discord window; we grab the frame ourselves. It must show them JOINED in
    the group call with their camera ON. */
 async function wfhDiscordStep(){
+  wfhSteps(3);
   try{ if(WFH.stream) WFH.stream.getTracks().forEach(function(t){t.stop();}); }catch(e){} WFH.stream=null;
   _wfhBody('<div style="text-align:center;">'+
-    '<div style="font-size:13px;font-weight:700;">🎧 Discord check — last step</div>'+
-    '<div style="font-size:12px;color:var(--text-2,#555);margin:4px 0 10px;line-height:1.55;">Open Discord, <b>join the team group call</b> and turn your <b>camera ON</b> — then press the button and pick your <b>Discord window</b>. We capture the screenshot directly, like the tools do.</div>'+
+    '<div style="font-size:13px;font-weight:700;">🎧 Last step — prove you\'re on the team call</div>'+
+    '<div style="text-align:left;font-size:12.5px;color:var(--text-2,#555);margin:8px 0 10px;line-height:1.5;background:rgba(148,163,184,.08);border-radius:10px;padding:9px 12px;">'+
+      '<div>1️⃣ Open <b>Discord</b></div>'+
+      '<div>2️⃣ Join the <b>team group call</b> · camera <b>ON</b></div>'+
+      '<div>3️⃣ Press the button below, then <b>pick the Discord window</b> in the popup</div>'+
+    '</div>'+
     '<img id="wfh-dprev" style="display:none;width:100%;border-radius:12px;border:1px solid rgba(148,163,184,.3);">'+
-    '<div id="wfh-dbtns"><button class="btn-primary" onclick="wfhDiscordGrab()" style="width:100%;">📷 Pick the Discord window &amp; capture</button></div>'+
+    '<div id="wfh-dbtns"><button class="btn-primary" onclick="wfhDiscordGrab()" style="width:100%;">📸 Take the Discord screenshot</button>'+
+    '<div style="font-size:10.5px;color:var(--text-3,#999);margin-top:6px;">One frame only · auto-stops in ~1 second · nothing is recorded or streamed</div></div>'+
   '</div>');
 }
 async function wfhDiscordGrab(){
