@@ -14561,6 +14561,9 @@ async function sendEodReport(){
   var btn = document.getElementById('eod-send-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   try {
+    /* Server receipt: this row is what the "EOD not sent" auto-check reads. Fire-and-forget —
+       a slow server must never block the EOD from sending. */
+    try{ fetch(APPS_SCRIPT_URL+'?action=eod_mark&employee_id='+encodeURIComponent(chatEmpId)+'&date='+encodeURIComponent(_bd)+'&_='+Date.now()).catch(function(){}); }catch(_em){}
     var rec = { sender_id: chatEmpId, sender_name: chatEmpName, message: 'EOD sent to Productivity ✅', receiver_id: null, channel_id: 'eod', is_read: false };
     var r = await supaClient.from('messages').insert([rec]);
     if (r.error) { showToast('Send failed: ' + (r.error.message || 'unknown')); throw r.error; }
