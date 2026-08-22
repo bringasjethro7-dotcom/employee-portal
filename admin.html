@@ -2296,6 +2296,7 @@ function dashLeadDem(btn, id, empId, action){
 
 /* ════════ DEMERITS ════════ */
 var DEM_CATALOG={
+  'WFH Setup':[['Camera turned off during shift',0.30],['No sound / mic muted when called',0.30],['Away from camera frame (extended)',0.30],['Not joined the monitoring call',0.50],['Workspace not compliant (noise / background)',0.15]],
   'Attendance':[['Late',0.15],['No-call no-show',1.00],['Idle over 90 min in a shift',0.30],['Shift swap without notice',0.15]],
   'Break':[['Short lunch (under 50 min)',0.30],['Over break (lunch over 70 min)',0.30],['No break — 6+ hrs without lunch',0.50],['Unauthorized break',0.30]],
   'Time tracking':[['Super-early task (before 7:15 shift start)',0.15],['Forgot Time In/Out',0.15],['Idle auto-stop',0.15],['Untracked work / no volume',0.15],['Overwork — over 11 productive hrs (no approval)',0.30]],
@@ -2513,11 +2514,23 @@ function renderDemerits(){
   var body=document.getElementById('dm-body'); if(!body) return;
   var f=(document.getElementById('dm-filter')||{}).value||'';
   if(!f){
-    var st=DEM_STATE.standings||[];
+    /* RANKED MONTHLY BARS — this month only (no rolling total), worst offender on top.
+       Bar runs against the 10-point monthly cap; colour turns with severity. */
+    var st=(DEM_STATE.standings||[]).slice().sort(function(a,b){ return (b.month_points||0)-(a.month_points||0); });
     if(!st.length){ body.innerHTML='<div class="es" style="padding:1.5rem;text-align:center;">No demerits logged yet.</div>'; return; }
-    body.innerHTML='<div class="tw"><table><thead><tr><th>Contractor</th><th>This month</th><th>Rolling total</th></tr></thead><tbody>'+
-      st.map(function(s){ var mp=(s.month_points!=null?s.month_points:0), cap=(s.month_cap||10); var mc=mp>=cap?'#f87171':'var(--t1)';
-        return '<tr><td>'+escAdmin(s.full_name)+'</td><td><b style="color:'+mc+'">'+mp+'</b> <span style="color:var(--t3)">/ '+cap+'</span></td><td><b>'+s.total+'</b></td></tr>'; }).join('')+'</tbody></table></div>';
+    body.innerHTML='<div style="display:flex;flex-direction:column;gap:6px;">'+
+      st.map(function(s,ix){
+        var mp=(s.month_points!=null?s.month_points:0), cap=(s.month_cap||10);
+        var pct=Math.min(100, mp/cap*100);
+        var col=mp>=5?'#ef4444':(mp>=2?'#f59e0b':(mp>0?'#fbbf24':'#22c55e'));
+        return '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card2);cursor:pointer;" onclick="var s2=document.getElementById(\'dm-filter\'); if(s2){ s2.value=\''+escAdmin(s.employee_id)+'\'; renderDemerits(); }">'+
+          '<span style="width:26px;text-align:right;font-size:11px;color:var(--t3);font-weight:700;">'+(ix+1)+'</span>'+
+          '<span style="flex:0 0 190px;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escAdmin(s.full_name)+'</span>'+
+          '<span style="flex:1;height:12px;border-radius:7px;background:rgba(148,163,184,.15);overflow:hidden;"><i style="display:block;height:100%;width:'+pct+'%;background:'+col+';border-radius:7px;transition:width .4s;"></i></span>'+
+          '<b style="width:74px;text-align:right;font-size:13px;color:'+(mp>=cap?'#f87171':'var(--t1)')+';">'+mp+' <span style="color:var(--t3);font-weight:400;font-size:11px;">/ '+cap+'</span></b>'+
+        '</div>';
+      }).join('')+'</div>'+
+      '<div style="font-size:11px;color:var(--t3);margin-top:8px;">This month\'s accumulated points only · resets on the 1st · click a bar for the full history.</div>';
     return;
   }
   var rows=(DEM_STATE.rows||[]).filter(function(x){return String(x.employee_id).toLowerCase()===f.toLowerCase();});
