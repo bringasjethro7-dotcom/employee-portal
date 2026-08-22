@@ -33194,7 +33194,8 @@ async function wfhDiscordStep(){
     '<div style="text-align:left;font-size:12.5px;color:var(--text-2,#555);margin:8px 0 10px;line-height:1.5;background:rgba(148,163,184,.08);border-radius:10px;padding:9px 12px;">'+
       '<div>1️⃣ Open <b>Discord</b></div>'+
       '<div>2️⃣ Join the <b>team group call</b> · camera <b>ON</b></div>'+
-      '<div>3️⃣ Press the button below, then <b>pick the Discord window</b> in the popup</div>'+
+      '<div>3️⃣ Press the button below — Chrome will ask to <b>share</b>. That is just how a one-time screenshot works: <b>pick Discord, we snap ONE frame, and sharing stops by itself.</b> Nothing is recorded.</div>'+
+      '<div>4️⃣ <b>If Chrome jumps you to Discord, come straight back to this portal tab</b> — your screenshot and the Submit button are waiting here.</div>'+
     '</div>'+
     '<img id="wfh-dprev" style="display:none;width:100%;border-radius:12px;border:1px solid rgba(148,163,184,.3);">'+
     '<div id="wfh-dbtns"><button class="btn-primary" onclick="wfhDiscordGrab()" style="width:100%;">📸 Take the Discord screenshot</button>'+
@@ -33205,12 +33206,23 @@ async function wfhDiscordGrab(){
   try{
     var st=await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:1 }, audio:false });
     var v=document.createElement('video'); v.srcObject=st; v.muted=true; await v.play();
-    await new Promise(function(r){ setTimeout(r,400); });
+    await new Promise(function(r){ setTimeout(r,700); });   // let the frame settle (tab-switch safe)
     var w=Math.min(1200,v.videoWidth), h=Math.round(v.videoHeight*w/v.videoWidth);
     var c=document.getElementById('wfh-cv'); c.width=w; c.height=h;
     c.getContext('2d').drawImage(v,0,0,w,h);
     WFH.dshot=c.toDataURL('image/jpeg',0.65);
-    st.getTracks().forEach(function(t){t.stop();});
+    st.getTracks().forEach(function(t){t.stop();});   // sharing ends here — one frame, done
+    /* Chrome switches to the shared tab when a TAB is picked — call the VA back here. */
+    try{
+      var _t0=document.title; document.title='✅ CAPTURED — come back to the portal tab!';
+      var _fl=setInterval(function(){ document.title=(document.title===_t0)?'✅ CAPTURED — come back!':_t0; },900);
+      document.addEventListener('visibilitychange', function _wfhBk(){ if(!document.hidden){ clearInterval(_fl); document.title=_t0; document.removeEventListener('visibilitychange',_wfhBk); } });
+      var _acx=new (window.AudioContext||window.webkitAudioContext)();
+      [880,1174].forEach(function(f,i){ var o=_acx.createOscillator(), g=_acx.createGain();
+        o.frequency.value=f; o.connect(g); g.connect(_acx.destination);
+        g.gain.setValueAtTime(.25,_acx.currentTime+i*.18); g.gain.exponentialRampToValueAtTime(.001,_acx.currentTime+i*.18+.3);
+        o.start(_acx.currentTime+i*.18); o.stop(_acx.currentTime+i*.18+.32); });
+    }catch(_nb){}
     var p=document.getElementById('wfh-dprev'); p.src=WFH.dshot; p.style.display='block';
     document.getElementById('wfh-dbtns').innerHTML=
       '<div style="font-size:11px;color:var(--text-3,#888);margin:6px 0;">Make sure the call panel and your camera tile are visible in the shot.</div>'+
