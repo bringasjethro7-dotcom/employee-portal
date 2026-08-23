@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JMB — Project John (X Warm-up)</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Sora:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  /* DARK THEME (Aug 2026, his ask): charcoal "light black" background, soft light ink. */
+  :root{--bg:#101216;--card:#181b21;--ink:#e7eaf0;--ink2:#9aa3b2;--ink3:#6b7480;--line:#262b33;--x:#e7eaf0;--x2:#8b98a5;--ok:#10b981;--susp:#ef4444;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Manrope',system-ui,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 60px}
+  h1{font-family:'Sora',sans-serif;font-size:24px}
+  .sub{color:var(--ink2);font-size:13px;margin:5px 0 16px}
+  .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 15px;text-align:center}
+  .stat b{font-family:'Sora',sans-serif;font-size:20px;display:block}
+  .stat span{font-size:10.5px;color:var(--ink3);font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+  .addbox{display:flex;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px;margin-bottom:16px}
+  .addbox input{flex:1;min-width:180px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px}
+  .addbox button{background:#e7eaf0;color:#101216;border:none;border-radius:10px;padding:9px 16px;font-weight:800;cursor:pointer}
+  .addbox input{background:#101216;color:var(--ink)}
+  .addbox input::placeholder{color:var(--ink3)}
+  /* VERTICAL LIST (Aug 2026): one account per row instead of tiles — easier to scan top-down. */
+  .grid{display:flex;flex-direction:column;gap:8px}
+  .acct{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 15px}
+  .acct.done-today{border-color:rgba(16,185,129,.5)}
+  .acct.susp{opacity:.55}
+  .hd{display:flex;align-items:center;gap:8px}
+  .hd b{font-size:14.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dayb{font-size:11px;font-weight:900;color:#fff;background:#0f1419;border-radius:100px;padding:3px 10px}
+  .plan{font-size:12px;color:var(--ink2);background:rgba(231,234,240,.05);border-radius:9px;padding:8px 10px;margin:9px 0;line-height:1.55}
+  .plan b{color:var(--ink)}
+  .btns{display:flex;gap:6px;flex-wrap:wrap}
+  .btns button{border:1px solid var(--line);background:#1f242c;border-radius:8px;padding:6px 11px;font-size:11.5px;font-weight:800;cursor:pointer;color:var(--ink2)}
+  .btns button.go{border-color:rgba(16,185,129,.5);color:#0f766e;background:rgba(16,185,129,.08)}
+  .btns button.bad{border-color:rgba(239,68,68,.4);color:#b91c1c;background:rgba(239,68,68,.06)}
+  .muted{color:var(--ink3);font-size:12px;padding:6px 2px}
+  #signin{max-width:360px;margin:12vh auto;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px;text-align:center}
+  #signin input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:14px;margin-top:9px;background:#101216;color:var(--ink)}
+  #signin input::placeholder{color:var(--ink3)}
+  #signin button{width:100%;margin-top:12px;background:#e7eaf0;color:#101216;border:none;border-radius:10px;padding:11px;font-weight:800;cursor:pointer;font-size:14px}
+  #si-err{display:none;color:#b91c1c;font-size:12.5px;margin-top:9px}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#e7eaf0;color:#101216;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:700;opacity:0;transition:.3s;pointer-events:none;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .toast.on{opacity:1}
+
+  /* ── UI v2: calmer look, section headers, ⋯ menus, big progress panel ── */
+  .acct,.model{box-shadow:0 1px 2px rgba(15,23,42,.05);transition:box-shadow .15s}
+  .acct:hover,.model:hover{box-shadow:0 8px 22px rgba(15,23,42,.09)}
+  .sect{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin:14px 0 2px}
+  .sect b{font-family:'Sora',sans-serif;font-size:13.5px;white-space:nowrap}
+  .sect span{font-size:11px;color:var(--ink3);font-weight:800}
+  .sect i{flex:1;height:1px;background:var(--line)}
+  .ph2{font-size:10px;font-weight:900;border-radius:100px;padding:3px 9px;white-space:nowrap}
+  .xbtn{border:1px solid #3a4250;background:#0f1419;color:#fff;border-radius:8px;padding:2px 9px;font:800 11px 'Manrope',sans-serif;cursor:pointer;line-height:1.5;flex:none}
+  .xbtn:hover{background:#26303a}
+  .meta1{font-size:10.5px;color:var(--ink3);margin-top:4px}
+  .planbox{margin:8px 0 2px}
+  .planbox summary{list-style:none;cursor:pointer;font-size:11px;font-weight:800;color:var(--ink3)}
+  .planbox summary::-webkit-details-marker{display:none}
+  .planbox summary::after{content:' ▾'}
+  .planbox[open] summary::after{content:' ▴'}
+  .planbox>div{font-size:11.5px;color:var(--ink2);background:rgba(231,234,240,.05);border-radius:9px;padding:7px 10px;margin-top:5px;line-height:1.5}
+  .kmenu{position:relative}
+  .kmenu summary{list-style:none;cursor:pointer;width:27px;height:27px;border:1px solid var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--ink3);font-weight:900;background:#1f242c;font-size:14px}
+  .kmenu summary::-webkit-details-marker{display:none}
+  .kmenu[open] summary{background:var(--bg)}
+  .kmenu .dd{position:absolute;right:0;top:31px;z-index:30;background:#1f242c;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.55);padding:6px;min-width:210px;display:flex;flex-direction:column;gap:2px}
+  .kmenu .dd button{border:none;background:none;text-align:left;padding:8px 10px;border-radius:8px;font:700 12px 'Manrope',sans-serif;color:var(--ink2);cursor:pointer;white-space:nowrap}
+  .kmenu .dd button:hover{background:var(--bg)}
+  .kmenu .dd button.danger{color:#f87171}
+  .kmenu .dd .sep{height:1px;background:var(--line);margin:4px 6px}
+  .acct .btns,.model .btns{margin-top:8px}
+  .pvwrap{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 18px 8px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+  .pvrow{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+  .pvrow.first{border-top:none}
+  .pvav{width:36px;height:36px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:800 12.5px 'Sora',sans-serif;color:#fff}
+  .pvbar{height:14px;border-radius:8px;background:rgba(231,234,240,.09);overflow:hidden}
+  .pvbar i{display:block;height:100%;border-radius:8px;transition:width .4s}
+  .pvpct{font-family:'Sora',sans-serif;font-weight:800;min-width:118px;text-align:right;line-height:1.25}
+</style>
+</head>
+<body>
+<div id="signin">
+  <div style="font-family:'Sora',sans-serif;font-size:20px;font-weight:800">𝕏 Project <em style="font-style:normal">John</em></div>
+  <div style="font-size:12.5px;color:var(--ink2);margin-top:6px">X account warm-up · sign in with Employee ID + PIN</div>
+  <input id="si-id" placeholder="Employee ID"><input id="si-pin" type="password" placeholder="PIN">
+  <button onclick="signIn()">Sign in</button><div id="si-err"></div>
+</div>
+
+<div class="wrap" id="app" style="display:none">
+  <h1>𝕏 Project John — Warm-up Tracker <span style="font-size:12px;color:var(--ink3);font-weight:600" id="who"></span></h1>
+  <div class="sub">Each account follows the SOP day plan. <b>Every completed session counts +1 output instantly</b> — no waiting for the day to finish, and a takeover mid-day credits whoever completed each session. Randomize batches &amp; scroll times so every account looks human. <span style="opacity:.55">Build 2026-08-23c · dark vertical UI + SVG icons — if you don't see this line, press Ctrl+Shift+R.</span></div>
+  <div class="top" id="stats"></div>
+  <div id="poolbar"></div>
+  <div class="addbox">
+    <input id="jn-user" placeholder="Account handle (@…)">
+    <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink2);font-weight:700;">created on <input type="date" id="jn-cdate" style="width:140px;flex:none;min-width:0;"></label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);font-weight:700;">currently at day
+      <input id="jn-day" type="number" min="1" max="60" value="1" style="width:70px;flex:none;min-width:0;"></label>
+    <button onclick="addAcct()">＋ Add account</button>
+  </div>
+  <div id="byva" style="margin-bottom:14px;"></div>
+  <div id="vatabs" style="margin-bottom:12px;"></div>
+  <div class="grid" id="grid"><div class="muted">Loading…</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+var API='https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec';
+var PROJECT='John';
+var USER=null, ROWS=[];
+var NAMES={}, SHIFTOF={}, PHOTOOF={};
+function drivePhoto(u){ u=String(u||''); if(!u) return ''; var m=u.match(/[-\w]{25,}/); return m?('https://drive.google.com/thumbnail?id='+m[0]+'&sz=w128'):u; }
+/* ── fetching layer: timeout + retry on READS (never on writes), local cache for instant paint,
+   visibility-aware polling (pauses when the tab is hidden, refreshes on focus) ── */
+async function jFetch(url, tries){
+  tries=(tries==null)?2:tries;
+  for(var a=0;a<=tries;a++){
+    try{
+      var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+      var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(_){} },10000):null;
+      var r=await fetch(url, ctl?{signal:ctl.signal}:undefined);
+      if(tm) clearTimeout(tm);
+      return await r.json();
+    }catch(e){ if(a===tries) throw e; await new Promise(function(res){ setTimeout(res, 500*(a+1)); }); }
+  }
+}
+function cacheRows(){ try{ sessionStorage.setItem('dc_rows_'+PROJECT, JSON.stringify({t:Date.now(), rows:ROWS})); }catch(e){} }
+function paintCached(){ try{ var c=JSON.parse(sessionStorage.getItem('dc_rows_'+PROJECT)||'null');
+  if(c && c.rows && c.rows.length && (Date.now()-c.t)<10*60*1000){ ROWS=c.rows; render(); return true; } }catch(e){} return false; }
+function smartPoll(){
+  setInterval(function(){ if(!document.hidden) load(); }, 60000);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) load(); });
+  window.addEventListener('focus', function(){ load(); });
+}
+/* ── VA view tabs: '👤 My accounts' (default) · '🌐 All' · one tab per VA ── */
+var FILTER=(function(){ try{ return sessionStorage.getItem('dc_va_'+PROJECT)||'mine'; }catch(e){ return 'mine'; } })();
+function ownerOf(r){ return String(r.assigned_to||r.created_by||'').toLowerCase(); }
+/* Everyone who has ever created, been assigned, or marked work on this board. Used to keep the
+   VA pill list scoped to this project instead of the whole company directory. */
+var SEEN={};
+function noteSeen(){
+  ROWS.forEach(function(r){
+    [r.assigned_to, r.created_by].forEach(function(v){ v=String(v||'').toLowerCase(); if(v) SEEN[v]=1; });
+  });
+  var me=String((USER&&USER.id)||'').toLowerCase(); if(me) SEEN[me]=1;
+  try{ var prev=JSON.parse(sessionStorage.getItem('dc_seen_'+PROJECT)||'{}');
+       Object.keys(prev).forEach(function(k){ SEEN[k]=1; });
+       sessionStorage.setItem('dc_seen_'+PROJECT, JSON.stringify(SEEN)); }catch(e){}
+}
+function filterRows(){ if(FILTER==='all') return ROWS; var t=(FILTER==='mine')?String((USER&&USER.id)||'').toLowerCase():FILTER; return ROWS.filter(function(r){ return ownerOf(r)===t; }); }
+function setFilter(f){ FILTER=f; try{ sessionStorage.setItem('dc_va_'+PROJECT,f); }catch(e){} render(); }
+function renderTabs(){
+  var host=document.getElementById('vatabs'); if(!host) return;
+  var mine=String((USER&&USER.id)||'').toLowerCase();
+  var by={}; ROWS.forEach(function(r){ var k=ownerOf(r)||'—'; by[k]=(by[k]||0)+1; });
+  function pill(val,label,n){ var on=(FILTER===val);
+    return '<button onclick="setFilter(\''+val+'\')" style="border:1px solid '+(on?'#0f766e':'var(--line)')+';background:'+(on?'rgba(16,185,129,.12)':'var(--card)')+';color:'+(on?'#0f766e':'var(--ink2)')+';border-radius:100px;padding:6px 13px;font:800 12px \'Manrope\',sans-serif;cursor:pointer;white-space:nowrap;">'+label+(n!=null?(' · '+n):'')+'</button>'; }
+  var html=[ pill('mine','👤 My accounts', by[mine]||0), pill('all','🌐 All', ROWS.length) ];
+  Object.keys(by).sort(function(a,b){ return by[b]-by[a]; }).forEach(function(k){ if(k===mine||k==='—') return; html.push(pill(k, esc(vaName(k)), by[k])); });
+  /* Anyone on the roster who works this board but owns nothing yet still gets a pill, at 0.
+     Without this a new VA is invisible to everyone including themselves, which is exactly
+     what made the tool look like it had one user. */
+  Object.keys(NAMES).sort(function(a,b){ return String(NAMES[a]).localeCompare(String(NAMES[b])); })
+    .forEach(function(k){ if(k===mine||by[k]!=null) return;
+      if(SEEN[k]) html.push(pill(k, esc(vaName(k)), 0)); });
+  host.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;">'+html.join('')+'</div>';
+}
+/* Names + shift assignments: hydrate instantly from the last good copy, then refresh from the
+   server and RETRY until it succeeds — one slow response can no longer leave IDs on screen
+   or night VAs running under morning rules. */
+(function(){ try{ var c=JSON.parse(sessionStorage.getItem('jmb_empdir')||'null');
+  if(c && c.N && (Date.now()-(c.t||0))<24*3600*1000){ NAMES=c.N||{}; SHIFTOF=c.S||{}; PHOTOOF=c.P||{}; } }catch(e){} })();
+var _nmTry=0;
+async function loadNames(){
+  function _dirFetch(url){ return new Promise(function(res,rej){
+    var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+    var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(_){} },45000):null;
+    fetch(url, ctl?{signal:ctl.signal}:undefined).then(function(r){ return r.json(); })
+      .then(function(j){ if(tm) clearTimeout(tm); res(j); })
+      .catch(function(e){ if(tm) clearTimeout(tm); rej(e); });
+  }); }
+  try{
+    var d=null;
+    try{ d=await _dirFetch(API+'?action=emp_dir&_='+Date.now()); }catch(_e1){}
+    if(!d || !d.employees || !d.employees.length){ d=await _dirFetch(API+'?action=get_all_employees&_='+Date.now()); }
+    if(!d || !d.employees || !d.employees.length) throw new Error('empty');
+    (d.employees||[]).forEach(function(e){
+      var k=String(e.employee_id).toLowerCase();
+      NAMES[k]=e.full_name||e.employee_id;
+      var sh=String(e.shift||'').toLowerCase();
+      if(!sh && e.payslips && e.payslips.length) sh=String((e.payslips[0]||{}).shift||'').toLowerCase();
+      SHIFTOF[k]=sh;
+      PHOTOOF[k]=drivePhoto(e.photo||'');
+    });
+    try{ sessionStorage.setItem('jmb_empdir', JSON.stringify({N:NAMES, S:SHIFTOF, P:PHOTOOF, t:Date.now()})); }catch(_p){}
+    try{ render(); }catch(_r){}
+  }catch(e){
+    _nmTry=(typeof _nmTry==='number'?_nmTry:0)+1;
+    var wait=Math.min(300000, 30000*Math.pow(2,_nmTry-1)) + Math.random()*10000;   // 30s→60s→…→5min + jitter
+    setTimeout(loadNames, wait);
+  }
+}
+/* Owner picker on every account. Lists the whole roster, so a brand-new VA can be given work
+   on their first day rather than waiting for someone to create accounts under their name. */
+function assignSel(r){
+  var cur=String(r.assigned_to||r.created_by||'').toLowerCase();
+  var ids=Object.keys(NAMES).sort(function(a,b){ return String(NAMES[a]).localeCompare(String(NAMES[b])); });
+  if(cur && ids.indexOf(cur)<0) ids.unshift(cur);
+  if(!ids.length) return esc(vaName(cur));
+  return '<select onchange="assignTo(\''+r.id+'\',this.value)" title="Who owns this account" '+
+    'style="border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:7px;'+
+    'padding:2px 5px;font:700 11px \'Manrope\',sans-serif;cursor:pointer;max-width:170px;">'+
+    ids.map(function(k){ return '<option value="'+esc(k)+'"'+(k===cur?' selected':'')+'>'+esc(vaName(k))+'</option>'; }).join('')+
+    '</select>';
+}
+async function assignTo(id,to){
+  if(!id||!to) return;
+  var row=null; ROWS.forEach(function(r){ if(r.id===id) row=r; });
+  var was=row?String(row.assigned_to||row.created_by||''):'';
+  if(row) row.assigned_to=to;                       // optimistic — the pills move immediately
+  SEEN[String(to).toLowerCase()]=1; render();
+  try{
+    var r=await fetch(API+'?action=pa_update&id='+encodeURIComponent(id)+'&assigned_to='+encodeURIComponent(to)
+      +'&employee_id='+encodeURIComponent(USER.id)+'&_='+Date.now());
+    var d=await r.json();
+    if(!d||!d.ok) throw new Error((d&&d.error)||'assign');
+    cacheRows(); toast('Assigned to '+vaName(to));
+  }catch(e){
+    if(row) row.assigned_to=was;                    // put it back rather than lie about the owner
+    render(); alert('Could not reassign — try again.');
+  }
+}
+function delBtn(id){ return '<button onclick="delAcct(\''+id+'\')" title="Delete (wrong entry)" style="border:1px solid rgba(239,68,68,.4);background:transparent;color:#f87171;border-radius:8px;padding:5px 8px;font-size:10.5px;font-weight:800;cursor:pointer;">'+ic('trash')+'</button>'; }
+async function delAcct(id){
+  var r0=ROWS.filter(function(x){return x.id===id;})[0];
+  if(!confirm('DELETE '+((r0&&r0.handle)||'this entry')+' from the board?\n\nUse this only for wrong entries. Outputs already counted are not affected.')) return;
+  try{
+    var r=await fetch(API+'?action=pa_delete&id='+encodeURIComponent(id)+'&employee_id='+encodeURIComponent(USER.id)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ toast('Deleted.'); load(); }
+    else if(d&&d.error==='NOT_YOURS') toast('Only the VA who owns this entry (or admin) can delete it.');
+    else toast('Could not delete: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Connection error.'); }
+}
+function vaName(id){ return NAMES[String(id||'').toLowerCase()]||id||'—'; }
+function cdateOf(r){ return (r.meta&&r.meta.cdate)||''; }
+function ageTxt(r){ var c=cdateOf(r); if(!c) return ''; var days=Math.max(0,Math.round((Date.now()-new Date(c+'T00:00:00').getTime())/86400000)); return c+' · '+days+'d old'; }
+var AVC=['#6366f1','#0ea5e9','#10b981','#f59e0b','#ec4899','#8b5cf6','#14b8a6','#f97316'];
+function kmenu(items){
+  return '<details class="kmenu" onclick="event.stopPropagation()"><summary>⋯</summary><div class="dd">'+items.map(function(it){
+    if(it==='---') return '<div class="sep"></div>';
+    return '<button class="'+(it[2]||'')+'" onclick="this.closest(\'details\').removeAttribute(\'open\');'+it[1]+'">'+it[0]+'</button>';
+  }).join('')+'</div></details>';
+}
+document.addEventListener('click', function(e){
+  document.querySelectorAll('details.kmenu[open]').forEach(function(d){ if(!d.contains(e.target)) d.removeAttribute('open'); });
+});
+function _maybeSnap(done, tot){
+  // Record today's completion (like ALTR's Record Day) — once per change, fire-and-forget.
+  try{
+    if(!USER||!USER.id||!tot) return;
+    var k='snap_'+PROJECT+'_'+vaKeyOf(USER.id), v=done+'/'+tot;
+    if(sessionStorage.getItem(k)===v) return;
+    sessionStorage.setItem(k, v);
+    fetch(API+'?action=po_snap&employee_id='+encodeURIComponent(USER.id)+'&project='+encodeURIComponent(PROJECT)+'&task='+encodeURIComponent('📋 Board Completion')+'&done='+done+'&total='+tot+'&date='+encodeURIComponent(today())+'&_='+Date.now()).catch(function(){});
+  }catch(e){}
+}
+function amKey(){ return today()+'·AM'; }
+function renderByVA(segs, doneFn, activeFn, amFn){
+  var host=document.getElementById('byva'); if(!host) return;
+  var by={}; ROWS.forEach(function(r){ var k=String(r.assigned_to||r.created_by||'—').toLowerCase(); (by[k]=by[k]||[]).push(r); });
+  var keys=Object.keys(by);
+  if(!keys.length){ host.innerHTML=''; return; }
+  var mine=String((USER&&USER.id)||'').toLowerCase();
+  var list=keys.map(function(k,i){
+    var rows=by[k];
+    var act=activeFn?rows.filter(activeFn):rows;
+    var done=doneFn?act.filter(doneFn).length:0, tot=act.length;
+    return {k:k,i:i,done:done,tot:tot,pct:tot?Math.round(done/tot*100):0,n:rows.length};
+  }).sort(function(a,b){ return b.pct-a.pct || b.tot-a.tot; });
+  try{ var _me=list.filter(function(o){ return o.k===mine; })[0]; if(_me) _maybeSnap(_me.done, _me.tot); }catch(_ms){}
+  host.innerHTML='<div class="pvwrap">'+
+    '<div style="display:flex;align-items:baseline;gap:9px;margin-bottom:4px;"><span style="font-family:\'Sora\',sans-serif;font-size:15px;font-weight:800;">'+ic('chart',14)+'Today — progress per VA</span><span style="font-size:11px;color:var(--ink3);font-weight:700;">worked this shift · resets per shift · ☀ 8 AM / 🌙 8 PM</span></div>'+
+    list.map(function(o,ix){
+      var pc=o.pct>=100?'#10b981':(o.pct>=70?'#f59e0b':'#ef4444');
+      var name=vaName(o.k);
+      var init=String(name).split(/\s+/).slice(0,2).map(function(w){return w.charAt(0);}).join('').toUpperCase()||'?';
+      var me=(o.k===mine);
+      return '<div class="pvrow'+(ix===0?' first':'')+'"'+(me?' style="background:rgba(16,185,129,.05);border-radius:12px;padding-left:10px;padding-right:10px;"':'')+'>'+
+        (PHOTOOF[o.k]?('<img src="'+PHOTOOF[o.k]+'" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex:none;box-shadow:0 2px 8px rgba(15,23,42,.18);">')
+          :('<div class="pvav" style="background:'+AVC[o.i%AVC.length]+'">'+esc(init)+'</div>'))+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="display:flex;align-items:baseline;gap:8px;"><b style="font-size:13.5px;">'+(SHIFTOF[o.k]==='night'?'🌙 ':(SHIFTOF[o.k]?'☀ ':''))+esc(name)+'</b>'+(me?'<span style="font-size:10px;color:#0f766e;font-weight:800;">you</span>':'')+'<span style="font-size:11px;color:var(--ink3);font-weight:700;">'+o.n+' on board</span></div>'+
+          '<div class="pvbar" style="margin-top:7px;"><i style="width:'+Math.min(100,o.pct)+'%;background:'+pc+';"></i></div>'+
+        '</div>'+
+        '<div class="pvpct" style="color:'+pc+'"><span style="font-size:17px;">'+o.done+' / '+o.tot+'</span><br><span style="font-size:12.5px;">'+o.pct+'%'+(o.pct>=100&&o.tot?' ✅':'')+' today</span></div>'+
+      '</div>';
+    }).join('')+'</div>';
+}
+/* Setup days are ORDERED CHECKLISTS, not one-line summaries. Days 1-3 are a sequence a VA works
+   down while looking at the card; a compressed line meant they had to hold the order in their
+   head, which is exactly where steps get skipped. Follow-phase days stay one-liners because
+   they genuinely are a single repeated action. */
+function _jList(items){ return '<ol style="margin:4px 0 0 18px;padding:0;line-height:1.65;">'+
+  items.map(function(x){ return '<li>'+x+'</li>'; }).join('')+'</ol>'; }
+var PLANS={
+ 1:_jList(['Scroll 2 minutes','Repost (no follow)','Normal post','Scroll 20 seconds','Repost','Normal post']),
+ 2:_jList(['Scroll 2 minutes','Change profile name to a random <b>female name</b> (not username)','Follow 1 random page','Repost from homepage','Normal post','Scroll 20 seconds','Repost from homepage','Normal post']),
+ 3:_jList(['Change profile photo and header (<b>never reuse media</b>)','Scroll 1 minute','Follow 5 target accounts','Repost from homepage','Normal post','Follow 5 target accounts']),
+ 4:'<b>25 follows</b> split across opens: 5 / 10 / 10 · <b>3 sessions today</b> — the day completes after Session 3',
+ 5:'Scroll 1 min · <b>30–45 follows</b> (randomize!) in <b>3 sessions</b>: 10 / 15 / rest',
+ 6:'<b>35–50 follows daily</b> in <b>3 sessions</b> (randomize total, batches & scroll time; client error → smaller batches)'
+};
+function planFor(day){ return PLANS[Math.min(day,6)] + (day>6?' · day '+day:''); }
+function $(id){return document.getElementById(id);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function toast(m){ var t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(function(){t.classList.remove('on');},2400); }
+/* ══════════════ PROOF OF WORK ══════════════
+   Every output in this tool now needs a screenshot before it counts.
+
+   Gated at bump() deliberately: that is the single choke point through which every recorded
+   output passes, so one change covers every button in the tool and no path can slip past it.
+   bump() opens the proof panel and only posts the count once the screenshots have uploaded.
+   Cancel, and it rejects — which stops the rest of the caller's flow, so the tool never marks
+   something done that wasn't counted.
+
+   Capture uses getDisplayMedia. The browser ties permission to the STREAM, not the frame, so
+   the window is picked ONCE and every capture after that is instant. Works on the Vysor window
+   too, which is how phone work gets captured. Requires HTTPS. */
+/* ── HOW MANY SCREENSHOTS A TASK MAY CARRY ──
+   Warm-up needs more room than posting: days 1-3 cover browsing, likes, follows, profile setup and
+   the story, and five frames could not show all of it — VAs were having to choose which part of
+   their work to leave unevidenced. Posting stays at five, where the shape of the proof is fixed
+   and more frames would just be more of the same. The cap is per task rather than global so
+   raising one does not quietly raise the other. */
+var SHOT_CAP={ 'setup day':10 };      // task name (lowercased, before any ' — ' suffix) -> cap
+var SHOT_CAP_DEFAULT=5;
+function shotCap(task){
+  var t=String(task||'').toLowerCase();
+  var i=t.indexOf(' — '); if(i<0) i=t.indexOf(' - ');
+  if(i>0) t=t.slice(0,i).trim();      // "Setup Day — Session 2" -> "setup day"
+  return SHOT_CAP[t] || SHOT_CAP_DEFAULT;
+}
+var SHOT={ stream:null, video:null, max:SHOT_CAP_DEFAULT };
+function shotSupported(){ return !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia); }
+function shotLive(){ return !!(SHOT.stream && SHOT.stream.getVideoTracks().length && SHOT.stream.getVideoTracks()[0].readyState==='live'); }
+async function shotStart(){
+  if(!shotSupported()){ toast('This browser can\'t capture windows — use 📎 to attach a file.'); return false; }
+  try{
+    toast('Pick the window you\'re working in — your browser, or Vysor if you\'re on the phone.');
+    SHOT.stream=await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:1 }, audio:false });
+    SHOT.video=document.createElement('video'); SHOT.video.srcObject=SHOT.stream; SHOT.video.muted=true;
+    await SHOT.video.play();
+    SHOT.stream.getVideoTracks()[0].addEventListener('ended', function(){
+      SHOT.stream=null; SHOT.video=null; try{ renderShotBar(); }catch(e){}
+      toast('Screen sharing stopped. Click "Pick window" to resume.');
+    });
+    renderShotBar(); toast('Window locked in — capture is one click from now on.');
+    return true;
+  }catch(e){ toast('Capture cancelled.'); return false; }
+}
+function shotStop(){ try{ if(SHOT.stream) SHOT.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+  SHOT.stream=null; SHOT.video=null; renderShotBar(); }
+function shotGrab(){
+  if(!shotLive()) return null;
+  var v=SHOT.video, w=v.videoWidth, h=v.videoHeight; if(!w||!h) return null;
+  var max=1000, sw=w, sh=h;
+  if(sw>max||sh>max){ var r=Math.min(max/sw,max/sh); sw=Math.round(sw*r); sh=Math.round(sh*r); }
+  var c=document.createElement('canvas'); c.width=sw; c.height=sh;
+  c.getContext('2d').drawImage(v,0,0,sw,sh);
+  return c.toDataURL('image/jpeg',0.62);
+}
+function renderShotBar(){
+  var bar=document.getElementById('shot-bar');
+  if(!bar){
+    bar=document.createElement('div'); bar.id='shot-bar';
+    bar.style.cssText='position:fixed;left:12px;bottom:12px;z-index:9997;display:flex;align-items:center;'+
+      'padding:8px 12px;border-radius:999px;background:rgba(15,23,42,.92);color:#e2e8f0;font:700 12px Manrope,system-ui,sans-serif;'+
+      'box-shadow:0 10px 30px rgba(0,0,0,.35);';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = shotLive()
+    ? '<span style="width:8px;height:8px;border-radius:50%;background:#34d399;box-shadow:0 0 8px #34d399;margin-right:8px;"></span>Capture armed'+
+      '<button onclick="shotStop()" style="margin-left:8px;background:rgba(255,255,255,.12);border:none;color:#e2e8f0;border-radius:7px;padding:4px 9px;font-weight:700;cursor:pointer;">Stop</button>'
+    : '<span style="width:8px;height:8px;border-radius:50%;background:#94a3b8;margin-right:8px;"></span>Capture off'+
+      '<button onclick="shotStart()" style="margin-left:8px;background:#0f766e;border:none;color:#fff;border-radius:7px;padding:4px 10px;font-weight:800;cursor:pointer;">'+ic('cam')+'Pick window</button>';
+}
+function proofCompress(file){
+  return new Promise(function(res,rej){
+    var fr=new FileReader();
+    fr.onload=function(){
+      var im=new Image();
+      im.onload=function(){
+        var max=1000, w=im.width, h=im.height;
+        if(w>max||h>max){ var r=Math.min(max/w,max/h); w=Math.round(w*r); h=Math.round(h*r); }
+        var c=document.createElement('canvas'); c.width=w; c.height=h;
+        c.getContext('2d').drawImage(im,0,0,w,h);
+        res(c.toDataURL('image/jpeg',0.62));
+      };
+      im.onerror=function(){ rej(new Error('bad image')); };
+      im.src=fr.result;
+    };
+    fr.onerror=function(){ rej(new Error('read failed')); };
+    fr.readAsDataURL(file);
+  });
+}
+var PROOF={ imgs:[], ctx:null, resolve:null, reject:null };
+
+/* ── PROOF STORAGE: straight to Supabase, not through Apps Script ──────────────────────────
+   Apps Script runs ONE execution at a time for the whole deployment, so every screenshot
+   upload queued behind every timer heartbeat and board load from every VA. Storage has no
+   such queue — uploads go browser to storage in parallel and Apps Script only records the URL.
+   Falls back to the Apps Script upload if storage is unavailable, so a VA is never blocked. */
+var PSUPA_URL='https://rvyrnkjqxnijxydloujk.supabase.co';
+var PSUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2eXJua2pxeG5panh5ZGxvdWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NzAwODQsImV4cCI6MjA5NzE0NjA4NH0.SwkSkmbeWrhm5PZZDSZ1Z4hbjpQ0L2CRtuKQmpHshBE';
+var PSUPA_BUCKET='proof';
+var _psb=null;
+function psb(){
+  if(_psb) return _psb;
+  var Lib=window.supabase||window.Supabase;
+  if(!Lib||!Lib.createClient) return null;
+  try{ _psb=Lib.createClient(PSUPA_URL,PSUPA_KEY); }catch(e){ _psb=null; }
+  return _psb;
+}
+function _dataUrlToBlob(d){
+  var m=/^data:([^;]+);base64,(.*)$/.exec(d); if(!m) return null;
+  var bin=atob(m[2]), a=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i);
+  return new Blob([a],{type:m[1]});
+}
+async function psUpload(dataUrl, emp, task){
+  var sb=psb(); if(!sb) throw new Error('no client');
+  var blob=_dataUrlToBlob(dataUrl); if(!blob) throw new Error('bad image');
+  var d=new Date(), ym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  /* Uploads on some tools start at CAPTURE, before the proof panel has set its task — so the
+     task name can legitimately be empty here. Fall back to the project rather than the useless
+     literal "task", which is what the first batch of files ended up named. */
+  var label = String(task || (typeof PROJECT!=='undefined' ? PROJECT : '') || 'proof');
+  var safe = label.replace(/[^A-Za-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40) || 'proof';
+  var path=(emp||'unknown')+'/'+ym+'/'+safe+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'.jpg';
+  var up=await sb.storage.from(PSUPA_BUCKET).upload(path, blob, { contentType:'image/jpeg', upsert:false });
+  if(up.error) throw up.error;
+  var u=sb.storage.from(PSUPA_BUCKET).getPublicUrl(path).data.publicUrl;
+  if(!u) throw new Error('no url');
+  return u;
+}
+
+/* ── BACKGROUND PROOF UPLOAD ────────────────────────────────────────────────────────────
+   The old flow kept every screenshot in the browser and shipped all of them in one POST when
+   the VA pressed Save. That put the entire upload — up to 8 images, several MB of base64 —
+   in front of the person at the exact moment they were trying to move to the next account.
+   Now each image starts uploading the instant it is attached, while they carry on working,
+   and Save just sends the ids back. The wait moves off the critical path.
+   PUP.q maps a data-url to its upload state so a thumbnail can show progress and so Save can
+   wait only for whatever is genuinely still in flight. */
+var PUP={ q:{}, n:0 };
+function pupKey(d){ return d.length+'|'+d.slice(-24); }
+function pupStart(dataUrl, ctx){
+  var k=pupKey(dataUrl);
+  if(PUP.q[k]) return PUP.q[k];
+  var st={ state:'up', id:null, url:null, err:null };
+  var emp=(USER&&(USER.id||USER.employee_id))||'', tk=(ctx&&ctx.task)||'';
+  st.p = psUpload(dataUrl, emp, tk)
+    .then(function(u){ st.state='done'; st.url=u; pupPaint(); return st; })
+    .catch(function(){
+      return fetch(API, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify({ action:'proof_img', employee_id:emp, task:tk,
+            date:(typeof today==='function'?today():''), image:dataUrl }) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(d && d.ok && d.id){ st.state='done'; st.id=d.id; }
+          else { st.state='fail'; st.err=(d&&d.error)||'upload'; }
+          pupPaint(); return st;
+        })
+        .catch(function(e){ st.state='fail'; st.err=String(e&&e.message||e); pupPaint(); return st; });
+    });
+  PUP.q[k]=st; pupPaint();
+  return st;
+}
+/* Small status line so the VA can see uploads finishing rather than guessing. */
+function pupPaint(){
+  var el=document.getElementById('pup-stat'); if(!el) return;
+  var keys=(PROOF.imgs||[]).map(pupKey);
+  var up=0, done=0, fail=0;
+  keys.forEach(function(k){ var s=PUP.q[k]; if(!s) return;
+    if(s.state==='up') up++; else if(s.state==='done') done++; else fail++; });
+  el.textContent = fail ? (fail+' failed — they will be retried on save')
+                 : up ? ('Uploading '+up+'…  '+done+' attached')
+                 : done ? (done+' screenshot'+(done>1?'s':'')+" attached — nothing is counted until you press Save")
+                 : '';
+  el.style.color = fail ? '#b91c1c' : (up ? '#b45309' : '#047857');
+}
+/* Returns the Drive ids for the current selection, waiting only on uploads still running and
+   retrying anything that failed. A failed image is retried inline rather than silently dropped —
+   proof that never reached Drive would mean output that never got counted. */
+async function pupRefs(ctx){
+  var urls=[], ids=[];
+  for(var i=0;i<PROOF.imgs.length;i++){
+    var d=PROOF.imgs[i], k=pupKey(d), st=PUP.q[k];
+    if(!st || st.state==='fail'){ delete PUP.q[k]; st=pupStart(d,ctx); }
+    var r=await st.p;
+    if(!r || r.state!=='done') return null;
+    if(r.url) urls.push(r.url); else if(r.id) ids.push(r.id); else return null;
+  }
+  if(urls.length===PROOF.imgs.length) return { urls:urls };
+  if(ids.length===PROOF.imgs.length)  return { ids:ids };
+  return null;
+}
+
+function proofPanel(){
+  var ov=document.getElementById('proof-ov');
+  if(ov) return ov;
+  ov=document.createElement('div'); ov.id='proof-ov';
+  ov.style.cssText='position:fixed;inset:0;top:0;right:0;bottom:0;left:0;z-index:99998;background:rgba(8,12,20,.72);display:none;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML=
+    '<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:20px 22px;box-shadow:0 40px 100px rgba(0,0,0,.4);">'+
+      '<div style="font:800 17px Sora,Manrope,sans-serif;">Attach proof</div>'+
+      '<div id="proof-what" style="font-size:12.5px;color:#64748b;margin-top:3px;"></div>'+
+      '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">'+
+        '<button id="proof-cap" style="background:#0f766e;color:#fff;border:none;border-radius:9px;padding:10px 16px;font-weight:800;cursor:pointer;">'+ic('cam')+'Capture window</button>'+
+        '<button id="proof-pick" style="background:#475569;color:#fff;border:none;border-radius:9px;padding:10px 14px;font-weight:800;cursor:pointer;">📎 Attach file</button>'+
+        '<span style="font-size:12px;color:#64748b;align-self:center;">or paste with Ctrl+V · up to 5</span>'+
+      '</div>'+
+      '<input type="file" id="proof-file" accept="image/*" multiple style="display:none;">'+
+      '<div id="proof-thumbs" style="display:flex;flex-wrap:wrap;margin-top:12px;"></div>'+
+      '<div id="pup-stat" style="margin-top:7px;font-size:11.5px;font-weight:700;min-height:15px;"></div>'+
+      '<input id="proof-note" placeholder="Optional note" style="width:100%;margin-top:12px;padding:9px 11px;border:1px solid #e2e8f0;border-radius:9px;font-size:13px;">'+
+      '<div style="display:flex;justify-content:flex-end;margin-top:14px;">'+
+        '<button id="proof-cancel" style="padding:9px 16px;border-radius:9px;border:1px solid #e2e8f0;background:#fff;font-weight:700;cursor:pointer;margin-right:9px;">Cancel</button>'+
+        '<button id="proof-save" style="padding:9px 20px;border-radius:9px;border:none;background:#0f766e;color:#fff;font-weight:800;cursor:pointer;">Save proof &amp; count it</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  document.getElementById('proof-pick').onclick=function(){ document.getElementById('proof-file').click(); };
+  document.getElementById('proof-file').onchange=function(){ proofAdd(this.files); this.value=''; };
+  document.getElementById('proof-cap').onclick=async function(){
+    if(PROOF.imgs.length>=SHOT.max){ toast(SHOT.max+' screenshots is the maximum.'); return; }
+    if(!shotLive()){ var ok=await shotStart(); if(!ok) return; }
+    var img=shotGrab();
+    if(!img){ toast('Could not read the window — pick it again.'); shotStop(); return; }
+    PROOF.imgs.push(img); proofThumb(img); pupStart(img, PROOF.ctx);
+  };
+  document.getElementById('proof-cancel').onclick=function(){ proofClose(true); };
+  document.getElementById('proof-save').onclick=proofSubmit;
+  document.addEventListener('paste', function(ev){
+    var o=document.getElementById('proof-ov'); if(!o||o.style.display==='none') return;
+    var items=(ev.clipboardData&&ev.clipboardData.items)||[], files=[];
+    for(var i=0;i<items.length;i++){ if(items[i].type.indexOf('image')===0){ var f=items[i].getAsFile(); if(f) files.push(f); } }
+    if(files.length){ ev.preventDefault(); proofAdd(files); }
+  });
+  return ov;
+}
+function proofThumb(d){
+  var host=document.getElementById('proof-thumbs'); if(!host) return;
+  var w=document.createElement('div');
+  w.style.cssText='position:relative;width:74px;height:74px;border-radius:9px;overflow:hidden;border:1px solid #e2e8f0;margin:0 8px 8px 0;';
+  w.innerHTML='<img src="'+d+'" style="width:100%;height:100%;object-fit:cover;">'+
+    '<button style="position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:12px;cursor:pointer;line-height:1;">×</button>';
+  w.querySelector('button').onclick=function(){ var ix=PROOF.imgs.indexOf(d); if(ix>=0) PROOF.imgs.splice(ix,1); try{ delete PUP.q[pupKey(d)]; pupPaint(); }catch(_pq){} w.remove(); };
+  host.appendChild(w);
+}
+async function proofAdd(files){
+  for(var i=0;i<files.length;i++){
+    if(PROOF.imgs.length>=SHOT.max){ toast(SHOT.max+' screenshots is the maximum.'); break; }
+    try{ var d=await proofCompress(files[i]); PROOF.imgs.push(d); proofThumb(d); pupStart(d, PROOF.ctx); }catch(e){}
+  }
+}
+function proofClose(cancelled){
+  var ov=document.getElementById('proof-ov'); if(ov) ov.style.display='none';
+  var rej=PROOF.reject; PROOF.imgs=[]; PUP.q={}; PROOF.resolve=null; PROOF.reject=null;
+  if(cancelled && rej){ var e=new Error('proof cancelled'); e.proofCancelled=true; rej(e); }
+}
+async function proofSubmit(){
+  if(!PROOF.imgs.length){ toast('Attach at least one screenshot.'); return; }
+  var btn=document.getElementById('proof-save'); btn.disabled=true; btn.textContent='Uploading…';
+  try{
+    var body={ action:'proof_save', employee_id:USER.id, full_name:(USER.name||USER.id),
+      project:PROJECT, task:PROOF.ctx.task||'', account:PROOF.ctx.account||'',
+      date:(typeof today==='function'?today():''), outputs:PROOF.ctx.n||1,
+      note:(document.getElementById('proof-note').value||'') };
+    var _ref=await pupRefs(PROOF.ctx);
+    if(_ref && _ref.urls){ body.urls=_ref.urls; }
+    else if(_ref && _ref.ids){ body.ids=_ref.ids; }
+    else { body.images=PROOF.imgs; }   // fall back to the inline path rather than lose the proof
+    var r=await fetch(API, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body) });
+    var d=await r.json();
+    if(d && d.ok){
+      var res=PROOF.resolve; var n=d.count;
+      PROOF.imgs=[]; PUP.q={}; PROOF.resolve=null; PROOF.reject=null;
+      var ov=document.getElementById('proof-ov'); if(ov) ov.style.display='none';
+      toast(n+' screenshot'+(n>1?'s':'')+' saved as proof.');
+      if(res) res(true);
+    } else {
+      toast('Proof not saved: '+((d&&d.error)||'unknown')+' — nothing was counted.');
+    }
+  }catch(e){ toast('Upload failed — nothing was counted. Try again.'); }
+  btn.disabled=false; btn.textContent='Save proof & count it';
+}
+/* THE GATE. Every output routes through here, so proof cannot be bypassed by any button. */
+/* PROOF WITHOUT A COUNT (the caller counts).
+   Stores the screenshots and stops — sessDone_ posts the po_bump itself once the session mark
+   is saved, so the count and the mark can never disagree. Rejects on cancel, so backing out
+   leaves the session unmarked and uncounted. */
+function proofOnly(task, account){
+  return new Promise(function(resolve,reject){
+    PROOF.imgs=[]; PROOF.ctx={task:task, account:account||'', n:1};
+    SHOT.max=shotCap(task);
+    PROOF.resolve=null; PROOF.reject=reject;
+    var ov=proofPanel(); ov.style.display='flex';
+    document.getElementById('proof-what').textContent=task+(account?(' · '+account):'')+
+      ' · counts as 1 output once the session is logged · up to '+SHOT.max+' screenshots';
+    document.getElementById('proof-note').value='';
+    document.getElementById('proof-thumbs').innerHTML='';
+    PROOF.resolve=function(){ resolve(true); };
+  });
+}
+/* Count an output with no proof panel. Used when the evidence has already been collected
+   somewhere else in the flow — the four session screenshots — so asking for a fifth would be
+   asking the VA to photograph the same work twice. */
+function countOnly(task,n){
+  return fetch(API+'?action=po_bump&employee_id='+encodeURIComponent(USER.id)+'&project='+encodeURIComponent(PROJECT)
+    +'&task='+encodeURIComponent(task)+'&n='+(n||1)+'&_='+Date.now())
+    .then(function(){ return true; }).catch(function(){ return true; });
+}
+function bump(task,n){
+  return new Promise(function(resolve,reject){
+    PROOF.imgs=[]; PROOF.ctx={task:task,n:(n||1)}; SHOT.max=shotCap(task); PROOF.resolve=null; PROOF.reject=reject;
+    var ov=proofPanel(); ov.style.display='flex';
+    document.getElementById('proof-what').textContent=task+' · counts as '+(n||1)+' · up to '+SHOT.max+' screenshots';
+    document.getElementById('proof-note').value='';
+    document.getElementById('proof-thumbs').innerHTML='';
+    PROOF.resolve=function(){
+      fetch(API+'?action=po_bump&employee_id='+encodeURIComponent(USER.id)+'&project='+encodeURIComponent(PROJECT)
+        +'&task='+encodeURIComponent(task)+'&n='+(n||1)+'&_='+Date.now())
+        .then(function(){ resolve(true); }).catch(function(){ resolve(true); });
+    };
+  });
+}
+/* A cancelled proof stops the caller's flow — that's intended, and shouldn't spam the console. */
+window.addEventListener('unhandledrejection', function(ev){
+  if(ev.reason && ev.reason.proofCancelled){ ev.preventDefault(); }
+});
+try{ document.addEventListener('DOMContentLoaded', function(){ try{ renderShotBar(); }catch(e){} });
+     setTimeout(function(){ try{ renderShotBar(); }catch(e){} }, 1200); }catch(e){}
+function today(){ // JMB business day — resets 8:00 AM Philippine time (a night shift never splits across two days)
+  try{ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date(Date.now()-8*3600*1000)); }
+  catch(e){ return new Date(Date.now()-8*3600*1000).toISOString().slice(0,10); } }
+function shiftKey(){ // per-SHIFT work key — morning 08:00–19:59 = date·AM · night 20:00–07:59 = start-date·PM
+  try{
+    var h=parseInt(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Manila',hour:'2-digit',hour12:false}).format(new Date()),10);
+    var base=(h<8)? new Date(Date.now()-24*3600*1000) : new Date();
+    var d=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(base);
+    return d+((h>=8&&h<20)?'·AM':'·PM');
+  }catch(e){ return today()+'·?' ; } }
+function isTodayMark(v){ // transition-tolerant: plain business date OR the short-lived ·AM/·PM formats
+  return v===today() || v===today()+'·AM' || v===today()+'·PM'; }
+// Per-VA shift window: ☀ morning VAs reset 8 AM · 🌙 night VAs reset 8 PM. A VA's bar lives
+// through their whole shift AND after it, until THEIR next shift starts. Keys: date·AM / date·PM.
+function vaKeyOf(empId){
+  var sh=SHIFTOF[String(empId||'').toLowerCase()];
+  if(sh==='night'){
+    var d=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date(Date.now()-20*3600*1000));
+    return d+'·PM';   // night window: 8 PM → next 8 PM, keyed by its start date
+  }
+  return today()+'·AM';   // morning window: 8 AM → next 8 AM
+}
+function markOk(v, empId){
+  if(!v) return false;
+  if(v===vaKeyOf(empId)) return true;
+  // transition day: pre-shift-key plain marks still count for MORNING VAs only
+  var sh=SHIFTOF[String(empId||'').toLowerCase()];
+  return sh!=='night' && v===today();
+}
+
+
+
+
+async function signIn(){
+  var id=$('si-id').value.trim(), pin=$('si-pin').value.trim(); var err=$('si-err'); err.style.display='none';
+  if(!id||!pin){ err.style.display='block'; err.textContent='Enter your Employee ID and PIN.'; return; }
+  try{
+    var r=await fetch(API+'?id='+encodeURIComponent(id)+'&pin='+encodeURIComponent(pin)+'&_='+Date.now()); var d=await r.json();
+    if(!d||d.error){ err.style.display='block'; err.textContent=(d&&d.error==='WRONG_PIN')?'Incorrect PIN.':'Employee not found.'; return; }
+    USER={ id:d.employee_id, name:d.full_name||d.employee_id };
+    try{ sessionStorage.setItem('john_user', JSON.stringify(USER)); }catch(e){}
+    start();
+  }catch(e){ err.style.display='block'; err.textContent='Network error — try again.'; }
+}
+function start(){ try{ fetch(API+'?action=tool_used&employee_id='+encodeURIComponent(USER.id)+'&tool=john&_='+Date.now()); }catch(_tu){} $('signin').style.display='none'; $('app').style.display='block'; $('who').textContent='· '+USER.name; try{ $('jn-cdate').value=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date()); }catch(e){} loadNames(); paintCached(); load(); smartPoll(); }
+
+/* ── TARGET-POOL PROGRESS BAR ──
+   One glance answers "how much of the client's list is left": USED (days completed with that
+   list) · ASSIGNED (reserved on an account, day not finished yet) · FREE (still in the pool). */
+var POOL=null;
+async function poolLoad(){
+  try{
+    var d=await (await fetch(API+'?action=john_pool&_='+Date.now())).json();
+    if(d&&d.ok){ POOL=d; poolRender(); }
+  }catch(e){}
+}
+function poolRender(){
+  var el=$('poolbar'); if(!el||!POOL) return;
+  var t=POOL.total||0;
+  if(!t){ el.innerHTML='<div class="muted" style="margin:6px 0 10px;">Follow-target pool is empty — paste the client\'s list into the JohnFollowTargets tab.</div>'; return; }
+  var pu=POOL.used/t*100, pa=POOL.assigned/t*100, pf=POOL.free/t*100;
+  el.innerHTML=
+    '<div style="margin:6px 0 12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--card);">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;font-weight:800;color:var(--ink);margin-bottom:6px;">'+
+        '<span>'+ic('target')+'Follow-target pool</span><span style="color:var(--ink3);">'+ (POOL.used+POOL.assigned) +' / '+t+' consumed · '+POOL.free+' left</span></div>'+
+      '<div style="display:flex;height:12px;border-radius:100px;overflow:hidden;background:rgba(231,234,240,.1);">'+
+        '<div style="width:'+pu+'%;background:#10b981;" title="Used"></div>'+
+        '<div style="width:'+pa+'%;background:#f59e0b;" title="Assigned (in progress)"></div>'+
+        '<div style="width:'+pf+'%;" title="Free"></div></div>'+
+      '<div style="display:flex;gap:14px;margin-top:6px;font-size:11px;font-weight:700;color:var(--ink2);">'+
+        '<span><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#10b981;margin-right:4px;"></i>Used '+POOL.used+'</span>'+
+        '<span><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#f59e0b;margin-right:4px;"></i>Assigned '+POOL.assigned+'</span>'+
+        '<span><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#3a4250;margin-right:4px;"></i>Free '+POOL.free+'</span>'+
+        (POOL.free<50?'<span style="color:#f87171;">'+ic('warn')+'running low — ask the client for more targets</span>':'')+
+      '</div></div>';
+}
+async function load(){
+  poolLoad();
+  var d=null;
+  try{
+    d=await jFetch(API+'?action=pa_list&project='+encodeURIComponent(PROJECT)+'&_='+Date.now());
+  }catch(e){
+    $('grid').innerHTML='<div class="muted">Server is busy — retrying in 8s…</div>';
+    setTimeout(load, 8000);   // congestion, not a broken deployment — retry by itself
+    return;
+  }
+  if(!d||!d.ok){ $('grid').innerHTML='<div class="muted">Server returned an error ('+esc((d&&d.error)||'unknown')+') — retrying in 8s…</div>'; setTimeout(load, 8000); return; }
+  ROWS=d.rows||[]; cacheRows();
+  try{ render(); }
+  catch(re){ $('grid').innerHTML='<div class="muted">Display error: '+esc(String(re&&re.message||re))+' — tell the admin (data loaded fine).</div>'; }
+}
+function render(){
+  var act=ROWS.filter(function(r){return r.status!=='suspended';});
+  var doneToday=act.filter(function(r){return markOk(r.meta&&r.meta.last, r.assigned_to||r.created_by);}).length;
+  var inSetup=act.filter(function(r){return r.day<=3;}).length;
+  $('stats').innerHTML=
+    '<div class="stat"><b>'+act.length+'</b><span>Active accounts</span></div>'+
+    '<div class="stat"><b style="color:#0f766e">'+doneToday+' / '+act.length+'</b><span>Done today</span></div>'+
+    '<div class="stat"><b>'+inSetup+'</b><span>In setup (D1–3)</span></div>'+
+    '<div class="stat"><b style="color:#f87171">'+ROWS.filter(function(r){return r.status==='suspended';}).length+'</b><span>Suspended</span></div>'+
+    ((USER&&/^jmbeast$/i.test(String(USER.id||'')))?'<button onclick="jnSendLists()" style="border:1px solid rgba(15,118,110,.45);background:rgba(16,185,129,.08);color:#0f766e;border-radius:10px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:12px;" title="Marks completed days\' targets as used, releases suspended accounts\' targets, and re-sends unfinished lists as reminders. Never assigns anything.">'+ic('refresh')+'Reconcile pool + remind unfinished</button>':'');
+  renderByVA([
+    ['Setup D1–3','#0f1419',function(r){return r.status!=='suspended' && r.day<=3;}],
+    ['Follows D4+','#10b981',function(r){return r.status!=='suspended' && r.day>3;}],
+    ['Suspended','#ef4444',function(r){return r.status==='suspended';}]
+  ], function(r){ return markOk(r.meta&&r.meta.last, r.assigned_to||r.created_by); }, function(r){ return r.status!=='suspended'; });
+  if(!ROWS.length){ $('grid').innerHTML='<div class="muted">No accounts yet — add your first above.</div>'; return; }
+  renderTabs();
+  var base=filterRows();
+  /* AGED ACCOUNTS FIRST (his rule): highest day on top — the seasoned accounts lead the
+     list, fresh/new accounts sit below. Suspended stays at the bottom. */
+  var sorted=base.slice().sort(function(a,b){ return (a.status==='suspended'?1:0)-(b.status==='suspended'?1:0) || b.day-a.day; });
+  if(!sorted.length){ $('grid').innerHTML='<div class="muted">No accounts in this view.</div>'; return; }
+  function grpJ(r){ return r.status==='suspended'?ic('ban',13)+'Suspended':(r.day<=3?ic('clip',13)+'Setup · Days 1–3':ic('trend',13)+'Follow phase · Day 4+'); }
+  var gcnt={}; sorted.forEach(function(r){ var g=grpJ(r); gcnt[g]=(gcnt[g]||0)+1; });
+  var out=[], lastG='';
+  sorted.forEach(function(r){
+    var g=grpJ(r); if(g!==lastG){ out.push('<div class="sect"><b>'+g+'</b><span>'+gcnt[g]+'</span><i></i></div>'); lastG=g; }
+    var done=markOk(r.meta&&r.meta.last, r.assigned_to||r.created_by);
+    var who='<div class="meta1">'+assignSel(r)+(cdateOf(r)?(' · created '+esc(ageTxt(r))):'')+'</div>';
+    if(r.status==='suspended'){ out.push('<div class="acct susp"><div class="hd"><b>'+esc(r.handle)+'</b><button class="xbtn" onclick="openX(\''+esc(r.id)+'\')" title="Open this account on X — check it live">𝕏</button><span class="ph2" style="background:#ef444422;color:#f87171;border:1px solid #ef444440">'+ic('ban')+'Suspended</span>'+kmenu([[ic('undo')+'Reinstate',"setStatus('"+r.id+"','active')"],'---',[ic('trash')+'Delete (wrong entry)',"delAcct('"+r.id+"')",'danger']])+'</div>'+who+'</div>'); return; }
+    out.push('<div class="acct'+(done?' done-today':'')+'"><div class="hd"><b>'+esc(r.handle)+'</b><button class="xbtn" onclick="openX(\''+esc(r.id)+'\')" title="Open this account on X — check it live">𝕏</button><span class="ph2" style="background:rgba(231,234,240,.1);color:var(--ink);border:1px solid rgba(231,234,240,.22)">Day '+r.day+'</span>'+kmenu([[ic('ban')+'Suspended',"setStatus('"+r.id+"','suspended')"],'---',[ic('trash')+'Delete (wrong entry)',"delAcct('"+r.id+"')",'danger']])+'</div>'+who+
+      '<details class="planbox"'+(done?'':' open')+'><summary>'+ic('clip')+'Day '+r.day+' plan</summary><div>'+planFor(r.day)+'</div></details>'+
+      /* SETUP (days 1-3) has no sessions — it is a checklist you work once, so a single action
+         completes the day. FOLLOW phase (day 4+) keeps the four sessions, and the day-done button
+         simply APPEARS once all four are in rather than sitting there as a locked "(2/4)" label.
+         A disabled button carrying a counter told the VA what they could not do; the pills above
+         already say where they are. */
+      (r.day<=3
+        ? (r.day===3?jnFlist(r):'')+   /* Day 3's plan follows 10 targets — pull them here */
+          '<div class="btns">'+(done
+            ? '<button disabled style="opacity:.55">✓ Done today</button>'
+            : '<button class="go" onclick="dayDone(\''+r.id+'\','+r.day+')">✓ Mark day '+r.day+' complete</button>')+'</div>'
+        : '<div class="btns">'+sessBtns(r)+'</div>'+jnFlist(r)+
+          (done
+            ? '<div class="btns"><button disabled style="opacity:.55">✓ Done today</button></div>'
+            : (sessDone(r)>=jnSess(r)
+                /* Normally unreachable: session 4 completes the day itself. This stays only for a
+                   row whose sessions were all logged before that behaviour existed, so it can
+                   still be closed without a fifth screenshot. */
+                ? '<div class="btns"><button class="go" onclick="dayDone(\''+r.id+'\','+r.day+',true)">✓ Day '+r.day+' done</button></div>'
+                : '')))+
+      '</div>');
+  });
+  $('grid').innerHTML=out.join('');
+}
+/* ── OPEN ON X — on-platform health check ──
+   X refuses to render inside an iframe (frame-ancestors), so a true in-page side panel would
+   just show a blank box. Instead ONE named popup is parked on the right side of the screen and
+   every 𝕏 click retargets it: board on the left, live X profile on the right, and clicking
+   through accounts swaps the same window instead of spawning one per account. */
+function openX(id){
+  var r=(ROWS||[]).filter(function(x){ return String(x.id)===String(id); })[0];
+  var h=String((r&&r.handle)||'').trim().replace(/^@+/,'').replace(/\s.*$/,'');
+  if(!h){ toast('No handle on this row.'); return; }
+  var W=Math.max(430, Math.floor(screen.width*0.42));
+  var H=Math.floor((screen.availHeight||screen.height)*0.92);
+  var L=Math.max(0, screen.width-W-8), T=Math.max(0, Math.floor(((screen.availHeight||screen.height)-H)/2));
+  var url='https://x.com/'+encodeURIComponent(h);
+  var w=window.open(url,'jn_xside','width='+W+',height='+H+',left='+L+',top='+T);
+  if(w && w.focus) w.focus(); else if(!w) window.open(url,'_blank');   // popup blocked → plain tab
+}
+async function addAcct(){
+  var u=$('jn-user').value.trim(); if(!u){ toast('Type the account handle.'); return; }
+  var day=Math.max(1, parseInt(($('jn-day')||{}).value,10)||1);
+  var cd=($('jn-cdate')||{}).value||'';
+  try{
+    var meta=encodeURIComponent(JSON.stringify({cdate:cd}));
+    var r=await fetch(API+'?action=pa_add&project='+encodeURIComponent(PROJECT)+'&handle='+encodeURIComponent(u)+'&status=active&day='+day+'&meta='+meta+'&employee_id='+encodeURIComponent(USER.id)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ $('jn-user').value=''; if($('jn-day')) $('jn-day').value='1'; toast('Account added at Day '+day+' — its plan is on the card.'); load(); }
+    else if(d&&d.error==='DUPLICATE') toast('That handle is already on the board.');
+    else toast('Could not add.');
+  }catch(e){ toast('Connection error.'); }
+}
+/* ── FOUR SESSIONS PER ACCOUNT PER DAY ──
+   The day used to be one button and one screenshot, so a whole day's follows rested on a single
+   image and QA had one session to sample per account. Four sessions each carrying their own
+   proof gives the auto-check four times the evidence and reflects how the work is actually
+   done — spread across the shift, not in one sitting.
+   Day done stays locked until all required sessions are in: an account is not finished because
+   someone says so, it is finished when the sessions exist. Session marks PERSIST across days
+   until the day completes (see sessOk) — only the day-done mark itself resets per shift. */
+var JN_SESSIONS=3;   // Aug 2026: every follow day is 3 sessions (was 4)
+/* Sessions required for THIS account's day. Day 4's plan is "25 follows: 5 / 10 / 10" —
+   three opens — so Day 4 completes after SESSION 3. Every later follow day keeps four. */
+/* 📋 Today's auto-assigned follow list — tap a chip and the X app opens that profile
+   directly (no search bar). Assigned server-side from the client's target sheet. */
+function jnFlist(r){
+  /* PULL-ONLY, PER-SESSION CHUNKS (his rule): NOTHING is assigned until the VA starts working
+     this account. The day quota is split across the sessions (50 → 17/17/16), and each press
+     of the button pulls the NEXT chunk to the Telegram phone. Untouched account = zero
+     targets reserved from the pool. */
+  var m=(r&&r.meta)||{};
+  var chunks=(r.day>=4)?3:1;
+  var pulled=(m.flist_forday===r.day)?(parseInt(m.flist_sess,10)||0):0;
+  /* SYNC WITH SESSION TICKS (his rule): the button always offers the session the VA is ON.
+     2 sessions already done -> "Get session 3 of 3", never back to 1. Session 1 shows only
+     when no session has been started on this account today. Sessions completed without a
+     pulled list skip their chunks — those targets stay in the pool. */
+  var served=Math.max(pulled, Math.min(chunks, sessDone(r)));
+  /* LIST HIDDEN ON THE CARD (his ask): the chips ate the interface. The list itself lives on
+     the Telegram phone — the card only carries the pull / re-send button. */
+  var btn=function(txt){ return '<button id="jngl-'+esc(r.id)+'" onclick="jnGetList(\''+esc(r.id)+'\')" style="border:1px solid rgba(16,185,129,.45);background:rgba(16,185,129,.1);color:#34d399;border-radius:10px;padding:6px 12px;font-weight:800;cursor:pointer;font-size:11px;">'+txt+'</button>'; };
+  var label=(served>=chunks)
+    ? ic('refresh')+'Re-send full list to phone'
+    : ic('send')+'Get session '+(served+1)+(chunks>1?' of '+chunks:'')+' list'+(served?' · '+served+'/'+chunks+' sent':'');
+  return '<div style="margin-top:8px;">'+btn(label)+'</div>';
+}
+async function jnGetList(id){
+  var r=(ROWS||[]).filter(function(x){ return String(x.id)===String(id); })[0];
+  if(!r){ toast('Row not found — refresh the page.'); return; }
+  var b=document.getElementById('jngl-'+id); if(b){ b.disabled=true; b.textContent='Sending…'; }
+  try{
+    var d=await (await fetch(API+'?action=john_send_one&handle='+encodeURIComponent(r.handle)+'&employee_id='+encodeURIComponent((USER&&USER.id)||'')+'&done='+Math.min((r.day>=4)?3:1, sessDone(r))+'&_='+Date.now())).json();
+    if(d&&d.ok){
+      toast(d.fresh
+        ? 'Session '+d.sess+(d.chunks>1?'/'+d.chunks:'')+' list sent ('+d.fresh+' targets) — check the Telegram phone.'
+        : 'Full list ('+(d.total_today||0)+') re-sent to the Telegram phone.');
+      load(); return;
+    }
+    if(d&&d.error==='POOL_EMPTY') toast('⚠ Pool too low for this session'+((d.detail)?' — '+d.detail:'')+' Ask the admin to add targets.');
+    else if(d&&d.error==='NO_LIST') toast(d.detail||'No list for this account yet.');
+    else if(d&&d.error==='BUSY') toast('Server is busy — try again in a few seconds.');
+    else toast('Could not send: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Connection error.'); }
+  if(b){ b.disabled=false; b.innerHTML=ic('send')+'Get session list'; }
+}
+function jnSess(r){ return JN_SESSIONS; }   // all follow days: 3 sessions
+function sessMark(r,n){ return ((r&&r.meta)||{})['s'+n]; }
+/* SESSIONS DO NOT RESET DAILY (unlike every other lane in this tool). A session mark stays
+   valid across days until the account COMPLETES its required sessions — finishing the day
+   clears the marks, and only then does the account start over at Session 1.
+   Legacy guard: before this change, dayDone never cleared marks, so completed days left
+   stale s-marks behind. A mark dated on-or-before the last day-completion belongs to that
+   finished day and is ignored. This also auto-restores yesterday's partial progress: an
+   account that logged S1 on Aug 17 opens on S2 today, exactly where it left off. */
+function sessOk(r,n){
+  var m=sessMark(r,n); if(!m) return false;
+  var last=((r&&r.meta)||{}).last;
+  if(last && String(m).slice(0,10)<=String(last).slice(0,10)) return false;   // consumed by a completed day
+  return true;
+}
+function sessDone(r){ var c=0; for(var i=1;i<=jnSess(r);i++) if(sessOk(r,i)) c++; return c; }
+/* ── SVG ICON SET (his ask: no emoji in the chrome — crisp stroke icons instead) ── */
+var SVGI={
+  cam:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+  send:'<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  refresh:'<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
+  target:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  ban:'<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>',
+  trash:'<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  undo:'<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
+  clip:'<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
+  warn:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  check:'<polyline points="20 6 9 17 4 12"/>',
+  trend:'<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+  chart:'<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'
+};
+function ic(n,sz){ sz=sz||12; return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1.5px;margin-right:4px">'+(SVGI[n]||'')+'</svg>'; }
+function sessBtns(r){
+  var out=[];
+  for(var i=1;i<=jnSess(r);i++){
+    var ok=sessOk(r,i);
+    // sessions run in order, so a missed one can't be papered over by doing the next
+    var next=(!ok && sessDone(r)===(i-1));
+    /* TWO-SHOT RULE: only the first and last sessions carry a camera — start/end following count. */
+    var lbl=(i===1?ic('cam')+'Session 1 · start count':(i===jnSess(r)?ic('cam')+'Session '+i+' · end count':'Session '+i));
+    out.push(ok
+      ? '<button disabled style="opacity:.55">✓ S'+i+'</button>'
+      : (next ? '<button class="go" onclick="sessDone_('+"'"+r.id+"'"+','+i+')">'+lbl+'</button>'
+              : '<button disabled style="opacity:.35;cursor:not-allowed" title="Finish session '+(sessDone(r)+1)+' first">S'+i+'</button>'));
+  }
+  return out.join('');
+}
+/* ── DAILY NUMBERS GATE (Account Center feed) ──
+   Before the first session/tick of the business day on an account, the VA records what the
+   platform shows right now (X follower count). One prompt per account per day; the number lands in the
+   account's meta, where the Account Center and its 6 AM snapshot read it — trend lines build
+   without anyone filling a separate sheet. Cancelling the prompt cancels the session. */
+async function metricGate(r, kind, label){
+  try{
+    if(!r || !r.id) return true;
+    var m=(r&&r.meta)||{};
+    var day=today();
+    if(String(m.mday||'')===day) return true;
+    var cur=(kind==='karma')?(m.karma!=null?m.karma:''):(m.fol!=null?m.fol:'');
+    var v=prompt('📊 Daily check-in — current '+label+' for '+(r.handle||'this account')+'?\n(type exactly what the platform shows right now)', cur);
+    if(v===null){ toast('Log today’s '+label+' first — then the session unlocks.'); return false; }
+    v=parseInt(String(v).replace(/[^0-9]/g,''),10);
+    if(isNaN(v)){ toast('Numbers only — try again.'); return false; }
+    var m2={}; for(var k in m) m2[k]=m[k];
+    m2.mday=day; if(kind==='karma') m2.karma=v; else m2.fol=v;
+    var d=await (await fetch(API+'?action=pa_update&id='+encodeURIComponent(r.id)+'&meta='+encodeURIComponent(JSON.stringify(m2))+'&_='+Date.now())).json();
+    if(d&&d.ok){ r.meta=m2; toast('📌 '+label+' logged for today — thank you!'); return true; }
+    toast('Could not save the number — try again.'); return false;
+  }catch(e){ return false; }
+}
+async function sessDone_(id, n){
+  var r0=ROWS.filter(function(x){return x.id===id;})[0]; if(!r0) return;
+  if(sessOk(r0,n)){ toast('Session '+n+' is already logged.'); return; }
+  if(!(await metricGate(r0,'fol','followers'))) return;
+  /* TWO-SHOT RULE (Aug 2026): only the FIRST and LAST sessions of the day carry a screenshot —
+     the profile's FOLLOWING count before any follows, and again after the final session.
+     End − start must equal the day's follow target, so those two numbers prove the whole day;
+     the middle sessions are just ticks. Backing out of the screenshot cancels the session. */
+  var isFirstShot=(sessDone(r0)===0), isLastShot=(n===jnSess(r0));
+  if(isFirstShot||isLastShot){
+    try{ await proofOnly('Follow Day — '+(isFirstShot?'START':'END')+' following count', r0.handle); }
+    catch(e){ if(e && e.proofCancelled) return; toast('Connection error.'); return; }
+  }
+  try{
+    var m=Object.assign({}, r0.meta||{}); m['s'+n]=vaKeyOf(USER.id);
+    var rr=await fetch(API+'?action=pa_update&id='+encodeURIComponent(id)+'&meta='+encodeURIComponent(JSON.stringify(m))+'&_='+Date.now());
+    var d=await rr.json();
+    if(d&&d.ok){
+      r0.meta=m;
+      /* EACH SESSION IS AN OUTPUT (Aug 2026 change). Sessions can be split across VAs mid-day,
+         and a day that never reaches its last session still represents real work — so credit
+         lands per completed session, on whoever completed it. The screenshots were just taken
+         in proofOnly, so no second panel. */
+      try{ await countOnly((r0.day<=3?'Setup Day':'Follow Day'),1); }catch(_c){}
+      var left=jnSess(r0)-sessDone(r0);
+      if(left>0){
+        toast('Session '+n+' logged · '+left+' to go.');
+        load();
+      } else {
+        /* The FINAL session (3 on Day 4, 4 on later days) IS the end of the day. Completing
+           it advances the day and counts the output straight away — no extra button, no
+           extra screenshot. */
+        toast('Session '+n+' logged · finishing day '+r0.day+'…');
+        await dayDone(id, r0.day, true);
+      }
+    } else toast('Could not save.');
+  }catch(e){ toast('Connection error.'); }
+}
+async function dayDone(id, day, noProof){
+  var r0=ROWS.filter(function(x){return x.id===id;})[0];
+  /* Setup days 1-3 have no sessions to finish — the checklist IS the day. Only the follow phase
+     is gated on all four. */
+  if(r0 && r0.day>3 && sessDone(r0)<jnSess(r0)){ toast('Finish all '+jnSess(r0)+' sessions first.'); return; }
+  var task=(day<=3?'Setup Day':'Follow Day');
+  /* Follow days now count PER SESSION (see sessDone_) — counting the day again would double
+     it, so the session-driven path (noProof) counts nothing here. Setup days have no sessions;
+     the checklist IS the day, so they still count exactly one, proof first. */
+  if(!noProof) await bump(task,1);                 // proof before the day advances
+
+  try{
+    var r0=ROWS.filter(function(x){return x.id===id;})[0];
+    /* The finished day consumes its sessions — clear the marks so the next day starts at S1. */
+    var _m=Object.assign({}, (r0&&r0.meta)||{}, {last:vaKeyOf(USER.id)});
+    for(var _si=1;_si<=4;_si++) delete _m['s'+_si];   // clears up to 4 to wipe legacy S4 marks
+    var meta=JSON.stringify(_m);
+    var r=await fetch(API+'?action=pa_update&id='+encodeURIComponent(id)+'&day='+(day+1)+'&meta='+encodeURIComponent(meta)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ toast('Day '+day+' complete · +1 '+(day<=3?'Setup Day':'Follow Day')+' ✅'); load(); }
+    else toast('Could not update.');
+  }catch(e){ toast('Connection error.'); }
+}
+async function setStatus(id, st){
+  if(st==='suspended' && !confirm('Mark this account SUSPENDED? It leaves the active pool (outputs already earned are kept).')) return;
+  try{
+    var r=await fetch(API+'?action=pa_update&id='+encodeURIComponent(id)+'&status='+encodeURIComponent(st)+'&_='+Date.now());
+    var d=await r.json(); if(d&&d.ok){ toast(st==='suspended'?'Suspended.':'Reinstated.'); load(); } else toast('Could not update.');
+  }catch(e){ toast('Connection error.'); }
+}
+(function(){ var u=null; try{ u=JSON.parse(sessionStorage.getItem('john_user')||'null'); }catch(e){}
+  if(u&&u.id){ USER=u; start(); } else { $('si-id').focus(); $('si-pin').addEventListener('keydown',function(e){ if(e.key==='Enter') signIn(); }); } })();
+</script>
+
+<style id="stat-grid-fix">
+/* Stat chips: equal sizes, stretched across the full row */
+.top{ display:grid !important; grid-template-columns:repeat(auto-fit, minmax(118px, 1fr)) !important; gap:10px !important; align-items:stretch; }
+.top .stat{ width:auto !important; display:flex; flex-direction:column; justify-content:center; }
+.top .balance{ grid-column:1 / -1; margin-left:0 !important; text-align:center; }
+</style>
+
+<script>
+async function jnSendLists(){
+  /* PULL-ONLY MODEL: this never assigns. It reconciles the pool (used/released) and re-sends
+     unfinished lists to Telegram as reminders. */
+  var pass=prompt('Admin password (reconcile pool + remind unfinished):'); if(!pass) return;
+  toast('Reconciling…');
+  try{
+    var d=await (await fetch(API+'?action=john_send_lists&pass='+encodeURIComponent(pass)+'&_='+Date.now())).json();
+    if(d&&d.ok){ toast('Reconciled — used: +'+(d.targets_marked_used||0)+' · released: '+(d.targets_released||0)+' · reminders sent: '+(d.unfinished_reminded||0)); load(); }
+    else toast('Failed: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Connection error.'); }
+}
+</script>
+
+</body>
+</html>
