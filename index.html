@@ -20007,12 +20007,22 @@ function loadMyRedemptions(){
     return false;
   }
   function canPlayGame(){
-    var s=(typeof myWorkStatus==='function')?myWorkStatus():'online';
-    if(s==='idle' || s==='online' || onIdleTask()) return true;
-    if(inScheduledTourney()) return true;   // sanctioned event — your timer keeps running
-    showToast('You can only play while idle or with no task running. Stop your current task first. ⏱️');
-    return false;
+    /* HARD TIMER GATE (Aug 2026, his rule): EVERY Tetris feature — duels, 2v2, 3v3, training,
+       solo, everything — requires the task timer to be STOPPED first. Playing must never
+       overlap tracked productive hours. The ONLY exemption is the scheduled day/night
+       tournament (incl. the grand finals), the sanctioned event where the timer keeps running.
+       The old check trusted the status text ("online" passed even with a timer running) —
+       this one asks the tracker itself, and a timer running on ANOTHER device counts too. */
+    if(inScheduledTourney()) return true;
+    var running=false;
+    try{ running=(typeof trkRunning!=='undefined') && !!trkRunning; }catch(_g){}
+    if(running){
+      showToast('⏱️ Stop your task timer first — then play. Scheduled tournaments are the only exception.');
+      return false;
+    }
+    return true;
   }
+  window.tetCanPlay=canPlayGame;   // exposed for the isolated 2v2/3v3 lobby modules
 
   // ── Audio engine (Web Audio beeps) ──
   var TAC=null;
@@ -32106,7 +32116,7 @@ window.EB_UNITS_MORE3 = [
 
   /* ---------- flow ---------- */
   window.t3IsBusy=function(){ return T.phase==='lobby'||T.phase==='play'; };
-  window.t3Open=function(){ ensureUI(); T.phase='lobby'; T.team=null; T.peers={}; T.started=false;
+  window.t3Open=function(){ if(window.tetCanPlay&&!window.tetCanPlay())return; ensureUI(); T.phase='lobby'; T.team=null; T.peers={}; T.started=false;
     if(!T.ch){ if(!connect()) return; } el('t3-ov').classList.add('on'); scene('t3-lobby'); renderLobby(); try{ if(api())api().ac(); }catch(e){} };
   window.t3Pick=function(t){ T.team=t; el('t3-tm-morn').classList.toggle('mine',t==='morn'); el('t3-tm-night').classList.toggle('mine',t==='night'); sendJoin(); renderLobby(); };
   function renderLobby(){ var mn=[],nt=[]; for(var k in T.peers){ (T.peers[k].team==='night'?nt:mn); if(T.peers[k].team==='morn') mn.push(esc(T.peers[k].name)); else if(T.peers[k].team==='night') nt.push(esc(T.peers[k].name)); }
@@ -32451,8 +32461,8 @@ window.EB_UNITS_MORE3 = [
     if(!T.ch){ T._room=T.room; connectRoom(); } else { trackMe(); syncRoster(); }   // presence auto-syncs the roster
     _lobbyLabels(); el('d2-ov').classList.add('on'); scene('d2-lobby'); renderLobby(); try{ if(api())api().ac(); }catch(e){}
     if(announce) window.d2Announce(kind); }
-  window.d2Open=function(){ openLobby(true,'2v2'); };
-  window.d3Open=function(){ openLobby(true,'3v3'); };
+  window.d2Open=function(){ if(window.tetCanPlay&&!window.tetCanPlay())return; openLobby(true,'2v2'); };
+  window.d3Open=function(){ if(window.tetCanPlay&&!window.tetCanPlay())return; openLobby(true,'3v3'); };
   function sideCount(t){ var n=0; if(T.team===t) n++; for(var k in T.peers){ if(T.peers[k].team===t) n++; } return n; }
   function lobbyMembers(t){ var out=[]; if(T.team===t) out.push({id:T.me,name:T.name,you:true}); for(var k in T.peers){ if(T.peers[k].team===t) out.push({id:k,name:T.peers[k].name||k,you:false}); } return out; }
   function teamDisplayName(t){ var c=(T.tname&&T.tname[t]||'').replace(/\s+/g,' ').trim(); return c?c:(t==='a'?'Amber':'Red'); }
@@ -32505,7 +32515,7 @@ window.EB_UNITS_MORE3 = [
     el('d2-inv-txt').innerHTML='<b>'+esc(p.fromName||'A teammate')+'</b> started a '+label+'.<br>Jump in and pick a side — last team standing wins!';
     var pop=el('d2-inv-pop'); if(pop) pop.style.display='block'; try{ sfx('go'); }catch(e){} }
   function hideInvite(){ var e=el('d2-inv-pop'); if(e) e.style.display='none'; _pendInv=null; }
-  window.d2AcceptInvite=function(){ var p=_pendInv; hideInvite(); openLobby(false, (p&&p.mode==='3v3')?'3v3':'2v2'); };
+  window.d2AcceptInvite=function(){ if(window.tetCanPlay&&!window.tetCanPlay())return; var p=_pendInv; hideInvite(); openLobby(false, (p&&p.mode==='3v3')?'3v3':'2v2'); };
   window.d2DeclineInvite=function(){ if(_pendInv) _declined[_pendInv.from]=true; hideInvite(); };
 
   /* ---------- match flow ---------- */
