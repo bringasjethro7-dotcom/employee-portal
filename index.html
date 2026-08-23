@@ -14564,6 +14564,50 @@ function buildMyEodText(){
     lines.join('\n') + '\n\n' +
     'Total tasks: ' + totalTasks + '   ·   ⏱ ' + tmTotal + ' productive';
 }
+/* ── 📉 EOD shortfall explanation modal — shows THEIR bars, demands an English reason ── */
+function _tagalogish(t){
+  /* Heuristic Tagalog detector for the English-only rule. Function words + common shortfall
+     vocabulary; 2+ hits (or 1 in a very short answer) = rejected. */
+  var TG={kasi:1,hindi:1,wala:1,walang:1,meron:1,merong:1,yung:1,yun:1,lang:1,naman:1,dahil:1,kaya:1,ngayon:1,kanina:1,bukas:1,kahapon:1,gabi:1,umaga:1,hapon:1,trabaho:1,tapos:1,muna:1,talaga:1,sana:1,dapat:1,nakuha:1,nagawa:1,ginawa:1,gagawin:1,kulang:1,sira:1,nasira:1,nawala:1,mga:1,ako:1,ikaw:1,siya:1,kami:1,tayo:1,kayo:1,sila:1,ito:1,iyan:1,iyon:1,dito:1,diyan:1,doon:1,opo:1,nga:1,daw:1,raw:1,rin:1,din:1,kapag:1,pero:1,kung:1,saka:1,ulit:1,medyo:1,sobra:1,sobrang:1,konti:1,onti:1,marami:1,natapos:1,natulog:1,gising:1,antok:1,pagod:1,maaga:1,nahuli:1,nagka:1,niya:1,namin:1,natin:1,ninyo:1,nila:1,ang:1,ng:1,dun:1,dyan:1,kase:1,eto:1,ayaw:1,gusto:1,pwede:1,puwede:1,bawal:1,mahina:1,mabagal:1,putol:1,brownout:1,kuryente:1};
+  var words=String(t||'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(Boolean);
+  var hits=0; words.forEach(function(w){ if(TG[w]) hits++; });
+  return hits>=2 || (hits>=1 && words.length<8);
+}
+function _eodExplainModal(rows, pct){
+  return new Promise(function(resolve){
+    var old=document.getElementById('eod-explain'); if(old) old.remove();
+    var ov=document.createElement('div'); ov.id='eod-explain';
+    ov.style.cssText='position:fixed;inset:0;z-index:13500;background:rgba(8,10,14,.8);display:flex;align-items:center;justify-content:center;padding:18px;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);';
+    var bars=rows.map(function(r){
+      var p=Math.max(0,Math.min(100,parseInt(r.pct,10)||0));
+      var col=p>=100?'#22c55e':(p>=70?'#f59e0b':'#ef4444');
+      return '<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:3px;"><span>'+escapeHtml(r.project||'')+'</span><span style="color:'+col+';">'+r.done+'/'+r.total+' · '+p+'%</span></div>'+
+        '<div style="height:10px;border-radius:6px;background:rgba(255,255,255,.09);overflow:hidden;"><i style="display:block;height:100%;width:'+p+'%;background:'+col+';border-radius:6px;"></i></div></div>';
+    }).join('');
+    ov.innerHTML='<div style="background:#171a21;color:#e7eaf0;border:1px solid rgba(255,255,255,.1);border-radius:16px;max-width:460px;width:100%;max-height:90vh;overflow:auto;padding:20px 22px;">'+
+      '<div style="font-weight:800;font-size:15px;margin-bottom:4px;">📉 Your day closed at '+pct+'%</div>'+
+      '<div style="font-size:12px;color:#9aa3b2;margin-bottom:12px;">This is the progress the admin will see. Before your EOD can be sent, explain why today didn\'t reach 100%.</div>'+
+      bars+
+      '<div style="font-size:11.5px;font-weight:800;color:#f59e0b;margin:12px 0 5px;">WHY DIDN\'T YOU HIT 100% TODAY? · <span style="color:#ef4444;">ENGLISH ONLY</span></div>'+
+      '<textarea id="eod-ex-txt" rows="4" placeholder="Explain in English — what blocked you, and what\'s the plan to catch up…" style="width:100%;box-sizing:border-box;background:#101216;color:#e7eaf0;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:10px 12px;font:inherit;font-size:13px;resize:vertical;outline:none;"></textarea>'+
+      '<div id="eod-ex-err" style="display:none;color:#f87171;font-size:12px;font-weight:700;margin-top:6px;"></div>'+
+      '<div style="display:flex;gap:9px;margin-top:14px;">'+
+        '<button id="eod-ex-cancel" style="flex:1;background:transparent;border:1px solid rgba(255,255,255,.16);color:#9aa3b2;border-radius:10px;padding:10px;font-weight:700;cursor:pointer;">Cancel</button>'+
+        '<button id="eod-ex-ok" style="flex:2;background:linear-gradient(135deg,#FF6B1A,#c2410c);border:none;color:#fff;border-radius:10px;padding:10px;font-weight:800;cursor:pointer;">Submit & send EOD</button>'+
+      '</div></div>';
+    document.body.appendChild(ov);
+    var txt=ov.querySelector('#eod-ex-txt'), err=ov.querySelector('#eod-ex-err');
+    function fail(msg){ err.style.display='block'; err.textContent=msg; txt.focus(); }
+    ov.querySelector('#eod-ex-cancel').onclick=function(){ ov.remove(); resolve(null); };
+    ov.querySelector('#eod-ex-ok').onclick=function(){
+      var v=String(txt.value||'').trim();
+      if(v.length<25) return fail('Write a real explanation — at least a sentence or two.');
+      if(_tagalogish(v)) return fail('English only, please — rewrite your explanation in English.');
+      ov.remove(); resolve(v);
+    };
+    setTimeout(function(){ try{ txt.focus(); }catch(e){} },50);
+  });
+}
 async function sendEodReport(){
   if (!supaClient) { showToast('Chat isn’t ready yet.'); return; }
   var text = buildMyEodText();
@@ -14607,6 +14651,22 @@ async function sendEodReport(){
       if(!_ok){ showToast('Good call — update your tool, then send your EOD 👍'); return; }
     }
   } catch(_tc){}
+  // 📉 BELOW-100% EXPLANATION GATE (Aug 2026, his rule) — before the EOD can go out, the VA
+  // sees their own progress bars for the day; if the combined bar is under 100%, a written
+  // explanation is REQUIRED — in ENGLISH ONLY (Tagalog is detected and rejected). The
+  // explanation rides with the EOD line in the channel so the admin reads it with the report.
+  var _eodNote = '';
+  try{
+    var _pv = await fetch(APPS_SCRIPT_URL+'?action=po_va_progress&_='+Date.now()).then(function(r){ return r.json(); });
+    var _mineP = ((_pv&&_pv.rows)||[]).filter(function(r){ return String(r.employee_id||'').toLowerCase()===String(chatEmpId||'').toLowerCase(); });
+    var _pd=0,_pt=0; _mineP.forEach(function(r){ _pd+=(parseFloat(r.done)||0); _pt+=(parseFloat(r.total)||0); });
+    var _pPct=_pt?Math.round(_pd/_pt*100):100;
+    if(_pt>0 && _pPct<100){
+      var _ex = await _eodExplainModal(_mineP,_pPct);
+      if(_ex==null){ showToast('EOD not sent — hit 100% or explain the shortfall first.'); return; }
+      _eodNote = '\n📉 Finished '+_pPct+'% of today\'s target — reason: “'+_ex+'”';
+    }
+  }catch(_pg){}
   // 🔒 PRIVATE RECAP — the VA reviews THEIR OWN total hours per task before sending.
   // Nobody else ever sees these numbers: the EOD channel only gets a confirmation stub,
   // while the real hours live in the tracker → Productivity Hub (admin only).
@@ -14618,7 +14678,7 @@ async function sendEodReport(){
     /* Server receipt: this row is what the "EOD not sent" auto-check reads. Fire-and-forget —
        a slow server must never block the EOD from sending. */
     try{ fetch(APPS_SCRIPT_URL+'?action=eod_mark&employee_id='+encodeURIComponent(chatEmpId)+'&date='+encodeURIComponent(_bd)+'&_='+Date.now()).catch(function(){}); }catch(_em){}
-    var rec = { sender_id: chatEmpId, sender_name: chatEmpName, message: 'EOD sent to Productivity ✅', receiver_id: null, channel_id: 'eod', is_read: false };
+    var rec = { sender_id: chatEmpId, sender_name: chatEmpName, message: 'EOD sent to Productivity ✅'+_eodNote, receiver_id: null, channel_id: 'eod', is_read: false };
     var r = await supaClient.from('messages').insert([rec]);
     if (r.error) { showToast('Send failed: ' + (r.error.message || 'unknown')); throw r.error; }
     showToast('EOD sent to Productivity ✅');
