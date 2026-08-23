@@ -14608,6 +14608,40 @@ function openImgFull(src){
   o.style.display = 'flex';
 }
 
+/* ── TELEGRAM-STYLE MESSAGE PREVIEW (Aug 2026, his ask) ──
+   A received message used to sit silently behind the chat icon. Now every message that
+   arrives while its conversation ISN'T open slides a preview card into the bottom-left —
+   sender, context (group/channel/DM), and the first two lines of the text. Click it →
+   the chat opens straight to that conversation. Auto-fades after 7s, stacks up to 3. */
+function msgPreviewPopup(chatKey, sender, text, ctx, openName){
+  var host=document.getElementById('msg-preview-host');
+  if(!host){
+    host=document.createElement('div'); host.id='msg-preview-host';
+    host.style.cssText='position:fixed;left:16px;bottom:60px;z-index:99998;display:flex;flex-direction:column;gap:8px;max-width:330px;';
+    document.body.appendChild(host);
+    var st=document.createElement('style');
+    st.textContent='@keyframes mpIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}';
+    document.head.appendChild(st);
+  }
+  while(host.children.length>=3) host.removeChild(host.firstChild);
+  var first=(String(sender||'?').trim().charAt(0)||'?').toUpperCase();
+  var card=document.createElement('div');
+  card.style.cssText='display:flex;gap:10px;align-items:flex-start;background:#171a21;color:#fff;border-radius:14px;padding:11px 13px;box-shadow:0 12px 32px rgba(0,0,0,.35);cursor:pointer;border:1px solid rgba(255,255,255,.08);animation:mpIn .25s ease;';
+  card.innerHTML=
+    '<div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#FF6B1A,#c2410c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:none;">'+first+'</div>'+
+    '<div style="min-width:0;flex:1;">'+
+      '<div style="font-weight:800;font-size:12.5px;display:flex;justify-content:space-between;gap:8px;">'+
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(sender||'')+'</span>'+
+        '<span style="font-weight:600;font-size:10px;color:#9aa3b2;flex:none;">'+escapeHtml(ctx||'')+'</span></div>'+
+      '<div style="font-size:12px;color:#cdd3dd;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;">'+escapeHtml(text||'')+'</div></div>'+
+    '<div style="flex:none;color:#8a93a3;font-weight:800;padding:0 2px;font-size:12px;" onclick="event.stopPropagation();this.parentNode.remove();">✕</div>';
+  card.onclick=function(){
+    try{ openMessages(); selectChat(chatKey, openName||sender); }catch(e){}
+    card.remove();
+  };
+  host.appendChild(card);
+  setTimeout(function(){ if(card.parentNode){ card.style.transition='opacity .4s, transform .4s'; card.style.opacity='0'; card.style.transform='translateY(8px)'; setTimeout(function(){ card.remove(); }, 400); } }, 7000);
+}
 // ── SUBSCRIBE TO REAL-TIME MESSAGES ──
 function subscribeToMessages() {
   if (!supaClient) return;
@@ -14657,6 +14691,13 @@ function subscribeToMessages() {
 
         // 3. Show unread badge if NOT viewing this chat
         if (!viewingThisChat) {
+          // Telegram-style corner preview — see the message without opening the chat icon
+          try{
+            var _chName=''; if(isChannel){ var _c=_myChannels.filter(function(c){ return String(c.id)===String(m.channel_id); })[0]; _chName=(_c&&_c.name)||'Channel'; }
+            msgPreviewPopup(chatKey, m.sender_name||m.sender_id, m.image?'📷 Photo':(m.message||''),
+                            isGroup?'Group chat':(isChannel?_chName:'Direct message'),
+                            isGroup?'Group Chat':(isChannel?_chName:(m.sender_name||m.sender_id)));
+          }catch(_pp){}
           if (!unreadCounts[chatKey]) unreadCounts[chatKey] = 0;
           unreadCounts[chatKey]++;
           var unreadEl = document.getElementById('unread-' + chatKey);
