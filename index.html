@@ -5242,6 +5242,13 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
               </div>
             </div>
           </div>
+          <!-- 🔎 GLOBAL MESSAGE SEARCH (searches every conversation you can see; ⭐ shows starred) -->
+          <div style="padding:8px 10px 4px;position:relative;">
+            <input id="chat-search" type="text" placeholder="🔎 Search messages · type ⭐ for starred" autocomplete="off"
+                   oninput="chatSearchDeb(this.value)"
+                   style="width:100%;box-sizing:border-box;padding:8px 11px;border-radius:10px;border:1px solid var(--border);background:var(--card-2,rgba(255,255,255,.05));color:var(--text-1);font:inherit;font-size:12.5px;outline:none;">
+            <div id="chat-search-res" style="display:none;position:absolute;left:8px;right:8px;top:44px;z-index:60;background:var(--card,#171a21);border:1px solid var(--border);border-radius:12px;box-shadow:0 18px 44px rgba(0,0,0,.45);max-height:340px;overflow:auto;padding:6px;"></div>
+          </div>
           <div class="chat-contacts" id="chat-contacts">
             <!-- Group Chat -->
             <div class="chat-contact active" id="contact-group" data-name="group chat everyone" onclick="selectChat('group', 'Group Chat')">
@@ -5312,7 +5319,14 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             </button>
             <button class="chat-media-btn gif" type="button" onclick="toggleGifPanel(event)" title="Search GIFs" aria-label="Search GIFs">GIF</button>
+            <button class="chat-media-btn" type="button" id="chat-mic-btn" onclick="voiceRecToggle()" title="Record a voice message" aria-label="Record a voice message">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+            </button>
+            <button class="chat-media-btn" type="button" onclick="chatPickAnyFile()" title="Attach a file (PDF, docs, videos — anything)" aria-label="Attach a file">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </button>
             <input type="file" id="chat-file" accept="image/*" style="display:none;" onchange="chatFileChosen(this)" />
+            <input type="file" id="chat-anyfile" style="display:none;" onchange="chatAnyFileChosen(this)" />
             <div class="emoji-panel" id="emoji-panel"></div>
             <div class="gif-panel" id="gif-panel">
               <input type="text" id="gif-search" placeholder="Search GIFs…" oninput="gifSearchDebounced(this.value)" />
@@ -14233,6 +14247,8 @@ function renderMessages(msgs) {
     var isUnsent = !!m.unsent;
     var reactions = {};
     try { reactions = m.reactions ? JSON.parse(m.reactions) : {}; } catch(e) {}
+    var isPinned = !!reactions._pin; delete reactions._pin;   // _pin rides in reactions JSON — never render it as an emoji pill
+    var isStarred = _chatStars().indexOf(String(m.id))>=0;
     var pillsHtml = isUnsent ? '' : buildPillsHtml(reactions, m.id);
     var pickerHtml = isUnsent ? '' : ('<div class="react-picker" id="picker-' + m.id + '">' +
       emojis.map(function(e) { return '<span onclick="pickReaction(&quot;' + m.id + '&quot;,&quot;' + e + '&quot;)">' + e + '</span>'; }).join('') + '</div>');
@@ -14247,16 +14263,37 @@ function renderMessages(msgs) {
     var seen = (m.id === window._lastMineMsgId && currentChat !== 'group' && !chatIsChannel() && m.is_read)
       ? '<div class="chat-seen">Seen</div>' : '';
 
+    /* edited marker: an invisible ⁣✎ suffix means the text was edited after sending */
+    var _mtxt = String(m.message||'');
+    var _edited = /⁣✎$/.test(_mtxt); if(_edited) _mtxt = _mtxt.replace(/⁣✎$/,'');
+    var _edTag = _edited ? ' <span style="font-size:10px;opacity:.55;font-style:italic;">· edited</span>' : '';
+    var _pinTag = isPinned ? '<span title="Pinned" style="font-size:10px;margin-right:4px;">📌</span>' : '';
+    var _starTag = isStarred ? '<span title="Starred by you" style="font-size:10px;margin-right:4px;">⭐</span>' : '';
     var bubbleHtml;
     if (isUnsent) {
       bubbleHtml = '<div class="chat-msg-unsent">' + (isMine ? '🚫 You unsent a message' : '🚫 This message was unsent') + '</div>';
+    } else if (m.image && /\.webm(\?|$)/i.test(String(m.image))) {
+      /* 🎤 VOICE MESSAGE — inline player */
+      bubbleHtml = '<div class="chat-msg-bubble" style="min-width:225px;">'+_pinTag+_starTag+'🎤 <audio controls preload="metadata" src="' + escapeHtml(m.image) + '" style="width:190px;height:32px;vertical-align:middle;"></audio>' +
+                   (_mtxt ? '<div style="font-size:10.5px;opacity:.6;margin-top:2px;">' + escapeHtml(_mtxt) + '</div>' : '') + '</div>';
+    } else if (m.image && /\/chatfiles\//.test(String(m.image)) && /^📎/.test(_mtxt)) {
+      /* 📎 FILE CARD — name + size from the message, download opens the file */
+      var _fn = _mtxt.replace(/^📎\s*/,'');
+      bubbleHtml = '<div class="chat-msg-bubble" style="min-width:200px;">'+_pinTag+_starTag+
+        '<a href="' + escapeHtml(m.image) + '" target="_blank" rel="noopener" download style="display:flex;gap:10px;align-items:center;text-decoration:none;color:inherit;">' +
+          '<span style="width:36px;height:36px;border-radius:10px;background:rgba(255,107,26,.18);display:flex;align-items:center;justify-content:center;flex:none;font-size:16px;">📎</span>' +
+          '<span style="min-width:0;"><span style="display:block;font-weight:700;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">' + escapeHtml(_fn) + '</span>' +
+          '<span style="font-size:10.5px;opacity:.6;">Tap to open / download</span></span></a></div>';
     } else if (m.image) {
-      var cap = m.message ? '<div style="margin-top:5px">' + mentionify(linkify(escapeHtml(m.message)), mNames, myFirst) + '</div>' : '';
-      bubbleHtml = '<div class="chat-msg-bubble has-img"><img class="chat-msg-img" src="' + escapeHtml(m.image) + '" onclick="openImgFull(this.src)" loading="lazy">' + cap + '</div>';
+      var cap = _mtxt ? '<div style="margin-top:5px">' + mentionify(linkify(escapeHtml(_mtxt)), mNames, myFirst) + _edTag + '</div>' : '';
+      bubbleHtml = '<div class="chat-msg-bubble has-img">'+_pinTag+_starTag+'<img class="chat-msg-img" src="' + escapeHtml(m.image) + '" onclick="openImgFull(this.src)" loading="lazy">' + cap + '</div>';
     } else {
-      bubbleHtml = '<div class="chat-msg-bubble">' + mentionify(linkify(escapeHtml(m.message)), mNames, myFirst) + '</div>';
+      bubbleHtml = '<div class="chat-msg-bubble">' + _pinTag + _starTag + mentionify(linkify(escapeHtml(_mtxt)), mNames, myFirst) + _edTag + '</div>';
     }
     var unsendBtn = (isMine && !isUnsent) ? '<button class="chat-unsend-btn" onclick="unsendMessage(&quot;' + m.id + '&quot;)">Unsend</button>' : '';
+    var editBtn = (isMine && !isUnsent && !m.image) ? '<button class="chat-reply-btn" title="Edit this message" onclick="editMessage(&quot;' + m.id + '&quot;)">✎ Edit</button>' : '';
+    var pinBtn  = isUnsent ? '' : '<button class="chat-reply-btn" title="'+(isPinned?'Unpin':'Pin to the top of this chat')+'" onclick="pinMessage(&quot;' + m.id + '&quot;)">'+(isPinned?'📌 Unpin':'📌 Pin')+'</button>';
+    var starBtn = isUnsent ? '' : '<button class="chat-reply-btn" title="'+(isStarred?'Unstar':'Star for yourself — find it in search with ⭐')+'" onclick="starMessage(&quot;' + m.id + '&quot;)">'+(isStarred?'⭐':'☆')+'</button>';
     var replyBtn  = isUnsent ? '' : '<button class="chat-reply-btn" title="Reply" onclick="startReply(&quot;' + m.id + '&quot;)">↩ Reply</button>';
     var replyQuote = '';
     if (!isUnsent && m.reply) {
@@ -14274,6 +14311,9 @@ function renderMessages(msgs) {
             pickerHtml +
             (isUnsent ? '' : '<button class="react-btn" data-mid="' + m.id + '" onclick="openPicker(this.dataset.mid)">😊</button>') +
             unsendBtn +
+            editBtn +
+            pinBtn +
+            starBtn +
             replyBtn +
             bubbleHtml +
             (pillsHtml ? '<div class="msg-reactions">' + pillsHtml + '</div>' : '') +
@@ -14283,6 +14323,18 @@ function renderMessages(msgs) {
         '</div>' +
       '</div>';
   }
+  /* 📌 PINNED BAR — pinned messages stick to the top of the conversation */
+  try{
+    var _pins='';
+    msgs.forEach(function(pm){
+      if(pm.unsent) return;
+      var pr={}; try{ pr=pm.reactions?JSON.parse(pm.reactions):{}; }catch(_e){}
+      if(!pr._pin) return;
+      var pt=String(pm.message||'').replace(/⁣✎$/,'')||(pm.image?'📷 Photo':'');
+      _pins+='<div onclick="scrollToMsg(&quot;'+pm.id+'&quot;)" style="display:flex;gap:7px;align-items:center;padding:5px 10px;cursor:pointer;border-radius:8px;font-size:11.5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">📌 <b style="flex:none;">'+escapeHtml((pm.sender_name||'').split(',')[0])+'</b><span style="overflow:hidden;text-overflow:ellipsis;">'+escapeHtml(pt.slice(0,90))+'</span></div>';
+    });
+    if(_pins) html='<div class="chat-pins" style="position:sticky;top:0;z-index:8;background:var(--card,#171a21);border:1px solid var(--border);border-radius:12px;margin:4px 6px 8px;padding:3px;box-shadow:0 6px 18px rgba(0,0,0,.25);">'+_pins+'</div>'+html;
+  }catch(_pb){}
   var force = window._forceChatBottom; window._forceChatBottom = false;
   msgEl.innerHTML = html;
 
@@ -14585,6 +14637,179 @@ async function unsendMessage(id) {
     loadMessages(false);
   } catch(e) { showToast('Could not unsend.'); console.error('unsend:', e); }
 }
+/* ══════════ CHAT SUITE v2 (Aug 2026) — voice notes · files · edit · pin · star · search ══════════
+   Goal: the portal chat replaces Telegram as the team's main channel, especially on WFH.
+   Voice + files upload straight to Supabase Storage (same bucket the proof system uses),
+   so nothing heavy ever sits in the messages table. */
+
+/* shared: send a message whose payload is a storage URL (voice / file / uploaded image) */
+async function _chatSendMedia(url, label){
+  if(!supaClient) return;
+  var record={ sender_id:chatEmpId, sender_name:chatEmpName, message:label||'',
+               receiver_id:(currentChat==='group'||chatIsChannel())?null:currentChat,
+               is_read:false, image:url };
+  if(chatIsChannel()) record.channel_id=currentChannelId();
+  var r=await supaClient.from('messages').insert([record]);
+  if(r&&r.error){ showToast('Send failed: '+(r.error.message||'unknown')); return; }
+  try{
+    fetch(APPS_SCRIPT_URL+'?action=push_chat&from='+encodeURIComponent(chatEmpId)+
+          '&from_name='+encodeURIComponent(chatEmpName)+'&to='+encodeURIComponent(currentChat)+
+          '&text='+encodeURIComponent(label||'📷 Photo')+'&_='+Date.now()).catch(function(){});
+  }catch(e){}
+}
+async function _chatUpload(blobOrFile, name, type){
+  var safe=String(name||'file').replace(/[^\w.\-]+/g,'_').slice(-60);
+  var path='chatfiles/'+(chatEmpId||'anon')+'/'+Date.now()+'-'+safe;
+  var up=await supaClient.storage.from('proof').upload(path, blobOrFile, { contentType:type||'application/octet-stream', upsert:false });
+  if(up.error) throw up.error;
+  return supaClient.storage.from('proof').getPublicUrl(path).data.publicUrl;
+}
+
+/* ── 🎤 VOICE MESSAGES — tap mic to record, tap again to send (2-min cap) ── */
+var _vRec=null,_vChunks=[],_vT0=0,_vTick=null,_vBtnHTML=null;
+function _vFmt(s){ return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+async function voiceRecToggle(){
+  var btn=document.getElementById('chat-mic-btn');
+  if(_vRec){ try{ _vRec.stop(); }catch(e){} return; }
+  if(!supaClient){ showToast('Chat not connected.'); return; }
+  var stream;
+  try{ stream=await navigator.mediaDevices.getUserMedia({ audio:true }); }
+  catch(e){ showToast('Microphone blocked — allow mic access for the portal.'); return; }
+  _vChunks=[]; _vT0=Date.now();
+  var mime=(window.MediaRecorder&&MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))?'audio/webm;codecs=opus':'audio/webm';
+  try{ _vRec=new MediaRecorder(stream,{ mimeType:mime }); }
+  catch(e){ try{ _vRec=new MediaRecorder(stream); }catch(e2){ showToast('Recording not supported in this browser.'); stream.getTracks().forEach(function(t){t.stop();}); return; } }
+  _vRec.ondataavailable=function(ev){ if(ev.data&&ev.data.size) _vChunks.push(ev.data); };
+  _vRec.onstop=async function(){
+    stream.getTracks().forEach(function(t){ t.stop(); });
+    clearInterval(_vTick); _vTick=null;
+    if(btn&&_vBtnHTML!=null){ btn.innerHTML=_vBtnHTML; btn.style.background=''; }
+    var secs=Math.round((Date.now()-_vT0)/1000);
+    var blob=new Blob(_vChunks,{ type:'audio/webm' });
+    _vRec=null; _vChunks=[];
+    if(secs<1||blob.size<800){ showToast('Too short — hold it a moment longer.'); return; }
+    showToast('🎤 Sending voice message…');
+    try{
+      var url=await _chatUpload(blob,'voice.webm','audio/webm');
+      await _chatSendMedia(url,'🎤 Voice message · '+_vFmt(secs));
+    }catch(e){ showToast('Voice send failed — try again.'); }
+  };
+  if(btn){ _vBtnHTML=btn.innerHTML; btn.style.background='rgba(239,68,68,.18)'; }
+  _vRec.start();
+  showToast('● Recording — tap the mic again to send.');
+  _vTick=setInterval(function(){
+    var s=Math.round((Date.now()-_vT0)/1000);
+    if(btn) btn.innerHTML='<span style="color:#ef4444;font-weight:800;font-size:10.5px;">●&nbsp;'+_vFmt(s)+'</span>';
+    if(s>=120){ try{ _vRec&&_vRec.stop(); }catch(e){} }   // 2-minute cap
+  },500);
+}
+
+/* ── 📎 ANY-FILE SHARING (25 MB cap; images become normal photo messages) ── */
+function chatPickAnyFile(){ var i=document.getElementById('chat-anyfile'); if(i) i.click(); }
+async function chatAnyFileChosen(inp){
+  var f=inp.files&&inp.files[0]; inp.value=''; if(!f) return;
+  if(!supaClient){ showToast('Chat not connected.'); return; }
+  if(f.size>25*1024*1024){ showToast('Max file size is 25 MB.'); return; }
+  var kb=f.size>1048576?(f.size/1048576).toFixed(1)+' MB':Math.max(1,Math.round(f.size/1024))+' KB';
+  showToast('📎 Uploading '+f.name+' ('+kb+')…');
+  try{
+    var url=await _chatUpload(f, f.name, f.type);
+    if(/^image\//.test(f.type)) await _chatSendMedia(url,'');                    // photos render as photos
+    else await _chatSendMedia(url,'📎 '+f.name+' · '+kb);                        // everything else → file card
+  }catch(e){ showToast('Upload failed — try again.'); }
+}
+
+/* ── ✎ EDIT OWN MESSAGE (invisible ⁣✎ suffix marks it; renderer shows "· edited") ── */
+async function editMessage(id){
+  var m=_msgById[id]; if(!m||m.sender_id!==chatEmpId||m.unsent) return;
+  var cur=String(m.message||'').replace(/⁣✎$/,'');
+  var nv=prompt('Edit message:',cur); if(nv==null) return;
+  nv=nv.trim(); if(!nv||nv===cur) return;
+  try{
+    var r=await supaClient.from('messages').update({ message:nv+'⁣✎' }).eq('id',id);
+    if(r&&r.error){ showToast('Edit failed.'); return; }
+    loadMessages(false);
+  }catch(e){ showToast('Edit failed.'); }
+}
+
+/* ── 📌 PIN (shared — rides in the reactions JSON) & ⭐ STAR (personal) ── */
+async function pinMessage(id){
+  var m=_msgById[id]; if(!m) return;
+  var r={}; try{ r=m.reactions?JSON.parse(m.reactions):{}; }catch(e){}
+  var was=!!r._pin;
+  if(was) delete r._pin; else r._pin={ by:chatEmpId, at:Date.now() };
+  try{
+    var res=await supaClient.from('messages').update({ reactions:JSON.stringify(r) }).eq('id',id);
+    if(res&&res.error){ showToast('Pin failed.'); return; }
+    showToast(was?'Unpinned.':'📌 Pinned to the top of this chat.');
+    loadMessages(false);
+  }catch(e){ showToast('Pin failed.'); }
+}
+function _chatStars(){ try{ return JSON.parse(localStorage.getItem('chat_stars')||'[]'); }catch(e){ return []; } }
+function starMessage(id){
+  var l=_chatStars(); var i=l.indexOf(String(id));
+  if(i>=0) l.splice(i,1); else l.push(String(id));
+  try{ localStorage.setItem('chat_stars', JSON.stringify(l)); }catch(e){}
+  showToast(i>=0?'Removed from starred.':'⭐ Starred — type ⭐ in search to see them.');
+  loadMessages(false);
+}
+
+/* ── 🔎 GLOBAL MESSAGE SEARCH (every conversation visible to me; ⭐ = my starred) ── */
+var _csT=null;
+function chatSearchDeb(q){ clearTimeout(_csT); _csT=setTimeout(function(){ chatSearch(q); },350); }
+function _csVisible(m){
+  if(m.unsent) return false;
+  var isCh=!!m.channel_id, isGrp=!m.receiver_id&&!isCh;
+  if(isGrp) return true;
+  if(isCh) return (_myChannels||[]).some(function(c){ return String(c.id)===String(m.channel_id); });
+  return m.receiver_id===chatEmpId||m.sender_id===chatEmpId;
+}
+function _csKey(m){
+  var isCh=!!m.channel_id, isGrp=!m.receiver_id&&!isCh;
+  return isCh?('ch:'+m.channel_id):(isGrp?'group':(m.sender_id===chatEmpId?m.receiver_id:m.sender_id));
+}
+async function chatSearch(q){
+  var host=document.getElementById('chat-search-res'); if(!host) return;
+  q=String(q||'').trim();
+  if(q.length<2 && q!=='⭐' && q!=='*'){ host.style.display='none'; host.innerHTML=''; return; }
+  host.style.display='block';
+  host.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text-3);">Searching…</div>';
+  try{
+    var rows=[];
+    if(q==='⭐'||q==='*'){
+      var ids=_chatStars();
+      if(ids.length){
+        var rs=await supaClient.from('messages').select('*').in('id',ids).order('created_at',{ascending:false}).limit(60);
+        rows=(rs.data||[]);
+      }
+    } else {
+      var r=await supaClient.from('messages').select('*').ilike('message','%'+q+'%').order('created_at',{ascending:false}).limit(80);
+      rows=(r.data||[]);
+    }
+    rows=rows.filter(_csVisible).slice(0,25);
+    if(!rows.length){ host.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text-3);">'+(q==='⭐'?'No starred messages yet — hit ☆ on any message.':'No messages found for “'+escapeHtml(q)+'”.')+'</div>'; return; }
+    host.innerHTML=rows.map(function(m){
+      var key=_csKey(m), isCh=!!m.channel_id, isGrp=!m.receiver_id&&!isCh;
+      var where=isGrp?'Group':(isCh?(((_myChannels||[]).filter(function(c){return String(c.id)===String(m.channel_id);})[0]||{}).name||'Channel'):'DM');
+      var when=new Date(m.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      var txt=String(m.message||'').replace(/⁣✎$/,'')||(m.image?'📷 Photo':'');
+      var nm=isGrp?'Group Chat':(isCh?where:(m.sender_id===chatEmpId?(m.sender_name||''):m.sender_name));
+      return '<div onclick="chatSearchGo(&quot;'+escapeHtml(key)+'&quot;,&quot;'+escapeHtml(nm)+'&quot;)" style="padding:8px 10px;border-radius:9px;cursor:pointer;" onmouseover="this.style.background=\'rgba(255,255,255,.06)\'" onmouseout="this.style.background=\'\'">'+
+        '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);"><b style="color:var(--text-2);">'+escapeHtml((m.sender_name||'').split(',')[0]||m.sender_id)+'</b><span>'+escapeHtml(where)+' · '+when+'</span></div>'+
+        '<div style="font-size:12px;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;">'+escapeHtml(txt.slice(0,110))+'</div></div>';
+    }).join('');
+  }catch(e){ host.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text-3);">Search failed — try again.</div>'; }
+}
+function chatSearchGo(key,name){
+  var host=document.getElementById('chat-search-res'); if(host){ host.style.display='none'; host.innerHTML=''; }
+  var inp=document.getElementById('chat-search'); if(inp) inp.value='';
+  try{ selectChat(key, name||key); }catch(e){}
+}
+document.addEventListener('click', function(e){
+  var host=document.getElementById('chat-search-res');
+  if(host&&host.style.display!=='none'&&!e.target.closest('#chat-search')&&!e.target.closest('#chat-search-res')){ host.style.display='none'; }
+});
+
 function openImgFull(src){
   var o = document.getElementById('img-lightbox');
   if (!o) {
@@ -14694,7 +14919,8 @@ function subscribeToMessages() {
           // Telegram-style corner preview — see the message without opening the chat icon
           try{
             var _chName=''; if(isChannel){ var _c=_myChannels.filter(function(c){ return String(c.id)===String(m.channel_id); })[0]; _chName=(_c&&_c.name)||'Channel'; }
-            msgPreviewPopup(chatKey, m.sender_name||m.sender_id, m.image?'📷 Photo':(m.message||''),
+            msgPreviewPopup(chatKey, m.sender_name||m.sender_id,
+                            (m.message&&/^(🎤|📎)/.test(m.message))?m.message:(m.image?'📷 Photo':(m.message||'')),
                             isGroup?'Group chat':(isChannel?_chName:'Direct message'),
                             isGroup?'Group Chat':(isChannel?_chName:(m.sender_name||m.sender_id)));
           }catch(_pp){}
@@ -14721,6 +14947,11 @@ function subscribeToMessages() {
         : chatIsChannel() ? (uChannel && String(m.channel_id) === String(currentChannelId()))
         : (!uGroup && !uChannel && (m.sender_id === currentChat || m.receiver_id === currentChat));
       if (m.unsent && uBelongs) { loadMessages(false); return; }
+      // Live EDIT / PIN: if a visible message's text or reactions changed, re-render in place.
+      if (uBelongs) {
+        var _old = _msgById && _msgById[m.id];
+        if (_old && (String(_old.message||'') !== String(m.message||'') || String(_old.reactions||'') !== String(m.reactions||''))) { loadMessages(false); return; }
+      }
       // Seen receipts are DM-only
       if (currentChat === 'group' || chatIsChannel()) return;
       if (m.id !== window._lastMineMsgId || !m.is_read) return;
