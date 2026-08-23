@@ -655,7 +655,7 @@ body{background-attachment:initial !important}
     <span class="pill">Admin</span>
     <div class="ttl">Portal admin</div>
     <div class="sub">Manage contractor records, rates, and payslips.</div>
-    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-08-21 · partial-pay</div>
+    <div class="sub" style="font-size:11px;opacity:.6;margin-top:2px;">Build 2026-08-23 · live scorecard</div>
     <div class="fg">
       <label class="lbl" for="apass">Admin password</label>
       <div class="pin-input-wrap">
@@ -1096,6 +1096,7 @@ body{background-attachment:initial !important}
           <button class="bsm" id="sc-reveal-btn" onclick="rankingsReveal()" style="color:#fff;background:linear-gradient(135deg,#ff6b1a,#e83d00);border-color:transparent;font-weight:700;">🎬 Rankings Reveal</button>
           <button class="bsm" id="sc-ppt-btn" onclick="exportRankingsPptx()" style="color:#c2410c;border-color:rgba(255,107,26,.3);">▤ Rankings PPT</button>
           <button class="bsm" id="sc-recompute-btn" onclick="recomputeScorecards()" title="Force-refresh all scores (clear the cache and recompute)">↻ Recompute</button>
+          <span id="sc-live-badge" style="font-size:11px;color:var(--t3);margin-left:8px;white-space:nowrap;"></span>
           <button class="bsm" id="sc-teams-btn" onclick="openTeamSales()" style="color:#0e7490;border-color:rgba(8,145,178,.35);">📊 Team Sales</button>
           <button class="bsm" id="sc-cert-btn" onclick="openCertPicker()" style="color:#a16207;border-color:rgba(202,138,4,.35);">🏅 Certificates &amp; Awards</button>
           <button class="bsm" id="sc-integrity-btn" onclick="openIntegrityCheck()" style="color:#b91c1c;border-color:rgba(185,28,28,.35);" title="Scan for coordinated or padded output">🔎 Integrity Check</button>
@@ -5411,6 +5412,30 @@ function _scPaint(rows){
   if(!rows || !rows.length){ tbody.innerHTML = '<tr><td colspan="11" class="es">No scorecards found.</td></tr>'; return; }
   var _ov = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v) : -Infinity; };
   rows = rows.slice().sort(function(a,b){ return _ov(b.overall) - _ov(a.overall); });
+  /* ── LIVE RANKING MOVEMENT (Aug 2026) ──
+     ▲▼ = places moved vs the LAST OBSERVED standing (kept per month in localStorage),
+     with the overall's +/− delta next to it. The diff freezes until the data actually
+     changes again, so arrows don't vanish on the next 20s repaint. */
+  try{
+    var _mvKey='sc_prev_'+(document.getElementById('sc-month-filter').value||'');
+    var _prev=null; try{ _prev=JSON.parse(localStorage.getItem(_mvKey)||'null'); }catch(_p){}
+    var _cur={}; rows.forEach(function(r,i){ _cur[String(r.employee_id||'').toLowerCase()]={rank:i+1, ov:_ov(r.overall)}; });
+    var _sig=JSON.stringify(_cur);
+    if(!window._scDiff) window._scDiff={};
+    if(!_prev || _prev.sig!==_sig){
+      window._scDiff={};
+      if(_prev && _prev.map){
+        Object.keys(_cur).forEach(function(k){
+          var p=_prev.map[k];
+          if(!p){ window._scDiff[k]={neu:true}; return; }
+          var dr=p.rank-_cur[k].rank;   // positive = climbed
+          var dv=(isFinite(_cur[k].ov)&&isFinite(p.ov))?(_cur[k].ov-p.ov):0;
+          if(dr||Math.abs(dv)>=0.005) window._scDiff[k]={dr:dr, dv:dv};
+        });
+      }
+      localStorage.setItem(_mvKey, JSON.stringify({sig:_sig, map:_cur, ts:Date.now()}));
+    }
+  }catch(_mv){}
   var dash = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v).toFixed(0) : '—'; };
   tbody.innerHTML = rows.map(function(sc, i) {
     var overall = (sc.overall!==''&&sc.overall!=null) ? parseFloat(sc.overall).toFixed(2) : '—';
@@ -5418,8 +5443,15 @@ function _scPaint(rows){
     var demCol = dem==='—' ? 'var(--t3)' : (parseFloat(sc.demerit_score) >= 100 ? '#16a34a' : '#dc2626');
     var rankCol = i===0 ? 'var(--o3)' : 'var(--t3)';
     var rk = '<span style="display:inline-block;min-width:22px;color:'+rankCol+';font-weight:700;">' + (i+1) + '.</span>';
+    var _mv=(window._scDiff||{})[String(sc.employee_id||'').toLowerCase()], mvH='', dvH='';
+    if(_mv){
+      if(_mv.neu) mvH='<span style="color:#a855f7;font-size:10px;font-weight:800;margin-right:4px;">NEW</span>';
+      else if(_mv.dr>0) mvH='<span style="color:#16a34a;font-size:10px;font-weight:800;margin-right:4px;">▲'+_mv.dr+'</span>';
+      else if(_mv.dr<0) mvH='<span style="color:#dc2626;font-size:10px;font-weight:800;margin-right:4px;">▼'+(-_mv.dr)+'</span>';
+      if(_mv.dv&&Math.abs(_mv.dv)>=0.005) dvH='<span style="font-size:10px;font-weight:700;color:'+(_mv.dv>0?'#16a34a':'#dc2626')+';margin-left:4px;">'+(_mv.dv>0?'+':'')+_mv.dv.toFixed(2)+'</span>';
+    }
     return '<tr>' +
-      '<td>' + rk + '<strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
+      '<td>' + rk + mvH + '<strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
       '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
       '<td><span style="color:#2563eb;font-weight:600;">' + dash(sc.productivity) + '</span></td>' +
       '<td><span style="color:#0d9488;font-weight:600;">' + dash(sc.quality) + '</span></td>' +
@@ -5429,7 +5461,7 @@ function _scPaint(rows){
       '<td><span style="color:' + demCol + ';font-weight:600;">' + dem + '</span></td>' +
       '<td><span style="color:#0ea5a4;font-weight:600;">' + dash(sc.csat) + '</span></td>' +
       '<td><span style="color:#a855f7;font-weight:600;">' + dash(sc.innovation) + '</span></td>' +
-      '<td><strong style="color:var(--o3);">' + overall + '</strong></td>' +
+      '<td><strong style="color:var(--o3);">' + overall + '</strong>' + dvH + '</td>' +
     '</tr>';
   }).join('');
 }
@@ -5570,8 +5602,32 @@ async function cfRemoveVA(encProject, encEmp){
 
 // Live ranking — refresh the scorecard table on an interval while its tab is showing.
 var scLiveTimer = null;
-function startScLive(){ stopScLive(); scLiveTimer = setInterval(function(){ _scRenderRows(); }, 20000); }
-function stopScLive(){ if (scLiveTimer){ clearInterval(scLiveTimer); scLiveTimer = null; } }
+/* ── REAL-TIME SCORECARD (Aug 2026) ──
+   Two rhythms while the tab is open, both paused when the browser tab is hidden:
+     · every 20s — repaint from cache (cheap, catches anything another admin busted);
+     · every 5 min — FULL silent recompute (auto version of the ↻ Recompute button:
+       busts the server cache and recomputes all contractors), so demerits, QA grades,
+       attendance, and sales land on the board within 5 minutes with no clicking. */
+function startScLive(){ stopScLive();
+  scLiveTimer = setInterval(function(){ if(document.hidden) return; _scRenderRows(); _scBadge(); }, 20000);
+  window._scForceTimer = setInterval(async function(){ if(document.hidden) return;
+    try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); try{ jBust(); }catch(_j){}
+         await _scRenderRows(true); window._scLastFull=Date.now(); _scBadge(); }catch(_e){}
+  }, 300000);
+  if(!window._scLastFull) window._scLastFull=Date.now();
+  _scBadge();
+}
+function stopScLive(){
+  if (scLiveTimer){ clearInterval(scLiveTimer); scLiveTimer = null; }
+  if (window._scForceTimer){ clearInterval(window._scForceTimer); window._scForceTimer=null; }
+}
+function _scBadge(){
+  var el=document.getElementById('sc-live-badge'); if(!el) return;
+  var left=Math.max(0, 300000-(Date.now()-(window._scLastFull||Date.now())));
+  var mins=Math.ceil(left/60000);
+  el.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#16a34a;box-shadow:0 0 6px #16a34a;margin-right:5px;"></span>'+
+    'LIVE · updated '+new Date().toLocaleTimeString('en-US',{hour12:false})+' · full recompute in ≤'+mins+'m';
+}
 
 // ── Rankings export (PPTX) + Top-5 printable certificates ──
 async function _scRanked(){
@@ -6099,7 +6155,7 @@ async function recomputeScorecards(){
   /* force=1 on the reload as well as busting the version. bust_scorecards bumps sc_ver, but the
      admin bundle is also held in its own short cache and the client keeps a copy in jGet — an
      admin pressing Recompute is explicitly asking for fresh numbers, so bypass every layer. */
-  try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); try{ jBust(); }catch(_){} await loadAdminScorecard(true); if(typeof toast==='function') toast('Scores recomputed — Team Sales refreshed.'); }
+  try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); try{ jBust(); }catch(_){} await loadAdminScorecard(true); window._scLastFull=Date.now(); try{ _scBadge(); }catch(_b){} if(typeof toast==='function') toast('Scores recomputed — Team Sales refreshed.'); }
   catch(e){ if(typeof toast==='function') toast('Recompute failed — try again.'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old||'↻ Recompute'; } }
 }
