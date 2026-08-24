@@ -14698,7 +14698,14 @@ function _eodExplainModal(rows, pct){
 async function sendEodReport(){
   if (!supaClient) { showToast('Chat isn’t ready yet.'); return; }
   var text = buildMyEodText();
-  if (!text) { showToast('No tracked tasks to report yet — Time In and track your work first.'); return; }
+  if (!text) {
+    /* SOFT BLOCK (Aug 24): a server outage can eat the day's tracked rows even though the VA
+       genuinely worked — a hard stop here trapped the whole team's EODs. Now it's a conscious
+       choice, and the EOD receipt still records so nobody gets flagged as a skipper. */
+    var _ok0 = confirm('⚠ No tracked tasks were recorded for today.\n\nIf you worked but the tracker had issues, you can still send your EOD — it will note that no tasks were recorded, and you can file an hour appeal for your time.\n\nSend EOD anyway?');
+    if (!_ok0) { showToast('EOD not sent — Time In and track your work first.'); return; }
+    text = '(No tracked tasks were recorded today — possible tracker issue; hours to be appealed.)';
+  }
   // 🗄 TOOL-UPDATE CHECK — before the EOD goes out, every tracked task on a tool-covered
   // project must have outputs recorded in the tool today. If not: prompt the VA to update
   // their tool first (they can still send, but it's a conscious choice).
