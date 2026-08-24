@@ -5856,8 +5856,9 @@ function _scAwards(rows, eb, ex){
       name:eb.full_name||eb.employee_id, id:eb.employee_id, photo:photoOf(eb.employee_id),
       metricText:'Average clock-in: <b>'+String(eb.avg_time||'').replace(/</g,'')+'</b> across '+(eb.days||0)+' logged day'+((eb.days===1)?'':'s')+'.' });
   }
-  // 2 · Perfect Attendance — zero lates, most days present (needs a meaningful sample)
-  var paBest=null; Object.keys(present).forEach(function(k){ var pd=present[k]||0, l=lates[k]||0; if(l===0 && pd>=8){ if(!paBest||pd>paBest.p) paBest={k:k,p:pd}; } });
+  // 2 · Perfect Attendance — ZERO lates AND ZERO absences, most days present (needs a meaningful sample)
+  var _abs=ex.absent||{};
+  var paBest=null; Object.keys(present).forEach(function(k){ var pd=present[k]||0, l=lates[k]||0, ab=_abs[k]||0; if(l===0 && ab===0 && pd>=8){ if(!paBest||pd>paBest.p) paBest={k:k,p:pd}; } });
   if(paBest){ out.push({ title:'Perfect Attendance', emoji:'🎖️', color:'#B45309',
     cite:'for flawless attendance — present and on time every single day, with no lates all month long.',
     name:names[paBest.k]||paBest.k, id:paBest.k, photo:photoOf(paBest.k),
@@ -5914,81 +5915,86 @@ function _scAwards(rows, eb, ex){
   return out;
 }
 function _certHTML(rows, label, awards){
+  /* APPROVED DESIGN (Aug 2026): split layout — dark brand panel (gradient JMB mark, TOP N,
+     month) + clean right side (name, citation, overall score, real signature.png). */
   var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
-  var escA=function(s){ return esc(s).replace(/"/g,'&quot;'); };
-  var ord=['First','Second','Third','Fourth','Fifth'];
-  var medal=['#C79A1E','#7C8590','#B45309','#0E7490','#6D28D9'];
+  var SIG=location.origin+'/signature.png';
+  var MARK='<svg class="mk" viewBox="76 82 360 360" xmlns="http://www.w3.org/2000/svg"><defs>'+
+    '<linearGradient id="gM" x1="0" y1="0.05" x2="0" y2="0.95"><stop offset="0%" stop-color="#FFE0BE"/><stop offset="16%" stop-color="#FFB16A"/><stop offset="46%" stop-color="#FF7A29"/><stop offset="78%" stop-color="#F1560F"/><stop offset="100%" stop-color="#C3380A"/></linearGradient>'+
+    '<linearGradient id="gB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF8E45"/><stop offset="55%" stop-color="#E64C10"/><stop offset="100%" stop-color="#A52E08"/></linearGradient></defs>'+
+    '<rect x="241" y="110" width="30" height="304" rx="15" fill="url(#gM)"/>'+
+    '<path d="M256 226 Q341 264 398 320 Q341 376 256 414 Q171 376 114 320 Q171 264 256 226 Z" fill="none" stroke="url(#gB)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/>'+
+    '<path d="M256 110 Q341 148 398 204 Q341 260 256 298 Q171 260 114 204 Q171 148 256 110 Z" fill="none" stroke="url(#gM)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  function page(o){
+    /* o: {big, title, titleAccent, sub, name, cite, score, scoreLabel} */
+    return '<div class="cert"><div class="panel"><div class="edge"></div>'+MARK.replace('class="mk"','class="wm"')+
+      MARK+'<div class="bn">JMB <em>VIRTUALS</em></div><div class="bs">Social Media Management</div>'+
+      '<div class="pdiv"></div><div class="plabel">'+esc(o.plabel||'Monthly Ranking')+'</div>'+
+      '<div class="prank">'+esc(o.big)+'</div><div class="pmonth">'+esc(label||'')+'</div>'+
+      '<div class="purl">jmbvirtuals.com</div></div>'+
+      '<div class="main"><div class="topline"></div>'+
+      '<div class="h1">'+esc(o.title)+' <span>'+esc(o.titleAccent)+'</span></div>'+
+      '<div class="hsub">'+esc(o.sub)+'</div>'+
+      '<div class="pres">Proudly presented to</div>'+
+      '<div class="nm">'+esc(o.name)+'</div><div class="nrule"></div>'+
+      '<div class="cite">'+o.cite+'</div>'+
+      (o.score?('<div class="meta"><div class="v">'+esc(o.score)+'</div><div class="k">'+esc(o.scoreLabel||'Overall performance score')+'</div></div>'):'')+
+      '<div class="ft"><div class="sg"><div class="ln"></div><div class="who">'+esc(o.date||new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}))+'</div><div class="role">Date Awarded</div></div>'+
+      '<div class="sg r"><img class="sigimg" src="'+SIG+'" alt=""><div class="ln"></div><div class="who">JETHRO BRINGAS</div><div class="role">Founder · JMB Virtuals</div></div></div>'+
+      '</div></div>';
+  }
+  var ord=['Top 1','Top 2','Top 3','Top 4','Top 5'];
   var pages=rows.map(function(r,i){
-    var name=esc(r.full_name||r.employee_id); var score=parseFloat(r.overall).toFixed(2); var mc=medal[i]||'#E8590C';
-    var img = r.photo
-      ? '<img src="'+escA(r.photo)+'" alt="" onerror="this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.style.display=\'flex\';">'
-      : '';
-    var init = '<div class="ph-init"'+(r.photo?' style="display:none"':'')+'>'+esc(_scInitials(r.full_name||r.employee_id))+'</div>';
-    return '<div class="cert"><div class="frame"><div class="inner" style="--mc:'+mc+'">'+
-      '<div class="seal"><span>'+(i+1)+'</span><small>PLACE</small></div>'+
-      '<div class="brand">JMB VIRTUALS</div>'+
-      '<div class="photo">'+img+init+'</div>'+
-      '<div class="sub">Certificate of Excellence</div>'+
-      '<div class="rank">'+ord[i]+' Place</div>'+
-      '<div class="pres">This certificate is proudly presented to</div>'+
-      '<div class="name">'+name+'</div>'+
-      '<div class="body">in recognition of an outstanding overall scorecard of <b>'+score+'</b>'+(label?(' for <b>'+esc(label)+'</b>'):'')+', ranking among the company’s top performers. Your dedication, consistency, and professionalism set the standard for the team.</div>'+
-      '<div class="sigrow"><div class="sig"><div class="line"></div>Management</div><div class="sig"><div class="line"></div>Date</div></div>'+
-      '</div></div></div>';
+    return page({ big:ord[i]||('Top '+(i+1)), plabel:'Monthly Ranking',
+      title:'Certificate of', titleAccent:'Excellence', sub:(i===0?'Top Performer of the Month':'Top '+(i+1)+' Performer of the Month'),
+      name:r.full_name||r.employee_id,
+      cite:'In recognition of <b>outstanding performance</b> across productivity, quality, attendance, and team contribution — ranking <b>'+(i+1)+(i===0?'st':(i===1?'nd':(i===2?'rd':'th')))+'</b> company-wide'+(label?(' for <b>'+esc(label)+'</b>'):'')+' and setting the standard the whole team works toward.',
+      score:parseFloat(r.overall).toFixed(2) });
   }).join('');
-  var awardPages=(awards||[]).map(function(a){
-    if(a.event){
-      return '<div class="cert"><div class="frame"><div class="inner" style="--mc:'+a.color+'">'+
-        '<div class="brand">JMB VIRTUALS</div>'+
-        '<div class="evticon">'+(a.icon||'')+'</div>'+
-        '<div class="sub">'+esc(a.title)+'</div>'+
-        '<div class="rank">Special Award'+(label?(' · '+esc(label)):'')+'</div>'+
-        '<div class="pres">This award is proudly presented to</div>'+
-        '<div class="name evtname">'+esc(a.name||'')+'</div>'+
-        '<div class="body">'+esc(a.cite)+' '+(a.metricText||'')+' Thank you for setting the standard for the whole team.</div>'+
-        '<div class="sigrow"><div class="sig"><div class="line"></div>Management</div><div class="sig"><div class="line"></div>Date</div></div>'+
-      '</div></div></div>';
-    }
-    var img = a.photo
-      ? '<img src="'+escA(a.photo)+'" alt="" onerror="this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.style.display=\'flex\';">'
-      : '';
-    var init = a.blank ? '' : ('<div class="ph-init"'+(a.photo?' style="display:none"':'')+'>'+esc(_scInitials(a.name))+'</div>');
-    return '<div class="cert"><div class="frame"><div class="inner" style="--mc:'+a.color+'">'+
-      '<div class="seal" style="background:#fff;border-color:var(--mc);"><span style="font-size:34px;line-height:1;">'+a.emoji+'</span></div>'+
-      '<div class="brand">JMB VIRTUALS</div>'+
-      '<div class="photo">'+img+init+'</div>'+
-      '<div class="sub">'+esc(a.title)+'</div>'+
-      '<div class="rank">Special Award'+(label?(' · '+esc(label)):'')+'</div>'+
-      '<div class="pres">This award is proudly presented to</div>'+
-      '<div class="name">'+esc(a.name)+'</div>'+
-      '<div class="body">'+esc(a.cite)+' '+(a.metricText||'')+' Thank you for setting the standard for the whole team.</div>'+
-      '<div class="sigrow"><div class="sig"><div class="line"></div>Management</div><div class="sig"><div class="line"></div>Date</div></div>'+
-      '</div></div></div>';
+  var awardPages=(awards||[]).map(function(a2){
+    return page({ big:a2.emoji||'★', plabel:'Special Award',
+      title:esc(a2.title||'Special Award').replace(/ .*/,''), titleAccent:String(a2.title||'').split(' ').slice(1).join(' ')||'Award',
+      sub:'Special Award'+(label?(' · '+label):''), name:a2.name||'',
+      cite:esc(a2.cite||'')+' '+esc(a2.metricText||'')+' Thank you for setting the standard for the whole team.',
+      score:'' });
   }).join('');
-  pages = pages + awardPages;
-  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>JMB Virtuals — Certificates</title><style>'+
-    '@page{size:landscape;margin:0}'+
-    '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}html,body{margin:0;padding:0}body{font-family:Georgia,\'Times New Roman\',serif;color:#1f2430;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
-    '.cert{width:100vw;height:100vh;padding:12mm;page-break-after:always;display:flex}'+
-    '.frame{flex:1;border:2px solid #E8590C;border-radius:16px;padding:9px;background:radial-gradient(circle at 50% -10%, #FFF6EE, #FFFFFF 55%)}'+
-    '.inner{position:relative;height:100%;border:1px solid #EABF92;border-radius:11px;padding:18px 60px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}'+
-    '.seal{position:absolute;top:16px;right:22px;width:82px;height:82px;border-radius:50%;background:var(--mc);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;border:3px solid #fff}'+
-    '.seal span{font-size:30px;font-weight:bold;line-height:1}.seal small{font-size:8.5px;letter-spacing:2px;margin-top:1px}'+
-    '.brand{font-size:17px;font-weight:bold;letter-spacing:6px;color:#E8590C;margin-bottom:10px}'+
-    '.photo{width:140px;height:140px;border-radius:50%;overflow:hidden;border:4px solid var(--mc);margin-bottom:12px;background:transparent;display:flex;align-items:center;justify-content:center}'+
-    '.photo img{width:100%;height:100%;object-fit:cover;border-radius:50%}'+
-    '.ph-init{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:52px;font-weight:bold;color:#E8590C;border-radius:50%;background:#F3F4F6}'+
-    '.evticon{width:118px;height:118px;margin:2px 0 14px;color:var(--mc);display:flex;align-items:center;justify-content:center}'+
-    '.evticon svg{width:100%;height:100%;display:block}'+
-    '.evtname{min-width:460px;min-height:46px}'+
-    '.sub{font-size:32px;font-weight:bold;letter-spacing:1px;margin-bottom:4px}'+
-    '.rank{font-size:14px;color:#a16207;letter-spacing:3px;text-transform:uppercase;margin-bottom:14px}'+
-    '.pres{font-size:13px;color:#555;margin-bottom:6px}'+
-    '.name{font-size:38px;font-weight:bold;color:#0f172a;border-bottom:2px solid var(--mc);padding:0 28px 6px;margin-bottom:12px}'+
-    '.body{font-size:14px;line-height:1.65;max-width:640px;color:#374151;margin-bottom:22px}'+
-    '.sigrow{display:flex;gap:110px}'+
-    '.sig{font-size:12px;color:#555}.line{width:190px;border-top:1px solid #333;margin-bottom:5px}'+
-    '</style></head><body onload="setTimeout(function(){window.focus();window.print();},250);">'+pages+'</body></html>';
+  pages+=awardPages;
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>JMB Virtuals — Certificates</title>'+
+    '<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet"><style>'+
+    '@page{size:landscape;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}html,body{margin:0;padding:0}'+
+    'body{font-family:Manrope,sans-serif;color:#191510}'+
+    '.cert{width:100vw;height:100vh;display:flex;page-break-after:always;background:#FCFBF8;overflow:hidden}'+
+    '.panel{position:relative;width:31%;flex:none;background:#121419;color:#f2ede5;display:flex;flex-direction:column;align-items:center;padding:7vh 20px 5vh;overflow:hidden;text-align:center}'+
+    '.edge{position:absolute;top:0;right:0;bottom:0;width:6px;background:linear-gradient(180deg,#FFB16A,#FF7A29 40%,#F1560F 75%,#C3380A)}'+
+    '.wm{position:absolute;bottom:-16vh;left:-10vw;width:42vw;opacity:.08}'+
+    '.mk{width:15vh;height:15vh;margin-top:1vh;position:relative}'+
+    '.bn{font-family:Sora,sans-serif;font-weight:800;font-size:2.9vh;margin-top:2vh}'+
+    '.bn em{font-style:normal;background:linear-gradient(135deg,#FFB16A,#F1560F);-webkit-background-clip:text;background-clip:text;color:transparent}'+
+    '.bs{font-size:1.25vh;font-weight:700;letter-spacing:.3em;color:#7d8494;text-transform:uppercase;margin-top:.9vh}'+
+    '.pdiv{width:44px;height:3px;border-radius:2px;background:linear-gradient(90deg,#FF7A29,#C3380A);margin:4vh 0}'+
+    '.plabel{font-size:1.3vh;font-weight:800;letter-spacing:.26em;color:#7d8494;text-transform:uppercase}'+
+    '.prank{font-family:Sora,sans-serif;font-weight:800;font-size:6.6vh;line-height:1.05;margin-top:1vh;background:linear-gradient(135deg,#FFB16A,#FF7A29 55%,#F1560F);-webkit-background-clip:text;background-clip:text;color:transparent}'+
+    '.pmonth{font-family:Sora,sans-serif;font-weight:700;font-size:2vh;margin-top:.8vh}'+
+    '.purl{margin-top:auto;font-size:1.3vh;font-weight:700;letter-spacing:.22em;color:#5b6270;text-transform:uppercase;position:relative}'+
+    '.main{position:relative;flex:1;display:flex;flex-direction:column;padding:8vh 6vw 6.5vh}'+
+    '.topline{position:absolute;top:0;left:0;right:0;height:6px;background:linear-gradient(90deg,#C3380A,#F1560F 30%,#FF7A29 65%,#FFB16A)}'+
+    '.h1{font-family:Sora,sans-serif;font-weight:800;font-size:5.2vh;line-height:1.12}'+
+    '.h1 span{background:linear-gradient(105deg,#FF7A29,#C3380A);-webkit-background-clip:text;background-clip:text;color:transparent}'+
+    '.hsub{font-size:1.5vh;font-weight:800;letter-spacing:.34em;color:#8a7f70;text-transform:uppercase;margin-top:1.3vh}'+
+    '.pres{font-size:1.8vh;font-weight:600;color:#8a7f70;margin-top:6vh}'+
+    '.nm{font-family:Sora,sans-serif;font-weight:800;font-size:7vh;letter-spacing:-.015em;margin-top:.6vh;line-height:1.05}'+
+    '.nrule{width:320px;height:4px;border-radius:3px;margin-top:1.7vh;background:linear-gradient(90deg,#FF7A29,#C3380A)}'+
+    '.cite{max-width:62ch;font-size:1.95vh;line-height:1.7;font-weight:600;color:#5f5546;margin-top:3.2vh}'+
+    '.cite b{color:#191510;font-weight:800}'+
+    '.meta{margin-top:4vh}.meta .v{font-family:Sora,sans-serif;font-weight:800;font-size:4.2vh;background:linear-gradient(135deg,#FF7A29,#C3380A);-webkit-background-clip:text;background-clip:text;color:transparent}'+
+    '.meta .k{font-size:1.25vh;font-weight:800;letter-spacing:.2em;color:#8a7f70;text-transform:uppercase;margin-top:.4vh}'+
+    '.ft{margin-top:auto;display:flex;align-items:flex-end;justify-content:space-between;gap:40px}'+
+    '.sg{width:250px}.sg.r{text-align:right}'+
+    '.sg .ln{height:2px;background:#191510;border-radius:2px;margin-bottom:1.1vh;opacity:.85}'+
+    '.sg .who{font-family:Sora,sans-serif;font-weight:800;font-size:1.75vh}'+
+    '.sg .role{font-size:1.25vh;font-weight:800;letter-spacing:.2em;color:#8a7f70;text-transform:uppercase;margin-top:.4vh}'+
+    '.sigimg{width:170px;display:block;margin:0 0 -1.6vh auto;mix-blend-mode:multiply}'+
+    '</style></head><body onload="setTimeout(function(){window.focus();window.print();},400);">'+pages+'</body></html>';
 }
 
 /* ============================ CINEMATIC RANKINGS REVEAL ============================ */
@@ -6283,9 +6289,13 @@ function _awardNominees(rows, ebRows, ex, ideas){
   function mk(key,id,metricText){ var m=_AWMETA[key]; return { title:m.title,emoji:m.emoji,color:m.color,cite:m.cite,name:nameOf(id),id:id,photo:photoOf(id),metricText:metricText }; }
   var out={ early:[], perfect:[], spotless:[], sales:[], workhorse:[] };
   (ebRows||[]).slice(0,5).forEach(function(r){ out.early.push(mk('early', r.employee_id, 'Average clock-in: <b>'+_ce(r.avg_time)+'</b> · '+(r.days||0)+' day'+((r.days===1)?'':'s'))); });
-  var pk=Object.keys(present).map(function(k){ return {id:k, p:present[k]||0, l:lates[k]||0}; }).filter(function(o){ return o.p>=5; });
-  pk.sort(function(a,b){ return (a.l-b.l)||(b.p-a.p); });
-  pk.slice(0,5).forEach(function(o){ out.perfect.push(mk('perfect', o.id, 'Present <b>'+o.p+'</b> day'+(o.p===1?'':'s')+' · <b>'+o.l+'</b> late'+(o.l===1?'':'s'))); });
+  /* Only genuinely flawless VAs qualify: zero lates AND zero absences (the absent map now
+     comes from the same calculator the scorecard uses). */
+  var _abn=(ex&&ex.absent)||{};
+  var pk=Object.keys(present).map(function(k){ return {id:k, p:present[k]||0, l:lates[k]||0, a:_abn[k]||0}; })
+    .filter(function(o){ return o.p>=5 && o.l===0 && o.a===0; });
+  pk.sort(function(a,b){ return b.p-a.p; });
+  pk.slice(0,5).forEach(function(o){ out.perfect.push(mk('perfect', o.id, 'Present <b>'+o.p+'</b> day'+(o.p===1?'':'s')+' · <b>zero</b> lates · <b>zero</b> absences')); });
   var sp=(rows||[]).map(function(r){ var vp=num(r.violation_points); return vp==null?null:{id:r.employee_id, vp:vp, p:(present[String(r.employee_id||'').toLowerCase()]||0), ov:num(r.overall)||0}; }).filter(Boolean);
   sp.sort(function(a,b){ return (a.vp-b.vp)||(b.p-a.p)||(b.ov-a.ov); });
   sp.slice(0,5).forEach(function(o){ out.spotless.push(mk('spotless', o.id, (o.vp===0?('<b>Zero</b> demerits · present <b>'+o.p+'</b> days'):('<b>'+o.vp+'</b> demerit pt'+(o.vp===1?'':'s')+' · present <b>'+o.p+'</b>')))); });

@@ -10125,7 +10125,94 @@ function submitEOD() {
   })(1);
 }
 
+/* ══════════ 📚 SOP REFRESHER GATE (Aug 2026, his rule) ══════════
+   Clients flagged VAs skipping SOP steps — so every MONDAY, THURSDAY and SATURDAY
+   (business day), the first Time In is locked behind a ~20-question refresher on the
+   VA's OWN project SOP (same banks as the monthly assessment, matched by where their
+   hours actually go). Pass mark 90% (18/20). Retakes are UNLIMITED — only a pass
+   unlocks the tracker. Every attempt draws a FRESH random set with
+   shuffled answer positions, so there is no memorizing the letter pattern. A pass is
+   recorded server-side (SOPTraining sheet), so switching devices doesn't re-lock. */
+var _sopQuizOpen=false;
+function _sopBizDate(){ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date(Date.now()-8*3600*1000)); }
+function _sopRequiredToday(){ var p=_sopBizDate().split('-'); var d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay(); return d===1||d===4||d===6; }
+function _sopKey(){ return 'sop_pass_'+(((typeof attEmpId!=='undefined')&&attEmpId)||chatEmpId||'')+'_'+_sopBizDate(); }
+function _sopLocal(){ try{ return localStorage.getItem(_sopKey())==='1'; }catch(e){ return false; } }
+async function sopGateTimeIn(){
+  try{
+    var id=(((typeof attEmpId!=='undefined')&&attEmpId)||chatEmpId||'');
+    var d=await fetch(APPS_SCRIPT_URL+'?action=sop_check&employee_id='+encodeURIComponent(id)+'&date='+_sopBizDate()+'&_='+Date.now()).then(function(r){ return r.json(); });
+    if(d&&d.passed){ try{ localStorage.setItem(_sopKey(),'1'); }catch(e){} logTime('time_in'); return; }
+  }catch(e){}
+  sopOpenQuiz();
+}
+function _sopShuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+function _sopSample(){
+  var fam=(_asProjFam&&ASSESS_PROJ[_asProjFam])?_asProjFam:'';
+  var pool=fam?ASSESS_PROJ[fam].slice():[];
+  var fill=ASSESS_CORE.filter(function(q){ return /General|Situational/i.test(String(q.cat||'')); }).slice();
+  _sopShuffle(pool); _sopShuffle(fill);
+  var N=20;   // ~20 questions per refresher (his spec); pass = 90% → 18/20
+  var qs=pool.slice(0,N);
+  for(var i=0; qs.length<N && i<fill.length; i++) qs.push(fill[i]);
+  return { fam:fam||'General', qs:qs.slice(0,N).map(function(q){
+    var idx=q.o.map(function(_,i){ return i; }); _sopShuffle(idx);
+    return { q:q.q, o:idx.map(function(i){ return q.o[i]; }), a:idx.indexOf(q.a) };
+  }) };
+}
+async function sopOpenQuiz(){
+  if(_sopQuizOpen) return; _sopQuizOpen=true;
+  try{ await _assessResolveFam(); }catch(e){}
+  _sopRender(_sopSample());
+}
+function _sopRender(pack){
+  var old=document.getElementById('sop-quiz'); if(old) old.remove();
+  var ov=document.createElement('div'); ov.id='sop-quiz';
+  ov.style.cssText='position:fixed;inset:0;z-index:13600;background:rgba(8,10,14,.85);display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);';
+  var qHtml=pack.qs.map(function(q,qi){
+    return '<div style="margin-bottom:14px;padding:12px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;">'+
+      '<div style="font-weight:700;font-size:13px;margin-bottom:8px;">'+(qi+1)+'. '+escapeHtml(q.q)+'</div>'+
+      q.o.map(function(op,oi){
+        return '<label style="display:flex;gap:8px;align-items:flex-start;padding:5px 4px;cursor:pointer;font-size:12.5px;color:#cdd3dd;"><input type="radio" name="sopq'+qi+'" value="'+oi+'" style="margin-top:2px;">'+escapeHtml(op)+'</label>';
+      }).join('')+'</div>';
+  }).join('');
+  ov.innerHTML='<div style="background:#171a21;color:#e7eaf0;border:1px solid rgba(255,255,255,.1);border-radius:16px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:20px 22px;">'+
+    '<div style="font-weight:800;font-size:16px;">📚 Quick SOP Refresher — '+escapeHtml(pack.fam)+'</div>'+
+    '<div style="font-size:12px;color:#9aa3b2;margin:4px 0 14px;">A short warm-up on your own SOP before the shift — every Mon · Thu · Sat. Nothing tricky: these are the steps you do every day. <b style="color:#f59e0b;">Pass: '+Math.ceil(pack.qs.length*0.9)+'/'+pack.qs.length+'.</b> No pressure — retake as many times as you need, it\'s a different set each time.</div>'+
+    qHtml+
+    '<div id="sop-err" style="display:none;color:#f87171;font-size:12.5px;font-weight:700;margin-bottom:8px;"></div>'+
+    '<div style="display:flex;gap:9px;">'+
+      '<button id="sop-cancel" style="flex:1;background:transparent;border:1px solid rgba(255,255,255,.16);color:#9aa3b2;border-radius:10px;padding:11px;font-weight:700;cursor:pointer;">Later</button>'+
+      '<button id="sop-submit" style="flex:2;background:linear-gradient(135deg,#FF6B1A,#c2410c);border:none;color:#fff;border-radius:10px;padding:11px;font-weight:800;cursor:pointer;">Submit answers</button>'+
+    '</div></div>';
+  document.body.appendChild(ov);
+  ov.querySelector('#sop-cancel').onclick=function(){ ov.remove(); _sopQuizOpen=false; showToast('⛔ Time In stays locked until you pass the SOP refresher.'); };
+  ov.querySelector('#sop-submit').onclick=async function(){
+    var err=ov.querySelector('#sop-err');
+    var answered=0, correct=0;
+    pack.qs.forEach(function(q,qi){
+      var sel=ov.querySelector('input[name="sopq'+qi+'"]:checked');
+      if(sel){ answered++; if(parseInt(sel.value,10)===q.a) correct++; }
+    });
+    if(answered<pack.qs.length){ err.style.display='block'; err.textContent='Answer all '+pack.qs.length+' questions ('+(pack.qs.length-answered)+' left).'; return; }
+    var pct=Math.round(correct/pack.qs.length*100);
+    if(pct>=90){
+      ov.remove(); _sopQuizOpen=false;
+      try{ localStorage.setItem(_sopKey(),'1'); }catch(e){}
+      var id=(((typeof attEmpId!=='undefined')&&attEmpId)||chatEmpId||'');
+      try{ fetch(APPS_SCRIPT_URL+'?action=sop_pass&employee_id='+encodeURIComponent(id)+'&date='+_sopBizDate()+'&score='+correct+'&total='+pack.qs.length+'&pct='+pct+'&family='+encodeURIComponent(pack.fam)+'&_='+Date.now()).catch(function(){}); }catch(e){}
+      showToast('✅ SOP refresher passed — '+pct+'%. Tracker unlocked, clocking you in…');
+      logTime('time_in');
+    } else {
+      err.style.display='block';
+      err.textContent='Almost — '+pct+'% ('+correct+'/'+pack.qs.length+'). You need '+Math.ceil(pack.qs.length*0.9)+'. A fresh set is loading — take a breath and go again 💪';
+      setTimeout(function(){ _sopRender(_sopSample()); },1800);
+    }
+  };
+}
 function logTime(type) {
+  /* 📚 SOP gate: Mon/Thu/Sat the first Time In requires today's refresher pass. */
+  if (type === 'time_in' && _sopRequiredToday() && !_sopLocal()) { sopGateTimeIn(); return; }
   var now    = new Date();
   var isoNow = now.toISOString();
 
