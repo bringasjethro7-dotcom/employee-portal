@@ -14744,7 +14744,14 @@ async function sendEodReport(){
   // explanation rides with the EOD line in the channel so the admin reads it with the report.
   var _eodNote = '';
   try{
-    var _pv = await fetch(APPS_SCRIPT_URL+'?action=po_va_progress&_='+Date.now()).then(function(r){ return r.json(); });
+    /* FAIL-OPEN (Aug 24 fix): at EOD rush hour the server can take 30s+, and this fetch used
+       to hang forever — the button looked dead and VAs "couldn't EOD". 6s timeout: if the
+       progress check can't answer fast, the EOD proceeds WITHOUT the gate. Blocking an EOD
+       is worse than missing one explanation. */
+    var _gc = new AbortController();
+    var _gt = setTimeout(function(){ try{ _gc.abort(); }catch(_a){} }, 6000);
+    var _pv = await fetch(APPS_SCRIPT_URL+'?action=po_va_progress&_='+Date.now(), { signal:_gc.signal }).then(function(r){ return r.json(); });
+    clearTimeout(_gt);
     var _mineP = ((_pv&&_pv.rows)||[]).filter(function(r){ return String(r.employee_id||'').toLowerCase()===String(chatEmpId||'').toLowerCase(); });
     var _pd=0,_pt=0; _mineP.forEach(function(r){ _pd+=(parseFloat(r.done)||0); _pt+=(parseFloat(r.total)||0); });
     var _pPct=_pt?Math.round(_pd/_pt*100):100;
