@@ -33755,5 +33755,34 @@ async function wfhSubmit(btn){
 }
 </script>
 
+<script>
+/* ══ AUTO-UPDATE WATCHER (Aug 24) ══
+   VAs keep the portal tab open all shift, so uploads never reached them until a manual
+   hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
+   server every 10 minutes; when a new build is detected it reloads itself — immediately if
+   no task timer is running, or the moment the timer stops (never mid-task). */
+var PORTAL_BUILD='2026-08-24-A';
+(function(){
+  var pending=false;
+  setInterval(function(){
+    try{
+      if(pending){
+        var running=false; try{ running=(typeof trkRunning!=='undefined')&&!!trkRunning; }catch(e){}
+        if(!running){ location.reload(); }
+        return;
+      }
+      fetch('/index.html?upd='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
+        var m=t.match(/PORTAL_BUILD='([^']+)'/);
+        if(m&&m[1]&&m[1]!==PORTAL_BUILD){
+          pending=true;
+          var running=false; try{ running=(typeof trkRunning!=='undefined')&&!!trkRunning; }catch(e){}
+          try{ showToast(running?'🔄 Portal update ready — applies when you stop your timer.':'🔄 Portal updating…'); }catch(e){}
+          if(!running){ setTimeout(function(){ location.reload(); },2000); }
+        }
+      }).catch(function(){});
+    }catch(e){}
+  }, 10*60*1000);
+})();
+</script>
 </body>
 </html>
