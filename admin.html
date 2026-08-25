@@ -5475,6 +5475,13 @@ async function _scRenderRows(force) {
   var tbody = document.getElementById('sc-body'); if (!tbody) return;
   var empId = document.getElementById('sc-emp-filter').value;
   var month = document.getElementById('sc-month-filter').value;
+  /* PAINT-FIRST (Aug 25): show the last known board immediately so the tab is NEVER blank while
+     the network is working. Fresh rows overwrite it a moment later. A blank scorecard was the
+     thing he kept hitting; there is always a previous board worth showing. */
+  if(!tbody.children.length || /skl|class="es"|Loading/.test(tbody.innerHTML)){
+    try{ var _s0=JSON.parse(localStorage.getItem(_scSnapKey())||'null');
+         if(_s0 && _s0.rows && _s0.rows.length) _scPaint(_s0.rows); }catch(_p0){}
+  }
   try {
     /* One bundled call for the tab. Falls back to the old endpoint if the bundle is missing,
        so an un-deployed script still renders the table instead of showing nothing. */
@@ -5488,11 +5495,27 @@ async function _scRenderRows(force) {
        path and an un-deployed script still render. */
     var _sc = data.scorecards;
     var rows = (_sc && _sc.scorecards) ? _sc.scorecards : (Array.isArray(_sc) ? _sc : []);
-    _scPaint(rows);
-    try{ localStorage.setItem(_scSnapKey(), JSON.stringify({ rows:rows, ts:Date.now() })); }catch(_e){}
+    if(rows.length){
+      _scPaint(rows);
+      try{ window._scAsOf=(_sc&&_sc.as_of)||null; }catch(_a){}
+      try{ localStorage.setItem(_scSnapKey(), JSON.stringify({ rows:rows, ts:Date.now() })); }catch(_e){}
+      try{ _scBadge(); }catch(_b){}
+    } else if(!tbody.children.length){
+      tbody.innerHTML='<tr><td colspan="11" class="es">No scorecard rows for this month yet.</td></tr>';
+    }
   } catch(e) {
-    // keep any already-painted rows (snapshot) on a transient error; only show error on a blank table
-    if(/skl|class="es"|Loading/.test(tbody.innerHTML) || !tbody.children.length){ tbody.innerHTML = '<tr><td colspan="11" class="es">Error loading scorecards.</td></tr>'; }
+    /* NEVER LEAVE HIM STARING AT NOTHING. Fall back to the stored board and label it, so a slow
+       or failed request degrades to "slightly old numbers" instead of an empty screen. */
+    var painted=false;
+    try{ var _s=JSON.parse(localStorage.getItem(_scSnapKey())||'null');
+         if(_s && _s.rows && _s.rows.length){ _scPaint(_s.rows); painted=true;
+           var _el=document.getElementById('sc-live-badge');
+           if(_el) _el.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#f59e0b;box-shadow:0 0 6px #f59e0b;margin-right:5px;"></span>'+
+             'OFFLINE COPY · saved '+new Date(_s.ts).toLocaleTimeString('en-US',{hour12:false})+' · server slow — press ↻ to retry';
+         } }catch(_f){}
+    if(!painted && (!tbody.children.length || /skl|class="es"|Loading/.test(tbody.innerHTML))){
+      tbody.innerHTML='<tr><td colspan="11" class="es">Could not reach the server. Press ↻ Recompute to retry.</td></tr>';
+    }
   }
 }
 
@@ -5638,7 +5661,10 @@ function _scRushHour(){
 }
 function _scBadge(){
   var el=document.getElementById('sc-live-badge'); if(!el) return;
-  var asOf=window._scLastFull?new Date(window._scLastFull).toLocaleTimeString('en-US',{hour12:false}):'—';
+  /* Prefer the SERVER's as_of (when the snapshot was actually computed) over the browser's
+     fetch time — that is the number he needs to judge whether the board is accurate. */
+  var asOf=window._scAsOf ? String(window._scAsOf).slice(11,19)
+          : (window._scLastFull?new Date(window._scLastFull).toLocaleTimeString('en-US',{hour12:false}):'—');
   var msg;
   if(_scRushHour()){ msg='data as of '+asOf+' · auto-refresh paused (login rush) — use ↻ for fresh numbers'; }
   else{
