@@ -6205,7 +6205,37 @@ function _revStyle(){
   '@keyframes revFrame{0%{opacity:0;transform:translateX(38px) scale(.97)}100%{opacity:1;transform:none}}'+
   '@keyframes revTag{0%{opacity:0;transform:translateX(-40px)}100%{opacity:1;transform:none}}'+
   '@keyframes revGhost{0%{opacity:0;transform:translate(50%,-50%) scale(1.5)}100%{opacity:.07;transform:translate(50%,-50%) scale(1)}}'+
-  '@media (max-width:900px){.rev-poster{grid-template-columns:1fr;}.rev-R{order:-1}.rev-frame{height:38vh}.rev-metrics{grid-template-columns:1fr}.rev-ghost{display:none}}';
+  /* ═══════ NOMINEE MONTAGE ═══════
+     Faces flash up in random order so nobody can read the ranking from the sequence, then hold
+     as a grid — the room gets to look at everyone still standing before the countdown resumes. */
+  '.rev-nomwrap{width:min(1500px,94vw);text-align:center;z-index:2;position:relative;}'+
+  '.rev-nomtitle{font-size:clamp(38px,7vw,104px);font-weight:900;letter-spacing:-.02em;line-height:1;margin:2px 0 clamp(14px,3vh,34px);background:linear-gradient(180deg,#fff,#ffcf9e);-webkit-background-clip:text;background-clip:text;color:transparent;animation:revUp .6s both;}'+
+  '.rev-nomgrid{display:grid;gap:clamp(10px,1.6vw,24px);justify-content:center;}'+
+  '.rev-nomgrid.n10{grid-template-columns:repeat(5,minmax(0,1fr));}'+
+  '.rev-nomgrid.n5{grid-template-columns:repeat(5,minmax(0,1fr));}'+
+  '.rev-nom{animation:revNomPop .5s cubic-bezier(.2,1.5,.35,1) both;}'+
+  '.rev-nomph{position:relative;width:100%;aspect-ratio:3/4;border-radius:14px;overflow:hidden;background:#1a0d06;border:1px solid rgba(255,180,120,.22);box-shadow:0 14px 34px -14px rgba(0,0,0,.8);}'+
+  '.rev-nomph img{width:100%;height:100%;object-fit:cover;object-position:50% 18%;}'+
+  '.rev-nomnm{margin-top:8px;font-size:clamp(9px,1vw,13px);font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#e2c9b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'+
+  '@keyframes revNomPop{0%{opacity:0;transform:scale(.72) translateY(18px);filter:blur(6px)}100%{opacity:1;transform:none;filter:blur(0)}}'+
+  /* ═══════ THE FINAL TWO / THE SPLIT ═══════ */
+  '.rev-f2wrap{width:min(1200px,92vw);text-align:center;z-index:2;position:relative;}'+
+  '.rev-f2row{display:flex;gap:clamp(20px,4vw,70px);justify-content:center;align-items:center;}'+
+  '.rev-f2{flex:0 0 min(38%,380px);transition:transform 1.1s cubic-bezier(.2,1.1,.3,1),opacity 1.1s ease,filter 1.1s ease;animation:revUp .6s both;}'+
+  '.rev-f2.b{animation-delay:.16s;}'+
+  '.rev-f2ph{position:relative;width:100%;aspect-ratio:3/4;border-radius:18px;overflow:hidden;background:#1a0d06;border:2px solid rgba(255,180,120,.28);box-shadow:0 20px 50px -18px rgba(0,0,0,.85);transition:border-color 1s ease,box-shadow 1s ease;}'+
+  '.rev-f2ph img{width:100%;height:100%;object-fit:cover;object-position:50% 18%;}'+
+  '.rev-f2nm{margin-top:12px;font-size:clamp(13px,1.7vw,24px);font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#fff;}'+
+  /* winner swells and lights up; runner-up steps back rather than disappearing */
+  '.rev-f2.win{transform:scale(1.18);}'+
+  '.rev-f2.win .rev-f2ph{border-color:#ffd23f;box-shadow:0 24px 70px -14px rgba(255,190,60,.55),0 0 0 6px rgba(255,210,63,.16);}'+
+  '.rev-f2.win .rev-f2nm{background:linear-gradient(180deg,#fff,#ffd88e);-webkit-background-clip:text;background-clip:text;color:transparent;}'+
+  /* His wording: plain rank labels, no "champion" / "second place". */
+  '.rev-f2.win .rev-f2nm::after{content:"RANK 1";display:block;margin-top:7px;font-size:.5em;letter-spacing:.36em;color:#ffd23f;-webkit-text-fill-color:#ffd23f;}'+
+  '.rev-f2.lose{transform:scale(.86);opacity:.5;filter:grayscale(.65);}'+
+  '.rev-f2.lose .rev-f2nm::after{content:"RANK 2";display:block;margin-top:7px;font-size:.5em;letter-spacing:.3em;color:#cfd6e0;}'+
+  '@media (max-width:900px){.rev-poster{grid-template-columns:1fr;}.rev-R{order:-1}.rev-frame{height:38vh}.rev-metrics{grid-template-columns:1fr}.rev-ghost{display:none}'+
+  '.rev-nomgrid.n10,.rev-nomgrid.n5{grid-template-columns:repeat(3,minmax(0,1fr))}.rev-f2row{gap:14px}}';
   document.head.appendChild(s);
 }
 var _REV=null;
@@ -6440,15 +6470,109 @@ function _revCountUp(target){
      · CARD    — the person: photo, name, score counting up, and their score breakdown
      · DRUMROLL— before #1
    Lower ranks move in a single beat so a 25-person reveal doesn't drag. */
+/* Photo for a person. Order matters: the ORIGINAL hero shot from the sheet is what he wants on
+   screen, with the background-removed cutout only as a backstop if that link ever fails, then
+   the round avatar at poster resolution, then initials. Each step catches the previous one's
+   onerror, so a broken link degrades quietly instead of leaving a hole mid-ceremony. */
+function _revPic(r, cls){
+  var fb=_scInitials(r.full_name||r.employee_id);
+  var eid=String(r.employee_id||'').toUpperCase();
+  var chain=[];
+  if(r.hero) chain.push(r.hero);
+  if(eid)    chain.push('heroes/'+encodeURIComponent(eid)+'.webp');
+  if(r.photo) chain.push(String(r.photo).replace(/sz=w\d+/,'sz=w1400'));
+  if(!chain.length) return '<div class="rev-noimg">'+fb+'</div>';
+  var q=function(u){ return String(u).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); };
+  return '<img class="'+(cls||'')+'" src="'+q(chain[0])+'" alt="" referrerpolicy="no-referrer"'+
+    ' data-alt="'+q(chain.slice(1).join('|'))+'"'+
+    ' onerror="var a=(this.dataset.alt||\'\').split(\'|\').filter(Boolean);'+
+    'if(a.length){this.src=a.shift();this.dataset.alt=a.join(\'|\');}'+
+    'else{this.outerHTML=\'<div class=&quot;rev-noimg&quot;>'+fb+'</div>\';}">';
+}
+/* ══════════ THE RUNNING ORDER ══════════
+   Built to his spec, and it is deliberately NOT a plain countdown:
+
+     … lower ranks, one click each
+     NOMINEES · TOP 10   — all ten photos flash up in random order, then settle as a grid
+     #10 → #6
+     NOMINEES · TOP 5    — the five finalists, same treatment
+     #5 → #4 → #3        — each with a tease beat first
+     THE FINAL TWO       — the last two photos side by side, equal, unnamed as a pair
+     🥁 drumroll
+     THE SPLIT           — one card swells and lights up, the other fades back
+     #1 CHAMPION card
+     #2 card
+     closing slide
+
+   The sting is the order of those last two: the CHAMPION is revealed before the runner-up.
+   Everyone in the room is braced for a normal countdown, so naming first place early lands
+   harder — and second place still gets a full card of their own rather than being an
+   afterthought. */
 function _revBeats(order){
   var beats=[];
+  var top = function(n){ return order.filter(function(e){ return e.rank<=n; })
+                                     .sort(function(a,b){ return a.rank-b.rank; }); };
+  var t10=top(10), t5=top(5), t2=top(2);
   order.forEach(function(e){
-    if(e.rank===1) beats.push({t:'drum', e:e});
+    if(e.rank===10 && t10.length>=6) beats.push({t:'noms', n:10, list:t10});
+    if(e.rank===5  && t5.length>=4)  beats.push({t:'noms', n:5,  list:t5});
+    if(e.rank===3){                                   // #3 is the last normal reveal
+      if(e.rank<=5) beats.push({t:'tease', e:e});
+      beats.push({t:'card', e:e});
+      if(t2.length===2){
+        beats.push({t:'final2', list:t2});
+        beats.push({t:'drum',   e:t2[0]});
+        beats.push({t:'split',  list:t2});
+        beats.push({t:'card',   e:t2[0]});            // champion first — the twist
+        beats.push({t:'card',   e:t2[1]});            // runner-up closes
+      }
+      return;
+    }
+    if(e.rank<=2) return;                             // handled by the final-two sequence
     if(e.rank<=5) beats.push({t:'tease', e:e});
     beats.push({t:'card', e:e});
   });
+  if(!beats.some(function(b){ return b.t==='split'; })){
+    // fewer than three ranked — fall back to a plain countdown so nothing is skipped
+    beats=[]; order.forEach(function(e){
+      if(e.rank===1) beats.push({t:'drum', e:e});
+      if(e.rank<=5) beats.push({t:'tease', e:e});
+      beats.push({t:'card', e:e});
+    });
+  }
   beats.push({t:'finale'});
   return beats;
+}
+/* Nominee montage — photos flash up in RANDOM order, then hold as a grid. */
+function _revNoms(b){
+  var shuffled=b.list.map(function(e,i){ return {e:e,i:i,k:Math.random()}; })
+                     .sort(function(x,y){ return x.k-y.k; });
+  var delay={}; shuffled.forEach(function(o,idx){ delay[o.i]=0.25+idx*0.22; });
+  var tiles=b.list.map(function(e,i){
+    return '<div class="rev-nom" style="animation-delay:'+delay[i].toFixed(2)+'s">'+
+      '<div class="rev-nomph">'+_revPic(e.r)+'</div>'+
+      '<div class="rev-nomnm">'+String(e.r.full_name||e.r.employee_id).replace(/</g,'&lt;')+'</div>'+
+    '</div>';
+  }).join('');
+  return '<div class="rev-nomwrap">'+
+    '<div class="rev-eyebrow" style="text-align:center">Nominated for the</div>'+
+    '<div class="rev-nomtitle">TOP '+b.n+'</div>'+
+    '<div class="rev-nomgrid n'+b.n+'">'+tiles+'</div>'+
+  '</div>';
+}
+/* The final two, side by side and equal — no ranks, no scores, nothing to read into. */
+function _revFinal2(b){
+  var card=function(e,side){
+    return '<div class="rev-f2 '+side+'" data-rank="'+e.rank+'">'+
+      '<div class="rev-f2ph">'+_revPic(e.r)+'</div>'+
+      '<div class="rev-f2nm">'+String(e.r.full_name||e.r.employee_id).replace(/</g,'&lt;')+'</div>'+
+    '</div>';
+  };
+  return '<div class="rev-f2wrap">'+
+    '<div class="rev-eyebrow" style="text-align:center">It comes down to</div>'+
+    '<div class="rev-nomtitle">THE FINAL TWO</div>'+
+    '<div class="rev-f2row" id="rev-f2row">'+card(b.list[0],'a')+card(b.list[1],'b')+'</div>'+
+  '</div>';
 }
 function _revStart(rows, label){
   _revStyle();
@@ -6552,45 +6676,20 @@ function _revCardFull(entry){
   var name=String(r.full_name||r.employee_id).replace(/</g,'&lt;');
   var role=String(r.position||r.project||r.employee_id||'').replace(/</g,'&lt;');
   var medal=(rank===1?'🥇':(rank===2?'🥈':(rank===3?'🥉':'')));
-  var tag=champ?'Champion':(rank<=3?'Podium Finish':(rank<=5?'Top Five':''));
+  /* Plain rank wording throughout, per his instruction — no "Champion", no "Second Place". */
+  var tag=(rank<=5)?('Rank '+rank):'';
   /* HERO SHOT FIRST. The Employees sheet keeps a full-frame photo in hero_photo — that is what
      this poster is built around. The round table avatar is only a fallback, and it is pulled at
      w1400 so it does not turn to mush on a projector. If Drive fails to serve either, we fall
      back to initials rather than an empty frame. */
-  /* PHOTO CHAIN — background-free cutout first.
-       1. /heroes/<ID>.png   — transparent cutout produced by "Make Hero Cutouts.command".
-                               Served from our own site: no Drive dependency on ceremony night,
-                               and the subject floats on the stage instead of sitting in a grey box.
-       2. hero_photo (Drive) — the full shot, still with its studio backdrop.
-       3. the round avatar   — pulled at w1400 so it isn't mush on a projector.
-       4. their initials     — better than an empty frame.
-     Each step falls through on error, so a missing cutout silently degrades. */
-  var fb=_scInitials(r.full_name||r.employee_id);
-  var eid=String(r.employee_id||'').toUpperCase();
-  var chain=[];
-  if(eid) chain.push('heroes/'+encodeURIComponent(eid)+'.webp');
-  if(r.hero) chain.push(r.hero);
-  if(r.photo) chain.push(String(r.photo).replace(/sz=w\d+/,'sz=w1400'));
-  var pic;
-  if(chain.length){
-    var esc1=function(u){ return String(u).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); };
-    var next=chain.slice(1).map(esc1);
-    pic='<img src="'+esc1(chain[0])+'" alt="" referrerpolicy="no-referrer"'+
-        ' data-alt="'+esc1(next.join('|'))+'"'+
-        ' onerror="var a=(this.dataset.alt||\'\').split(\'|\').filter(Boolean);'+
-        'if(a.length){this.src=a.shift();this.dataset.alt=a.join(\'|\');}'+
-        'else{this.outerHTML=\'<div class=&quot;rev-noimg&quot;>'+fb+'</div>\';}">';
-  } else {
-    pic='<div class="rev-noimg">'+fb+'</div>';
-  }
-  /* A cutout has no edges to hide, so drop the frame chrome and let it stand on the stage. */
-  var cutClass=eid?' has-cut':'';
+  var pic=_revPic(r);
+  var cutClass='';
   return '<div class="rev-card'+(champ?' champ':'')+'" style="--rc:'+rc+'">'+
     '<div class="rev-poster">'+
       '<div class="rev-ghost">'+rank+'</div>'+
       '<div class="rev-L">'+
         (champ?'<div class="rev-champ" style="position:static;transform:none;font-size:clamp(34px,5vw,66px);text-align:left;">👑</div>':'')+
-        '<div class="rev-eyebrow">'+(champ?'Number One':'Rank')+'</div>'+
+        '<div class="rev-eyebrow">Rank</div>'+
         '<div class="rev-bigrank"><b>'+rank+'</b>'+(medal?('<span class="rev-medal">'+medal+'</span>'):'')+'</div>'+
         '<div class="rev-pname">'+name+'</div>'+
         (role?('<div class="rev-prole">'+role+'</div>'):'')+
@@ -6622,6 +6721,46 @@ function _revNext(ev){
     stage.innerHTML='<div class="rev-drum"><div class="d1">And the number one spot goes to…</div><div class="d2">🥁</div><div class="d3">click when you\'re ready</div></div>';
     _revDrum(7.5); _revDuck(12, 8200);
     if(hint) hint.textContent='click to reveal your champion';
+    return;
+  }
+  if(b.t==='noms'){
+    _REV.phase='noms';
+    stage.innerHTML=_revNoms(b);
+    _revWhoosh();
+    // a soft bell as the last tile lands
+    setTimeout(function(){ try{ _revDing(); }catch(_d){} }, 250+b.list.length*220);
+    _revDuck(20, 2000+b.list.length*220);
+    document.getElementById('rev-prog').textContent='Top '+b.n+' nominees';
+    if(hint) hint.textContent='click to start the top '+b.n;
+    return;
+  }
+  if(b.t==='final2'){
+    _REV.phase='final2';
+    stage.innerHTML=_revFinal2(b);
+    _revShimmer(1.6,0.09); _revDuck(20,3000);
+    document.getElementById('rev-prog').textContent='The final two';
+    if(hint) hint.textContent='click for the drumroll';
+    return;
+  }
+  if(b.t==='split'){
+    /* THE SPLIT — the champion's card swells and lights up while the runner-up's card falls
+       back and desaturates. Both stay on screen: second place is not erased, it is placed. */
+    _REV.phase='split';
+    stage.innerHTML=_revFinal2(b);
+    var row=document.getElementById('rev-f2row');
+    if(row){
+      var cards=row.querySelectorAll('.rev-f2');
+      // list[0] is rank 1 and was rendered first, so cards[0] is the champion
+      setTimeout(function(){
+        if(cards[0]) cards[0].classList.add('win');
+        if(cards[1]) cards[1].classList.add('lose');
+        _revFanfare(); _revDuck(10,9000);
+        setTimeout(function(){ _revConfetti(true); },300);
+        setTimeout(function(){ _revConfetti(false); },1500);
+      }, 700);
+    }
+    document.getElementById('rev-prog').textContent='Rank 1';
+    if(hint) hint.textContent='click for their full card';
     return;
   }
   if(b.t==='tease'){
