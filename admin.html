@@ -3109,6 +3109,9 @@ function bubbleColorFor(id){var h=0;id=String(id||'');for(var i=0;i<id.length;i+
 function bubbleFirstName(name){name=String(name||'').trim();if(name.indexOf(',')>=0){var a=name.split(',')[1]||'';return a.trim().split(/\s+/)[0]||name;}return name.split(/\s+/)[0]||name;}
 function bubbleInitials(id,name){if(id==='ADMIN')return'A';name=String(name||'').trim();var f='',l='';if(name.indexOf(',')>=0){var p=name.split(',');l=(p[0]||'').trim();f=(p[1]||'').trim();}else{var w=name.split(/\s+/);f=w[0]||'';l=w[1]||'';}return(((f[0]||'')+(l[0]||''))||f[0]||'?').toUpperCase();}
 function convertDrive(url){if(!url)return'';var m=String(url).match(/[-\w]{25,}/);return m?'https://drive.google.com/thumbnail?id='+m[0]+'&sz=w200':url;}
+/* Same Drive link, but at poster resolution. w200 is fine for a 40px avatar and turns to mush
+   blown up to half a projector screen, so the ceremony pulls its own size. */
+function convertDriveBig(url,w){if(!url)return'';var m=String(url).match(/[-\w]{25,}/);return m?'https://drive.google.com/thumbnail?id='+m[0]+'&sz=w'+(w||1200):url;}
 function bubbleStatusRing(s){switch(s){case'working':return'#22c55e';case'paused':return'#f59e0b';case'idle':return'#94a3b8';default:return'rgba(255,255,255,.45)';}}
 function applyBubbleStatus(el,s){if(!el)return;el.style.setProperty('--ring',bubbleStatusRing(s));el.classList.toggle('st-working',s==='working');}
 function statusFor(id){if(serverStatus[id]==='working'||serverStatus[id]==='paused')return serverStatus[id];return presenceStatus[id]||'online';}
@@ -5679,20 +5682,41 @@ async function _scRanked(){
   var month=document.getElementById('sc-month-filter').value;
   // make sure we have the employee roster (for photos)
   if(!(typeof emps!=='undefined' && emps && emps.length)){ try{ var ed=await (await jGet(API+'?action=get_all_employees', 60000, 120000)).json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
-  var pmap={}; try{ (emps||[]).forEach(function(e){ if(e&&e.employee_id) pmap[String(e.employee_id).toLowerCase()]= e.photo?convertDrive(e.photo):''; }); }catch(e){}
+  var pmap={}, hmap={};
+  try{ (emps||[]).forEach(function(e){ if(!e||!e.employee_id) return; var k=String(e.employee_id).toLowerCase();
+    pmap[k]= e.photo?convertDrive(e.photo):'';
+    hmap[k]= e.hero_photo?convertDriveBig(e.hero_photo,1400):''; }); }catch(e){}
   var url=API+'?action=get_all_scorecards'+(month?'&month='+encodeURIComponent(month):'');
   var rows=null;
   try{ var d=await (await jGet(url, 4000, 120000)).json(); rows=((d&&d.scorecards)||[]).slice(); }   // 120s: cold all-employee compute can exceed a minute
   catch(err){ try{ var snap=JSON.parse(localStorage.getItem(_scSnapKey())||'null'); if(snap&&snap.rows&&snap.rows.length) rows=snap.rows.slice(); }catch(_s){}   // fall back to the table's last snapshot so the reveal/certs never die
     if(!rows) throw err; }
   rows = _scFilterActive(rows);   // drop deactivated VAs from the reveal + certificates
-  rows.forEach(function(r){ r.photo = pmap[String(r.employee_id||'').toLowerCase()]||r.photo||''; });
+  rows.forEach(function(r){ var k=String(r.employee_id||'').toLowerCase();
+    r.photo = pmap[k]||r.photo||'';
+    r.hero  = hmap[k]||r.hero||''; });
   var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; };
   rows.sort(function(a,b){ return ov(b.overall)-ov(a.overall); });   // highest first → rank = index+1
   return { rows:rows, month:month };
 }
 // ── Finalize Month (freeze rankings + awards) ──
-function _attachPhotos(rows){ var pmap={}; try{ (emps||[]).forEach(function(e){ if(e&&e.employee_id) pmap[String(e.employee_id).toLowerCase()]= e.photo?convertDrive(e.photo):''; }); }catch(e){} (rows||[]).forEach(function(r){ r.photo=pmap[String(r.employee_id||'').toLowerCase()]||r.photo||''; }); return rows; }
+/* Attaches BOTH photos: the small round avatar used in tables, and the full hero shot the
+   Employees sheet keeps in hero_photo — that is the one the ceremony poster wants. */
+function _attachPhotos(rows){
+  var pmap={}, hmap={};
+  try{ (emps||[]).forEach(function(e){
+    if(!e||!e.employee_id) return;
+    var k=String(e.employee_id).toLowerCase();
+    pmap[k]= e.photo?convertDrive(e.photo):'';
+    hmap[k]= e.hero_photo?convertDriveBig(e.hero_photo,1400):'';
+  }); }catch(e){}
+  (rows||[]).forEach(function(r){
+    var k=String(r.employee_id||'').toLowerCase();
+    r.photo=pmap[k]||r.photo||'';
+    r.hero =hmap[k]||r.hero||'';
+  });
+  return rows;
+}
 function _scRankSort(rows){ var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; }; return (rows||[]).slice().sort(function(a,b){ return ov(b.overall)-ov(a.overall); }); }
 function _scValid(r){ return r && r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); }
 async function _loadFinal(month){
@@ -6155,6 +6179,13 @@ function _revStyle(){
   '.rev-frame::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,rgba(10,5,3,.96) 0%,rgba(10,5,3,.45) 26%,rgba(10,5,3,0) 62%),linear-gradient(0deg,rgba(10,5,3,.85) 0%,rgba(10,5,3,0) 42%);}'+
   '.rev-frame::before{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--rc,#ff8a4a) 34%,transparent),inset 0 0 120px -30px color-mix(in srgb,var(--rc,#ff8a4a) 60%,transparent);border-radius:20px;}'+
   '.rev-noimg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:clamp(70px,13vw,190px);font-weight:900;color:color-mix(in srgb,var(--rc,#ff8a4a) 70%,transparent);}'+
+  /* CUTOUT MODE — a transparent PNG needs no frame, no scrim and no rounded box: the person
+     stands directly on the stage. The only dressing is a soft floor shadow so they don't look
+     pasted on, and object-fit:contain so nobody gets cropped at the chin. */
+  '.rev-frame.has-cut{background:none;border-radius:0;overflow:visible;}'+
+  '.rev-frame.has-cut::before,.rev-frame.has-cut::after{display:none;}'+
+  '.rev-frame.has-cut img{object-fit:contain;object-position:50% 100%;filter:drop-shadow(0 34px 46px rgba(0,0,0,.72));}'+
+  '.rev-frame.has-cut .rev-tag{left:50%;transform:translateX(-50%);border-radius:100px;padding:9px 24px;bottom:-6px;}'+
   '.rev-tag{position:absolute;left:0;bottom:clamp(14px,3vh,30px);z-index:3;background:linear-gradient(135deg,var(--rc,#ff8a4a),#e83d00);color:#1a0c02;font-weight:900;letter-spacing:.3em;text-transform:uppercase;font-size:clamp(10px,1.15vw,14px);padding:9px 22px 9px 18px;border-radius:0 100px 100px 0;box-shadow:0 12px 34px -10px rgba(0,0,0,.8);animation:revTag .6s .3s cubic-bezier(.2,1.3,.3,1) both;}'+
   '.rev-card.champ .rev-tag{background:linear-gradient(135deg,#ffd54a,#ff9e1e);}'+
   /* ── metric graphics ── */
@@ -6522,9 +6553,38 @@ function _revCardFull(entry){
   var role=String(r.position||r.project||r.employee_id||'').replace(/</g,'&lt;');
   var medal=(rank===1?'🥇':(rank===2?'🥈':(rank===3?'🥉':'')));
   var tag=champ?'Champion':(rank<=3?'Podium Finish':(rank<=5?'Top Five':''));
-  var pic=r.photo
-    ? '<img src="'+String(r.photo).replace(/"/g,'&quot;')+'" alt="" onerror="this.outerHTML=\'<div class=&quot;rev-noimg&quot;>'+_scInitials(r.full_name||r.employee_id)+'</div>\'">'
-    : '<div class="rev-noimg">'+_scInitials(r.full_name||r.employee_id)+'</div>';
+  /* HERO SHOT FIRST. The Employees sheet keeps a full-frame photo in hero_photo — that is what
+     this poster is built around. The round table avatar is only a fallback, and it is pulled at
+     w1400 so it does not turn to mush on a projector. If Drive fails to serve either, we fall
+     back to initials rather than an empty frame. */
+  /* PHOTO CHAIN — background-free cutout first.
+       1. /heroes/<ID>.png   — transparent cutout produced by "Make Hero Cutouts.command".
+                               Served from our own site: no Drive dependency on ceremony night,
+                               and the subject floats on the stage instead of sitting in a grey box.
+       2. hero_photo (Drive) — the full shot, still with its studio backdrop.
+       3. the round avatar   — pulled at w1400 so it isn't mush on a projector.
+       4. their initials     — better than an empty frame.
+     Each step falls through on error, so a missing cutout silently degrades. */
+  var fb=_scInitials(r.full_name||r.employee_id);
+  var eid=String(r.employee_id||'').toUpperCase();
+  var chain=[];
+  if(eid) chain.push('heroes/'+encodeURIComponent(eid)+'.webp');
+  if(r.hero) chain.push(r.hero);
+  if(r.photo) chain.push(String(r.photo).replace(/sz=w\d+/,'sz=w1400'));
+  var pic;
+  if(chain.length){
+    var esc1=function(u){ return String(u).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); };
+    var next=chain.slice(1).map(esc1);
+    pic='<img src="'+esc1(chain[0])+'" alt="" referrerpolicy="no-referrer"'+
+        ' data-alt="'+esc1(next.join('|'))+'"'+
+        ' onerror="var a=(this.dataset.alt||\'\').split(\'|\').filter(Boolean);'+
+        'if(a.length){this.src=a.shift();this.dataset.alt=a.join(\'|\');}'+
+        'else{this.outerHTML=\'<div class=&quot;rev-noimg&quot;>'+fb+'</div>\';}">';
+  } else {
+    pic='<div class="rev-noimg">'+fb+'</div>';
+  }
+  /* A cutout has no edges to hide, so drop the frame chrome and let it stand on the stage. */
+  var cutClass=eid?' has-cut':'';
   return '<div class="rev-card'+(champ?' champ':'')+'" style="--rc:'+rc+'">'+
     '<div class="rev-poster">'+
       '<div class="rev-ghost">'+rank+'</div>'+
@@ -6538,7 +6598,7 @@ function _revCardFull(entry){
         '<div class="rev-bar"><i id="rev-bar-i" style="width:0%"></i></div>'+
         _revMetrics(r)+
       '</div>'+
-      '<div class="rev-R"><div class="rev-frame">'+pic+
+      '<div class="rev-R"><div class="rev-frame'+cutClass+'">'+pic+
         (tag?('<div class="rev-tag">'+tag+'</div>'):'')+
       '</div></div>'+
     '</div>'+
