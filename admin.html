@@ -6543,13 +6543,17 @@ function _revBeats(order){
   beats.push({t:'finale'});
   return beats;
 }
-/* Nominee montage — photos flash up in RANDOM order, then hold as a grid. */
+/* Nominee montage — RANDOM ORDER, and that has to mean the POSITIONS too.
+   First pass only shuffled the animation delays while the grid itself stayed in rank order, so
+   anyone reading left-to-right could see the standings before they were announced. Now the list
+   is shuffled and rendered in that shuffled order, so neither where a face sits nor when it
+   appears says anything about where they placed. Reshuffled on every run. */
 function _revNoms(b){
-  var shuffled=b.list.map(function(e,i){ return {e:e,i:i,k:Math.random()}; })
-                     .sort(function(x,y){ return x.k-y.k; });
-  var delay={}; shuffled.forEach(function(o,idx){ delay[o.i]=0.25+idx*0.22; });
-  var tiles=b.list.map(function(e,i){
-    return '<div class="rev-nom" style="animation-delay:'+delay[i].toFixed(2)+'s">'+
+  var shuffled=b.list.map(function(e){ return {e:e,k:Math.random()}; })
+                     .sort(function(x,y){ return x.k-y.k; })
+                     .map(function(o){ return o.e; });
+  var tiles=shuffled.map(function(e,i){
+    return '<div class="rev-nom" style="animation-delay:'+(0.25+i*0.22).toFixed(2)+'s">'+
       '<div class="rev-nomph">'+_revPic(e.r)+'</div>'+
       '<div class="rev-nomnm">'+String(e.r.full_name||e.r.employee_id).replace(/</g,'&lt;')+'</div>'+
     '</div>';
@@ -6560,8 +6564,15 @@ function _revNoms(b){
     '<div class="rev-nomgrid n'+b.n+'">'+tiles+'</div>'+
   '</div>';
 }
-/* The final two, side by side and equal — no ranks, no scores, nothing to read into. */
+/* The final two, side by side and equal — no ranks, no scores, nothing to read into.
+   SIDES ARE RANDOMISED. Rendering rank 1 first put the winner on the left every single time,
+   which anyone who had seen the reveal once would spot immediately. The side is drawn per run
+   and remembered on _REV, so the "final two" beat and the "split" beat that follows it show the
+   same arrangement — otherwise the pair would jump between the two clicks. */
 function _revFinal2(b){
+  if(_REV && _REV.f2flip===undefined) _REV.f2flip=(Math.random()<0.5);
+  var flip=(_REV && _REV.f2flip);
+  var pair=flip ? [b.list[1], b.list[0]] : [b.list[0], b.list[1]];
   var card=function(e,side){
     return '<div class="rev-f2 '+side+'" data-rank="'+e.rank+'">'+
       '<div class="rev-f2ph">'+_revPic(e.r)+'</div>'+
@@ -6571,7 +6582,7 @@ function _revFinal2(b){
   return '<div class="rev-f2wrap">'+
     '<div class="rev-eyebrow" style="text-align:center">It comes down to</div>'+
     '<div class="rev-nomtitle">THE FINAL TWO</div>'+
-    '<div class="rev-f2row" id="rev-f2row">'+card(b.list[0],'a')+card(b.list[1],'b')+'</div>'+
+    '<div class="rev-f2row" id="rev-f2row">'+card(pair[0],'a')+card(pair[1],'b')+'</div>'+
   '</div>';
 }
 function _revStart(rows, label){
@@ -6749,11 +6760,13 @@ function _revNext(ev){
     stage.innerHTML=_revFinal2(b);
     var row=document.getElementById('rev-f2row');
     if(row){
-      var cards=row.querySelectorAll('.rev-f2');
-      // list[0] is rank 1 and was rendered first, so cards[0] is the champion
+      /* Find them by RANK, never by position — the sides are randomised, so cards[0] is not
+         reliably the winner any more. */
+      var winEl =row.querySelector('.rev-f2[data-rank="1"]');
+      var loseEl=row.querySelector('.rev-f2[data-rank="2"]');
       setTimeout(function(){
-        if(cards[0]) cards[0].classList.add('win');
-        if(cards[1]) cards[1].classList.add('lose');
+        if(winEl)  winEl.classList.add('win');
+        if(loseEl) loseEl.classList.add('lose');
         _revFanfare(); _revDuck(10,9000);
         setTimeout(function(){ _revConfetti(true); },300);
         setTimeout(function(){ _revConfetti(false); },1500);
