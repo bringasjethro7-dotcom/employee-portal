@@ -1744,8 +1744,10 @@ function enterAdmin(){
   renderTable();
   loadFromSheet();
   loadDashboard();
-  // Poll for new requests in the background and chime on arrival (works on any tab)
-  setInterval(function(){ if(document.hidden) return; loadDashboard({ silent:true }); }, 60000);
+  // Poll for new requests in the background and chime on arrival (works on any tab).
+  // 2-min cadence (Aug 25): the scorecard is the priority feed — this poll only powers the
+  // request chime, so it yields bandwidth to the board.
+  setInterval(function(){ if(document.hidden) return; loadDashboard({ silent:true }); }, 120000);
   initAdminBubbles();   // floating bubbles of active accounts
 }
 async function doLogin(){
@@ -5609,11 +5611,18 @@ var scLiveTimer = null;
        busts the server cache and recomputes all contractors), so demerits, QA grades,
        attendance, and sales land on the board within 5 minutes with no clicking. */
 function startScLive(){ stopScLive();
-  scLiveTimer = setInterval(function(){ if(document.hidden) return; _scRenderRows(); _scBadge(); }, 20000);
+  scLiveTimer = setInterval(function(){ if(document.hidden) return; _scRenderRows(); _scBadge(); }, 60000);
+  /* SCORECARD-FIRST FETCHING (Aug 25, his ask): he watches this board for accuracy, so the
+     full recompute runs every 10 MINUTES — fresh enough to trust, cheap enough to live with.
+     LOAD LESSON (Aug 24 night) still applies: a recompute colliding with the shift-login
+     surge helped saturate the server, so the auto-recompute SKIPS the two login-rush windows
+     (07:30–08:30 and 19:30–20:30 PHT) — the badge says so, and the manual ↻ Recompute always
+     works, rush hour or not. */
   window._scForceTimer = setInterval(async function(){ if(document.hidden) return;
+    if(_scRushHour()){ _scBadge(); return; }
     try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); try{ jBust(); }catch(_j){}
          await _scRenderRows(true); window._scLastFull=Date.now(); _scBadge(); }catch(_e){}
-  }, 300000);
+  }, 600000);
   if(!window._scLastFull) window._scLastFull=Date.now();
   _scBadge();
 }
@@ -5621,12 +5630,22 @@ function stopScLive(){
   if (scLiveTimer){ clearInterval(scLiveTimer); scLiveTimer = null; }
   if (window._scForceTimer){ clearInterval(window._scForceTimer); window._scForceTimer=null; }
 }
+function _scRushHour(){
+  /* PHT login-rush windows where auto-recompute stands down: 07:30–08:30 and 19:30–20:30. */
+  var ph=new Date(Date.now()+8*3600000);            // UTC → PHT
+  var mins=ph.getUTCHours()*60+ph.getUTCMinutes();
+  return (mins>=450&&mins<510)||(mins>=1170&&mins<1230);
+}
 function _scBadge(){
   var el=document.getElementById('sc-live-badge'); if(!el) return;
-  var left=Math.max(0, 300000-(Date.now()-(window._scLastFull||Date.now())));
-  var mins=Math.ceil(left/60000);
-  el.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#16a34a;box-shadow:0 0 6px #16a34a;margin-right:5px;"></span>'+
-    'LIVE · updated '+new Date().toLocaleTimeString('en-US',{hour12:false})+' · full recompute in ≤'+mins+'m';
+  var asOf=window._scLastFull?new Date(window._scLastFull).toLocaleTimeString('en-US',{hour12:false}):'—';
+  var msg;
+  if(_scRushHour()){ msg='data as of '+asOf+' · auto-refresh paused (login rush) — use ↻ for fresh numbers'; }
+  else{
+    var left=Math.max(0, 600000-(Date.now()-(window._scLastFull||Date.now())));
+    msg='data as of '+asOf+' · next full refresh in ≤'+Math.ceil(left/60000)+'m';
+  }
+  el.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#16a34a;box-shadow:0 0 6px #16a34a;margin-right:5px;"></span>LIVE · '+msg;
 }
 
 // ── Rankings export (PPTX) + Top-5 printable certificates ──
