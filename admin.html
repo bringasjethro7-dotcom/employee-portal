@@ -6218,6 +6218,29 @@ function _revStyle(){
   '.ri-stat span{display:block;margin-top:10px;font-size:clamp(9px,1vw,12px);letter-spacing:.2em;text-transform:uppercase;color:#c8a894;font-weight:800;}'+
   '.ri-chips{display:flex;flex-wrap:wrap;gap:clamp(8px,1.2vw,16px);justify-content:center;max-width:1000px;margin:clamp(8px,2vh,20px) auto 0;}'+
   '.ri-chips span{padding:10px 22px;border-radius:100px;border:1px solid rgba(255,180,120,.32);background:rgba(255,150,80,.07);font-size:clamp(11px,1.35vw,18px);font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#ffd7a1;animation:riPop .55s cubic-bezier(.2,1.5,.35,1) both;}'+
+  /* word slams — hard, fast, with a flash of light behind them */
+  '.ri-slamwrap{text-align:center}'+
+  '.ri-slam{font-size:clamp(46px,10vw,150px);font-weight:900;letter-spacing:-.02em;line-height:.95;text-transform:uppercase;color:#fff;text-shadow:0 0 70px rgba(255,140,60,.5);animation:riSlam .5s cubic-bezier(.15,1.6,.3,1) both;}'+
+  '.ri-slamsub{margin-top:16px;font-size:clamp(11px,1.4vw,17px);letter-spacing:.42em;text-transform:uppercase;color:#c9895c;font-weight:800;animation:riUp .7s .28s both;}'+
+  '.ri-slamwrap::before{content:"";position:fixed;inset:0;background:rgba(255,190,130,.16);pointer-events:none;animation:riFlash .45s ease-out both;}'+
+  /* roll call grid */
+  '.ri-rollhead{font-size:clamp(26px,5vw,62px);font-weight:900;letter-spacing:-.01em;line-height:1;margin:2px 0 clamp(12px,2.4vh,26px);background:linear-gradient(180deg,#fff,#ffcf9e);-webkit-background-clip:text;background-clip:text;color:transparent;animation:riUp .7s both;}'+
+  '.ri-roll{position:relative;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:clamp(6px,.9vw,14px);width:min(1500px,94vw);margin:0 auto;overflow:hidden;}'+
+  '.ri-rt{animation:riPop .45s cubic-bezier(.2,1.5,.35,1) both;}'+
+  '.ri-rph{position:relative;width:100%;aspect-ratio:3/4;border-radius:9px;overflow:hidden;background:#1a0d06;border:1px solid rgba(255,180,120,.2);}'+
+  '.ri-rph img{width:100%;height:100%;object-fit:cover;object-position:50% 16%;}'+
+  '.ri-rid{margin-top:5px;font-size:clamp(7px,.72vw,10px);font-weight:900;letter-spacing:.14em;color:#ff9a52;}'+
+  '.ri-rn{font-size:clamp(7px,.7vw,10px);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#b99c8a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'+
+  '.ri-sweep{position:absolute;top:0;bottom:0;width:22%;left:-25%;background:linear-gradient(90deg,transparent,rgba(255,220,180,.4),transparent);filter:blur(6px);animation:riSweep 2.4s ease-in-out both;}'+
+  /* face flicker */
+  '.ri-flickwrap{text-align:center}'+
+  '.ri-flick{width:clamp(200px,26vw,340px);aspect-ratio:3/4;margin:14px auto;border-radius:18px;overflow:hidden;border:2px solid rgba(255,180,120,.35);box-shadow:0 24px 60px -18px rgba(0,0,0,.9),0 0 0 5px rgba(255,150,80,.1);transition:opacity .5s ease,transform .5s ease;}'+
+  '.ri-flick img{width:100%;height:100%;object-fit:cover;object-position:50% 16%;}'+
+  '.ri-flick.out{opacity:0;transform:scale(.9);}'+
+  '.ri-silence{width:100%;height:100%;}'+
+  '@keyframes riSlam{0%{opacity:0;transform:scale(1.7);filter:blur(14px)}100%{opacity:1;transform:none;filter:blur(0)}}'+
+  '@keyframes riFlash{0%{opacity:1}100%{opacity:0}}'+
+  '@keyframes riSweep{0%{left:-25%}100%{left:105%}}'+
   '@keyframes riIn{0%{opacity:0}100%{opacity:1}}'+
   '@keyframes riUp{0%{opacity:0;transform:translateY(24px)}100%{opacity:1;transform:none}}'+
   '@keyframes riPop{0%{opacity:0;transform:scale(.7);filter:blur(6px)}100%{opacity:1;transform:none;filter:blur(0)}}'+
@@ -6572,31 +6595,103 @@ function _revBeats(order){
    A click SKIPS to the final frame rather than jumping into the countdown, so a host who is
    running late is never trapped watching their own intro. */
 function _revIntroScenes(rows){
-  var n=rows.length;
-  var metrics=8;
-  var avg=0, cnt=0, perfect=0;
+  var n=rows.length, metrics=8;
+  var avg=0,cnt=0,perfect=0,best=0;
   rows.forEach(function(r){
-    var v=parseFloat(r.overall); if(!isNaN(v)){ avg+=v; cnt++; }
+    var v=parseFloat(r.overall); if(!isNaN(v)){ avg+=v; cnt++; if(v>best) best=v; }
     if(parseFloat(r.attendance)>=100) perfect++;
   });
   avg=cnt?(avg/cnt):0;
+  var words=function(t){ return String(t).toUpperCase(); };
+  var slam=function(txt,sub){
+    return '<div class="ri ri-slamwrap"><div class="ri-slam">'+words(txt)+'</div>'+
+           (sub?'<div class="ri-slamsub">'+sub+'</div>':'')+'</div>';
+  };
+  var roll=rows.map(function(r){ return {r:r,k:Math.random()}; })
+               .sort(function(a,b){ return a.k-b.k; })
+               .map(function(o,i){
+                 var r=o.r, last=String(r.full_name||r.employee_id).split(',')[0];
+                 return '<div class="ri-rt" style="animation-delay:'+(0.2+i*0.16).toFixed(2)+'s">'+
+                   '<div class="ri-rph">'+_revPic(r)+'</div>'+
+                   '<div class="ri-rid">'+String(r.employee_id||'').toUpperCase()+'</div>'+
+                   '<div class="ri-rn">'+last.replace(/</g,'&lt;')+'</div>'+
+                 '</div>';
+               }).join('');
+
+  /* ══ THE COLD OPEN, ~48 SECONDS ══
+     Built as a rising build, not a slideshow. Three staccato word-slams open it cold with a sub
+     hit under each — that is what makes a room stop talking. Then the brand, the month, the
+     arithmetic, the criteria, and the full roll call of every contractor. Then three more slams
+     that state the terms, and only then the title card.
+     Every scene carries its own audio cue so the picture and the sound land together. */
   return [
-    { d:4600, html:'<div class="ri s1">'+_revLogoSVG()+'<div class="ri-brand">JMB VIRTUALS</div></div>' },
-    { d:4200, html:'<div class="ri s2"><div class="ri-kick">the</div><div class="ri-big">'+
-        String(_REV&&_REV.label||'').replace(/</g,'')+'</div><div class="ri-sub">Scorecard Rankings</div></div>' },
-    { d:7000, html:'<div class="ri s3"><div class="ri-kick">this month</div><div class="ri-stats">'+
+    { d:2600, snd:function(){ _revImpact(0.5); },            html:slam('One month') },
+    { d:2200, snd:function(){ _revImpact(0.5); },            html:slam('Eight metrics') },
+    { d:2800, snd:function(){ _revImpact(0.55); },           html:slam(n+' people', 'no votes were cast') },
+    { d:5000, snd:function(){ _revBell(783.99,0.14,0,5.0); }, html:'<div class="ri s1">'+_revLogoSVG()+'<div class="ri-brand">JMB VIRTUALS</div></div>' },
+    { d:4200, snd:function(){ _revShimmer(1.4,0.08); },      html:'<div class="ri s2"><div class="ri-kick">the</div><div class="ri-big">'+
+        String((_REV&&_REV.label)||'').replace(/</g,'')+'</div><div class="ri-sub">Scorecard Rankings</div></div>' },
+    { d:6800, snd:function(){ _revDing(); },                 html:'<div class="ri s3"><div class="ri-kick">this month</div><div class="ri-stats">'+
         '<div class="ri-stat"><b>'+n+'</b><span>Contractors ranked</span></div>'+
         '<div class="ri-stat"><b>'+metrics+'</b><span>Metrics each</span></div>'+
         '<div class="ri-stat"><b>'+(n*metrics)+'</b><span>Scores computed</span></div>'+
         '<div class="ri-stat"><b>'+avg.toFixed(1)+'</b><span>Team average</span></div>'+
       '</div></div>' },
-    { d:5200, html:'<div class="ri s4"><div class="ri-kick">measured on</div><div class="ri-chips">'+
+    { d:5200, snd:function(){ _revShimmer(1.4,0.07); },      html:'<div class="ri s4"><div class="ri-kick">measured on</div><div class="ri-chips">'+
         ['Productivity','Quality','Attendance','Assessment','Team Sales','Conduct','Reviewer Grade','Innovation']
           .map(function(t,i){ return '<span style="animation-delay:'+(0.15+i*0.16).toFixed(2)+'s">'+t+'</span>'; }).join('')+
       '</div></div>' },
-    { d:0,    html:'<div class="ri s5"><div class="ri-kick">and now</div>'+
+    /* ROLL CALL — every contractor, face and ID, in random order, then a band of light sweeps
+       the whole field. Same month, same metrics, same standard, everybody on this wall. */
+    { d:13000, snd:function(){ _revShimmer(2.0,0.08);
+                 setTimeout(function(){ try{ _revDing(); }catch(_e){} }, 300+rows.length*160); },
+      html:'<div class="ri s5"><div class="ri-kick">everyone who competed</div>'+
+        '<div class="ri-rollhead">'+n+' CONTRACTORS</div>'+
+        '<div class="ri-roll">'+roll+'<i class="ri-sweep" style="animation-delay:'+(0.2+n*0.16+0.5).toFixed(2)+'s"></i></div></div>' },
+    /* ── FACE FLICKER ──
+       One big frame cycling every contractor at speed, like a picker landing on someone. It is
+       the single most effective nerve-maker in here: everyone in the room sees their own face
+       flash past and knows it could stop on them. It accelerates, then cuts to nothing. */
+    { d:5200,
+      snd:function(){ _revDrum(4.6); _revDuck(14,5200); },
+      on:function(){
+        var img=document.getElementById('ri-flickimg'); if(!img) return;
+        var srcs=rows.map(function(r){ return r.hero||r.photo||''; }).filter(Boolean);
+        if(!srcs.length) return;
+        var i=0, gap=150;
+        var step=function(){
+          img.src=srcs[Math.floor(Math.random()*srcs.length)];
+          i++; gap=Math.max(55, gap*0.93);          // accelerate
+          if(!_REV) return;
+          _REV.flickI=setTimeout(step, gap);
+        };
+        step();
+        _REV.introT.push(setTimeout(function(){
+          try{ clearTimeout(_REV.flickI); }catch(_c){}
+          var w=document.getElementById('ri-flick'); if(w) w.classList.add('out');
+        }, 4300));
+      },
+      html:'<div class="ri ri-flickwrap"><div class="ri-kick">one of these</div>'+
+           '<div class="ri-flick" id="ri-flick"><img id="ri-flickimg" referrerpolicy="no-referrer"></div>'+
+           '<div class="ri-slamsub">is your number one</div></div>' },
+    /* Accelerating slams — each one shorter than the last. The quickening is what the room
+       feels even if nobody notices it consciously. */
+    { d:2000, snd:function(){ _revImpact(0.5); },  html:slam('No votes') },
+    { d:1600, snd:function(){ _revImpact(0.58); }, html:slam('No opinions') },
+    { d:2200, snd:function(){ _revImpact(0.68); _revBell(932.33,0.1,0,4.0); }, html:slam('Only the work') },
+    /* ── THE SILENCE ──
+       Music down to nothing, screen almost black, for a second and a half. Sound designers call
+       this the pre-drop. Nothing else in the whole sequence makes a room hold its breath like a
+       sudden absence after three hits. */
+    { d:1500,
+      snd:function(){ try{ if(_REV.yt&&_REV.yt.setVolume) _REV.yt.setVolume(0); }catch(_e){} },
+      html:'<div class="ri ri-silence"><span></span></div>' },
+    { d:0,
+      snd:function(){ try{ if(_REV.yt&&_REV.yt.setVolume&&!_REV.muted) _REV.yt.setVolume(REV_MUSIC_VOL); }catch(_e){}
+                      _revFanfare(); },
+      html:'<div class="ri s6"><div class="ri-kick">and now</div>'+
         '<div class="ri-big">THE RESULTS ARE IN</div>'+
-        '<div class="ri-sub">'+n+' ranked · one number one</div></div>' }
+        '<div class="ri-sub">'+n+' ranked · highest score '+best.toFixed(2)+'</div></div>' }
   ];
 }
 function _revLogoSVG(){
@@ -6617,17 +6712,22 @@ function _revIntroPlay(){
   _REV.introDone=false; _REV.introT=[];
   var show=function(i){
     if(!_REV) return;
-    stage.innerHTML=scenes[i].html;
+    var sc=scenes[i];
+    stage.innerHTML=sc.html;
+    try{ if(sc.snd) sc.snd(); }catch(_s){}
+    try{ if(sc.on) sc.on(); }catch(_o){}          // per-scene DOM work (flicker, ducking…)
     if(i===scenes.length-1){ _REV.introDone=true;
       var h=document.getElementById('rev-hint'); if(h) h.textContent='click to begin the countdown';
       return; }
-    _REV.introT.push(setTimeout(function(){ show(i+1); }, scenes[i].d));
+    _REV.introT.push(setTimeout(function(){ show(i+1); }, sc.d));
   };
   show(0);
 }
 function _revIntroSkip(){
   if(!_REV) return;
   (_REV.introT||[]).forEach(clearTimeout); _REV.introT=[];
+  try{ if(_REV.flickI) clearInterval(_REV.flickI); _REV.flickI=null; }catch(_f){}
+  try{ if(_REV.yt&&_REV.yt.setVolume&&!_REV.muted) _REV.yt.setVolume(REV_MUSIC_VOL); }catch(_v){}
   var stage=document.getElementById('rev-stage');
   var rows=_REV.order.map(function(e){ return e.r; });
   var scenes=_revIntroScenes(rows);
