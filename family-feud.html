@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JMB Family Feud</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════════════════════
+   JMB FAMILY FEUD — host board
+   One screen Jeth shares and controls. Teams shout answers over the call; every
+   reveal, strike and point award is a host click (or key). Same model as the
+   Rankings Reveal ceremony.
+   HOW TO EDIT QUESTIONS: scroll to "GAME DATA" further down — plain text.
+   ══════════════════════════════════════════════════════════════════════════════ */
+:root{ --ink:#262262; --hot:#f16623; --void:#191539; --gold:#ffd76e; }
+*{ box-sizing:border-box; margin:0 }
+body{
+  font-family:Inter,sans-serif; background:#191539; color:#fff;
+  min-height:100vh; overflow:hidden; user-select:none;
+}
+/* tunnel-family backdrop: two soft glows, no competition with the board */
+body::before{
+  content:''; position:fixed; inset:0; pointer-events:none;
+  background:
+    radial-gradient(60% 50% at 15% 108%, rgba(241,102,35,.20), transparent 60%),
+    radial-gradient(50% 45% at 88% -8%,  rgba(241,102,35,.14), transparent 60%);
+}
+.wrap{ position:relative; max-width:1240px; margin:0 auto; padding:22px 28px 30px; }
+
+/* ── header: title + team scores ── */
+.top{ display:flex; align-items:center; gap:20px; margin-bottom:16px; }
+.brand{ font-family:'Archivo Black',sans-serif; font-size:24px; letter-spacing:-.01em; }
+.brand em{ font-style:normal; color:var(--hot); }
+.team{
+  flex:1; display:flex; align-items:center; gap:14px; padding:12px 18px;
+  border-radius:16px; background:rgba(255,255,255,.06);
+  border:2px solid transparent; transition:border-color .25s, background .25s;
+}
+.team.hot{ border-color:var(--hot); background:rgba(241,102,35,.12); }
+.team .nm{ font-weight:800; font-size:17px; flex:1; background:none; border:none; color:#fff;
+  font-family:inherit; min-width:0; outline:none; border-bottom:1px dashed rgba(255,255,255,.25); }
+.team .sc{ font-family:'Archivo Black',sans-serif; font-size:34px; min-width:86px; text-align:right;
+  font-variant-numeric:tabular-nums; }
+.pot{
+  text-align:center; padding:10px 26px; border-radius:16px;
+  background:var(--ink); border:1px solid rgba(255,255,255,.14);
+}
+.pot .lbl{ font-size:10px; letter-spacing:.18em; color:rgba(255,255,255,.55); font-weight:700; }
+.pot .val{ font-family:'Archivo Black',sans-serif; font-size:32px; color:var(--gold);
+  font-variant-numeric:tabular-nums; }
+
+/* ── question banner ── */
+.qbar{
+  display:flex; align-items:center; gap:14px; margin-bottom:14px;
+  background:rgba(255,255,255,.05); border-radius:16px; padding:14px 20px;
+}
+.qnum{ font-family:'Archivo Black',sans-serif; color:var(--hot); font-size:15px; white-space:nowrap; }
+.qtext{ font-size:clamp(17px,2.2vw,24px); font-weight:800; line-height:1.25; }
+
+/* ── the board ── */
+.board{
+  display:grid; grid-template-columns:1fr 1fr; gap:12px;
+  background:var(--ink); border-radius:22px; padding:18px;
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.6);
+}
+.cell{ position:relative; height:76px; perspective:600px; cursor:pointer; }
+.cell .in{
+  position:absolute; inset:0; transform-style:preserve-3d;
+  transition:transform .55s cubic-bezier(.3,.6,.2,1.1);
+}
+.cell.open .in{ transform:rotateX(180deg); }
+.face{
+  position:absolute; inset:0; backface-visibility:hidden; border-radius:13px;
+  display:flex; align-items:center; padding:0 22px;
+}
+.face.front{
+  background:linear-gradient(180deg,#33307a,#262262);
+  border:1px solid rgba(255,255,255,.14);
+  justify-content:center;
+}
+.face.front .num{
+  font-family:'Archivo Black',sans-serif; font-size:30px; color:rgba(255,255,255,.85);
+  width:52px; height:52px; border-radius:50%; background:rgba(255,255,255,.08);
+  display:flex; align-items:center; justify-content:center;
+  border:2px solid rgba(255,255,255,.2);
+}
+.face.back{
+  transform:rotateX(180deg);
+  background:linear-gradient(180deg,#ff8a45,var(--hot));
+  color:#fff; justify-content:space-between; gap:14px;
+}
+.face.back .ans{ font-weight:800; font-size:clamp(15px,1.7vw,21px); text-transform:uppercase;
+  letter-spacing:.01em; }
+.face.back .pts{ font-family:'Archivo Black',sans-serif; font-size:26px; flex:none;
+  background:rgba(0,0,0,.22); border-radius:10px; padding:4px 13px; }
+.cell.blank{ visibility:hidden; }
+
+/* ── strikes ── */
+.strikes{ display:flex; gap:10px; justify-content:center; margin:16px 0 4px; min-height:56px; }
+.x{
+  font-family:'Archivo Black',sans-serif; font-size:40px; color:#e2413f;
+  width:56px; height:56px; border:4px solid #e2413f; border-radius:12px;
+  display:flex; align-items:center; justify-content:center; opacity:.16;
+  transition:opacity .1s;
+}
+.x.on{ opacity:1; animation:slam .35s cubic-bezier(.2,1.6,.4,1); }
+@keyframes slam{ 0%{ transform:scale(3); opacity:0 } 60%{ transform:scale(.92); opacity:1 } 100%{ transform:scale(1) } }
+/* full-screen strike flash */
+#bigx{
+  position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+  background:rgba(20,12,40,.78); z-index:50; pointer-events:none;
+}
+#bigx.show{ display:flex; }
+#bigx .gx{
+  font-family:'Archivo Black',sans-serif; font-size:min(38vw,420px); color:#e2413f;
+  text-shadow:0 0 90px rgba(226,65,63,.55); animation:slam .4s cubic-bezier(.2,1.6,.4,1);
+}
+
+/* ── host controls ── */
+.ctl{
+  display:flex; gap:9px; flex-wrap:wrap; align-items:center; margin-top:16px;
+  background:rgba(0,0,0,.28); border-radius:14px; padding:11px 14px;
+}
+.ctl b{ font-size:10px; letter-spacing:.14em; color:rgba(255,255,255,.5); margin-right:2px; }
+button{
+  font-family:Inter,sans-serif; font-weight:700; font-size:13px;
+  padding:9px 15px; border-radius:999px; border:1px solid rgba(255,255,255,.22);
+  background:rgba(255,255,255,.08); color:#fff; cursor:pointer;
+  transition:background .15s, transform .12s;
+}
+button:hover{ background:rgba(255,255,255,.17); transform:translateY(-1px); }
+button.hot{ background:var(--hot); border-color:var(--hot); }
+button.hot:hover{ filter:brightness(1.1); }
+button.grn{ background:#1d9e75; border-color:#1d9e75; }
+button.red{ background:#b33; border-color:#b33; }
+.key{ font-size:10px; opacity:.6; margin-left:5px; }
+
+/* ── fast money ── */
+#fm{ display:none; }
+#fm.on{ display:block; }
+#fm table{ width:100%; border-collapse:separate; border-spacing:0 10px; margin-top:6px; }
+#fm td{ padding:0 8px; }
+#fm input[type=text]{
+  width:100%; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.2);
+  border-radius:11px; padding:11px 14px; color:#fff; font:700 15px Inter,sans-serif; outline:none;
+}
+#fm input[type=text]:focus{ border-color:var(--hot); }
+#fm input.pts{ width:90px; text-align:center; font-family:'Archivo Black',sans-serif; font-size:19px; }
+#fm .fmq{ font-weight:800; font-size:14.5px; color:rgba(255,255,255,.85); }
+#fm .total{ font-family:'Archivo Black',sans-serif; font-size:44px; color:var(--gold); text-align:right; }
+.fm-goal{ color:rgba(255,255,255,.6); font-size:13px; font-weight:600; }
+
+/* winner overlay */
+#win{ position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+  flex-direction:column; gap:8px; background:rgba(20,14,45,.9); z-index:60; }
+#win.show{ display:flex; }
+#win .t{ font-family:'Archivo Black',sans-serif; font-size:min(9vw,92px); color:var(--gold);
+  text-align:center; line-height:1.05; }
+#win .s{ font-size:20px; font-weight:700; color:rgba(255,255,255,.8); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">JMB <em>FAMILY FEUD</em></div>
+    <div class="team" id="t0">
+      <input class="nm" id="n0" value="Team Morning" spellcheck="false">
+      <div class="sc" id="s0">0</div>
+    </div>
+    <div class="pot"><div class="lbl">ON THE BOARD</div><div class="val" id="pot">0</div></div>
+    <div class="team" id="t1">
+      <input class="nm" id="n1" value="Team Night" spellcheck="false">
+      <div class="sc" id="s1">0</div>
+    </div>
+  </div>
+
+  <div id="main">
+    <div class="qbar">
+      <div class="qnum" id="qnum">Q1/8</div>
+      <div class="qtext" id="qtext">—</div>
+    </div>
+    <div class="board" id="board"></div>
+    <div class="strikes" id="strikes">
+      <div class="x">✕</div><div class="x">✕</div><div class="x">✕</div>
+    </div>
+  </div>
+
+  <div id="fm">
+    <div class="qbar"><div class="qnum">FAST MONEY</div>
+      <div class="qtext">Winning team — two players, 5 questions each. Type answers live, award the survey points.</div></div>
+    <table id="fmtab"></table>
+    <div style="display:flex;align-items:center;gap:16px;justify-content:flex-end;margin-top:6px">
+      <span class="fm-goal">200 points wins the bragging rights</span>
+      <div class="total" id="fmtotal">0</div>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <b>REVEAL</b><span style="font-size:12px;opacity:.65">click any card, or keys 1–8</span>
+    <b style="margin-left:10px">STRIKE</b>
+    <button class="red" onclick="strike()">✕ Strike <span class="key">X</span></button>
+    <button onclick="clearStrikes()">Clear strikes</button>
+    <b style="margin-left:10px">AWARD</b>
+    <button class="hot" onclick="award(0)">→ <span id="an0">Team Morning</span> <span class="key">A</span></button>
+    <button class="hot" onclick="award(1)">→ <span id="an1">Team Night</span> <span class="key">L</span></button>
+    <b style="margin-left:10px">GAME</b>
+    <button onclick="revealAll()">Reveal rest <span class="key">R</span></button>
+    <button class="grn" onclick="nextQ()">Next question <span class="key">N</span></button>
+    <button onclick="prevQ()">Back</button>
+    <button onclick="toggleFM()">Fast Money</button>
+    <button onclick="crown()">Crown winner</button>
+    <button onclick="resetAll()" style="opacity:.6">Reset game</button>
+  </div>
+</div>
+
+<div id="bigx"><div class="gx">✕</div></div>
+<div id="win"><div class="t" id="wint">TEAM WINS!</div><div class="s" id="wins"></div></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════════
+   GAME DATA — EDIT HERE, JETH.
+   Each question: text, then answers best-first with their survey points.
+   3 to 8 answers per question, any number of questions. Placeholders below show
+   the format; replace them with your real surveyed questions.
+   ══════════════════════════════════════════════════════════════════════════════ */
+var GAME = [
+  { q: "Name-an: Unang ginagawa ng isang VA pagkagising bago mag-shift.",
+    a: [ ["Kape / Coffee muna", 38], ["Check ng phone / GC", 24], ["Ligo", 15],
+         ["Kain / almusal", 12], ["Toothbrush", 7], ["Balik tulog 5 minutes", 4] ] },
+  { q: "Bukod sa 'Sige po', ano ang pinaka-ginagamit na reply sa boss?",
+    a: [ ["Noted po", 35], ["Okay po", 26], ["Copy po", 18], ["Yes po", 12], ["On it po", 9] ] },
+  { q: "Name-an: Pagkain na laging nasa tabi habang naka-night shift.",
+    a: [ ["Kape", 30], ["Chichirya / junk food", 25], ["Biscuit / skyflakes", 16],
+         ["Pancit canton", 14], ["Softdrinks / energy drink", 10], ["Tinapay", 5] ] },
+  { q: "Ano ang unang sinisisi kapag nag-lag ang internet?",
+    a: [ ["PLDT / provider", 40], ["Ulan / bagyo", 22], ["Kapitbahay na nag-o-online game", 15],
+         ["Router — restart agad", 13], ["Si Lord, bakit po", 10] ] },
+  { q: "Name-an: Dahilan kung bakit late nag-reply ang isang kateam sa GC.",
+    a: [ ["Natulog / nakatulog", 32], ["Kumakain", 24], ["Nasa CR", 17],
+         ["Brownout", 14], ["Nag-charge ng phone", 8], ["Nanood ng TikTok", 5] ] },
+  { q: "Kapag sinabing 'quick meeting lang', gaano katagal talaga?",
+    a: [ ["Isang oras", 38], ["30 minutes", 26], ["Dalawang oras", 18], ["Kalahating araw", 11], ["5 minutes talaga (rare!)", 7] ] },
+  { q: "Name-an: Bagay sa bahay na nakaka-distract habang nagtatrabaho.",
+    a: [ ["Kama — ang lambot", 34], ["Cellphone / TikTok", 25], ["Ingay ng kapitbahay / videoke", 15],
+         ["Anak / kapatid / alaga", 12], ["TV / Netflix", 8], ["Ulam na niluluto", 6] ] },
+  { q: "Ano ang sinasabi mo kapag nag-freeze ang screen mo sa video call?",
+    a: [ ["Hello? Hello??", 30], ["Naririnig niyo ba ako?", 26], ["Lag ako ah", 18],
+         ["Frozen ba ako?", 14], ["*Aalis-balik sa meeting*", 12] ] }
+];
+var FAST_MONEY = [
+  "Isang salita: paborito mong araw ng linggo.",
+  "Name-an: pinaka-sikat na merienda sa Pilipinas.",
+  "Anong app ang unang binubuksan mo sa umaga?",
+  "Isang bagay na laging nawawala sa bahay.",
+  "Kumpletuhin: 'Sana all ______.'"
+];
+/* ── sounds — synthesised, in the ceremony's family ── */
+var AC=null;
+function ac(){ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); return AC; }
+function tone(type,f,t0,a,d,v,slide){
+  var c=ac(),o=c.createOscillator(),g=c.createGain(),t=c.currentTime+t0;
+  o.type=type; o.frequency.setValueAtTime(f,t);
+  if(slide) o.frequency.exponentialRampToValueAtTime(slide,t+a+d);
+  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(v,t+a);
+  g.gain.exponentialRampToValueAtTime(.0001,t+a+d);
+  o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+a+d+.05);
+}
+function sReveal(){ [660,880,1320].forEach(function(f,i){ tone('sine',f,i*.05,.01,.5,.16); }); }
+function sStrike(){ tone('sawtooth',180,0,.01,.5,.28,70); tone('square',120,.02,.01,.45,.18,55); }
+function sAward(){ [523,659,784,1047].forEach(function(f,i){ tone('sine',f,i*.07,.01,.6,.15); }); }
+function sNext(){ tone('sine',440,0,.01,.25,.14); tone('sine',660,.1,.01,.3,.14); }
+function sWin(){ [523,659,784,1047,1319,1568].forEach(function(f,i){ tone('sine',f,i*.09,.01,1.1,.14); tone('sine',f/2,i*.09,.01,1.2,.07); }); }
+
+/* ── state, persisted so an accidental refresh mid-meeting loses nothing ── */
+var S=null;
+function fresh(){ return { qi:0, open:{}, strikes:0, pot:0, scores:[0,0],
+  names:['Team Morning','Team Night'], fm:false,
+  fmAns:FAST_MONEY.map(function(){ return ['',0,'',0]; }) }; }
+function save(){ try{ localStorage.setItem('jmb_feud', JSON.stringify(S)); }catch(e){} }
+function load(){ try{ S=JSON.parse(localStorage.getItem('jmb_feud')||'null'); }catch(e){}
+  if(!S || !S.scores) S=fresh(); }
+
+function q(){ return GAME[S.qi]; }
+function render(){
+  document.getElementById('qnum').textContent='Q'+(S.qi+1)+'/'+GAME.length;
+  document.getElementById('qtext').textContent=q().q;
+  var b=document.getElementById('board'); b.innerHTML='';
+  var n=q().a.length, rows=Math.ceil(n/2);
+  for(var col=0; col<2; col++){
+    for(var r=0;r<rows;r++){
+      var i=col*rows+r;
+      var cell=document.createElement('div');
+      if(i>=n){ cell.className='cell blank'; b.appendChild(cell); continue; }
+      cell.className='cell'+(S.open[S.qi+'_'+i]?' open':'');
+      cell.innerHTML='<div class="in"><div class="face front"><div class="num">'+(i+1)+'</div></div>'+
+        '<div class="face back"><div class="ans">'+q().a[i][0]+'</div><div class="pts">'+q().a[i][1]+'</div></div></div>';
+      (function(idx,el){ el.onclick=function(){ reveal(idx); }; })(i,cell);
+      b.appendChild(cell);
+    }
+  }
+  /* board is column-major (1,2,3 left; 4,5,6 right) like the show */
+  document.getElementById('pot').textContent=S.pot;
+  document.getElementById('s0').textContent=S.scores[0];
+  document.getElementById('s1').textContent=S.scores[1];
+  document.getElementById('n0').value=S.names[0];
+  document.getElementById('n1').value=S.names[1];
+  document.getElementById('an0').textContent=S.names[0];
+  document.getElementById('an1').textContent=S.names[1];
+  var xs=document.querySelectorAll('.strikes .x');
+  xs.forEach(function(x,i){ x.classList.toggle('on', i<S.strikes); });
+  document.getElementById('main').style.display = S.fm?'none':'block';
+  document.getElementById('fm').classList.toggle('on', S.fm);
+  save();
+}
+function reveal(i){
+  var k=S.qi+'_'+i;
+  if(S.open[k]) return;
+  S.open[k]=1; S.pot+=q().a[i][1];
+  sReveal(); render();
+}
+function revealAll(){
+  /* reveal leftovers WITHOUT adding to the pot — end-of-round "let's see the rest" */
+  q().a.forEach(function(_,i){ S.open[S.qi+'_'+i]=1; });
+  sReveal(); render();
+}
+function strike(){
+  if(S.strikes>=3) return;
+  S.strikes++; sStrike();
+  var bx=document.getElementById('bigx');
+  bx.classList.add('show');
+  setTimeout(function(){ bx.classList.remove('show'); }, 750);
+  render();
+}
+function clearStrikes(){ S.strikes=0; render(); }
+function award(t){
+  S.scores[t]+=S.pot; S.pot=0; sAward();
+  var el=document.getElementById('t'+t);
+  el.classList.add('hot'); setTimeout(function(){ el.classList.remove('hot'); }, 1600);
+  render();
+}
+function nextQ(){ if(S.qi<GAME.length-1){ S.qi++; S.pot=0; S.strikes=0; sNext(); render(); } }
+function prevQ(){ if(S.qi>0){ S.qi--; S.pot=0; S.strikes=0; render(); } }
+
+/* ── fast money ── */
+function fmRender(){
+  var t=document.getElementById('fmtab'); t.innerHTML='';
+  FAST_MONEY.forEach(function(fq,i){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td class="fmq" style="width:34%">'+(i+1)+'. '+fq+'</td>'+
+      '<td><input type="text" data-i="'+i+'" data-p="0" placeholder="Player 1 answer" value="'+(S.fmAns[i][0]||'')+'"></td>'+
+      '<td><input type="text" class="pts" data-i="'+i+'" data-p="1" placeholder="0" value="'+(S.fmAns[i][1]||'')+'"></td>'+
+      '<td><input type="text" data-i="'+i+'" data-p="2" placeholder="Player 2 answer" value="'+(S.fmAns[i][2]||'')+'"></td>'+
+      '<td><input type="text" class="pts" data-i="'+i+'" data-p="3" placeholder="0" value="'+(S.fmAns[i][3]||'')+'"></td>';
+    t.appendChild(tr);
+  });
+  t.oninput=function(e){
+    var el=e.target, i=+el.dataset.i, p=+el.dataset.p;
+    S.fmAns[i][p]= (p===1||p===3) ? (parseInt(el.value,10)||0) : el.value;
+    var tot=0; S.fmAns.forEach(function(r){ tot+=(+r[1]||0)+(+r[3]||0); });
+    document.getElementById('fmtotal').textContent=tot;
+    save();
+  };
+  var tot=0; S.fmAns.forEach(function(r){ tot+=(+r[1]||0)+(+r[3]||0); });
+  document.getElementById('fmtotal').textContent=tot;
+}
+function toggleFM(){ S.fm=!S.fm; if(S.fm) fmRender(); render(); }
+
+function crown(){
+  var w = S.scores[0]===S.scores[1] ? -1 : (S.scores[0]>S.scores[1]?0:1);
+  document.getElementById('wint').textContent = w<0 ? "IT'S A TIE!" : S.names[w].toUpperCase()+' WINS!';
+  document.getElementById('wins').textContent = S.scores[0]+' — '+S.scores[1];
+  document.getElementById('win').classList.add('show');
+  sWin();
+}
+document.getElementById('win').onclick=function(){ this.classList.remove('show'); };
+
+/* team name edits persist */
+['n0','n1'].forEach(function(id,t){
+  document.getElementById(id).addEventListener('input',function(){
+    S.names[t]=this.value; document.getElementById('an'+t).textContent=this.value; save();
+  });
+});
+
+/* keyboard: 1-8 reveal · X strike · A/L award · N next · R reveal-rest */
+document.addEventListener('keydown',function(e){
+  if(e.target.tagName==='INPUT') return;
+  var k=e.key.toLowerCase();
+  if(k>='1' && k<='8'){ var i=+k-1; if(i<q().a.length) reveal(i); }
+  else if(k==='x') strike();
+  else if(k==='a') award(0);
+  else if(k==='l') award(1);
+  else if(k==='n') nextQ();
+  else if(k==='r') revealAll();
+});
+
+function resetAll(){
+  if(!confirm('Reset scores, strikes and all revealed answers?')) return;
+  S=fresh(); render();
+}
+load(); render();
+</script>
+</body>
+</html>
