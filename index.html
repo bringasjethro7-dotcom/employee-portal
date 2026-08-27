@@ -11343,7 +11343,12 @@ var trkHeartbeatTick = null;
 // from the local snapshot (independent of the server). Long enough to cover a
 // refresh, a brief close, or a server-side sweep; short enough that a genuinely
 // abandoned timer (overnight) is not resurrected.
-var TRK_RESUME_WINDOW_MS = 30 * 60 * 1000;
+/* 30 min -> 10 h (timer-theft fix): Chrome's Memory Saver discards background tabs,
+   and a VA returning after lunch+meetings was outside the old window — the saved
+   timer was silently dropped even though the marker was intact. The marker is
+   already guarded to the same shift date, and the server row still exists, so a
+   long window resurrects only genuinely-live work. */
+var TRK_RESUME_WINDOW_MS = 10 * 60 * 60 * 1000;
 // ── Independent dropdown memory ──────────────────────────────────────────────
 // The Project / Category / Task selection is remembered on its own (separate from
 // the running-timer snapshot), and re-applied on load with retries that wait for
@@ -11390,6 +11395,18 @@ function startHeartbeat() {
 function stopHeartbeat() { if (trkHeartbeatTick) { clearInterval(trkHeartbeatTick); trkHeartbeatTick = null; } }
 document.addEventListener('visibilitychange', function(){
   if (!document.hidden && trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });
+});
+/* Last-gasp beat (timer-theft fix): stamp last_beat as the page unloads — forced
+   refresh, tab close, navigation. sendBeacon survives teardown; fetch doesn't.
+   Also re-save the marker so the restore has the freshest possible snapshot. */
+window.addEventListener('pagehide', function(){
+  try{
+    if (!trkRunning || !trkOwns) return;
+    _saveActiveMarker();
+    var u = APPS_SCRIPT_URL + '?action=tracker_heartbeat&employee_id=' + encodeURIComponent(attEmpId) +
+            '&entry_id=' + encodeURIComponent(trkRunning.entry_id) + '&_=' + Date.now();
+    if (navigator.sendBeacon) navigator.sendBeacon(u);
+  }catch(e){}
 });
 // Move the running task into the paused list locally (banks its active seconds)
 function _bankRunningToPaused() {
