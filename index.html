@@ -16169,6 +16169,26 @@ function pickBg(id){
   try { showToast('Background updated', 'success'); } catch(e) {}
 }
 
+// ── REFRESH ALERT: "Rollcall" ──
+// Jeth's pick. Up-down-up played twice with a ringing echo (~3s), so a VA who is
+// not looking at the portal still knows it is about to refresh itself. Built as a
+// SYSTEM sound alongside playDemeritWarning — always plays, not a chat ringtone —
+// which keeps it out of the user-selectable RINGTONES registry on purpose.
+function playRefreshAlert(){
+  if (typeof _ensureAudio === 'function' && !_ensureAudio()) return;
+  try{
+    var t = _ac.currentTime + 0.02;
+    function trio(t0, dur, vol){
+      [659, 523, 784].forEach(function(f, i){
+        _tone('sine', f,     t0 + i*0.2, 0.006, dur,      vol);
+        _tone('sine', f*2,   t0 + i*0.2, 0.006, dur*0.4,  vol*0.25);
+      });
+    }
+    trio(t,       1.0, 0.16);
+    trio(t + 1.5, 1.4, 0.11);   // softer echo — length without alarm
+  }catch(e){ console.warn('playRefreshAlert:', e); }
+}
+
 // ── FORCE-REFRESH WATCH ──
 // Admin can bump a version token; every open portal sees it and reloads with a fresh
 // cache-buster so everyone picks up a new build without manually hard-refreshing.
@@ -16184,10 +16204,13 @@ function checkForcedRefresh(){
       if (ver !== seen) {
         try { localStorage.setItem(PORTAL_VER_KEY, ver); } catch(e) {}
         try { showToast('Portal updated — refreshing…'); } catch(e) {}
+        try { playRefreshAlert(); } catch(e) {}
+        /* 3.4s, not 1.4s: the Rollcall runs ~3s and a reload mid-ring would clip it —
+           the whole point is being heard before the page goes away */
         setTimeout(function(){
           try { var u = new URL(location.href); u.searchParams.set('v', ver); location.replace(u.toString()); }
           catch(e) { location.reload(); }
-        }, 1400);
+        }, 3400);
       }
     }).catch(function(){});
 }
