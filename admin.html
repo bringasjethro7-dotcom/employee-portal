@@ -7841,6 +7841,7 @@ header {
 <script>
 function injectAdminBrand(){try{var nav=document.querySelector(".navbar");if(!nav||document.getElementById("adm-brand"))return;var logo=document.getElementById("admin-logo-img");var src=logo?logo.src:"";var b=document.createElement("div");b.id="adm-brand";b.className="adm-brand";b.innerHTML='<span class="adm-brand-mark"><img src="'+src+'" alt=""></span><span class="adm-brand-tx"><span class="adm-brand-nm">JMB Virtuals</span><span class="adm-brand-sub">Admin Console</span></span>';nav.insertBefore(b,nav.firstChild);var ml=document.createElement("div");ml.className="adm-menu-label";ml.textContent="MANAGEMENT";nav.insertBefore(ml,b.nextSibling);}catch(e){}}
 if(document.readyState!=="loading")injectAdminBrand();else document.addEventListener("DOMContentLoaded",injectAdminBrand);
+
 </script>
 
 <style id="admin-darkside">
@@ -7979,5 +7980,187 @@ body{
 .ivp-pct small{ font-size:15px; font-weight:800; }
 @media(prefers-reduced-motion:reduce){ .ivp-bar i::after{ animation:none; } }
 </style>
+<style id="jmb-admin-v2">
+/* ══════════════════════════════════════════════════════════════════════════════
+   JMB ADMIN v2 — parity with the launched portal, every launch lesson pre-applied:
+   · geometry from JS as inline !important (admin stacks its own darkside/glass
+     blocks over .navbar, same as the portal did — CSS here would lose)
+   · width-measured bleed tab, never negative margins
+   · focus ring killed on nav rows + blur after click (the "orange bar")
+   · sub-items raised above the notch (admin-only: portal had no sub-items)
+   · display on the login handled WITHOUT !important so dismissal works
+   ══════════════════════════════════════════════════════════════════════════════ */
+@media(min-width:1000px){
+  :root{
+    --card:#fdf6f0 !important;    --card-1:#fdf6f0 !important;
+    --bg-card:#fdf6f0 !important; --bg-1:#ffffff !important;
+    --card2:#f8efe6 !important;   --card-2:#f8efe6 !important;  --bg-card2:#f8efe6 !important;
+  }
+  html body .body, html body header{ background:#ffffff !important; background-image:none !important; }
+  .dash-card, .panel, .dash-item{ background:#fdf6f0 !important; border-color:#f2e4d8 !important; }
+
+  /* nav rows: kill every orange/glow state and the focus ring at the source */
+  html .navbar .navgroup, html .navbar .navgroup:hover,
+  html .navbar .navgroup:focus, html .navbar .navgroup:focus-visible, html .navbar .navgroup:active{
+    outline:none !important; outline-style:none !important; outline-width:0 !important;
+    outline-color:transparent !important; box-shadow:none !important;
+    background-image:none !important; animation:none !important;
+  }
+  html .navbar .navgroup{ color:rgba(255,255,255,.9) !important; border-radius:13px !important; border-color:transparent !important; }
+  html .navbar .navgroup:hover{ background:rgba(255,255,255,.15) !important; color:#fff !important; }
+  html .navbar .navgroup.active, html .navbar .navgroup.active:hover{
+    background:#ffffff !important; color:#262262 !important;
+  }
+  html .navbar .navgroup svg, html .navbar .navgroup svg *{ color:inherit !important; stroke:currentColor !important; filter:none !important; }
+
+  html .navbar .navsubs{ position:relative !important; z-index:3 !important; }
+  html .navbar .navsub{ color:rgba(255,255,255,.72) !important; border:none !important; }
+  html .navbar .navsub:hover{ background:rgba(255,255,255,.12) !important; color:#fff !important; }
+  html .navbar .navsub.active{ background:rgba(255,255,255,.95) !important; color:#262262 !important; }
+  html .navbar .navsub:focus, html .navbar .navsub:focus-visible{ outline:none !important; box-shadow:none !important; }
+
+  .adm-brand-nm{ color:#fff !important; }
+  .adm-brand-sub, .adm-menu-label{ color:rgba(255,255,255,.55) !important; }
+  .adm-brand{ border-bottom-color:rgba(255,255,255,.16) !important; }
+  .adm-brand-mark{ background:#fff !important; border-radius:11px !important; }
+
+  /* header sign-out retires — logout lives at the bottom of the rail */
+  .btn-logout{ display:none !important; }
+}
+/* admin login: match the palette without a full remodel (low-traffic screen) */
+#login{ background:#191539 !important; }
+#login .box{ border-color:rgba(255,255,255,.14) !important; }
+</style>
+<script>
+/* ── ADMIN RAIL — the portal's final recipe on admin's markup ─────────────── */
+(function(){
+  var GRAD='linear-gradient(220deg,#262262 0%,#3e2a5a 30%,#96473f 62%,#dd5f29 86%,#f16623 100%)';
+  var SURF='#ffffff', INK='#262262', W=252, RAD=11, R=22;
+  var rail=null, DONE='data-jmb-ok';
+  function imp(el,p,v){ el && el.style.setProperty(p,v,'important'); }
+
+  function styleRail(){
+    imp(rail,'background',GRAD); imp(rail,'background-image',GRAD);
+    imp(rail,'backdrop-filter','none'); imp(rail,'-webkit-backdrop-filter','none');
+    imp(rail,'width',W+'px'); imp(rail,'top','0'); imp(rail,'left','0');
+    /* vh, not px: a computed pixel height re-measured on every pass is what made
+       the portal's gradient band jump between frames */
+    imp(rail,'height','100vh'); imp(rail,'max-height','none');
+    imp(rail,'border','none'); imp(rail,'border-right','none');
+    imp(rail,'border-radius','0 '+RAD+'px '+RAD+'px 0');
+    imp(rail,'box-shadow','-10px 8px 30px -14px rgba(0,0,0,.30)');
+    imp(rail,'overflow','visible');
+    imp(rail,'padding-bottom','16px');
+    var hd=document.querySelector('header');
+    if(hd && getComputedStyle(hd).position==='fixed') imp(hd,'left',W+'px');
+    var bd=document.querySelector('.body');
+    if(bd) imp(bd,'padding-left',(W+30)+'px');
+  }
+
+  function corner(top){
+    var c=document.createElement('span'); c.className='jmb-notch';
+    imp(c,'position','absolute'); imp(c,'right','0'); imp(c,'width',R+'px');
+    imp(c,'height',R+'px'); imp(c,'pointer-events','none'); imp(c,'z-index','1');
+    imp(c, top?'bottom':'top','100%');
+    imp(c,'background','radial-gradient(circle at 0% '+(top?'0%':'100%')+
+        ', transparent '+R+'px, '+SURF+' '+R+'px)');
+    return c;
+  }
+
+  function footer(){
+    if(rail.querySelector('.jmb-foot')) return;
+    var f=document.createElement('div'); f.className='jmb-foot';
+    imp(f,'margin-top','auto'); imp(f,'padding','14px 12px 4px');
+    var b=document.createElement('button'); b.type='button';
+    b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '+
+      'stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px">'+
+      '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/>'+
+      '<line x1="21" y1="12" x2="9" y2="12"/></svg><span>Logout</span>';
+    b.style.cssText='width:100%;display:flex;align-items:center;justify-content:center;gap:9px;'+
+      'background:rgba(0,0,0,.22);color:#fff;border:1px solid rgba(255,255,255,.2);'+
+      'border-radius:999px;padding:12px 16px;font:700 14px/1 Inter,sans-serif;cursor:pointer;'+
+      'transition:transform .18s ease,background .18s ease';
+    b.onmouseenter=function(){ b.style.transform='translateY(-2px)'; b.style.background='rgba(0,0,0,.34)'; };
+    b.onmouseleave=function(){ b.style.transform='none'; b.style.background='rgba(0,0,0,.22)'; };
+    b.onclick=function(){ try{ doLogout(); }catch(e){ location.reload(); } };
+    var r=document.createElement('div'); r.textContent='ADMINISTRATOR';
+    r.style.cssText='text-align:center;color:rgba(255,255,255,.6);font-size:10.5px;'+
+      'font-weight:700;letter-spacing:.14em;margin-top:11px';
+    f.appendChild(b); f.appendChild(r); rail.appendChild(f);
+  }
+
+  function apply(){
+    if(!rail){ rail=document.querySelector('.navbar'); if(!rail) return; }
+    var a0=rail.querySelector('.navgroup.active');
+    if(a0 && a0.getAttribute(DONE)==='1' &&
+       Math.abs(rail.getBoundingClientRect().right-a0.getBoundingClientRect().right)<=1) return;
+    styleRail(); footer();
+    var all=rail.querySelectorAll('.navgroup');
+    for(var i=0;i<all.length;i++){
+      var g=all[i];
+      Array.prototype.forEach.call(g.querySelectorAll('.jmb-notch'),function(n){ n.remove(); });
+      if(!g.classList.contains('active')){
+        ['width','align-self','flex','max-width','margin-right','padding-right','background','box-shadow']
+          .forEach(function(p){ g.style.removeProperty(p); });
+        g.removeAttribute(DONE);
+        imp(g,'color','#ffffff');
+        g.querySelectorAll('svg, svg *').forEach(function(n){
+          n.style.setProperty('color','#ffffff','important');
+          n.style.setProperty('stroke','#ffffff','important');
+        });
+      }
+    }
+    var a=rail.querySelector('.navgroup.active'); if(!a) return;
+    imp(a,'position','relative'); imp(a,'z-index','2');
+    imp(a,'border-radius','999px 0 0 999px');
+    imp(a,'background',SURF); imp(a,'background-image','none');
+    imp(a,'color',INK); imp(a,'box-shadow','none');
+    imp(a,'outline','none'); imp(a,'outline-width','0'); imp(a,'outline-color','transparent');
+    a.querySelectorAll('svg, svg *').forEach(function(n){
+      n.style.setProperty('color',INK,'important');
+      n.style.setProperty('stroke',INK,'important');
+    });
+    /* WIDTH to the rail edge — the portal proved negative margins cannot move the
+       right edge of a width:100% element, they only shrink its reserved space */
+    imp(a,'box-sizing','border-box'); imp(a,'align-self','flex-start');
+    imp(a,'margin-right','0'); imp(a,'max-width','none'); imp(a,'flex','0 0 auto');
+    for(var pass=0; pass<3; pass++){
+      var railR=rail.getBoundingClientRect().right, aL=a.getBoundingClientRect().left;
+      imp(a,'width',(Math.ceil(railR-aL)+2)+'px');
+      imp(a,'padding-right','20px');
+      if(Math.abs(Math.round(railR-a.getBoundingClientRect().right))<=1) break;
+    }
+    a.appendChild(corner(true)); a.appendChild(corner(false));
+    a.setAttribute(DONE,'1');
+  }
+
+  function start(){
+    apply(); if(!rail) return;
+    var busy=false;
+    new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var t=muts[i].target;
+        if(t && t.classList && t.classList.contains('jmb-notch')) return;
+      }
+      if(busy) return; busy=true;
+      setTimeout(function(){ apply(); busy=false; },0);
+    }).observe(rail,{subtree:true,attributes:true,attributeFilter:['class','style']});
+    document.addEventListener('click',function(e){
+      if(!rail.contains(e.target)) return;
+      try{ var g=e.target.closest && e.target.closest('.navgroup, .navsub'); if(g) g.blur(); }catch(_e){}
+      requestAnimationFrame(function(){ apply();
+        setTimeout(apply,60); setTimeout(apply,220); });
+    },true);
+    window.addEventListener('resize',function(){ apply(); });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start);
+  else start();
+  var t0=Date.now();
+  var iv=setInterval(function(){
+    try{ apply(); }catch(e){ console.log('[jmb-admin] '+e.message); }
+    if(Date.now()-t0>8000) clearInterval(iv);
+  },400);
+})();
+</script>
 </body>
 </html>
