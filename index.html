@@ -34023,9 +34023,9 @@ var PORTAL_BUILD='2026-08-25-A';
     var s2=slide(); rest.forEach(function(n){s2.appendChild(n);});
     var s3=slide();
     s3.innerHTML='<div style="font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;'+
-      'font-weight:800;margin-bottom:10px">This cutoff</div>'+
+      'font-weight:800;margin-bottom:10px;color:var(--jmb-muted,#94a3b8)">This cutoff</div>'+
       '<div id="jmb-deck-figs" style="display:flex;gap:26px;flex-wrap:wrap"></div>'+
-      '<div style="margin-top:14px;font-size:11.5px;color:#64748b;line-height:1.5;max-width:330px">'+
+      '<div style="margin-top:14px;font-size:11.5px;color:var(--jmb-body,#64748b);line-height:1.5;max-width:330px">'+
       'Live from your attendance and points. Updates as the cutoff progresses.</div>';
 
     var slides=[s1,s2,s3].filter(function(x){return x.childNodes.length;});
@@ -34034,10 +34034,12 @@ var PORTAL_BUILD='2026-08-25-A';
 
     /* progress line — fills over the interval so advancing never feels random */
     var bar=el('div','height:2px;border-radius:2px;background:rgba(15,23,42,.10);margin-top:13px;overflow:hidden;');
+    bar.className='jmb-bar';
     var fill=el('div','height:100%;width:0%;border-radius:2px;background:#f16623;');
     bar.appendChild(fill);
 
     var dots=el('div','display:flex;gap:6px;margin-top:9px;align-items:center;');
+    dots.className='jmb-dots';
     var dotEls=slides.map(function(_,i){
       var d=el('button','width:7px;height:7px;padding:0;border:none;border-radius:99px;'+
         'background:rgba(15,23,42,.18);cursor:pointer;transition:width .3s ease,background .3s ease;');
@@ -34144,13 +34146,20 @@ var PORTAL_BUILD='2026-08-25-A';
 
     function figs(){
       var host=document.getElementById('jmb-deck-figs'); if(!host) return;
-      var data=[['Hours',txt('hero-st-hours')||'—','#e2542a'],
-                ['Attendance',txt('hero-st-att')||'—','#16a34a'],
-                ['JMB points',txt('hero-st-pts')||'—','#d97706']];
+      /* colours flip with the time-of-day palette — the fixed light-theme set
+         sank into the evening gradient, which is what Jeth screenshotted */
+      var dark=!!window.jmbDark;
+      var data= dark
+        ? [['Hours',txt('hero-st-hours')||'—','#ff9d6b'],
+           ['Attendance',txt('hero-st-att')||'—','#5eead4'],
+           ['JMB points',txt('hero-st-pts')||'—','#fcd34d']]
+        : [['Hours',txt('hero-st-hours')||'—','#e2542a'],
+           ['Attendance',txt('hero-st-att')||'—','#16a34a'],
+           ['JMB points',txt('hero-st-pts')||'—','#d97706']];
       host.innerHTML=data.map(function(d){
         return '<div><div style="font-size:26px;font-weight:800;letter-spacing:-.02em;color:'+d[2]+
         ';line-height:1.1">'+d[1]+'</div><div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;'+
-        'color:#94a3b8;font-weight:800;margin-top:3px">'+d[0]+'</div></div>';}).join('');
+        'color:var(--jmb-muted,#94a3b8);font-weight:800;margin-top:3px">'+d[0]+'</div></div>';}).join('');
     }
     figs(); setInterval(figs,5000);
     built=true;
@@ -34327,6 +34336,16 @@ var PORTAL_BUILD='2026-08-25-A';
     imp(document.getElementById('hero-role'),'color',muted);
     imp(document.getElementById('hero-id'),'color',faint);
     /* the greeting the portal writes is server-side and time-zone naive */
+    /* publish the palette: the deck's captions, dots and progress track read these,
+       so screen three stays legible when the hero goes dark in the evening */
+    window.jmbDark=!!p.dark;
+    hero.style.setProperty('--jmb-muted', faint);
+    hero.style.setProperty('--jmb-body', muted);
+    var bar=hero.querySelector('.jmb-bar');
+    if(bar) imp(bar,'background', p.dark?'rgba(255,255,255,.22)':'rgba(15,23,42,.10)');
+    hero.querySelectorAll('.jmb-dots button').forEach(function(d){
+      if(d.style.width!=='20px') imp(d,'background', p.dark?'rgba(255,255,255,.35)':'rgba(15,23,42,.18)');
+    });
     var g=document.getElementById('hero-greet');
     if(g && /good|morning|afternoon|evening|late/i.test(g.textContent)){
       g.textContent = p.g + ' \u{1F44B}';
@@ -34512,17 +34531,34 @@ var PORTAL_BUILD='2026-08-25-A';
     if(baseFav===null) baseFav=favEl.href||'';
     return favEl;
   }
+  /* the REAL JMB logo as the favicon, with the unread bubble drawn over it.
+     The first version was a canvas-drawn indigo circle with a 'J' — unreadable at
+     16px and it looked like a stranger in the tab bar. The logo img is already on
+     the page, so it is reused; the plain circle only appears until it loads. */
+  var logoImg=null;
+  function logo(){
+    if(logoImg) return logoImg;
+    var el=document.querySelector('#header-logo-img, #login-card-logo, img[src*="logo"]');
+    if(el && el.src && el.complete && el.naturalWidth>0) logoImg=el;
+    return logoImg;
+  }
   function dot(n){
-    /* draw the badge onto a small canvas rather than shipping two icon files */
     var c=document.createElement('canvas'); c.width=c.height=64;
     var x=c.getContext('2d');
-    x.fillStyle='#262262'; x.beginPath(); x.arc(32,32,30,0,7); x.fill();
-    x.fillStyle='#fff'; x.font='700 30px Inter, sans-serif';
-    x.textAlign='center'; x.textBaseline='middle'; x.fillText('J',32,34);
+    var lg=logo();
+    if(lg){
+      try{ x.drawImage(lg,2,2,60,60); }catch(e){ lg=null; }
+    }
+    if(!lg){
+      x.fillStyle='#262262'; x.beginPath(); x.arc(32,32,30,0,7); x.fill();
+      x.fillStyle='#fff'; x.font='700 30px Inter, sans-serif';
+      x.textAlign='center'; x.textBaseline='middle'; x.fillText('J',32,34);
+    }
     if(n>0){
-      x.fillStyle='#f16623'; x.beginPath(); x.arc(48,16,15,0,7); x.fill();
-      x.fillStyle='#fff'; x.font='700 19px Inter, sans-serif';
-      x.fillText(n>9?'9+':String(n),48,17);
+      x.fillStyle='#f16623'; x.beginPath(); x.arc(47,17,16,0,7); x.fill();
+      x.fillStyle='#fff'; x.font='700 20px Inter, sans-serif';
+      x.textAlign='center'; x.textBaseline='middle';
+      x.fillText(n>9?'9+':String(n),47,18);
     }
     return c.toDataURL('image/png');
   }
