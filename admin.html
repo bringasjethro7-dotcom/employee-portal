@@ -680,10 +680,29 @@ body{background-attachment:initial !important}
   <header>
     <div class="htitle"><img id="admin-logo-img" alt="" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%2276%2082%20360%20360%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22m%22%20x1%3D%220%22%20y1%3D%22.05%22%20x2%3D%220%22%20y2%3D%22.95%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FFE0BE%22%2F%3E%3Cstop%20offset%3D%22.16%22%20stop-color%3D%22%23FFB16A%22%2F%3E%3Cstop%20offset%3D%22.46%22%20stop-color%3D%22%23FF7A29%22%2F%3E%3Cstop%20offset%3D%22.78%22%20stop-color%3D%22%23F1560F%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23C3380A%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22b%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FF8E45%22%2F%3E%3Cstop%20offset%3D%22.55%22%20stop-color%3D%22%23E64C10%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23A52E08%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20x%3D%22241%22%20y%3D%22110%22%20width%3D%2230%22%20height%3D%22304%22%20rx%3D%2215%22%20fill%3D%22url%28%23m%29%22%2F%3E%3Cpath%20d%3D%22M256%20226Q341%20264%20398%20320Q341%20376%20256%20414Q171%20376%20114%20320Q171%20264%20256%20226Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23b%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3Cpath%20d%3D%22M256%20110Q341%20148%20398%20204Q341%20260%20256%20298Q171%20260%20114%20204Q171%20148%20256%20110Z%22%20fill%3D%22none%22%20stroke%3D%22url%28%23m%29%22%20stroke-width%3D%2250%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E" /> Portal admin <span class="pill" style="margin-bottom:0;">Admin</span></div>
     <div style="display:flex;align-items:center;gap:10px;">
+      <button class="blogout" onclick="openBoboAdmin()" title="Launch and host the Bobo Shot elimination game" style="border-color:rgba(241,102,35,.55);color:var(--o3);font-weight:700;">💥 Bobo Shot</button>
       <button class="blogout" onclick="forceRefreshAll()" title="Reload every open portal so users get the latest update" style="border-color:rgba(255,107,26,.45);color:var(--o3);">↻ Refresh all users</button>
       <button class="blogout" onclick="doLogout()">Sign out</button>
     </div>
   </header>
+
+  <!-- ═══ BOBO SHOT — standalone host modal (independent of Settings) ═══ -->
+  <div id="bobo-admin-modal" style="display:none;position:fixed;inset:0;z-index:9700;align-items:flex-start;justify-content:center;background:rgba(10,7,24,.72);backdrop-filter:blur(5px);padding:36px 16px;overflow:auto;">
+    <div style="width:600px;max-width:100%;background:#fff;border:1px solid rgba(15,23,42,.12);border-radius:18px;padding:22px;box-shadow:0 40px 110px rgba(0,0,0,.4);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-size:18px;font-weight:800;color:var(--t1);">💥 Bobo Shot <span style="font-size:12px;color:var(--t3);font-weight:600;">— last one standing</span></div>
+        <button class="bsm" onclick="closeBoboAdmin()">✕ Close</button>
+      </div>
+      <div style="font-size:12.5px;color:var(--t3);margin-bottom:14px;line-height:1.55;">Launch → every signed-in portal opens the game and joins the lobby. Pick a category; each cycle players must give a <b>new</b> answer (not one already said in this category). No answer or a repeat = out. Keep clicking <b>Next cycle</b> on the same category until someone drops, or switch to a <b>new category</b> anytime. Reject a bogus answer to eliminate. Last one standing wins 150 JMB Points.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="blogout" id="bobo-launch-btn" onclick="boboLaunch()" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">💥 Launch game</button>
+        <label style="font-size:12px;color:var(--t2);font-weight:700;">seconds/cycle <input id="bobo-secs" type="number" min="6" max="60" value="15" style="width:58px;padding:5px 7px;border:1px solid rgba(15,23,42,.15);border-radius:8px;font:inherit;"></label>
+        <button class="bsm" onclick="boboHostRefresh()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+      </div>
+      <div id="bobo-host" style="margin-top:14px;"></div>
+    </div>
+  </div>
+
   <div class="body">
     <!-- Grouped navigation (top-level groups + sub-tabs) -->
     <div class="navbar">
@@ -7661,18 +7680,6 @@ async function sendNotify(){
       <div id="gq-results"><div class="es" style="padding:12px;">Loading…</div></div>
     </div>
 
-    <!-- ═══ BOBO SHOT host panel ═══ -->
-    <div style="border:1px solid rgba(241,102,35,.28);border-radius:14px;padding:16px;margin-top:14px;background:linear-gradient(180deg,rgba(241,102,35,.05),transparent);">
-      <div style="font-size:15px;font-weight:800;color:var(--t1);margin-bottom:2px;">💥 Bobo Shot <span style="font-size:11px;color:var(--t3);font-weight:600;">— last one standing</span></div>
-      <div style="font-size:12.5px;color:var(--t3);margin-bottom:12px;line-height:1.5;">Admin-run elimination game. Launch it → every signed-in portal opens the Bobo Shot screen. Each round you reveal a Pinoy category; players type an answer before the buzzer. No answer or an exact repeat = out. Reject bogus answers yourself. Last one standing wins 150 JMB Points.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <button class="blogout" id="bobo-launch-btn" onclick="boboLaunch()" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">💥 Launch Bobo Shot</button>
-        <label style="font-size:12px;color:var(--t2);font-weight:700;">seconds/round <input id="bobo-secs" type="number" min="6" max="40" value="12" style="width:56px;padding:5px 7px;border:1px solid rgba(15,23,42,.15);border-radius:8px;font:inherit;"></label>
-        <button class="bsm" onclick="boboHostRefresh()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
-      </div>
-      <div id="bobo-host" style="margin-top:12px;"></div>
-    </div>
-
     <div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div style="font-size:15px;font-weight:800;color:var(--t1);">🎁 Points redemptions</div>
@@ -7704,12 +7711,14 @@ async function launchTrivia(){
     else { alert('Could not launch'+((d&&d.error)?(': '+d.error):'.')); }
   }catch(e){ alert('Network error — could not launch.'); }
 }
-/* ═══ BOBO SHOT host controls ═══ */
+/* ═══ BOBO SHOT host controls (standalone modal · cycle model) ═══ */
 var _boboIv=null;
 function boboEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function openBoboAdmin(){ document.getElementById('bobo-admin-modal').style.display='flex'; boboHostRefresh(); if(!_boboIv) _boboIv=setInterval(boboHostRefresh,2500); }
+function closeBoboAdmin(){ document.getElementById('bobo-admin-modal').style.display='none'; if(_boboIv){clearInterval(_boboIv);_boboIv=null;} }
 async function boboLaunch(){
-  if(!confirm('Launch BOBO SHOT on ALL signed-in portals now?\n\nEveryone gets the screen and joins the lobby. You then start each round from here.')) return;
-  var secs=parseInt((document.getElementById('bobo-secs')||{}).value,10)||12;
+  if(!confirm('Launch BOBO SHOT on ALL signed-in portals now?\n\nEveryone gets the screen and joins the lobby. You then pick a category and run the cycles from here.')) return;
+  var secs=parseInt((document.getElementById('bobo-secs')||{}).value,10)||15;
   try{
     var r=await fetch(API+'?action=bobo_launch&pass='+encodeURIComponent(admPass())+'&secs='+secs+'&_='+Date.now());
     var d=await r.json();
@@ -7718,7 +7727,7 @@ async function boboLaunch(){
   }catch(e){ alert('Network error — could not launch.'); }
 }
 async function boboHostAct(act, target){
-  var secs=parseInt((document.getElementById('bobo-secs')||{}).value,10)||12;
+  var secs=parseInt((document.getElementById('bobo-secs')||{}).value,10)||15;
   try{
     var u=API+'?action=bobo_host&pass='+encodeURIComponent(admPass())+'&act='+encodeURIComponent(act)+'&secs='+secs;
     if(target) u+='&target='+encodeURIComponent(target);
@@ -7731,27 +7740,31 @@ async function boboHostRefresh(){
   var box=document.getElementById('bobo-host'); if(!box) return;
   try{
     var r=await fetch(API+'?action=bobo_state&_='+Date.now()); var s=await r.json();
-    if(!s||!s.active){ box.innerHTML='<div class="es" style="padding:10px;color:var(--t3);font-size:12.5px;">No Bobo Shot running. Launch one above.</div>'; if(_boboIv){clearInterval(_boboIv);_boboIv=null;} return; }
-    if(!_boboIv) _boboIv=setInterval(boboHostRefresh, 2500);
+    if(!s||!s.active){ box.innerHTML='<div class="es" style="padding:10px;color:var(--t3);font-size:12.5px;">No Bobo Shot running. Launch one above.</div>'; return; }
     var alive=s.players.filter(function(p){return p.alive;}).length;
     var chips=s.players.map(function(p){
+      var answered=(s.round_answers||[]).some(function(a){return a.id===p.id;});
       return '<span style="font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:999px;margin:3px;display:inline-block;'+
-        (p.alive?'background:rgba(52,211,153,.14);color:#0f766e;border:1px solid rgba(52,211,153,.4);':'background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3);text-decoration:line-through;')+'">'+boboEsc(p.name)+(p.alive?'':' 💀')+'</span>';
+        (p.alive?(answered?'background:rgba(52,211,153,.22);color:#0f766e;border:1px solid rgba(52,211,153,.6);':'background:rgba(52,211,153,.1);color:#0f766e;border:1px solid rgba(52,211,153,.3);'):'background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3);text-decoration:line-through;')+'">'+boboEsc(p.name)+(p.alive?(answered?' ✓':''):' 💀')+'</span>';
     }).join('');
-    var head='<div style="font-size:12.5px;color:var(--t2);font-weight:700;margin-bottom:6px;">Status: <b style="color:var(--o3);text-transform:uppercase;">'+s.status+'</b> · Round '+s.round+' · <b style="color:#0f766e;">'+alive+' alive</b> / '+s.players.length+'</div>';
+    var head='<div style="font-size:12.5px;color:var(--t2);font-weight:700;margin-bottom:6px;">Status <b style="color:var(--o3);text-transform:uppercase;">'+s.status+'</b> · Cycle '+s.round+' · <b style="color:#0f766e;">'+alive+' alive</b> / '+s.players.length+(s.category?(' · '+s.used_count+' answers used'):'')+'</div>';
     var ctrl='';
-    if(s.status==='lobby'||s.status==='intermission'){
-      ctrl='<button class="blogout" onclick="boboHostAct(\'start_round\')" style="border-color:rgba(52,211,153,.5);color:#0f766e;font-weight:700;">▶️ Start round '+(s.round+1)+'</button> ';
-      if(s.status==='intermission' && alive>1) ctrl+='<button class="bsm" onclick="boboHostAct(\'end\')" style="color:#dc2626;border-color:rgba(220,38,38,.3);">⏹ End game</button>';
+    if(s.status==='lobby'){
+      ctrl='<button class="blogout" onclick="boboHostAct(\'new_category\')" style="border-color:rgba(52,211,153,.5);color:#0f766e;font-weight:700;">▶️ Start — first category</button>';
+    }
+    if(s.status==='intermission'){
+      ctrl='<div style="font-weight:800;font-size:13px;color:var(--t1);margin-bottom:8px;">“'+boboEsc(s.category)+'”</div>'+
+        '<button class="blogout" onclick="boboHostAct(\'next_cycle\')" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">🔁 Next cycle (same category)</button> '+
+        '<button class="bsm" onclick="boboHostAct(\'new_category\')" style="color:#0f766e;border-color:rgba(52,211,153,.4);">🎲 New category</button> '+
+        (alive>1?'<button class="bsm" onclick="boboHostAct(\'end\')" style="color:#dc2626;border-color:rgba(220,38,38,.3);">⏹ End game</button>':'');
     }
     if(s.status==='round'){
       var secsLeft=Math.max(0,Math.round((s.closes_at-s.now)/1000));
-      ctrl='<div style="font-weight:800;font-size:13px;color:var(--t1);margin-bottom:6px;">“'+boboEsc(s.category)+'” · ⏱ '+secsLeft+'s</div>'+
-        '<button class="blogout" onclick="boboHostAct(\'resolve\')" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">✔ Resolve round (eliminate no-answers)</button>';
-      // live answers with reject
-      if(s.answers && s.answers.length){
-        ctrl+='<div style="margin-top:10px;font-size:11.5px;color:var(--t3);font-weight:700;">Answers this round — tap ✖ to reject a bogus one:</div><div style="margin-top:5px;">'+
-          s.answers.map(function(a){
+      ctrl='<div style="font-weight:800;font-size:14px;color:var(--t1);margin-bottom:6px;">“'+boboEsc(s.category)+'” · ⏱ '+secsLeft+'s · cycle '+s.round+'</div>'+
+        '<button class="blogout" onclick="boboHostAct(\'resolve\')" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">✔ Resolve cycle (out anyone with no answer)</button>';
+      if(s.round_answers && s.round_answers.length){
+        ctrl+='<div style="margin-top:10px;font-size:11.5px;color:var(--t3);font-weight:700;">This cycle’s answers — ✖ to reject a bogus one:</div><div style="margin-top:5px;">'+
+          s.round_answers.map(function(a){
             return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border:1px solid rgba(15,23,42,.1);border-radius:9px;margin:4px 0;font-size:12.5px;'+(a.rejected?'opacity:.45;':'')+'">'+
               '<b style="min-width:120px;color:var(--t2);">'+boboEsc(a.name)+'</b>'+
               '<span style="flex:1;color:var(--t1);">'+boboEsc(a.text)+(a.rejected?' <span style="color:#dc2626;font-weight:700;">(rejected)</span>':'')+'</span>'+
@@ -7763,7 +7776,6 @@ async function boboHostRefresh(){
     if(s.status==='done'){
       ctrl='<div style="font-size:16px;font-weight:800;color:var(--o3);">🏆 Winner: '+boboEsc(s.winner_name||'—')+'</div>'+
         '<button class="bsm" onclick="boboHostAct(\'clear\')" style="margin-top:8px;">Clear game</button>';
-      if(_boboIv){clearInterval(_boboIv);_boboIv=null;}
     }
     box.innerHTML=head+'<div style="margin:8px 0;">'+chips+'</div>'+ctrl;
   }catch(e){}
