@@ -7713,7 +7713,7 @@ async function launchTrivia(){
 /* ═══ BOBO SHOT host controls (standalone modal · cycle model) ═══ */
 var _boboIv=null;
 function boboEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
-function openBoboAdmin(){ document.getElementById('bobo-admin-modal').style.display='flex'; boboHostRefresh(); if(!_boboIv) _boboIv=setInterval(boboHostRefresh,2500); }
+function openBoboAdmin(){ document.getElementById('bobo-admin-modal').style.display='flex'; boboHostRefresh(); if(!_boboIv) _boboIv=setInterval(boboHostRefresh,1500); }
 async function boboReset(){ if(!confirm('Reset Bobo Shot? This wipes the current game (players, cycles, answers) and closes it on everyone\'s screen. You can then launch a fresh one.')) return; try{ await fetch(API+'?action=bobo_host&pass='+encodeURIComponent(admPass())+'&act=clear&_='+Date.now()); }catch(e){} boboHostRefresh(); }
 function closeBoboAdmin(){ document.getElementById('bobo-admin-modal').style.display='none'; if(_boboIv){clearInterval(_boboIv);_boboIv=null;} }
 async function boboLaunch(){
@@ -7722,7 +7722,7 @@ async function boboLaunch(){
   try{
     var r=await fetch(API+'?action=bobo_launch&pass='+encodeURIComponent(admPass())+'&secs='+secs+'&_='+Date.now());
     var d=await r.json();
-    if(d&&d.ok){ boboHostRefresh(); if(!_boboIv) _boboIv=setInterval(boboHostRefresh, 2500); }
+    if(d&&d.ok){ boboHostRefresh(); if(!_boboIv) _boboIv=setInterval(boboHostRefresh, 1500); }
     else alert('Could not launch'+((d&&d.error)?(': '+d.error):'.'));
   }catch(e){ alert('Network error — could not launch.'); }
 }
@@ -7745,13 +7745,25 @@ function boboBtn(label,act,kind){
   if(!kind) bg='rgba(255,255,255,.12)';
   return '<button onclick="boboHostAct(\''+act+'\')" style="background:'+bg+';border:none;color:#fff;border-radius:12px;padding:14px 20px;font:800 15px Inter,sans-serif;cursor:pointer;box-shadow:0 10px 26px -10px rgba(0,0,0,.5);">'+label+'</button>';
 }
+var _boboHostBusy=false, _boboHadGame=false, _boboMiss=0;
 async function boboHostRefresh(){
   var box=document.getElementById('bobo-host'); if(!box) return;
+  if(_boboHostBusy) return;                 // never stack requests during congestion
+  _boboHostBusy=true;
   try{
-    var r=await fetch(API+'?action=bobo_state&_='+Date.now()); var s=await r.json();
-    if(!s||!s.active){ clearInterval(_boboTickIv); _boboTickIv=null;
+    var ctl=(window.AbortController)?new AbortController():null;
+    var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(e){} },14000):null;
+    var r=await fetch(API+'?action=bobo_state&_='+Date.now(), ctl?{signal:ctl.signal}:undefined); var s=await r.json();
+    if(tm) clearTimeout(tm);
+    if(!s||!s.active){
+      /* keep the live dashboard through a transient blip — only fall back to "no game" once we're
+         sure (never had a game this session, OR 3 consecutive empty replies after one was live). */
+      _boboMiss++;
+      if(_boboHadGame && _boboMiss<3) return;
+      _boboHadGame=false; clearInterval(_boboTickIv); _boboTickIv=null;
       box.innerHTML='<div style="text-align:center;padding:26px 10px;"><div style="font-size:16px;color:rgba(255,255,255,.85);font-weight:700;margin-bottom:6px;">No game running</div><div style="font-size:13px;color:rgba(255,255,255,.5);margin-bottom:18px;">Launch to open Bobo Shot on every signed-in portal.</div>'+boboBtn('💥 Launch game','__launch','go')+'</div>';
       var lb=box.querySelector('button'); if(lb) lb.onclick=boboLaunch; return; }
+    _boboHadGame=true; _boboMiss=0;
     var alive=s.players.filter(function(p){return p.alive;}).length;
     // ── live host timer anchor ──
     _boboDeadline = performance.now() + Math.max(0, (Number(s.closes_at)||0) - (Number(s.now)||Date.now()));
@@ -7802,6 +7814,7 @@ async function boboHostRefresh(){
     clearInterval(_boboTickIv);
     if(s.status==='round'){ _boboTickIv=setInterval(function(){ var el=document.getElementById('bobo-host-timer'); if(!el){clearInterval(_boboTickIv);return;} var left=Math.max(0,Math.ceil((_boboDeadline-performance.now())/1000)); el.textContent=left; el.style.color=left<=5?'#ff5a5a':'#ffd36e'; if(left<=0) clearInterval(_boboTickIv); },250); }
   }catch(e){}
+  finally{ _boboHostBusy=false; }
 }
 
 async function loadTriviaBoard(){

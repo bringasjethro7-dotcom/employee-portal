@@ -35029,12 +35029,32 @@ var PORTAL_BUILD='2026-08-25-A';
   function startPoll(){ if(pollIv) return; poll(); pollIv=setInterval(poll, 2200); }
   function stopPoll(){ clearInterval(pollIv); pollIv=null; }
 
-  function poll(){ if(!API) return;
-    fetch(API+'?action=bobo_state&employee_id='+encodeURIComponent(me())+'&_='+Date.now())
-      .then(function(r){return r.json();}).then(function(s){
-        if(!s||!s.active){ if(document.getElementById('bobo-modal').classList.contains('on')) body('<div class="bobo-kick">Bobo Shot</div><div class="bobo-title">No game right now</div><div class="bobo-sub">Wait for the admin to launch it.</div>'); return; }
-        ST=s; detectEvents(s); render();
-      }).catch(function(){});
+  /* RESILIENT POLL (Apps Script gets congested during a live game — a slow/failed request must
+     NOT flip the screen to "no game"). Never stack requests (one at a time), abandon a hung one
+     after 14s and retry, keep the last good state through hiccups, and only declare "no game"
+     after 4 CONSECUTIVE genuine active:false replies — not on a timeout or a bad payload. */
+  var pollBusy=false, pollMiss=0;
+  function poll(){
+    if(!API || pollBusy) return;
+    pollBusy=true;
+    var ctl=(window.AbortController)?new AbortController():null;
+    var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(e){} },14000):null;
+    fetch(API+'?action=bobo_state&employee_id='+encodeURIComponent(me())+'&_='+Date.now(), ctl?{signal:ctl.signal}:undefined)
+      .then(function(r){ return r.json(); })
+      .then(function(s){
+        if(tm) clearTimeout(tm); pollBusy=false;
+        if(!s){ return; }                                  // bad/empty payload — keep last state, retry
+        if(!s.active){
+          pollMiss++;
+          if(pollMiss>=4 && document.getElementById('bobo-modal').classList.contains('on') && !(ST&&ST.status==='done')){
+            ST=null; curSig=null;
+            body('<div class="bobo-kick">Bobo Shot</div><div class="bobo-title">No game right now</div><div class="bobo-sub">Wait for the admin to launch it, or tap ✕ and reopen.</div>');
+          }
+          return;
+        }
+        pollMiss=0; ST=s; detectEvents(s); render();
+      })
+      .catch(function(){ if(tm) clearTimeout(tm); pollBusy=false; /* slow/aborted — keep last state, retry next tick */ });
   }
   function detectEvents(s){
     /* new-answer blip: play when someone else's answer newly appears */
@@ -35080,8 +35100,8 @@ var PORTAL_BUILD='2026-08-25-A';
      Only rebuild the whole card when the STRUCTURE changes (status / cycle / my alive|answered).
      Otherwise just patch the live bits (answers board, roster, counts) so the answer box you're
      typing in and the category are NEVER wiped, and the category doesn't re-animate each poll. */
-  var curSig=null, deadlineP=0;
-  function sig(s){ var m=s.me||{}; return s.status+'|'+s.round+'|'+(m.alive?1:0)+'|'+(m.answered?1:0)+'|'+(s.winner||''); }
+  var curSig=null, deadlineP=0, pendingSend=false;
+  function sig(s){ var m=s.me||{}; return s.status+'|'+s.round+'|'+(m.alive?1:0)+'|'+((m.answered||pendingSend)?1:0)+'|'+(s.winner||''); }
   function setDeadline(s){ deadlineP = performance.now() + Math.max(0, (Number(s.closes_at)||0) - (Number(s.now)||Date.now())); }
   function patchDyn(){
     var el=document.getElementById('bobo-dyn'); if(el) el.innerHTML=(ST.status==='round')?(answersBoard()+roster()):roster();
@@ -35106,7 +35126,7 @@ var PORTAL_BUILD='2026-08-25-A';
       return;
     }
     if(s.status==='round'){
-      if(s.round!==lastRound){ lastRound=s.round; sRound(); }
+      if(s.round!==lastRound){ lastRound=s.round; pendingSend=false; sRound(); }
       setDeadline(s); startTick();
       var secsLeft=Math.max(0,Math.round((deadlineP-performance.now())/1000)), tot=s.round_secs||12;
       if(!mine.alive){
@@ -35114,7 +35134,7 @@ var PORTAL_BUILD='2026-08-25-A';
           '<div class="bobo-out-badge">💀 Eliminated — panoorin na lang!</div><div id="bobo-dyn">'+answersBoard()+roster()+'</div>');
         return;
       }
-      if(mine.answered){
+      if(mine.answered||pendingSend){
         body('<div class="bobo-kick" id="bobo-kick">Cycle '+s.round+' · '+s.alive_count+' left</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
           ringSvg(secsLeft,tot)+'<div class="bobo-sub">✅ Nakapasa ang sagot mo — hintay sa buzzer.</div><div id="bobo-dyn">'+answersBoard()+roster()+'</div>');
         return;
@@ -35166,13 +35186,27 @@ var PORTAL_BUILD='2026-08-25-A';
   window._boboSend=function(){
     var inp=document.getElementById('bobo-inp'); if(!inp) return;
     var v=inp.value.trim(); if(!v){ inp.focus(); return; }
-    var btn=document.getElementById('bobo-send'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
-    fetch(API+'?action=bobo_answer&employee_id='+encodeURIComponent(me())+'&answer='+encodeURIComponent(v)+'&_='+Date.now())
+    /* OPTIMISTIC SEND (fix: the backend can take many seconds when congested — don't make the
+       player stare at a "Sending…" button). Lock it in on their screen INSTANTLY, then confirm
+       with the server in the background. If the server later says duplicate / too-late, we
+       correct it; otherwise the next poll just confirms what they already see. */
+    sSubmit(); pendingSend=true; curSig=null; render();       // instant "answered" view
+    var ctl=(window.AbortController)?new AbortController():null;
+    var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(e){} },14000):null;
+    fetch(API+'?action=bobo_answer&employee_id='+encodeURIComponent(me())+'&answer='+encodeURIComponent(v)+'&_='+Date.now(), ctl?{signal:ctl.signal}:undefined)
       .then(function(r){return r.json();}).then(function(d){
-        var st=document.getElementById('bobo-st');
-        if(d&&d.ok){ if(d.dup){ if(st) st.innerHTML='💀 Paulit na sagot — bobo, labas!'; sDup(); } else { sSubmit(); } poll(); }
-        else { if(st) st.textContent=(d&&d.error==='TOO_LATE')?'⏰ Late — buzzer na!':(d&&d.note)||'Try again.'; if(btn){ btn.disabled=false; btn.textContent='Send answer'; } }
-      }).catch(function(){ if(btn){ btn.disabled=false; btn.textContent='Send answer'; } });
+        if(tm) clearTimeout(tm);
+        if(d&&d.ok){
+          if(d.dup){ pendingSend=false; sDup(); var st=document.querySelector('#bobo-body .bobo-status'); if(st) st.innerHTML='💀 Paulit na sagot — bobo, labas!'; }
+          poll();                                              // reconcile with server truth
+        } else {
+          // genuinely rejected — undo the optimistic lock and let them try again
+          pendingSend=false; curSig=null; render();
+          var st2=document.getElementById('bobo-st'); if(st2) st2.textContent=(d&&d.error==='TOO_LATE')?'⏰ Late — buzzer na!':(d&&d.note)||'Subukan ulit.';
+          var ii=document.getElementById('bobo-inp'); if(ii){ ii.value=v; ii.focus(); }
+        }
+      })
+      .catch(function(){ if(tm) clearTimeout(tm); /* slow/aborted — keep optimistic, the poll will confirm */ });
   };
   function confetti(){
     var cv=document.getElementById('bobo-confetti'); if(!cv) return;
