@@ -18145,26 +18145,32 @@ function loadMyRedemptions(){
   };
 
   /* Show the launcher only on the dashboard; poll for a session launch and fire the alarm. */
-  var trigBase=null;
+  var trigBase=null, lastBoboId=null;
   setInterval(function(){
     var d=document.getElementById('dashboard-screen'), f=document.getElementById('jul4-fab');
     if(!d||!f) return;
     f.style.display=(getComputedStyle(d).display!=='none')?'inline-flex':'none';
   }, 1200);
-  setInterval(function(){
+  function checkGameTrigger(){
     var d=document.getElementById('dashboard-screen');
-    if(!d || getComputedStyle(d).display==='none' || document.hidden) return;
+    if(!d || getComputedStyle(d).display==='none') return;   // must be logged in; but DON'T skip on hidden tab
     fetch(APPS_SCRIPT_URL+'?action=get_game_trigger&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
-      var ver=(x&&x.ver)||'';
-      if(trigBase===null){ trigBase=ver; return; }
+      var ver=(x&&x.ver)||''; var parts=String(ver).split('|'); var kind=parts[1]||'', gid=parts[2]||'';
+      /* First read after load: if a BOBO game is ALREADY live (e.g. the VA reloaded or arrived
+         late), open it right away so they can still join the lobby — don't wait for the next edge. */
+      if(trigBase===null){ trigBase=ver;
+        if(kind==='bobo' && gid && gid!==lastBoboId){ lastBoboId=gid; if(window.boboAlarm) window.boboAlarm(); }
+        return; }
       if(ver && ver!==trigBase){ trigBase=ver;
-        var kind=String(ver).split('|')[1]||'';
-        if(kind==='bobo'){ if(window.boboAlarm) window.boboAlarm(); return; }
-        if(kind==='boboclear'){ if(window.boboForceClose) window.boboForceClose(); return; }
+        if(kind==='bobo'){ if(gid!==lastBoboId){ lastBoboId=gid; if(window.boboAlarm) window.boboAlarm(); } return; }
+        if(kind==='boboclear'){ lastBoboId=null; if(window.boboForceClose) window.boboForceClose(); return; }
         if(!document.getElementById('jul4-alarm') && !document.getElementById('jul4-modal').classList.contains('on')) jul4Alarm();
       }
     }).catch(function(){});
-  }, 20000);
+  }
+  setInterval(checkGameTrigger, 7000);                                  // was 20s — too slow for a live game
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) checkGameTrigger(); });
+  window.addEventListener('focus', checkGameTrigger);                   // returning to the tab checks immediately
 })();
 </script>
 
@@ -34964,6 +34970,7 @@ var PORTAL_BUILD='2026-08-25-A';
   <div class="bstage"><i class="bsp1"></i><i class="bsp2"></i><i class="bsp3"></i></div>
   <div class="bgrid"></div>
   <div class="bobo-card" id="bobo-card">
+    <button class="bobo-x" id="bobo-mute" onclick="boboToggleMusic()" style="right:54px;" title="Music on/off">🔊</button>
     <button class="bobo-x" onclick="boboClose()">✕</button>
     <div id="bobo-body"></div>
     <div id="bobo-bigx"><div class="gx">BOBO!</div></div>
@@ -34976,7 +34983,11 @@ var PORTAL_BUILD='2026-08-25-A';
   var API=(typeof APPS_SCRIPT_URL!=='undefined')?APPS_SCRIPT_URL:'';
   var pollIv=null, tickIv=null, ST=null, joined=false, lastRound=0, ac=null;
   var prevAnsKeys={}, prevAlive=true, wonFired=false, cvR=null;
-  function me(){ return (window._currentEmpData&&window._currentEmpData.employee_id)||(typeof attEmpId!=='undefined'&&attEmpId)||''; }
+  function me(){
+    var id=(window._currentEmpData&&window._currentEmpData.employee_id)||(typeof attEmpId!=='undefined'&&attEmpId)||'';
+    if(!id){ try{ var c=JSON.parse(sessionStorage.getItem('jmb_emp')||sessionStorage.getItem('emp')||'null'); if(c&&c.employee_id) id=c.employee_id; }catch(e){} }
+    return id||'';
+  }
   function myName(){ return (window._currentEmpData&&window._currentEmpData.full_name)||me(); }
   function body(h){ document.getElementById('bobo-body').innerHTML=h; }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
@@ -34984,19 +34995,37 @@ var PORTAL_BUILD='2026-08-25-A';
   function _ac(){ try{ if(!ac) ac=new (window.AudioContext||window.webkitAudioContext)(); if(ac.state==='suspended') ac.resume(); }catch(e){ ac=null; } return ac; }
   function tone(type,f,t0,a,d,v,slide){ var c=_ac(); if(!c) return; var o=c.createOscillator(),g=c.createGain(),t=c.currentTime+t0; o.type=type; o.frequency.setValueAtTime(f,t); if(slide) o.frequency.exponentialRampToValueAtTime(slide,t+a+d); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(v,t+a); g.gain.exponentialRampToValueAtTime(.0001,t+a+d); o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+a+d+.05); }
   function noise(t0,dur,vol,freq,q){ var c=_ac(); if(!c) return; var b=c.createBuffer(1,c.sampleRate*dur,c.sampleRate),d=b.getChannelData(0); for(var i=0;i<d.length;i++){ var env=Math.pow(1-i/d.length,1.3); d[i]=(Math.random()*2-1)*env; } var s=c.createBufferSource(); s.buffer=b; var f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=freq||1500; f.Q.value=q||.8; var g=c.createGain(); g.gain.value=vol; s.connect(f); f.connect(g); g.connect(c.destination); s.start(c.currentTime+t0); }
-  function sRound(){ tone('sine',523,0,.01,.18,.16); tone('sine',784,.09,.01,.24,.14); tone('sine',1047,.18,.01,.3,.12); }
+  function sRound(){ mDuck(); tone('sine',523,0,.01,.18,.16); tone('sine',784,.09,.01,.24,.14); tone('sine',1047,.18,.01,.3,.12); }
   function sTick(hot){ tone('square',hot?1200:900,0,.004,.05,hot?.12:.07); }
   function sSubmit(){ tone('sine',880,0,.01,.16,.18); tone('sine',1320,.05,.01,.2,.12); }
   function sBlip(){ tone('sine',1500,0,.005,.06,.05); }
   function sDup(){ tone('sawtooth',200,0,.01,.4,.24,90); tone('square',150,.03,.01,.4,.18,70); }
   function sOut(){ tone('sawtooth',180,0,.01,.55,.26,60); tone('square',120,.05,.01,.5,.2,50); noise(.1,.5,.25,600,.6); }
-  function sWin(){ [523,659,784,1047,1319,1568].forEach(function(f,i){ tone('sine',f,i*.09,.01,1.1,.15); tone('sine',f/2,i*.09,.01,1.2,.07); }); noise(.2,2.6,.5,1600,.7); noise(1.1,2.2,.35,2200,.8); }
+  function sWin(){ mDuck(); [523,659,784,1047,1319,1568].forEach(function(f,i){ tone('sine',f,i*.09,.01,1.1,.15); tone('sine',f/2,i*.09,.01,1.2,.07); }); noise(.2,2.6,.5,1600,.7); noise(1.1,2.2,.35,2200,.8); }
+
+  /* ── ENERGETIC, GOOFY BACKGROUND MUSIC (WebAudio loop) ── bouncy bass + honky offbeat +
+     a playful "boing" melody. Mutable. Auto-ducks so the sfx always cut through. */
+  var mGain=null, mTimer=null, mOn=true, mNext=0;
+  function _mGain(){ var c=_ac(); if(!c) return null; if(!mGain){ mGain=c.createGain(); mGain.gain.value=mOn?0.16:0; mGain.connect(c.destination); } return mGain; }
+  function mNote(type,f,t0,a,d,v,slide){ var c=_ac(),g=_mGain(); if(!c||!g) return; var o=c.createOscillator(),ng=c.createGain(),t=t0; o.type=type; o.frequency.setValueAtTime(f,t); if(slide) o.frequency.exponentialRampToValueAtTime(slide,t+a+d); ng.gain.setValueAtTime(0,t); ng.gain.linearRampToValueAtTime(v,t+a); ng.gain.exponentialRampToValueAtTime(.0001,t+a+d); o.connect(ng); ng.connect(g); o.start(t); o.stop(t+a+d+.05); }
+  function mDuck(){ var c=_ac(),g=_mGain(); if(!c||!g||!mOn) return; g.gain.cancelScheduledValues(c.currentTime); g.gain.setValueAtTime(0.06,c.currentTime); g.gain.linearRampToValueAtTime(0.16,c.currentTime+1.2); }
+  function mBar(t0){
+    var beat=60/132, bass=[65.4,65.4,98,87.3], mel=[523,659,784,659,880,784,659,523];
+    for(var s=0;s<4;s++){ var st=t0+s*beat; mNote('triangle',bass[s],st,.01,.28,.20); mNote('square',bass[s]*4,st+beat*.5,.003,.05,.05); }
+    for(var m=0;m<8;m++){ mNote('square',mel[m],t0+m*(beat/2),.01,.12,.045,mel[m]*1.02); }
+    return 4*beat;
+  }
+  function mStart(){ var c=_ac(); if(!c||mTimer) return; mNext=c.currentTime+.06;
+    function pump(){ var now=_ac().currentTime; while(mNext<now+1.2){ mNext+=mBar(mNext); } }
+    pump(); mTimer=setInterval(pump,400); var g=_mGain(); if(g) g.gain.setValueAtTime(mOn?0.16:0,c.currentTime); }
+  function mStop(){ if(mTimer){ clearInterval(mTimer); mTimer=null; } if(mGain){ try{ mGain.gain.value=0; }catch(e){} } }
+  window.boboToggleMusic=function(){ mOn=!mOn; if(mGain) mGain.gain.value=mOn?0.16:0; if(mOn&&!mTimer) mStart(); var b=document.getElementById('bobo-mute'); if(b) b.textContent=mOn?'🔊':'🔇'; };
 
   window.boboAlarm=function(){ boboOpen(); };
   window.boboForceClose=function(){ boboClose(); };
-  window.boboOpen=function(){ document.getElementById('bobo-modal').classList.add('on'); _ac(); body('<div class="bobo-kick">JMB Virtuals</div><div class="bobo-title">Loading…</div>'); startPoll(); };
+  window.boboOpen=function(){ document.getElementById('bobo-modal').classList.add('on'); joined=false; wonFired=false; prevAlive=true; prevAnsKeys={}; _ac(); mStart(); body('<div class="bobo-kick">JMB Virtuals</div><div class="bobo-title">Loading…</div>'); startPoll(); };
   window.boboClose=boboClose;
-  function boboClose(){ document.getElementById('bobo-modal').classList.remove('on'); stopPoll(); clearInterval(tickIv); tickIv=null; if(cvR) cancelAnimationFrame(cvR); }
+  function boboClose(){ document.getElementById('bobo-modal').classList.remove('on'); stopPoll(); clearInterval(tickIv); tickIv=null; if(cvR) cancelAnimationFrame(cvR); mStop(); }
   function startPoll(){ if(pollIv) return; poll(); pollIv=setInterval(poll, 2200); }
   function stopPoll(){ clearInterval(pollIv); pollIv=null; }
 
@@ -35089,9 +35118,11 @@ var PORTAL_BUILD='2026-08-25-A';
       return;
     }
   }
-  function autoJoin(){ if(joined||!me()) return;
+  function autoJoin(){
+    if(!me()){ var st=document.querySelector('#bobo-body .bobo-status'); if(st) st.innerHTML='⚠ Hindi ka naka-login — i-refresh ang portal.'; return; }
+    if(ST && ST.me && ST.me.joined){ joined=true; return; }   // trust the SERVER, not a stale local flag
     fetch(API+'?action=bobo_join&employee_id='+encodeURIComponent(me())+'&full_name='+encodeURIComponent(myName())+'&_='+Date.now())
-      .then(function(r){return r.json();}).then(function(d){ if(d&&d.ok) joined=true; }).catch(function(){}); }
+      .then(function(r){return r.json();}).then(function(d){ joined=!!(d&&d.ok); if(d&&d.ok) poll(); }).catch(function(){}); }
   function startTick(){
     clearInterval(tickIv);
     tickIv=setInterval(function(){
