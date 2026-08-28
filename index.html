@@ -35026,35 +35026,46 @@ var PORTAL_BUILD='2026-08-25-A';
   window.boboOpen=function(){ document.getElementById('bobo-modal').classList.add('on'); joined=false; wonFired=false; prevAlive=true; prevAnsKeys={}; _ac(); mStart(); body('<div class="bobo-kick">JMB Virtuals</div><div class="bobo-title">Loading…</div>'); startPoll(); };
   window.boboClose=boboClose;
   function boboClose(){ document.getElementById('bobo-modal').classList.remove('on'); stopPoll(); clearInterval(tickIv); tickIv=null; if(cvR) cancelAnimationFrame(cvR); mStop(); }
-  function startPoll(){ if(pollIv) return; poll(); pollIv=setInterval(poll, 2200); }
+  function startPoll(){ if(pollIv) return; poll(); pollIv=setInterval(poll, 1500); }
   function stopPoll(){ clearInterval(pollIv); pollIv=null; }
 
   /* RESILIENT POLL (Apps Script gets congested during a live game — a slow/failed request must
      NOT flip the screen to "no game"). Never stack requests (one at a time), abandon a hung one
      after 14s and retry, keep the last good state through hiccups, and only declare "no game"
      after 4 CONSECUTIVE genuine active:false replies — not on a timeout or a bad payload. */
+  /* READ FROM THE SUPABASE CDN, not Apps Script — this is the real fix for the 23s congestion.
+     The state is published to the CDN on every change; players read it there (fast, unlimited).
+     The shared state has no per-player 'me', so we derive it here. Falls back to Apps Script only
+     if the CDN read fails. */
+  var BOBO_CDN='https://rvyrnkjqxnijxydloujk.supabase.co/storage/v1/object/public/feed/bobo.json';
   var pollBusy=false, pollMiss=0;
+  function deriveMe(s){ if(s&&s.active){ var id=String(me()).toLowerCase(); var p=null; (s.players||[]).forEach(function(x){ if(x.id===id) p=x; });
+    s.me={ joined:!!p, alive:p?!!p.alive:false, answered:(s.round_answers||[]).some(function(a){return a.id===id;}) }; } return s; }
+  function applyState(s){
+    if(!s){ return; }
+    if(!s.active){
+      pollMiss++;
+      if(pollMiss>=4 && document.getElementById('bobo-modal').classList.contains('on') && !(ST&&ST.status==='done')){
+        ST=null; curSig=null;
+        body('<div class="bobo-kick">Bobo Shot</div><div class="bobo-title">No game right now</div><div class="bobo-sub">Wait for the admin to launch it, or tap ✕ and reopen.</div>');
+      }
+      return;
+    }
+    pollMiss=0; deriveMe(s); ST=s; detectEvents(s); render();
+  }
+  function pollFallback(){   // Apps Script — only when the CDN read fails
+    fetch(API+'?action=bobo_state&employee_id='+encodeURIComponent(me())+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(s){ pollBusy=false; applyState(s); })
+      .catch(function(){ pollBusy=false; });
+  }
   function poll(){
-    if(!API || pollBusy) return;
-    pollBusy=true;
+    if(pollBusy) return; pollBusy=true;
     var ctl=(window.AbortController)?new AbortController():null;
-    var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(e){} },14000):null;
-    fetch(API+'?action=bobo_state&employee_id='+encodeURIComponent(me())+'&_='+Date.now(), ctl?{signal:ctl.signal}:undefined)
-      .then(function(r){ return r.json(); })
-      .then(function(s){
-        if(tm) clearTimeout(tm); pollBusy=false;
-        if(!s){ return; }                                  // bad/empty payload — keep last state, retry
-        if(!s.active){
-          pollMiss++;
-          if(pollMiss>=4 && document.getElementById('bobo-modal').classList.contains('on') && !(ST&&ST.status==='done')){
-            ST=null; curSig=null;
-            body('<div class="bobo-kick">Bobo Shot</div><div class="bobo-title">No game right now</div><div class="bobo-sub">Wait for the admin to launch it, or tap ✕ and reopen.</div>');
-          }
-          return;
-        }
-        pollMiss=0; ST=s; detectEvents(s); render();
-      })
-      .catch(function(){ if(tm) clearTimeout(tm); pollBusy=false; /* slow/aborted — keep last state, retry next tick */ });
+    var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(e){} },8000):null;
+    fetch(BOBO_CDN+'?_='+Date.now(), {cache:'no-store', signal:ctl?ctl.signal:undefined})
+      .then(function(r){ if(tm) clearTimeout(tm); if(!r.ok) throw 0; return r.json(); })
+      .then(function(s){ pollBusy=false; applyState(s); })
+      .catch(function(){ if(tm) clearTimeout(tm); if(API){ pollFallback(); } else { pollBusy=false; } });
   }
   function detectEvents(s){
     /* new-answer blip: play when someone else's answer newly appears */

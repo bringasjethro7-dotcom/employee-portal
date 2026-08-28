@@ -7751,10 +7751,12 @@ async function boboHostRefresh(){
   if(_boboHostBusy) return;                 // never stack requests during congestion
   _boboHostBusy=true;
   try{
-    var ctl=(window.AbortController)?new AbortController():null;
-    var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(e){} },14000):null;
-    var r=await fetch(API+'?action=bobo_state&_='+Date.now(), ctl?{signal:ctl.signal}:undefined); var s=await r.json();
-    if(tm) clearTimeout(tm);
+    /* read the live state from the Supabase CDN (fast, off Apps Script); fall back to Apps Script */
+    var CDN='https://rvyrnkjqxnijxydloujk.supabase.co/storage/v1/object/public/feed/bobo.json';
+    var s=null;
+    try{ var cr=await fetch(CDN+'?_='+Date.now(),{cache:'no-store'}); if(cr.ok) s=await cr.json(); }catch(_c){}
+    if(!s){ var ctl=(window.AbortController)?new AbortController():null; var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(e){} },14000):null;
+      var r=await fetch(API+'?action=bobo_state&_='+Date.now(), ctl?{signal:ctl.signal}:undefined); s=await r.json(); if(tm) clearTimeout(tm); }
     if(!s||!s.active){
       /* keep the live dashboard through a transient blip — only fall back to "no game" once we're
          sure (never had a game this session, OR 3 consecutive empty replies after one was live). */
