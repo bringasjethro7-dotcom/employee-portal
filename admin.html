@@ -7661,6 +7661,18 @@ async function sendNotify(){
       <div id="gq-results"><div class="es" style="padding:12px;">Loading…</div></div>
     </div>
 
+    <!-- ═══ BOBO SHOT host panel ═══ -->
+    <div style="border:1px solid rgba(241,102,35,.28);border-radius:14px;padding:16px;margin-top:14px;background:linear-gradient(180deg,rgba(241,102,35,.05),transparent);">
+      <div style="font-size:15px;font-weight:800;color:var(--t1);margin-bottom:2px;">💥 Bobo Shot <span style="font-size:11px;color:var(--t3);font-weight:600;">— last one standing</span></div>
+      <div style="font-size:12.5px;color:var(--t3);margin-bottom:12px;line-height:1.5;">Admin-run elimination game. Launch it → every signed-in portal opens the Bobo Shot screen. Each round you reveal a Pinoy category; players type an answer before the buzzer. No answer or an exact repeat = out. Reject bogus answers yourself. Last one standing wins 150 JMB Points.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="blogout" id="bobo-launch-btn" onclick="boboLaunch()" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">💥 Launch Bobo Shot</button>
+        <label style="font-size:12px;color:var(--t2);font-weight:700;">seconds/round <input id="bobo-secs" type="number" min="6" max="40" value="12" style="width:56px;padding:5px 7px;border:1px solid rgba(15,23,42,.15);border-radius:8px;font:inherit;"></label>
+        <button class="bsm" onclick="boboHostRefresh()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
+      </div>
+      <div id="bobo-host" style="margin-top:12px;"></div>
+    </div>
+
     <div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div style="font-size:15px;font-weight:800;color:var(--t1);">🎁 Points redemptions</div>
@@ -7692,6 +7704,71 @@ async function launchTrivia(){
     else { alert('Could not launch'+((d&&d.error)?(': '+d.error):'.')); }
   }catch(e){ alert('Network error — could not launch.'); }
 }
+/* ═══ BOBO SHOT host controls ═══ */
+var _boboIv=null;
+function boboEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+async function boboLaunch(){
+  if(!confirm('Launch BOBO SHOT on ALL signed-in portals now?\n\nEveryone gets the screen and joins the lobby. You then start each round from here.')) return;
+  var secs=parseInt((document.getElementById('bobo-secs')||{}).value,10)||12;
+  try{
+    var r=await fetch(API+'?action=bobo_launch&pass='+encodeURIComponent(admPass())+'&secs='+secs+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ boboHostRefresh(); if(!_boboIv) _boboIv=setInterval(boboHostRefresh, 2500); }
+    else alert('Could not launch'+((d&&d.error)?(': '+d.error):'.'));
+  }catch(e){ alert('Network error — could not launch.'); }
+}
+async function boboHostAct(act, target){
+  var secs=parseInt((document.getElementById('bobo-secs')||{}).value,10)||12;
+  try{
+    var u=API+'?action=bobo_host&pass='+encodeURIComponent(admPass())+'&act='+encodeURIComponent(act)+'&secs='+secs;
+    if(target) u+='&target='+encodeURIComponent(target);
+    var r=await fetch(u+'&_='+Date.now()); var d=await r.json();
+    if(d&&d.error) alert('Error: '+d.error);
+    boboHostRefresh();
+  }catch(e){ alert('Network error.'); }
+}
+async function boboHostRefresh(){
+  var box=document.getElementById('bobo-host'); if(!box) return;
+  try{
+    var r=await fetch(API+'?action=bobo_state&_='+Date.now()); var s=await r.json();
+    if(!s||!s.active){ box.innerHTML='<div class="es" style="padding:10px;color:var(--t3);font-size:12.5px;">No Bobo Shot running. Launch one above.</div>'; if(_boboIv){clearInterval(_boboIv);_boboIv=null;} return; }
+    if(!_boboIv) _boboIv=setInterval(boboHostRefresh, 2500);
+    var alive=s.players.filter(function(p){return p.alive;}).length;
+    var chips=s.players.map(function(p){
+      return '<span style="font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:999px;margin:3px;display:inline-block;'+
+        (p.alive?'background:rgba(52,211,153,.14);color:#0f766e;border:1px solid rgba(52,211,153,.4);':'background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3);text-decoration:line-through;')+'">'+boboEsc(p.name)+(p.alive?'':' 💀')+'</span>';
+    }).join('');
+    var head='<div style="font-size:12.5px;color:var(--t2);font-weight:700;margin-bottom:6px;">Status: <b style="color:var(--o3);text-transform:uppercase;">'+s.status+'</b> · Round '+s.round+' · <b style="color:#0f766e;">'+alive+' alive</b> / '+s.players.length+'</div>';
+    var ctrl='';
+    if(s.status==='lobby'||s.status==='intermission'){
+      ctrl='<button class="blogout" onclick="boboHostAct(\'start_round\')" style="border-color:rgba(52,211,153,.5);color:#0f766e;font-weight:700;">▶️ Start round '+(s.round+1)+'</button> ';
+      if(s.status==='intermission' && alive>1) ctrl+='<button class="bsm" onclick="boboHostAct(\'end\')" style="color:#dc2626;border-color:rgba(220,38,38,.3);">⏹ End game</button>';
+    }
+    if(s.status==='round'){
+      var secsLeft=Math.max(0,Math.round((s.closes_at-s.now)/1000));
+      ctrl='<div style="font-weight:800;font-size:13px;color:var(--t1);margin-bottom:6px;">“'+boboEsc(s.category)+'” · ⏱ '+secsLeft+'s</div>'+
+        '<button class="blogout" onclick="boboHostAct(\'resolve\')" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">✔ Resolve round (eliminate no-answers)</button>';
+      // live answers with reject
+      if(s.answers && s.answers.length){
+        ctrl+='<div style="margin-top:10px;font-size:11.5px;color:var(--t3);font-weight:700;">Answers this round — tap ✖ to reject a bogus one:</div><div style="margin-top:5px;">'+
+          s.answers.map(function(a){
+            return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border:1px solid rgba(15,23,42,.1);border-radius:9px;margin:4px 0;font-size:12.5px;'+(a.rejected?'opacity:.45;':'')+'">'+
+              '<b style="min-width:120px;color:var(--t2);">'+boboEsc(a.name)+'</b>'+
+              '<span style="flex:1;color:var(--t1);">'+boboEsc(a.text)+(a.rejected?' <span style="color:#dc2626;font-weight:700;">(rejected)</span>':'')+'</span>'+
+              (a.rejected?'':'<button class="bsm" onclick="boboHostAct(\'reject\',\''+a.id+'\')" style="color:#dc2626;border-color:rgba(220,38,38,.3);padding:3px 9px;">✖ out</button>')+
+            '</div>';
+          }).join('')+'</div>';
+      }
+    }
+    if(s.status==='done'){
+      ctrl='<div style="font-size:16px;font-weight:800;color:var(--o3);">🏆 Winner: '+boboEsc(s.winner_name||'—')+'</div>'+
+        '<button class="bsm" onclick="boboHostAct(\'clear\')" style="margin-top:8px;">Clear game</button>';
+      if(_boboIv){clearInterval(_boboIv);_boboIv=null;}
+    }
+    box.innerHTML=head+'<div style="margin:8px 0;">'+chips+'</div>'+ctrl;
+  }catch(e){}
+}
+
 async function loadTriviaBoard(){
   var box=document.getElementById('gq-results'); if(!box) return;
   box.innerHTML='<div class="es" style="padding:12px;">Loading…</div>';

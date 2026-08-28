@@ -18158,6 +18158,9 @@ function loadMyRedemptions(){
       var ver=(x&&x.ver)||'';
       if(trigBase===null){ trigBase=ver; return; }
       if(ver && ver!==trigBase){ trigBase=ver;
+        var kind=String(ver).split('|')[1]||'';
+        if(kind==='bobo'){ if(window.boboAlarm) window.boboAlarm(); return; }
+        if(kind==='boboclear'){ if(window.boboForceClose) window.boboForceClose(); return; }
         if(!document.getElementById('jul4-alarm') && !document.getElementById('jul4-modal').classList.contains('on')) jul4Alarm();
       }
     }).catch(function(){});
@@ -20428,10 +20431,13 @@ function loadMyRedemptions(){
        The old check trusted the status text ("online" passed even with a timer running) —
        this one asks the tracker itself, and a timer running on ANOTHER device counts too. */
     if(inScheduledTourney()) return true;
+    /* IDLE / LUNCH / MICROBREAK / NO-TASK IS DOWNTIME — games are exactly what it's for (his rule,
+       Aug 2026). Lunch, microbreak and no-task all run under the one "Idle (Internal)" project, so
+       a timer on the idle project must NOT block play. Only a REAL, billable task does. */
     var running=false;
     try{ running=(typeof trkRunning!=='undefined') && !!trkRunning; }catch(_g){}
-    if(running){
-      showToast('⏱️ Stop your task timer first — then play. Scheduled tournaments are the only exception.');
+    if(running && !onIdleTask()){
+      showToast('⏱️ Stop your task timer first — then play. (Idle / lunch / break time can play.)');
       return false;
     }
     return true;
@@ -34878,5 +34884,460 @@ var PORTAL_BUILD='2026-08-25-A';
   else document.addEventListener('DOMContentLoaded', wire);
 })();
 </script>
+
+<!-- ═══════════════════ BOBO SHOT — player screen (real-time elimination) ═══════════════════ -->
+<style id="bobo-css">
+#bobo-modal{ position:fixed; inset:0; z-index:9600; display:none; align-items:center; justify-content:center; padding:16px;
+  background:radial-gradient(1100px 700px at 50% -8%, rgba(241,102,35,.22), rgba(10,7,24,.94)); backdrop-filter:blur(7px); }
+#bobo-modal.on{ display:flex; }
+.bobo-card{ width:520px; max-width:100%; border-radius:24px; padding:26px 24px 22px; text-align:center; color:#fff;
+  background:linear-gradient(180deg,#251f52,#160f38); border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 50px 130px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.12); position:relative; overflow:hidden; }
+.bobo-card::before{ content:''; position:absolute; left:24px; right:24px; top:0; height:4px; border-radius:0 0 6px 6px;
+  background:linear-gradient(90deg,#262262,#96473f,#f16623); }
+.bobo-kick{ font-family:'Archivo Black',sans-serif; letter-spacing:.02em; font-size:13px; color:#ff9d5c; text-transform:uppercase; }
+.bobo-title{ font-family:'Archivo Black',sans-serif; font-size:30px; margin:4px 0 2px; }
+.bobo-title em{ font-style:normal; color:#ffd36e; }
+.bobo-sub{ color:#c9c2e6; font-size:13.5px; line-height:1.55; }
+.bobo-cat{ font-family:'Archivo Black',sans-serif; font-size:clamp(20px,3.4vw,27px); line-height:1.2; margin:14px 0 6px; color:#fff; }
+.bobo-timer{ font-family:'Archivo Black',sans-serif; font-size:52px; color:#ffd36e; font-variant-numeric:tabular-nums; }
+.bobo-timer.low{ color:#ff5a5a; animation:boboPulse .5s infinite; }
+@keyframes boboPulse{ 50%{ transform:scale(1.12); } }
+.bobo-inp{ width:100%; margin-top:12px; padding:14px 16px; border-radius:14px; border:1px solid rgba(255,255,255,.2);
+  background:rgba(255,255,255,.08); color:#fff; font:700 16px Inter,sans-serif; outline:none; text-align:center; }
+.bobo-inp:focus{ border-color:#f16623; box-shadow:0 0 0 4px rgba(241,102,35,.2); }
+.bobo-inp::placeholder{ color:#8b84ad; }
+.bobo-go{ width:100%; margin-top:10px; padding:14px; border:none; border-radius:999px; cursor:pointer;
+  background:linear-gradient(135deg,#f16623,#ff8a45); color:#fff; font:800 16px Inter,sans-serif;
+  box-shadow:0 14px 32px -12px rgba(241,102,35,.8); transition:transform .12s, filter .15s; }
+.bobo-go:hover{ transform:translateY(-2px); filter:brightness(1.05); }
+.bobo-go:disabled{ opacity:.5; cursor:not-allowed; transform:none; }
+.bobo-roster{ display:flex; flex-wrap:wrap; gap:7px; justify-content:center; margin-top:16px; max-height:150px; overflow:auto; }
+.bobo-pp{ font-size:12px; font-weight:700; padding:6px 11px; border-radius:999px; background:rgba(255,255,255,.09);
+  border:1px solid rgba(255,255,255,.14); color:#dcd6f2; }
+.bobo-pp.me{ border-color:#ffd36e; color:#ffd36e; }
+.bobo-pp.out{ opacity:.4; text-decoration:line-through; }
+.bobo-pp.answered{ background:rgba(34,197,94,.18); border-color:rgba(34,197,94,.5); color:#8ff0b8; }
+.bobo-status{ font-size:12.5px; color:#a99fce; font-weight:700; margin-top:10px; min-height:16px; }
+.bobo-x{ position:absolute; top:12px; right:14px; background:rgba(255,255,255,.1); border:none; color:#fff; width:30px; height:30px;
+  border-radius:50%; cursor:pointer; font-size:15px; }
+.bobo-out-badge{ display:inline-block; margin-top:8px; background:rgba(239,68,68,.16); border:1px solid rgba(239,68,68,.5);
+  color:#ff9d9d; border-radius:999px; padding:6px 14px; font-weight:800; font-size:13px; }
+.bobo-win{ font-family:'Archivo Black',sans-serif; font-size:34px; color:#ffd36e; margin:8px 0; line-height:1.1; }
+</style>
+<div id="bobo-modal">
+  <div class="bobo-card" id="bobo-card">
+    <button class="bobo-x" onclick="boboClose()">✕</button>
+    <div id="bobo-body"></div>
+  </div>
+</div>
+<script>
+/* ── BOBO SHOT client — polls bobo_state, renders lobby / round / eliminated / winner ── */
+(function(){
+  var API=(typeof APPS_SCRIPT_URL!=='undefined')?APPS_SCRIPT_URL:'';
+  var pollIv=null, tickIv=null, ST=null, joined=false, lastRound=0, sndCtx=null;
+  function me(){ return (window._currentEmpData&&window._currentEmpData.employee_id)||(typeof attEmpId!=='undefined'&&attEmpId)||''; }
+  function myName(){ return (window._currentEmpData&&window._currentEmpData.full_name)||me(); }
+  function body(h){ document.getElementById('bobo-body').innerHTML=h; }
+  function tone(f,t0,dur,vol,type){ try{ if(!sndCtx) sndCtx=new (window.AudioContext||window.webkitAudioContext)(); var c=sndCtx,o=c.createOscillator(),g=c.createGain(),t=c.currentTime+t0; o.type=type||'sine'; o.frequency.value=f; g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol||.2,t+.01); g.gain.exponentialRampToValueAtTime(.0001,t+dur); o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+dur+.05); }catch(e){} }
+  function sRound(){ tone(660,0,.25,.18,'sine'); tone(880,.08,.3,.14,'sine'); }
+  function sTick(){ tone(1000,0,.05,.08,'square'); }
+  function sOut(){ tone(200,0,.5,.25,'sawtooth'); tone(150,.05,.5,.2,'square'); }
+  function sWin(){ [523,659,784,1047,1319].forEach(function(f,i){ tone(f,i*.1,1,.16,'sine'); }); }
+
+  window.boboAlarm=function(){ boboOpen(); };
+  window.boboForceClose=function(){ boboClose(); };
+  window.boboOpen=function(){
+    document.getElementById('bobo-modal').classList.add('on');
+    body('<div class="bobo-kick">JMB Virtuals</div><div class="bobo-title">Loading…</div>');
+    startPoll();
+  };
+  window.boboClose=boboClose;
+  function boboClose(){ document.getElementById('bobo-modal').classList.remove('on'); stopPoll(); }
+  function startPoll(){ if(pollIv) return; poll(); pollIv=setInterval(poll, 2500); }
+  function stopPoll(){ clearInterval(pollIv); pollIv=null; clearInterval(tickIv); tickIv=null; }
+
+  function poll(){
+    if(!API){ return; }
+    fetch(API+'?action=bobo_state&employee_id='+encodeURIComponent(me())+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(s){
+        if(!s || !s.active){ if(document.getElementById('bobo-modal').classList.contains('on')) body('<div class="bobo-kick">Bobo Shot</div><div class="bobo-title">No game right now</div><div class="bobo-sub">Wait for the admin to launch it.</div>'); return; }
+        ST=s; render();
+      }).catch(function(){});
+  }
+  function autoJoin(){
+    if(joined || !me()) return;
+    fetch(API+'?action=bobo_join&employee_id='+encodeURIComponent(me())+'&full_name='+encodeURIComponent(myName())+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(d){ if(d&&d.ok) joined=true; }).catch(function(){});
+  }
+  function roster(){
+    return '<div class="bobo-roster">'+ST.players.map(function(p){
+      var cls='bobo-pp'+(p.id===String(me()).toLowerCase()?' me':'')+(p.alive?'':' out');
+      var answered=(ST.answers||[]).some(function(a){return a.id===p.id;});
+      if(p.alive && answered) cls+=' answered';
+      return '<span class="'+cls+'">'+esc(p.name)+(p.alive?'':' 💀')+'</span>';
+    }).join('')+'</div>';
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+  function render(){
+    var s=ST, mine=s.me||{};
+    if(s.status==='lobby'){
+      autoJoin();
+      body('<div class="bobo-kick">💥 Bobo Shot</div>'+
+        '<div class="bobo-title">Huling <em>matira</em>, panalo!</div>'+
+        '<div class="bobo-sub">Every round, magbigay ng sagot bago mag-zero ang timer. Walang sagot o paulit — <b>bobo, labas!</b> Last one standing wins JMB Points.</div>'+
+        '<div class="bobo-status">'+(mine.joined?'✅ You\'re in! Waiting for the host to start…':'Joining…')+'</div>'+
+        roster());
+      return;
+    }
+    if(s.status==='round'){
+      if(s.round!==lastRound){ lastRound=s.round; sRound(); startTick(); }
+      var secsLeft=Math.max(0,Math.round((s.closes_at-s.now)/1000));
+      if(!mine.alive){
+        body('<div class="bobo-kick">Round '+s.round+'</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
+          '<div class="bobo-out-badge">💀 Eliminated — panoorin na lang!</div>'+
+          '<div class="bobo-sub" style="margin-top:8px">'+s.alive_count+' still standing.</div>'+roster());
+        return;
+      }
+      if(mine.answered){
+        body('<div class="bobo-kick">Round '+s.round+'</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
+          '<div class="bobo-sub">✅ Nakapasa ang sagot mo — hintay sa buzzer.</div>'+
+          '<div class="bobo-timer" id="bobo-t">'+secsLeft+'</div>'+roster());
+        return;
+      }
+      body('<div class="bobo-kick">Round '+s.round+' · '+s.alive_count+' left</div>'+
+        '<div class="bobo-cat">'+esc(s.category)+'</div>'+
+        '<div class="bobo-timer" id="bobo-t">'+secsLeft+'</div>'+
+        '<input class="bobo-inp" id="bobo-inp" placeholder="Type your answer…" autocomplete="off">'+
+        '<button class="bobo-go" id="bobo-send" onclick="window._boboSend()">Send answer</button>'+
+        '<div class="bobo-status" id="bobo-st"></div>'+roster());
+      var inp=document.getElementById('bobo-inp'); if(inp){ inp.focus(); inp.onkeydown=function(e){ if(e.key==='Enter') window._boboSend(); }; }
+      return;
+    }
+    if(s.status==='intermission'){
+      clearInterval(tickIv); tickIv=null;
+      body('<div class="bobo-kick">Round '+s.round+' done</div>'+
+        '<div class="bobo-title">'+s.alive_count+' <em>still standing</em></div>'+
+        '<div class="bobo-sub">'+(mine.alive?'Buhay ka pa! 🔥 Hintay sa susunod na round.':'💀 Eliminated ka na — cheer na lang!')+'</div>'+roster());
+      return;
+    }
+    if(s.status==='done'){
+      clearInterval(tickIv); tickIv=null;
+      if(!render._won){ render._won=true; sWin(); }
+      var iWon=(s.winner===String(me()).toLowerCase());
+      body('<div class="bobo-kick">💥 Bobo Shot</div>'+
+        '<div class="bobo-win">'+(s.winner?('🏆 '+esc(s.winner_name)):'Tapos na!')+'</div>'+
+        '<div class="bobo-sub">'+(iWon?'IKAW ANG PANALO! +150 JMB Points 🎉':(s.winner?'Huling natira. Congrats!':'Walang natira — patas!'))+'</div>'+
+        '<button class="bobo-go" style="margin-top:14px;max-width:200px;margin-left:auto;margin-right:auto;" onclick="boboClose()">Close</button>');
+      return;
+    }
+  }
+  function startTick(){
+    clearInterval(tickIv);
+    tickIv=setInterval(function(){
+      if(!ST || ST.status!=='round'){ clearInterval(tickIv); return; }
+      var left=Math.max(0,Math.round((ST.closes_at-Date.now())/1000));
+      var el=document.getElementById('bobo-t'); if(el){ el.textContent=left; el.classList.toggle('low',left<=5); if(left<=5&&left>0) sTick(); }
+      if(left<=0) clearInterval(tickIv);
+    },250);
+  }
+  window._boboSend=function(){
+    var inp=document.getElementById('bobo-inp'); if(!inp) return;
+    var v=inp.value.trim(); if(!v){ inp.focus(); return; }
+    var btn=document.getElementById('bobo-send'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
+    fetch(API+'?action=bobo_answer&employee_id='+encodeURIComponent(me())+'&answer='+encodeURIComponent(v)+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(d){
+        var st=document.getElementById('bobo-st');
+        if(d&&d.ok){ if(d.dup){ if(st) st.innerHTML='💀 Paulit na sagot — bobo, labas!'; sOut(); } poll(); }
+        else { if(st) st.textContent=(d&&d.error==='TOO_LATE')?'⏰ Late — buzzer na!':(d&&d.note)||'Try again.'; if(btn){ btn.disabled=false; btn.textContent='Send answer'; } }
+      }).catch(function(){ if(btn){ btn.disabled=false; btn.textContent='Send answer'; } });
+  };
+  /* deep link: ?open=bobo */
+  try{ if(/[?&]open=bobo/.test(location.search)) setTimeout(function(){ boboOpen(); }, 1500); }catch(e){}
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     DESIGN-SYSTEM POLISH LAYER  (jmb-ds, Aug 2026)
+     Appended LAST so it wins the cascade cleanly without touching the 1,400+
+     existing rules. Goal: pull the portal's scattered radii / shadows / type
+     into ONE consistent system + tasteful depth. Additive & reversible —
+     backup at index-predesign-backup.html. Honors Lite mode + reduced-motion.
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<style id="jmb-ds">
+:root{
+  /* ── ELEVATION: 4 shadow levels for the whole app (was 333 one-offs) ── */
+  --ds-e1:0 1px 2px rgba(24,16,50,.05), 0 2px 6px rgba(24,16,50,.05);
+  --ds-e2:0 2px 4px rgba(24,16,50,.05), 0 12px 26px -8px rgba(24,16,50,.12);
+  --ds-e3:0 6px 14px -6px rgba(24,16,50,.14), 0 24px 50px -18px rgba(24,16,50,.20);
+  --ds-e4:0 12px 28px -10px rgba(24,16,50,.22), 0 40px 80px -30px rgba(24,16,50,.34);
+  --ds-glow:0 10px 30px -10px rgba(241,102,35,.55);
+  /* ── RADIUS SCALE (was 25 distinct values) ── */
+  --ds-r-sm:10px; --ds-r-md:16px; --ds-r-lg:22px; --ds-r-pill:999px;
+  --ds-ease:cubic-bezier(.2,.7,.3,1);
+}
+
+/* ── unify card elevation + hover lift across the main surfaces ── */
+.card, .stat, .stat-card, .id-card-front, .hero-card{
+  box-shadow:var(--ds-e2) !important;
+  transition:box-shadow .24s var(--ds-ease), transform .24s var(--ds-ease) !important;
+}
+.card:hover, .stat:hover, .stat-card:hover{
+  box-shadow:var(--ds-e3) !important;
+  transform:translateY(-3px);
+}
+/* a touch more presence on the hero / primary card */
+#tab-dashboard .card:first-of-type{ box-shadow:var(--ds-e3) !important; }
+
+/* ── one radius language on the big surfaces ── */
+.card, .stat, .stat-card{ border-radius:var(--ds-r-lg) !important; }
+
+/* ── primary actions become confident gradient pills ── */
+.btn-primary, button.btn-primary, .submit, .btn.primary{
+  border-radius:var(--ds-r-pill) !important;
+  background:linear-gradient(135deg,#f16623 12%,#ff8a45 88%) !important;
+  border:none !important; color:#fff !important;
+  box-shadow:var(--ds-glow) !important;
+  transition:transform .14s var(--ds-ease), box-shadow .22s var(--ds-ease), filter .18s !important;
+}
+.btn-primary:hover, button.btn-primary:hover, .submit:hover, .btn.primary:hover{
+  transform:translateY(-2px); filter:brightness(1.04);
+  box-shadow:0 16px 36px -12px rgba(241,102,35,.7) !important;
+}
+.btn-primary:active, button.btn-primary:active{ transform:translateY(0); }
+
+/* ── smoother, springier tab entrance (depth cue when switching screens) ── */
+.tab-panel.active{ animation:dsPanelIn .42s var(--ds-ease) both; }
+@keyframes dsPanelIn{ from{ opacity:0; transform:translateY(10px) scale(.995); } to{ opacity:1; transform:none; } }
+
+/* ── section eyebrows: consistent rhythm ── */
+.section-eyebrow{ letter-spacing:.14em !important; font-weight:800 !important; }
+
+/* ── hero parallax container (JS sets --px/--py) ── */
+.rail-hero, .hero, #hero-deck{ will-change:transform; }
+.jmb-parallax{ transition:transform .2s var(--ds-ease); transform:translate3d(calc(var(--px,0)*1px), calc(var(--py,0)*1px), 0); }
+
+/* ── LITE MODE + reduced-motion: strip every added motion, keep the clean look ── */
+body.jmb-lite .card:hover, body.jmb-lite .stat:hover, body.jmb-lite .stat-card:hover{ transform:none; }
+body.jmb-lite .tab-panel.active{ animation:none; }
+body.jmb-lite .jmb-parallax{ transform:none !important; }
+@media (prefers-reduced-motion:reduce){
+  .card, .stat, .stat-card, .btn-primary, .jmb-parallax{ transition:none !important; }
+  .tab-panel.active{ animation:none !important; }
+}
+</style>
+
+<script>
+/* jmb-ds runtime: a whisper of parallax on the dashboard hero (depth without a 3D scene).
+   Guarded so it never fights the existing hero-deck drag/swipe and never runs in Lite mode. */
+(function(){
+  try{
+    var LITE_KEY='jmb_lite';
+    if(localStorage.getItem(LITE_KEY)==='1') document.body.classList.add('jmb-lite');
+  }catch(e){}
+  var target=null, rafPending=false, lastX=0, lastY=0;
+  function hero(){ return document.getElementById('hero-deck') || document.querySelector('.rail-hero'); }
+  function onMove(e){
+    if(document.body.classList.contains('jmb-lite')) return;
+    var el=hero(); if(!el) return;
+    var r=el.getBoundingClientRect();
+    // only react when the cursor is near the hero, and keep it SUBTLE (max ~6px)
+    var cx=r.left+r.width/2, cy=r.top+r.height/2;
+    lastX=Math.max(-6,Math.min(6,(e.clientX-cx)/r.width*12));
+    lastY=Math.max(-5,Math.min(5,(e.clientY-cy)/r.height*10));
+    if(!rafPending){ rafPending=true; requestAnimationFrame(apply); }
+  }
+  function apply(){
+    rafPending=false;
+    var el=hero(); if(!el) return;
+    /* never hijack an element the deck is actively dragging */
+    if(el.getAttribute('data-jmb-dragging')==='1') return;
+    el.style.setProperty('--px', lastX.toFixed(2));
+    el.style.setProperty('--py', lastY.toFixed(2));
+    if(!el.classList.contains('jmb-parallax')) el.classList.add('jmb-parallax');
+  }
+  document.addEventListener('mousemove', onMove, {passive:true});
+})();
+</script>
+
+<!-- ═══ DESIGN-SYSTEM PASS 2 — type scale · brand-color unification · font polish ═══ -->
+<style id="jmb-ds-2">
+:root{
+  /* one brand orange (was #ff6b1a AND #f16623 drifting apart) → unify to the sidebar orange */
+  --orange-1:#f16623; --orange-2:#e0530f; --orange-3:#ff9d6b;
+  --accent:#f16623; --border-hi:rgba(241,102,35,.45);
+  /* type scale — 6 steps, replaces the ad-hoc 48 sizes going forward */
+  --ds-t-eyebrow:11px; --ds-t-body:14px; --ds-t-h4:16px; --ds-t-h3:20px; --ds-t-h2:26px; --ds-t-display:34px;
+  --ds-display:'Sora',system-ui,sans-serif;
+}
+/* crisper type everywhere — the single biggest 'looks more premium' polish */
+html, body{ -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility; }
+
+/* fold the stray display faces (Bebas/Oswald/Poppins/Archivo) into the house display font
+   ONLY where they were used decoratively as headings — Georgia (print) & Mono (numbers) stay */
+.hero-name{ font-family:var(--ds-display) !important; font-weight:800 !important; letter-spacing:-.01em !important; }
+
+/* consistent heading rhythm on the classes that actually exist */
+.section-eyebrow{ font-size:var(--ds-t-eyebrow) !important; text-transform:uppercase; color:var(--text-2); }
+.stat-value{ font-family:var(--ds-display) !important; font-weight:800 !important; letter-spacing:-.01em; }
+.stat-label{ font-size:var(--ds-t-eyebrow) !important; text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); }
+
+/* selection + focus-visible in brand orange (small touches that read as 'designed') */
+::selection{ background:rgba(241,102,35,.22); }
+:focus-visible{ outline:2px solid rgba(241,102,35,.6); outline-offset:2px; }
+</style>
+
+<!-- ═══ DESIGN-SYSTEM PASS 3 — DASHBOARD screen polish (scoped to #tab-overview) ═══ -->
+<style id="jmb-ds-dash">
+/* staggered fade-up as the dashboard loads — reads premium, costs nothing */
+#overview-content > .card, #overview-content .kpi-row, #overview-content .overview-layout{
+  animation:dsCardIn .5s var(--ds-ease) both;
+}
+#overview-content > .card:nth-of-type(1){ animation-delay:.02s; }
+#overview-content > .card:nth-of-type(2){ animation-delay:.08s; }
+#overview-content > .card:nth-of-type(3){ animation-delay:.14s; }
+#overview-content > .card:nth-of-type(4){ animation-delay:.20s; }
+#overview-content > .card:nth-of-type(5){ animation-delay:.26s; }
+@keyframes dsCardIn{ from{ opacity:0; transform:translateY(14px); } to{ opacity:1; transform:none; } }
+
+/* KPI tiles: unify radius + elevation + a real hover lift, and lift the icon chip */
+#kpi-row .kpi{ border-radius:var(--ds-r-md) !important; box-shadow:var(--ds-e1) !important;
+  transition:box-shadow .22s var(--ds-ease), transform .22s var(--ds-ease); }
+#kpi-row .kpi:hover{ box-shadow:var(--ds-e2) !important; transform:translateY(-2px); }
+#kpi-row .kpi-ic{ box-shadow:0 6px 14px -8px rgba(24,16,50,.35); }
+
+/* dashboard action buttons (Play Trivia / Redeem) → brand gradient pill, matching the system */
+.prod-open-btn{
+  border-radius:var(--ds-r-pill) !important;
+  background:linear-gradient(135deg,#f16623 12%,#ff8a45 88%) !important;
+  border:none !important; color:#fff !important; font-weight:700 !important;
+  box-shadow:0 8px 20px -8px rgba(241,102,35,.6) !important;
+  transition:transform .14s var(--ds-ease), box-shadow .22s var(--ds-ease), filter .18s !important;
+}
+.prod-open-btn:hover{ transform:translateY(-2px); filter:brightness(1.04);
+  box-shadow:0 14px 30px -10px rgba(241,102,35,.7) !important; }
+.prod-open-btn:active{ transform:translateY(0); }
+.prod-open-btn svg{ stroke:#fff !important; }
+
+/* stat cards inherit the same elevation language + hover as the main cards */
+#stat-grid .stat-card{ border-radius:var(--ds-r-lg) !important; box-shadow:var(--ds-e2) !important;
+  transition:box-shadow .24s var(--ds-ease), transform .24s var(--ds-ease); }
+#stat-grid .stat-card:hover{ box-shadow:var(--ds-e3) !important; transform:translateY(-3px); }
+
+/* uppercase eyebrow labels on card headers: consistent, quiet, brand-tracked */
+#overview-content .card p[style*="uppercase"]{ letter-spacing:.09em !important; font-weight:700 !important; }
+
+/* honor lite / reduced-motion */
+body.jmb-lite #overview-content > .card,
+body.jmb-lite #overview-content .kpi-row{ animation:none !important; }
+body.jmb-lite #kpi-row .kpi:hover, body.jmb-lite #stat-grid .stat-card:hover{ transform:none; }
+@media (prefers-reduced-motion:reduce){
+  #overview-content > .card, #overview-content .kpi-row, #overview-content .overview-layout{ animation:none !important; }
+}
+</style>
+
+<!-- ═══ DESIGN-SYSTEM PASS 4 — TRACKER screen polish (scoped to #tab-clockify) ═══ -->
+<style id="jmb-ds-trk">
+/* timer + paused surfaces share the system elevation & radius */
+#tab-clockify #cfy-timer-card,
+#tab-clockify #cfy-paused-wrap,
+#tab-clockify #time-bar-wrap{
+  border-radius:var(--ds-r-lg) !important;
+  box-shadow:var(--ds-e2) !important;
+}
+/* action buttons: keep their state COLORS (running/paused/idle mean something) — only add
+   the tactile hover/press + a consistent pill radius so they feel like the rest of the app */
+#tab-clockify .time-action-btn{
+  border-radius:var(--ds-r-pill) !important;
+  transition:transform .14s var(--ds-ease), box-shadow .2s var(--ds-ease), filter .18s !important;
+}
+#tab-clockify .time-action-btn:hover{ transform:translateY(-2px); filter:brightness(1.03); }
+#tab-clockify .time-action-btn:active{ transform:translateY(0); }
+/* group labels: align to the house eyebrow tracking */
+#tab-clockify .trk-group-lbl{ letter-spacing:.11em !important; }
+/* inputs already get the orange focus ring globally — just round them to the scale */
+#tab-clockify .cfy-desc-input, #tab-clockify .cfy-project-select,
+#tab-clockify input:not([type=checkbox]):not([type=radio]), #tab-clockify select{
+  border-radius:var(--ds-r-sm) !important;
+}
+/* gentle entrance for the tracker card(s) on tab open */
+#tab-clockify.active #trk-mount > *{ animation:dsCardIn .5s var(--ds-ease) both; }
+body.jmb-lite #tab-clockify.active #trk-mount > *{ animation:none !important; }
+body.jmb-lite #tab-clockify .time-action-btn:hover{ transform:none; }
+@media (prefers-reduced-motion:reduce){
+  #tab-clockify.active #trk-mount > *{ animation:none !important; }
+  #tab-clockify .time-action-btn{ transition:none !important; }
+}
+</style>
+
+<!-- ═══ DESIGN-SYSTEM PASS 5 — SCORECARD + MESSAGES screen polish ═══ -->
+<style id="jmb-ds-sc-msg">
+/* ── SCORECARD (#tab-scorecard) ── */
+#tab-scorecard .card, #tab-scorecard .att-summary-cards > *{
+  border-radius:var(--ds-r-lg) !important; box-shadow:var(--ds-e2) !important;
+  transition:box-shadow .24s var(--ds-ease), transform .24s var(--ds-ease);
+}
+#tab-scorecard .att-summary-cards > *:hover{ box-shadow:var(--ds-e3) !important; transform:translateY(-3px); }
+#tab-scorecard.active .card{ animation:dsCardIn .5s var(--ds-ease) both; }
+#tab-scorecard.active .card:nth-of-type(2){ animation-delay:.06s; }
+#tab-scorecard.active .card:nth-of-type(3){ animation-delay:.12s; }
+#tab-scorecard.active .card:nth-of-type(4){ animation-delay:.18s; }
+/* the big scorecard numbers on the house display font, consistent */
+#sc-overall-num, #sc-prod-num, #sc-qual-num, #sc-att-num, #sc-assess-num, #sc-vp-num{
+  font-family:var(--ds-display) !important; letter-spacing:-.02em !important;
+}
+
+/* ── MESSAGES (#tab-messages) ── */
+/* softer, more modern chat bubbles + crisper send button (already gradient — unify + lift) */
+.chat-msg-bubble{ border-radius:18px !important; box-shadow:0 1px 2px rgba(24,16,50,.06) !important; }
+.chat-send-btn{
+  background:linear-gradient(135deg,#f16623,#ff8a45) !important;
+  box-shadow:var(--ds-glow) !important;
+  transition:transform .14s var(--ds-ease), box-shadow .2s var(--ds-ease), filter .18s !important;
+}
+.chat-send-btn:hover{ transform:translateY(-1px) scale(1.05); filter:brightness(1.05); }
+.chat-send-btn:active{ transform:scale(.96); }
+.chat-input-wrap input, .chat-input-wrap textarea{ border-radius:var(--ds-r-pill) !important; }
+
+body.jmb-lite #tab-scorecard.active .card{ animation:none !important; }
+body.jmb-lite #tab-scorecard .att-summary-cards > *:hover{ transform:none; }
+@media (prefers-reduced-motion:reduce){
+  #tab-scorecard.active .card{ animation:none !important; }
+  .chat-send-btn{ transition:none !important; }
+}
+</style>
+
+<!-- ═══ DESIGN-SYSTEM PASS 6 — ATTENDANCE · PROFILE · LEAVE · PAYSLIPS (final sweep) ═══ -->
+<style id="jmb-ds-rest">
+/* attendance summary tiles: shared elevation + hover, consistent radius */
+#tab-attendance .att-sum-card, #tab-attendance .att-summary-cards > *, #tab-attendance .card{
+  border-radius:var(--ds-r-lg) !important; box-shadow:var(--ds-e2) !important;
+  transition:box-shadow .24s var(--ds-ease), transform .24s var(--ds-ease);
+}
+#tab-attendance .att-summary-cards > *:hover, #tab-attendance .att-sum-card:hover{ box-shadow:var(--ds-e3) !important; transform:translateY(-3px); }
+/* attendance rows: quiet, consistent hover already exists — round the container corners */
+#tab-attendance .att-day-grid > *{ border-radius:var(--ds-r-sm) !important; }
+#tab-attendance.active .card{ animation:dsCardIn .5s var(--ds-ease) both; }
+
+/* profile, leave, payslips: fold their cards into the system */
+#tab-profile .card, #tab-profile .profile-card, .leave-form-card, .pin-change-card,
+#tab-payslips .card, #tab-leave .card{
+  border-radius:var(--ds-r-lg) !important; box-shadow:var(--ds-e2) !important;
+}
+#tab-profile.active .card, #tab-leave.active .card, #tab-payslips.active .card{ animation:dsCardIn .5s var(--ds-ease) both; }
+#tab-profile .profile-field input, #tab-profile .profile-field select{ border-radius:var(--ds-r-sm) !important; }
+
+body.jmb-lite #tab-attendance.active .card,
+body.jmb-lite #tab-profile.active .card,
+body.jmb-lite #tab-leave.active .card,
+body.jmb-lite #tab-payslips.active .card{ animation:none !important; }
+body.jmb-lite #tab-attendance .att-summary-cards > *:hover,
+body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
+@media (prefers-reduced-motion:reduce){
+  #tab-attendance.active .card, #tab-profile.active .card,
+  #tab-leave.active .card, #tab-payslips.active .card{ animation:none !important; }
+}
+</style>
 </body>
 </html>
