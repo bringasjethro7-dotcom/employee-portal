@@ -686,20 +686,18 @@ body{background-attachment:initial !important}
     </div>
   </header>
 
-  <!-- ═══ BOBO SHOT — standalone host modal (independent of Settings) ═══ -->
-  <div id="bobo-admin-modal" style="display:none;position:fixed;inset:0;z-index:9700;align-items:flex-start;justify-content:center;background:rgba(10,7,24,.72);backdrop-filter:blur(5px);padding:36px 16px;overflow:auto;">
-    <div style="width:600px;max-width:100%;background:#fff;border:1px solid rgba(15,23,42,.12);border-radius:18px;padding:22px;box-shadow:0 40px 110px rgba(0,0,0,.4);">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <div style="font-size:18px;font-weight:800;color:var(--t1);">💥 Bobo Shot <span style="font-size:12px;color:var(--t3);font-weight:600;">— last one standing</span></div>
-        <button class="bsm" onclick="closeBoboAdmin()">✕ Close</button>
+  <!-- ═══ BOBO SHOT — big standalone host dashboard (independent of Settings) ═══ -->
+  <div id="bobo-admin-modal" style="display:none;position:fixed;inset:0;z-index:9700;align-items:flex-start;justify-content:center;background:rgba(8,5,20,.82);backdrop-filter:blur(6px);padding:24px 16px;overflow:auto;">
+    <div style="width:1000px;max-width:100%;background:#14102e;border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:0;box-shadow:0 50px 130px rgba(0,0,0,.6);overflow:hidden;color:#fff;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;background:linear-gradient(90deg,#262262,#96473f,#f16623);">
+        <div style="font-family:'Archivo Black','Sora',sans-serif;font-size:22px;">💥 BOBO SHOT — HOST</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:12px;color:rgba(255,255,255,.85);font-weight:700;">secs/cycle <input id="bobo-secs" type="number" min="6" max="60" value="15" style="width:56px;padding:5px 7px;border:none;border-radius:8px;font:inherit;color:#14102e;font-weight:700;"></label>
+          <button onclick="boboHostRefresh()" style="background:rgba(255,255,255,.16);border:none;color:#fff;border-radius:9px;padding:8px 12px;font-weight:700;cursor:pointer;">↻</button>
+          <button onclick="closeBoboAdmin()" style="background:rgba(255,255,255,.16);border:none;color:#fff;border-radius:9px;padding:8px 14px;font-weight:700;cursor:pointer;">✕ Close</button>
+        </div>
       </div>
-      <div style="font-size:12.5px;color:var(--t3);margin-bottom:14px;line-height:1.55;">Launch → every signed-in portal opens the game and joins the lobby. Pick a category; each cycle players must give a <b>new</b> answer (not one already said in this category). No answer or a repeat = out. Keep clicking <b>Next cycle</b> on the same category until someone drops, or switch to a <b>new category</b> anytime. Reject a bogus answer to eliminate. Last one standing wins 150 JMB Points.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <button class="blogout" id="bobo-launch-btn" onclick="boboLaunch()" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">💥 Launch game</button>
-        <label style="font-size:12px;color:var(--t2);font-weight:700;">seconds/cycle <input id="bobo-secs" type="number" min="6" max="60" value="15" style="width:58px;padding:5px 7px;border:1px solid rgba(15,23,42,.15);border-radius:8px;font:inherit;"></label>
-        <button class="bsm" onclick="boboHostRefresh()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
-      </div>
-      <div id="bobo-host" style="margin-top:14px;"></div>
+      <div id="bobo-host" style="padding:22px 24px;min-height:220px;"></div>
     </div>
   </div>
 
@@ -7736,48 +7734,71 @@ async function boboHostAct(act, target){
     boboHostRefresh();
   }catch(e){ alert('Network error.'); }
 }
+var _boboDeadline=0, _boboTickIv=null;
+function boboBtn(label,act,kind){
+  var col=kind==='go'?'#f16623':(kind==='alt'?'#1d9e75':(kind==='danger'?'#d94848':'rgba(255,255,255,.14)'));
+  var bg=kind?'linear-gradient(135deg,'+col+',#ff8a45)':'rgba(255,255,255,.1)';
+  if(kind==='alt') bg='linear-gradient(135deg,#1d9e75,#22c58a)';
+  if(kind==='danger') bg='rgba(217,72,72,.9)';
+  if(!kind) bg='rgba(255,255,255,.12)';
+  return '<button onclick="boboHostAct(\''+act+'\')" style="background:'+bg+';border:none;color:#fff;border-radius:12px;padding:14px 20px;font:800 15px Inter,sans-serif;cursor:pointer;box-shadow:0 10px 26px -10px rgba(0,0,0,.5);">'+label+'</button>';
+}
 async function boboHostRefresh(){
   var box=document.getElementById('bobo-host'); if(!box) return;
   try{
     var r=await fetch(API+'?action=bobo_state&_='+Date.now()); var s=await r.json();
-    if(!s||!s.active){ box.innerHTML='<div class="es" style="padding:10px;color:var(--t3);font-size:12.5px;">No Bobo Shot running. Launch one above.</div>'; return; }
+    if(!s||!s.active){ clearInterval(_boboTickIv); _boboTickIv=null;
+      box.innerHTML='<div style="text-align:center;padding:26px 10px;"><div style="font-size:16px;color:rgba(255,255,255,.85);font-weight:700;margin-bottom:6px;">No game running</div><div style="font-size:13px;color:rgba(255,255,255,.5);margin-bottom:18px;">Launch to open Bobo Shot on every signed-in portal.</div>'+boboBtn('💥 Launch game','__launch','go')+'</div>';
+      var lb=box.querySelector('button'); if(lb) lb.onclick=boboLaunch; return; }
     var alive=s.players.filter(function(p){return p.alive;}).length;
-    var chips=s.players.map(function(p){
-      var answered=(s.round_answers||[]).some(function(a){return a.id===p.id;});
-      return '<span style="font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:999px;margin:3px;display:inline-block;'+
-        (p.alive?(answered?'background:rgba(52,211,153,.22);color:#0f766e;border:1px solid rgba(52,211,153,.6);':'background:rgba(52,211,153,.1);color:#0f766e;border:1px solid rgba(52,211,153,.3);'):'background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3);text-decoration:line-through;')+'">'+boboEsc(p.name)+(p.alive?(answered?' ✓':''):' 💀')+'</span>';
-    }).join('');
-    var head='<div style="font-size:12.5px;color:var(--t2);font-weight:700;margin-bottom:6px;">Status <b style="color:var(--o3);text-transform:uppercase;">'+s.status+'</b> · Cycle '+s.round+' · <b style="color:#0f766e;">'+alive+' alive</b> / '+s.players.length+(s.category?(' · '+s.used_count+' answers used'):'')+'</div>';
-    var ctrl='';
-    if(s.status==='lobby'){
-      ctrl='<button class="blogout" onclick="boboHostAct(\'new_category\')" style="border-color:rgba(52,211,153,.5);color:#0f766e;font-weight:700;">▶️ Start — first category</button>';
-    }
-    if(s.status==='intermission'){
-      ctrl='<div style="font-weight:800;font-size:13px;color:var(--t1);margin-bottom:8px;">“'+boboEsc(s.category)+'”</div>'+
-        '<button class="blogout" onclick="boboHostAct(\'next_cycle\')" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">🔁 Next cycle (same category)</button> '+
-        '<button class="bsm" onclick="boboHostAct(\'new_category\')" style="color:#0f766e;border-color:rgba(52,211,153,.4);">🎲 New category</button> '+
-        (alive>1?'<button class="bsm" onclick="boboHostAct(\'end\')" style="color:#dc2626;border-color:rgba(220,38,38,.3);">⏹ End game</button>':'');
-    }
-    if(s.status==='round'){
-      var secsLeft=Math.max(0,Math.round((s.closes_at-s.now)/1000));
-      ctrl='<div style="font-weight:800;font-size:14px;color:var(--t1);margin-bottom:6px;">“'+boboEsc(s.category)+'” · ⏱ '+secsLeft+'s · cycle '+s.round+'</div>'+
-        '<button class="blogout" onclick="boboHostAct(\'resolve\')" style="border-color:rgba(241,102,35,.5);color:var(--o3);font-weight:700;">✔ Resolve cycle (out anyone with no answer)</button>';
-      if(s.round_answers && s.round_answers.length){
-        ctrl+='<div style="margin-top:10px;font-size:11.5px;color:var(--t3);font-weight:700;">This cycle’s answers — ✖ to reject a bogus one:</div><div style="margin-top:5px;">'+
-          s.round_answers.map(function(a){
-            return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border:1px solid rgba(15,23,42,.1);border-radius:9px;margin:4px 0;font-size:12.5px;'+(a.rejected?'opacity:.45;':'')+'">'+
-              '<b style="min-width:120px;color:var(--t2);">'+boboEsc(a.name)+'</b>'+
-              '<span style="flex:1;color:var(--t1);">'+boboEsc(a.text)+(a.rejected?' <span style="color:#dc2626;font-weight:700;">(rejected)</span>':'')+'</span>'+
-              (a.rejected?'':'<button class="bsm" onclick="boboHostAct(\'reject\',\''+a.id+'\')" style="color:#dc2626;border-color:rgba(220,38,38,.3);padding:3px 9px;">✖ out</button>')+
-            '</div>';
-          }).join('')+'</div>';
-      }
-    }
-    if(s.status==='done'){
-      ctrl='<div style="font-size:16px;font-weight:800;color:var(--o3);">🏆 Winner: '+boboEsc(s.winner_name||'—')+'</div>'+
-        '<button class="bsm" onclick="boboHostAct(\'clear\')" style="margin-top:8px;">Clear game</button>';
-    }
-    box.innerHTML=head+'<div style="margin:8px 0;">'+chips+'</div>'+ctrl;
+    // ── live host timer anchor ──
+    _boboDeadline = performance.now() + Math.max(0, (Number(s.closes_at)||0) - (Number(s.now)||Date.now()));
+    var secsLeft = s.status==='round' ? Math.max(0,Math.ceil((_boboDeadline-performance.now())/1000)) : 0;
+    var stColor={lobby:'#8f7bff',round:'#f16623',intermission:'#ffd36e',done:'#22c58a'}[s.status]||'#fff';
+    // ── big status header ──
+    var header='<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch;margin-bottom:16px;">'+
+      '<div style="flex:2;min-width:240px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:16px 18px;">'+
+        '<div style="font-size:11px;letter-spacing:.14em;font-weight:800;color:'+stColor+';text-transform:uppercase;">'+s.status+' · cycle '+s.round+'</div>'+
+        '<div style="font-family:\'Archivo Black\',sans-serif;font-size:clamp(18px,2.4vw,26px);margin-top:6px;line-height:1.15;">'+(s.category?boboEsc(s.category):'— pick a category —')+'</div>'+
+        (s.category?'<div style="font-size:12px;color:rgba(255,255,255,.55);margin-top:6px;font-weight:700;">'+s.used_count+' answers used this category</div>':'')+
+      '</div>'+
+      '<div style="flex:1;min-width:120px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:16px;text-align:center;display:flex;flex-direction:column;justify-content:center;">'+
+        '<div id="bobo-host-timer" style="font-family:\'Archivo Black\',sans-serif;font-size:44px;color:'+(secsLeft<=5?'#ff5a5a':'#ffd36e')+';">'+(s.status==='round'?secsLeft:'—')+'</div>'+
+        '<div style="font-size:10.5px;letter-spacing:.12em;color:rgba(255,255,255,.5);font-weight:800;">SECONDS</div>'+
+      '</div>'+
+      '<div style="flex:1;min-width:120px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:16px;text-align:center;display:flex;flex-direction:column;justify-content:center;">'+
+        '<div style="font-family:\'Archivo Black\',sans-serif;font-size:44px;color:#22c58a;">'+alive+'</div>'+
+        '<div style="font-size:10.5px;letter-spacing:.12em;color:rgba(255,255,255,.5);font-weight:800;">STILL IN / '+s.players.length+'</div>'+
+      '</div>'+
+    '</div>';
+    // ── primary action row (context-aware, big) ──
+    var actions='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">';
+    if(s.status==='lobby') actions+=boboBtn('▶️ Start — first category','new_category','go');
+    if(s.status==='intermission'){ actions+=boboBtn('🔁 Next cycle (same category)','next_cycle','go')+boboBtn('🎲 New category','new_category','alt'); if(alive>1) actions+=boboBtn('⏹ End game','end','danger'); }
+    if(s.status==='round') actions+=boboBtn('✔ Resolve cycle — out the no-answers','resolve','go');
+    if(s.status==='done'){ actions+='<div style="font-family:\'Archivo Black\',sans-serif;font-size:22px;color:#ffd36e;flex:1;">🏆 '+boboEsc(s.winner_name||'—')+' wins!</div>'+boboBtn('Clear game','clear'); }
+    actions+='</div>';
+    // ── two columns: players | this cycle answers ──
+    var players='<div style="flex:1;min-width:260px;"><div style="font-size:11px;letter-spacing:.1em;font-weight:800;color:rgba(255,255,255,.5);text-transform:uppercase;margin-bottom:8px;">Players ('+s.players.length+')</div><div style="display:flex;flex-wrap:wrap;gap:6px;">'+
+      s.players.map(function(p){ var answered=(s.round_answers||[]).some(function(a){return a.id===p.id;});
+        return '<span style="font-size:12px;font-weight:700;padding:6px 12px;border-radius:999px;'+
+          (p.alive?(answered?'background:rgba(34,197,94,.22);color:#8ff0b8;border:1px solid rgba(34,197,94,.55);':'background:rgba(255,255,255,.08);color:#dcd6f2;border:1px solid rgba(255,255,255,.16);'):'background:rgba(148,163,184,.12);color:#8b8ba0;border:1px solid rgba(148,163,184,.25);text-decoration:line-through;')+'">'+boboEsc(p.name)+(p.alive?(answered?' ✓':''):' 💀')+'</span>';
+      }).join('')+'</div></div>';
+    var ansCol='<div style="flex:1;min-width:260px;"><div style="font-size:11px;letter-spacing:.1em;font-weight:800;color:rgba(255,255,255,.5);text-transform:uppercase;margin-bottom:8px;">This cycle’s answers'+((s.round_answers||[]).length?' — ✖ rejects & eliminates':'')+'</div>';
+    if((s.round_answers||[]).length){
+      ansCol+=s.round_answers.map(function(a){
+        return '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:11px;margin-bottom:6px;'+(a.rejected?'opacity:.45;':'')+'">'+
+          '<b style="min-width:110px;font-size:12px;color:rgba(255,255,255,.6);">'+boboEsc(a.name)+'</b>'+
+          '<span style="flex:1;font-size:15px;font-weight:800;text-transform:uppercase;">'+boboEsc(a.text)+(a.rejected?' <span style="color:#ff9d9d;font-weight:700;font-size:11px;">rejected</span>':'')+'</span>'+
+          (a.rejected?'':'<button onclick="boboHostAct(\'reject\',\''+a.id+'\')" style="background:rgba(217,72,72,.9);border:none;color:#fff;border-radius:8px;padding:6px 11px;font-weight:800;cursor:pointer;font-size:12px;">✖ out</button>')+
+        '</div>';
+      }).join('');
+    } else ansCol+='<div style="font-size:13px;color:rgba(255,255,255,.4);padding:8px 2px;">No answers yet this cycle.</div>';
+    ansCol+='</div>';
+    box.innerHTML=header+actions+'<div style="display:flex;gap:20px;flex-wrap:wrap;">'+players+ansCol+'</div>';
+    // ── live-tick the host timer without a full refetch ──
+    clearInterval(_boboTickIv);
+    if(s.status==='round'){ _boboTickIv=setInterval(function(){ var el=document.getElementById('bobo-host-timer'); if(!el){clearInterval(_boboTickIv);return;} var left=Math.max(0,Math.ceil((_boboDeadline-performance.now())/1000)); el.textContent=left; el.style.color=left<=5?'#ff5a5a':'#ffd36e'; if(left<=0) clearInterval(_boboTickIv); },250); }
   }catch(e){}
 }
 

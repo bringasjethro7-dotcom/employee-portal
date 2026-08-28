@@ -35073,40 +35073,61 @@ var PORTAL_BUILD='2026-08-25-A';
       '<div class="rt" id="bobo-t">'+secsLeft+'</div></div>';
   }
 
+  /* ── INCREMENTAL RENDER (fix: no full rebuild every poll) ──
+     Only rebuild the whole card when the STRUCTURE changes (status / cycle / my alive|answered).
+     Otherwise just patch the live bits (answers board, roster, counts) so the answer box you're
+     typing in and the category are NEVER wiped, and the category doesn't re-animate each poll. */
+  var curSig=null, deadlineP=0;
+  function sig(s){ var m=s.me||{}; return s.status+'|'+s.round+'|'+(m.alive?1:0)+'|'+(m.answered?1:0)+'|'+(s.winner||''); }
+  function setDeadline(s){ deadlineP = performance.now() + Math.max(0, (Number(s.closes_at)||0) - (Number(s.now)||Date.now())); }
+  function patchDyn(){
+    var el=document.getElementById('bobo-dyn'); if(el) el.innerHTML=(ST.status==='round')?(answersBoard()+roster()):roster();
+    var k=document.getElementById('bobo-kick'); if(k) k.textContent='Cycle '+ST.round+' · '+ST.alive_count+' left';
+    var js=document.getElementById('bobo-join-status'); if(js && ST.status==='lobby'){ var m=ST.me||{}; js.innerHTML=(m.joined?'✅ You\'re in! '+ST.alive_count+' players — waiting for the host…':'Joining…'); }
+  }
   function render(){
-    var s=ST, mine=s.me||{};
+    var s=ST, mine=s.me||{}, g=sig(s);
+    if(g===curSig){
+      if(s.status==='round') setDeadline(s);        // resync the countdown to the server each poll
+      if(s.status==='lobby' && !mine.joined) autoJoin();
+      patchDyn();                                    // live bits only — DON'T touch the input/category
+      return;
+    }
+    curSig=g;
     if(s.status==='lobby'){
       autoJoin();
       body('<div class="bobo-kick">💥 Bobo Shot</div><div class="bobo-title">Huling <em>matira</em>, panalo!</div>'+
-        '<div class="bobo-sub">Every round, magbigay ng sagot bago mag-zero ang timer. Nakikita mo ang mga nasagot na — <b>bawal ulitin</b>. Walang sagot o paulit = <b>bobo, labas!</b></div>'+
-        '<div class="bobo-status">'+(mine.joined?'✅ You\'re in! '+s.alive_count+' players — waiting for the host…':'Joining…')+'</div>'+roster());
+        '<div class="bobo-sub">Bawat cycle, magbigay ng <b>bagong</b> sagot bago mag-zero ang timer. Nakikita mo ang mga nasagot na — <b>bawal ulitin</b>. Walang sagot o paulit = <b>bobo, labas!</b></div>'+
+        '<div class="bobo-status" id="bobo-join-status">'+(mine.joined?'✅ You\'re in! '+s.alive_count+' players — waiting for the host…':'Joining…')+'</div>'+
+        '<div id="bobo-dyn">'+roster()+'</div>');
       return;
     }
     if(s.status==='round'){
-      if(s.round!==lastRound){ lastRound=s.round; sRound(); startTick(); }
-      var secsLeft=Math.max(0,Math.round((s.closes_at-s.now)/1000)), tot=s.round_secs||12;
+      if(s.round!==lastRound){ lastRound=s.round; sRound(); }
+      setDeadline(s); startTick();
+      var secsLeft=Math.max(0,Math.round((deadlineP-performance.now())/1000)), tot=s.round_secs||12;
       if(!mine.alive){
-        body('<div class="bobo-kick">Cycle '+s.round+' · '+s.alive_count+' left</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
-          '<div class="bobo-out-badge">💀 Eliminated — panoorin na lang!</div>'+answersBoard()+roster());
+        body('<div class="bobo-kick" id="bobo-kick">Cycle '+s.round+' · '+s.alive_count+' left</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
+          '<div class="bobo-out-badge">💀 Eliminated — panoorin na lang!</div><div id="bobo-dyn">'+answersBoard()+roster()+'</div>');
         return;
       }
       if(mine.answered){
-        body('<div class="bobo-kick">Cycle '+s.round+' · '+s.alive_count+' left</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
-          ringSvg(secsLeft,tot)+'<div class="bobo-sub">✅ Nakapasa ang sagot mo — hintay sa buzzer.</div>'+answersBoard()+roster());
+        body('<div class="bobo-kick" id="bobo-kick">Cycle '+s.round+' · '+s.alive_count+' left</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
+          ringSvg(secsLeft,tot)+'<div class="bobo-sub">✅ Nakapasa ang sagot mo — hintay sa buzzer.</div><div id="bobo-dyn">'+answersBoard()+roster()+'</div>');
         return;
       }
-      body('<div class="bobo-kick">Cycle '+s.round+' · '+s.alive_count+' left</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
+      body('<div class="bobo-kick" id="bobo-kick">Cycle '+s.round+' · '+s.alive_count+' left</div><div class="bobo-cat">'+esc(s.category)+'</div>'+
         ringSvg(secsLeft,tot)+
         '<input class="bobo-inp" id="bobo-inp" placeholder="Type your answer…" autocomplete="off">'+
         '<button class="bobo-go" id="bobo-send" onclick="window._boboSend()">Send answer</button>'+
-        '<div class="bobo-status" id="bobo-st"></div>'+answersBoard()+roster());
+        '<div class="bobo-status" id="bobo-st"></div><div id="bobo-dyn">'+answersBoard()+roster()+'</div>');
       var inp=document.getElementById('bobo-inp'); if(inp){ inp.focus(); inp.onkeydown=function(e){ if(e.key==='Enter') window._boboSend(); }; }
       return;
     }
     if(s.status==='intermission'){
       clearInterval(tickIv); tickIv=null;
-      body('<div class="bobo-kick">Round '+s.round+' done</div><div class="bobo-title">'+s.alive_count+' <em>natira</em></div>'+
-        '<div class="bobo-sub">'+(mine.alive?'Buhay ka pa! 🔥 Hintay sa susunod na round.':'💀 Eliminated ka na — cheer na lang!')+'</div>'+roster());
+      body('<div class="bobo-kick">Cycle '+s.round+' done</div><div class="bobo-title">'+s.alive_count+' <em>natira</em></div>'+
+        '<div class="bobo-sub">'+(mine.alive?'Buhay ka pa! 🔥 Hintay sa susunod na cycle.':'💀 Eliminated ka na — cheer na lang!')+'</div><div id="bobo-dyn">'+roster()+'</div>');
       return;
     }
     if(s.status==='done'){
@@ -35127,11 +35148,14 @@ var PORTAL_BUILD='2026-08-25-A';
     clearInterval(tickIv);
     tickIv=setInterval(function(){
       if(!ST||ST.status!=='round'){ clearInterval(tickIv); return; }
-      var left=Math.max(0,Math.round((ST.closes_at-Date.now())/1000)), tot=ST.round_secs||12;
+      /* count down from the LOCAL performance clock anchored to the server deadline — immune to a
+         VA's laptop clock being off (that was the "12s drains to 1s instantly" bug). */
+      var remMs=deadlineP-performance.now(), tot=ST.round_secs||12;
+      var left=Math.max(0,Math.ceil(remMs/1000));
       var el=document.getElementById('bobo-t'); var arc=document.getElementById('bobo-ring-arc'); var rw=document.getElementById('bobo-ring');
       if(el){ el.textContent=left; }
       if(rw){ rw.classList.toggle('low',left<=5); }
-      if(arc){ var R=52,C=2*Math.PI*R; var frac=tot>0?Math.max(0,Math.min(1,(ST.closes_at-Date.now())/1000/tot)):0; arc.setAttribute('stroke-dashoffset',(C*(1-frac)).toFixed(1)); arc.setAttribute('stroke', left<=5?'#ff5a5a':'#ffd36e'); }
+      if(arc){ var R=52,C=2*Math.PI*R; var frac=tot>0?Math.max(0,Math.min(1,remMs/1000/tot)):0; arc.setAttribute('stroke-dashoffset',(C*(1-frac)).toFixed(1)); arc.setAttribute('stroke', left<=5?'#ff5a5a':'#ffd36e'); }
       if(left<=5 && left>0) sTick(true);
       if(left<=0) clearInterval(tickIv);
     },200);
