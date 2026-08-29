@@ -5214,9 +5214,18 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
               </div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
+              <select id="my-status-sel" onchange="setMyStatus(this.value)" title="Set your status" aria-label="Your status" style="font:600 12px/1 inherit;border:1px solid rgba(15,23,42,.14);border-radius:9px;padding:6px 8px;background:#fff;color:#334155;cursor:pointer;">
+                <option value="">● Active</option>
+                <option value="away">● Away</option>
+                <option value="busy">● Busy</option>
+                <option value="inactive">● Inactive</option>
+              </select>
               <button class="chat-call-btn" id="voice-hdr-btn" onclick="toggleVoice()" title="Join / leave the team voice room" aria-label="Team voice">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
                 <span>Voice</span>
+              </button>
+              <button class="chat-min-btn" id="chat-del-btn" onclick="deleteCurrentConversation()" title="Delete this conversation" aria-label="Delete conversation" style="display:none;color:#e11d48;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
               </button>
               <button class="chat-min-btn" onclick="toggleMessages()" title="Minimize chat" aria-label="Minimize chat">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="14" x2="19" y2="14"/></svg>
@@ -6518,7 +6527,7 @@ function railAvatarFor(id, name) {
   return '<div class="rail-ava" style="background:' + bubbleColorFor(id) + ';">' + bubbleInitials(id, name) + '</div>';
 }
 function railStatusLabel(s) {
-  switch (s) { case 'working': return 'Working'; case 'paused': return 'On break'; case 'idle': return 'Idle'; default: return 'Online'; }
+  switch (s) { case 'working': return 'Working'; case 'paused': return 'On break'; case 'idle': return 'Idle'; case 'away': return 'Away'; case 'busy': return 'Busy'; case 'inactive': return 'Inactive'; case 'offline': return 'Offline'; default: return 'Online'; }
 }
 // A deactivated employee is hidden everywhere (presence wall, chat contacts).
 // Unknown (directory not loaded yet) is treated as active until proven otherwise.
@@ -12951,6 +12960,7 @@ function setupPresence() {
   try { initBubbleCam(); } catch(e) {}   // live-camera-in-bubbles signalling
   try { initVoice(); } catch(e) {}       // voice-room watcher (instant join for late logins)
   try { setupTyping(); } catch(e) {}     // realtime typing indicators
+  try { _syncStatusSelect(); } catch(e) {}   // reflect the saved manual status in the picker
   try { if (window.tetrisSetupLobby) window.tetrisSetupLobby(); } catch(e) {}   // Tetris challenge invites
 }
 
@@ -12966,7 +12976,7 @@ async function updatePresence(isOnline) {
   try {
     var row = Object.assign({}, base);
     if (myPhoto && !_presenceNoPhotoCol) row.photo = myPhoto;
-    if (!_presenceNoStatusCol) row.status = isOnline ? myWorkStatus() : 'offline';
+    if (!_presenceNoStatusCol) row.status = isOnline ? (_manualStatus || myWorkStatus()) : 'offline';
     if (!_presenceNoTimeInCol) {
       var myTin = (typeof todayLog !== 'undefined' && todayLog && todayLog.time_in) ? todayLog.time_in : '';
       row.time_in = isOnline ? myTin : '';
@@ -12987,6 +12997,43 @@ async function updatePresence(isOnline) {
 }
 var _presenceNoPhotoCol  = false;
 var _presenceNoStatusCol = false;
+/* ── Manual status: the VA can override the auto work-status (Active/Away/Busy/Inactive). ── */
+var _manualStatus = (function(){ try{ return localStorage.getItem('jmb_status')||''; }catch(e){ return ''; } })();
+function setMyStatus(v){
+  _manualStatus = v || '';
+  try{ localStorage.setItem('jmb_status', _manualStatus); }catch(e){}
+  var sel=document.getElementById('my-status-sel'); if(sel) sel.value=_manualStatus;
+  try{ updatePresence(true); }catch(e){}
+  try{ if(typeof showToast==='function') showToast('Status: ' + (_manualStatus ? (_manualStatus.charAt(0).toUpperCase()+_manualStatus.slice(1)) : 'Active')); }catch(e){}
+}
+function _syncStatusSelect(){ var sel=document.getElementById('my-status-sel'); if(sel) sel.value=_manualStatus; }
+/* ── Delete the whole open conversation, no tombstone left behind. ── */
+async function deleteCurrentConversation(){
+  if (!supaClient || !currentChat) return;
+  var isGroup = (currentChat === 'group');
+  var isCh = (typeof chatIsChannel==='function' && chatIsChannel());
+  var who = isGroup ? 'the Group Chat' : (isCh ? 'this channel' : ((document.getElementById('chat-header-name')||{}).textContent || 'this conversation'));
+  // Group chat is shared by everyone — only leads/admin may wipe it.
+  if ((isGroup || isCh) && !(typeof chatIsLead==='function' && chatIsLead())) { if(typeof showToast==='function') showToast('Only a lead can delete a shared channel.'); return; }
+  if (!confirm('Delete '+who+'? Every message here is permanently removed for everyone — this cannot be undone.')) return;
+  try {
+    var q = supaClient.from('messages').delete();
+    if (isGroup) q = q.is('receiver_id', null).is('channel_id', null);
+    else if (isCh) q = q.eq('channel_id', currentChannelId());
+    else q = q.or('and(sender_id.eq.'+chatEmpId+',receiver_id.eq.'+currentChat+'),and(sender_id.eq.'+currentChat+',receiver_id.eq.'+chatEmpId+')');
+    var r = await q;
+    if (r && r.error) throw r.error;
+    // clean the read-marker rows for this thread too, so nothing lingers
+    try { await supaClient.from('chat_reads').delete().eq('chat_key', chatKey()); } catch(e){}
+    var msgEl=document.getElementById('chat-messages'); if(msgEl) msgEl.innerHTML='';
+    if (typeof showToast==='function') showToast('Conversation deleted.');
+    try { chatBackToList(); } catch(e){}
+    try { if (typeof loadDMHistoryOrder==='function') loadDMHistoryOrder(); } catch(e){}
+  } catch(e){
+    console.error('deleteConversation:', e);
+    if (typeof showToast==='function') showToast('Could not delete — check connection.');
+  }
+}
 
 function handlePresenceChange(payload) {
   if (payload.new) {
@@ -14081,6 +14128,12 @@ function selectChat(empId, name) {
 // ── MESSAGES ──
 async function loadMessages(force) {
   var msgEl = document.getElementById('chat-messages');
+  // Show the delete-conversation button: any DM, or a shared channel/group for leads only.
+  try{ var _db=document.getElementById('chat-del-btn'); if(_db){
+    var _g=(currentChat==='group'), _c=(typeof chatIsChannel==='function'&&chatIsChannel()),
+        _lead=(typeof chatIsLead==='function'&&chatIsLead());
+    _db.style.display = (currentChat && ((!_g&&!_c) || ((_g||_c)&&_lead))) ? 'inline-flex' : 'none';
+  } }catch(_e){}
   // Stick to the bottom on explicit opens; preserve reading position on live refresh
   window._forceChatBottom = (force !== false);
   if (force !== false) msgEl.innerHTML = '<div class="chat-loading">Loading...</div>';
