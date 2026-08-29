@@ -34353,33 +34353,82 @@ var PORTAL_BUILD='2026-08-25-A';
      The gradient tracks Manila time. Night-shift VAs were getting a bright
      afternoon palette at 2am; now the card knows when they are working.
      Stops are interpolated between anchor hours so it drifts rather than jumps. */
+  /* Warm-premium sky through the day. Each anchor also carries a light source (sun/moon):
+     gx/gy = glow position %, gi = intensity, gc = glow colour. The glow arcs low→high→low
+     across the card so the card feels lit by a real sun/moon rather than flat-tinted. */
   var ANCHORS=[
-    {h:0,  a:'#1a1740', b:'#2a2159', c:'#3a2a63', dark:1, g:'Good evening'},
-    {h:5,  a:'#3b2a58', b:'#7c4a5e', c:'#e0805a', dark:1, g:'Good morning'},
-    {h:8,  a:'#fdf3ec', b:'#fbeee6', c:'#f6e7dd', dark:0, g:'Good morning'},
-    {h:12, a:'#fdf1e6', b:'#fbe9dc', c:'#f7ded0', dark:0, g:'Good afternoon'},
-    {h:17, a:'#fce6d6', b:'#f2c8b0', c:'#d99a7e', dark:0, g:'Good evening'},
-    {h:20, a:'#2a2450', b:'#3d2a5e', c:'#6b3a58', dark:1, g:'Good evening'},
-    {h:22, a:'#1d1a44', b:'#2a2159', c:'#3a2a63', dark:1, g:'Working late'},
-    {h:24, a:'#1a1740', b:'#2a2159', c:'#3a2a63', dark:1, g:'Good evening'}
+    {h:0,   a:'#0b1030', b:'#141a3a', c:'#20264d', dark:1, g:'Good evening',  gx:80, gy:16, gi:.42, gc:'#b9c2e6'},
+    {h:3,   a:'#080c26', b:'#0f1430', c:'#181d3e', dark:1, g:'Working late',  gx:58, gy:12, gi:.34, gc:'#aeb8de'},
+    {h:5,   a:'#1b2350', b:'#3a2a5e', c:'#6a4a66', dark:1, g:'Good morning',  gx:15, gy:90, gi:.50, gc:'#c07394'},
+    {h:6.5, a:'#4a3a6a', b:'#a05a6e', c:'#ff9e6b', dark:1, g:'Good morning',  gx:20, gy:86, gi:.66, gc:'#ffb27a'},
+    {h:8,   a:'#ffe0b8', b:'#ffcf9e', c:'#f7b98a', dark:0, g:'Good morning',  gx:32, gy:40, gi:.70, gc:'#fff3d6'},
+    {h:10,  a:'#ffe9c8', b:'#ffdcae', c:'#f8c79a', dark:0, g:'Good morning',  gx:44, gy:18, gi:.72, gc:'#fff6e0'},
+    {h:12,  a:'#ffe6c4', b:'#ffd6a6', c:'#f7bf90', dark:0, g:'Good afternoon',gx:50, gy:6,  gi:.85, gc:'#fffaf0'},
+    {h:14,  a:'#ffdeb4', b:'#ffca98', c:'#f2b184', dark:0, g:'Good afternoon',gx:62, gy:20, gi:.74, gc:'#fff2d8'},
+    {h:16.5,a:'#ffcf9e', b:'#ff9e6b', c:'#e0805a', dark:0, g:'Good evening',  gx:78, gy:64, gi:.70, gc:'#ffbd7a'},
+    {h:18,  a:'#6a3a7a', b:'#c05070', c:'#ff8a5c', dark:1, g:'Good evening',  gx:88, gy:88, gi:.62, gc:'#ff9e5c'},
+    {h:20,  a:'#2a2a5e', b:'#452f6a', c:'#6b3a58', dark:1, g:'Good evening',  gx:82, gy:74, gi:.40, gc:'#8f6a9a'},
+    {h:22,  a:'#141a3a', b:'#1b2044', c:'#20264d', dark:1, g:'Working late',  gx:80, gy:18, gi:.42, gc:'#b9c2e6'},
+    {h:24,  a:'#0b1030', b:'#141a3a', c:'#20264d', dark:1, g:'Good evening',  gx:80, gy:16, gi:.42, gc:'#b9c2e6'}
   ];
   function hex(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
   function mix(x,y,t){var a=hex(x),b=hex(y);
     return '#'+a.map(function(v,i){return ('0'+Math.round(v+(b[i]-v)*t).toString(16)).slice(-2);}).join('');}
+  function num(x,y,t){ return x+(y-x)*t; }
+  function rgba(hexc,al){ var c=hex(hexc); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+al+')'; }
   function palette(){
     var n=pht(), h=n.getHours()+n.getMinutes()/60, i=0;
     for(var k=0;k<ANCHORS.length-1;k++) if(h>=ANCHORS[k].h) i=k;
     var A=ANCHORS[i], B=ANCHORS[i+1]||ANCHORS[i];
     var t=(B.h===A.h)?0:(h-A.h)/(B.h-A.h);
     return { a:mix(A.a,B.a,t), b:mix(A.b,B.b,t), c:mix(A.c,B.c,t),
-             dark:(t<.5?A.dark:B.dark), g:(t<.5?A.g:B.g) };
+             dark:(t<.5?A.dark:B.dark), g:(t<.5?A.g:B.g),
+             gx:num(A.gx,B.gx,t), gy:num(A.gy,B.gy,t), gi:num(A.gi,B.gi,t), gc:mix(A.gc,B.gc,t), hour:h };
+  }
+  /* Atmosphere: faint drifting stars after dark, warm haze near midday. Built once, opacities eased. */
+  var _starCSS=null;
+  function starShadows(){ if(_starCSS) return _starCSS; var s=[]; for(var i=0;i<46;i++){ var x=Math.round(Math.random()*100), y=Math.round(Math.random()*82), d=(Math.random()<.3?1.6:1); s.push(x+'vw '+y+'% 0 '+(d>1?'0.4px':'0')+' rgba(255,255,255,'+(0.5+Math.random()*0.5).toFixed(2)+')'); } _starCSS=s.join(','); return _starCSS; }
+  function atmos(hero){
+    var a=hero.querySelector('#hero-atmos');
+    if(!a){
+      a=document.createElement('div'); a.id='hero-atmos';
+      a.style.cssText='position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;border-radius:inherit;';
+      var haze=document.createElement('div'); haze.className='ha-haze';
+      haze.style.cssText='position:absolute;inset:0;opacity:0;transition:opacity 1.4s ease;background:radial-gradient(130% 80% at 50% 122%, rgba(255,241,214,.85), transparent 62%);';
+      var stars=document.createElement('div'); stars.className='ha-stars';
+      stars.style.cssText='position:absolute;inset:0;opacity:0;transition:opacity 1.6s ease;';
+      var dot=document.createElement('div');
+      dot.style.cssText='position:absolute;top:0;left:0;width:1.5px;height:1.5px;border-radius:50%;background:#fff;box-shadow:'+starShadows()+';animation:haTw 4s ease-in-out infinite;';
+      stars.appendChild(dot); a.appendChild(haze); a.appendChild(stars);
+      hero.insertBefore(a, hero.firstChild);
+      if(!document.getElementById('ha-kf')){ var st=document.createElement('style'); st.id='ha-kf'; st.textContent='@keyframes haTw{0%,100%{opacity:.85}50%{opacity:.5}}@media(prefers-reduced-motion:reduce){#hero-atmos .ha-stars>div{animation:none!important}}'; document.head.appendChild(st); }
+    }
+    return a;
   }
   function imp(el,p,v){ el && el.style.setProperty(p,v,'important'); }
   function tint(){
     var hero=document.getElementById('dashboard-hero'); if(!hero) return false;
     var p=palette();
-    imp(hero,'background','linear-gradient(100deg,'+p.a+' 0%,'+p.b+' 46%,'+p.c+' 100%)');
-    imp(hero,'background-image','linear-gradient(100deg,'+p.a+' 0%,'+p.b+' 46%,'+p.c+' 100%)');
+    /* layered sky: a soft radial glow (the sun/moon's light) over the horizon gradient */
+    var glow='radial-gradient(60% 72% at '+p.gx.toFixed(1)+'% '+p.gy.toFixed(1)+'%, '+rgba(p.gc,p.gi)+', transparent 55%)';
+    var sky='linear-gradient(160deg,'+p.a+' 0%,'+p.b+' 52%,'+p.c+' 100%)';
+    imp(hero,'background',glow+', '+sky);
+    imp(hero,'background-image',glow+', '+sky);
+    /* the visible sun / moon that rises and sets — position eases minute by minute */
+    var at=atmos(hero);
+    var orb=at.querySelector('.ha-orb');
+    if(!orb){ orb=document.createElement('div'); orb.className='ha-orb'; orb.style.cssText='position:absolute;width:54px;height:54px;border-radius:50%;transform:translate(-50%,-50%);transition:left 60s linear,top 60s linear,background 60s linear,box-shadow 60s linear,opacity 1.6s ease;pointer-events:none;'; at.insertBefore(orb, at.firstChild); }
+    orb.style.left=p.gx.toFixed(2)+'%'; orb.style.top=p.gy.toFixed(2)+'%';
+    orb.style.background='radial-gradient(circle at 38% 36%, #fff, '+p.gc+')';
+    orb.style.boxShadow='0 0 '+Math.round(30+p.gi*46)+'px '+Math.round(6+p.gi*16)+'px '+rgba(p.gc,Math.min(.75,p.gi))+', 0 0 4px 1px '+rgba(p.gc,.9);
+    orb.style.opacity = p.dark ? (p.gi>.36?'0.9':'0') : '0.95';   // hide the faint deep-night moon
+    /* atmosphere opacities: stars after dark, warm haze near midday */
+    var hh=p.hour;
+    var starA = p.dark ? Math.max(0, Math.min(1, (hh>=19?(hh-19)/2.5 : (hh<=5.5?(5.5-hh)/2.5 : 0)))) : 0;
+    var hazeA = Math.max(0, 0.5*(1 - Math.abs(hh-12)/3.4));
+    var hz=at.querySelector('.ha-haze'), stx=at.querySelector('.ha-stars');
+    if(hz) hz.style.opacity=hazeA.toFixed(2);
+    if(stx) stx.style.opacity=starA.toFixed(2);
     var ink   = p.dark ? '#ffffff' : '#0f172a';
     var muted = p.dark ? 'rgba(255,255,255,.74)' : '#64748b';
     var faint = p.dark ? 'rgba(255,255,255,.55)' : '#94a3b8';
@@ -34530,7 +34579,7 @@ var PORTAL_BUILD='2026-08-25-A';
     catch(e){ console.log('[jmb-feat] '+e.message); }
     if(Date.now()-t0>30000) clearInterval(iv);
   },600);
-  setInterval(function(){ try{ tint(); }catch(e){} }, 5*60*1000);
+  setInterval(function(){ try{ tint(); }catch(e){} }, 60*1000);   // drift the sun/moon every minute
 })();
 </script>
 <script>
