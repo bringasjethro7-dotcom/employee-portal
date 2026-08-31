@@ -8015,6 +8015,98 @@ var PIPE_DEPTS=[
 function pipeDeptSubs(dept){ for(var i=0;i<PIPE_DEPTS.length;i++) if(PIPE_DEPTS[i].k===dept) return PIPE_DEPTS[i].subs; return []; }
 function pipeEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function pipeUID(){ return 'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+/* ═══ IDLE FLAGS — missed random presence checks (mouse-jiggler / away) ═══
+   Random presence checks in the portal stop the timer and un-credit idle time
+   when a VA doesn't respond. This panel lists those misses so idle time can be
+   reviewed before client billing. */
+/* ═══ QA REVIEW GATE — open/close the reviewer tool for VAs ═══
+   Backend flag qa_review_open. When closed, VAs can't sign in to the reviewer
+   dashboard (admins always can). Lets us open the tool for a checking week and
+   lock it again when the cycle ends — no file edits. */
+function closeQaGate(){ var m=document.getElementById('qagate-modal'); if(m) m.remove(); }
+async function openQaGate(){
+  closeQaGate();
+  var ov=document.createElement('div'); ov.id='qagate-modal';
+  ov.style.cssText='position:fixed;inset:0;z-index:6000;background:rgba(6,8,18,.62);display:flex;align-items:center;justify-content:center;padding:18px;';
+  ov.onclick=function(e){ if(e.target===ov) closeQaGate(); };
+  ov.innerHTML='<div style="background:#12141c;border:1px solid rgba(255,255,255,.14);border-radius:18px;max-width:520px;width:100%;padding:22px 24px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7);">'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
+    +'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#7ee0a8" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>'
+    +'<h2 style="font:800 19px Inter,sans-serif;color:#fff;margin:0;">QA Review tool</h2>'
+    +'<span style="flex:1"></span><button onclick="closeQaGate()" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:7px 12px;font:700 13px Inter;cursor:pointer;">Close</button></div>'
+    +'<p style="color:rgba(255,255,255,.55);font:500 12.5px Inter;margin:0 0 16px;">Open the reviewer dashboard so VAs can sign in during a checking week, or close it to lock them out between cycles. You can always sign in as admin.</p>'
+    +'<div id="qagate-body" style="text-align:center;color:rgba(255,255,255,.6);font:600 13px Inter;padding:14px 0;">Loading…</div></div>';
+  document.body.appendChild(ov);
+  qaGateRender();
+}
+async function qaGateRender(){
+  var body=document.getElementById('qagate-body'); if(!body) return;
+  body.innerHTML='<span style="color:rgba(255,255,255,.55)">Loading current state…</span>';
+  var open=false, okv=false;
+  try{ var r=await fetch(API+'?action=qa_review_open_get&_='+Date.now()); var d=await r.json(); okv=!!(d&&d.ok); open=!!(d&&d.open); }catch(e){}
+  if(!okv){ body.innerHTML='<span style="color:#f87171">Couldn’t reach the server. Try again.</span>'; return; }
+  var pill=open
+    ? '<span style="display:inline-flex;gap:7px;align-items:center;background:rgba(34,197,94,.16);border:1px solid rgba(34,197,94,.5);color:#7ee0a8;border-radius:999px;padding:6px 14px;font:800 13px Inter;">OPEN — VAs can sign in</span>'
+    : '<span style="display:inline-flex;gap:7px;align-items:center;background:rgba(217,72,72,.16);border:1px solid rgba(217,72,72,.5);color:#ff9d9d;border-radius:999px;padding:6px 14px;font:800 13px Inter;">CLOSED — admin only</span>';
+  var btn = open
+    ? '<button onclick="qaGateSet(false)" style="background:rgba(217,72,72,.9);color:#fff;border:none;border-radius:12px;padding:12px 22px;font:800 14px Inter;cursor:pointer;">Close the tool</button>'
+    : '<button onclick="qaGateSet(true)" style="background:linear-gradient(135deg,#1d9e75,#22c58a);color:#fff;border:none;border-radius:12px;padding:12px 22px;font:800 14px Inter;cursor:pointer;">Open the tool</button>';
+  body.innerHTML='<div style="margin-bottom:16px;">'+pill+'</div>'+btn;
+}
+async function qaGateSet(open){
+  var body=document.getElementById('qagate-body'); if(body) body.innerHTML='<span style="color:rgba(255,255,255,.55)">Saving…</span>';
+  try{
+    var r=await fetch(API+'?action=qa_review_open_set&open='+(open?'1':'0')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ if(typeof toast==='function') toast('QA review '+(d.open?'opened':'closed')+' for VAs.'); qaGateRender(); }
+    else { if(body) body.innerHTML='<span style="color:#f87171">Could not save'+(d&&d.error?(' ('+d.error+')'):'')+'.</span>'; }
+  }catch(e){ if(body) body.innerHTML='<span style="color:#f87171">Network error.</span>'; }
+}
+function closePresenceFlags(){ var m=document.getElementById('pflag-modal'); if(m) m.remove(); }
+async function openPresenceFlags(){
+  closePresenceFlags();
+  var ov=document.createElement('div'); ov.id='pflag-modal';
+  ov.style.cssText='position:fixed;inset:0;z-index:6000;background:rgba(6,8,18,.62);display:flex;align-items:center;justify-content:center;padding:18px;';
+  ov.onclick=function(e){ if(e.target===ov) closePresenceFlags(); };
+  ov.innerHTML='<div style="background:#12141c;border:1px solid rgba(255,255,255,.14);border-radius:18px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7);">'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">'
+    +'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ffb27a" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>'
+    +'<h2 style="font:800 19px Inter,sans-serif;color:#fff;margin:0;">Idle flags — missed presence checks</h2>'
+    +'<span style="flex:1"></span><button onclick="closePresenceFlags()" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:7px 12px;font:700 13px Inter;cursor:pointer;">Close</button></div>'
+    +'<p style="color:rgba(255,255,255,.55);font:500 12.5px Inter;margin:0 0 14px;">Last 14 days. A miss means the VA didn’t confirm a random presence check, so the timer stopped and the idle time since their last confirmed activity was <b style="color:#ffb27a">not credited</b>.</p>'
+    +'<div id="pflag-body" style="color:rgba(255,255,255,.6);font:600 13px Inter;text-align:center;padding:26px 0;">Loading…</div></div>';
+  document.body.appendChild(ov);
+  try{
+    var r=await fetch(API+'?action=presence_flags&pass='+encodeURIComponent(admPass())+'&days=14&_='+Date.now());
+    var d=await r.json();
+    var body=document.getElementById('pflag-body'); if(!body) return;
+    if(!d||!d.ok){ body.innerHTML='<span style="color:#f87171">Could not load'+(d&&d.error?(' ('+pipeEsc(d.error)+')'):'')+'.</span>'; return; }
+    var flags=d.flags||[];
+    if(!flags.length){ body.innerHTML='<span style="color:#7ee0a8">No missed presence checks in the last 14 days. ✅</span>'; return; }
+    // Per-employee summary
+    var byEmp={}; flags.forEach(function(f){ var k=f.employee_id||'?'; (byEmp[k]=byEmp[k]||{n:0,secs:0}); byEmp[k].n++; byEmp[k].secs+=(f.uncredited_secs||0); });
+    var mins=function(s){ var m=Math.round((s||0)/60); return m>=60?(Math.floor(m/60)+'h '+(m%60)+'m'):(m+'m'); };
+    var sum=Object.keys(byEmp).sort(function(a,b){return byEmp[b].secs-byEmp[a].secs;}).map(function(k){
+      return '<span style="display:inline-flex;gap:7px;align-items:center;background:rgba(255,120,60,.14);border:1px solid rgba(255,120,60,.4);color:#ffcaa6;border-radius:999px;padding:5px 11px;font:700 12.5px Inter;">'
+        +pipeEsc(k)+' · '+byEmp[k].n+'× · '+mins(byEmp[k].secs)+' uncredited</span>';
+    }).join(' ');
+    var rows=flags.map(function(f){
+      return '<tr style="border-top:1px solid rgba(255,255,255,.08)">'
+        +'<td style="padding:8px 10px;color:rgba(255,255,255,.62);font:600 12px Inter;white-space:nowrap;">'+pipeEsc(f.ts)+'</td>'
+        +'<td style="padding:8px 10px;color:#fff;font:700 12.5px Inter;">'+pipeEsc(f.employee_id)+'</td>'
+        +'<td style="padding:8px 10px;color:rgba(255,255,255,.75);font:600 12px Inter;">'+pipeEsc(f.task||f.project||'—')+'</td>'
+        +'<td style="padding:8px 10px;color:#ffb27a;font:800 12.5px Inter;white-space:nowrap;text-align:right;">'+mins(f.uncredited_secs)+'</td></tr>';
+    }).join('');
+    body.style.textAlign='left'; body.style.color='';
+    body.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;">'+sum+'</div>'
+      +'<table style="width:100%;border-collapse:collapse;"><thead><tr>'
+      +'<th style="text-align:left;padding:0 10px 6px;color:rgba(255,255,255,.4);font:700 10.5px Inter;letter-spacing:.08em;">WHEN</th>'
+      +'<th style="text-align:left;padding:0 10px 6px;color:rgba(255,255,255,.4);font:700 10.5px Inter;letter-spacing:.08em;">EMPLOYEE</th>'
+      +'<th style="text-align:left;padding:0 10px 6px;color:rgba(255,255,255,.4);font:700 10.5px Inter;letter-spacing:.08em;">TASK</th>'
+      +'<th style="text-align:right;padding:0 10px 6px;color:rgba(255,255,255,.4);font:700 10.5px Inter;letter-spacing:.08em;">UNCREDITED</th>'
+      +'</tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch(e){ var b=document.getElementById('pflag-body'); if(b) b.innerHTML='<span style="color:#f87171">Network error.</span>'; }
+}
 async function openPipeline(){
   document.getElementById('pipe-modal').style.display='flex';
   document.getElementById('pipe-body').innerHTML='<div style="text-align:center;color:rgba(255,255,255,.5);padding:40px;">Loading…</div>';
@@ -8790,6 +8882,8 @@ body{
     };
     wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>','Clients',function(){ try{ openPipeline(); }catch(e){} }));
     wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>','Bobo Shot',function(){ try{ window.open('bobo-shot.html?host=1','_blank'); }catch(e){} }));
+    wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>','Idle flags',function(){ try{ openPresenceFlags(); }catch(e){} }));
+    wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>','QA review',function(){ try{ openQaGate(); }catch(e){} }));
     wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg>','Refresh all users',function(){ try{ forceRefreshAll(); }catch(e){} }));
     rail.appendChild(wrap);
   }
