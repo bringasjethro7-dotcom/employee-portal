@@ -5998,6 +5998,12 @@ async function _revMostImproved(month, rows){
    Reviewer) + Most Improved, then any custom awards saved in the <svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><circle cx=\"12\" cy=\"8\" r=\"5\"/><path d=\"M9 13l-2 8 5-3 5 3-2-8\"/></svg> editor (appended, deduped). */
 function _revStripTags(s){ return String(s==null?'':s).replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim(); }
 async function _revBuildAwards(month, rows, eb, ex){
+  /* Curated awards from the Special Awards panel are the source of truth. If any are saved,
+     the reveal plays exactly those. Only when NONE are saved does it fall back to auto-compute. */
+  try{ var saved=await _loadAwards(month);
+    if(saved && saved.length){ return saved.filter(function(a){ return a.winner_name; })
+      .map(function(a){ return { title:a.title, winner_name:a.winner_name, photo:a.photo||'', blurb:_revStripTags(a.blurb||'') }; }); }
+  }catch(_s){}
   var list=[];
   try{
     var computed=_scAwards(rows, eb, ex||{});
@@ -6010,7 +6016,6 @@ async function _revBuildAwards(month, rows, eb, ex){
   }catch(e){}
   return list;
 }
-// The monthly awards: Early Bird, Perfect Attendance, Spotless Record, Sales MVP, Workhorse, and from Aug 2026 Innovation and Best Reviewer.
 function _scAwards(rows, eb, ex){
   ex=ex||{}; var hours=ex.hours||{}, present=ex.present||{}, lates=ex.lates||{}, names=ex.names||{};
   function photoOf(id){ var r=(rows||[]).filter(function(x){ return String(x.employee_id||'').toLowerCase()===String(id||'').toLowerCase(); })[0]; return r?r.photo:''; }
@@ -6196,18 +6201,45 @@ async function openAwards(){
   _awMonth=document.getElementById('sc-month-filter').value;
   document.getElementById('award-month-lbl').textContent=_scMonthLabel(_awMonth);
   document.getElementById('award-modal').style.display='flex';
-  document.getElementById('award-body').innerHTML='<div style="text-align:center;color:rgba(255,255,255,.5);padding:40px;">Loading…</div>';
+  document.getElementById('award-body').innerHTML='<div style="text-align:center;color:rgba(255,255,255,.5);padding:40px;">Loading nominees…</div>';
   _awRosterLoad(function(){});
   try{
     var r=await fetch(API+'?action=awards_get&month='+encodeURIComponent(_awMonth)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
     var d=await r.json();
     if(d&&d.error==='UNAUTHORIZED'){ try{sessionStorage.removeItem('adm_pass');}catch(e){} PASS=''; alert('Wrong admin password.'); closeAwards(); return; }
-    AW=(d&&d.awards instanceof Array)?d.awards:[];
-  }catch(e){ AW=[]; }
-  _awDirty=false; awRender();
+    var saved=(d&&d.awards instanceof Array)?d.awards:[];
+    var fin=await _loadFinal(_awMonth), all, ex, ebRows;
+    if(fin){ all=_scRankSort(_scFilterActive(_attachPhotos(fin.rows||[]))).filter(_scValid); ex=fin.ex||{}; ebRows=(fin.eb_list&&fin.eb_list.length)?fin.eb_list:(fin.eb?[fin.eb]:[]); }
+    else { var data=await _scRanked(); all=data.rows.filter(_scValid); var rr=await Promise.all([_awardExtras(_awMonth), _earlyBirdList(_awMonth)]); ex=rr[0]||{}; ebRows=rr[1]||[]; }
+    var ideas=[]; try{ var ir=await jGet(API+'?action=list_innovations&month='+encodeURIComponent(_awMonth)+'&_='+Date.now(),3000,60000); var idd=await ir.json(); ideas=(idd&&idd.items)||[]; }catch(_i){}
+    _AWNOMS=_awardNominees(all, ebRows, ex, ideas);
+    _AWNOMS.bestreviewer=(all||[]).map(function(x){ var c=parseFloat(x.csat); return isNaN(c)?null:{r:x,c:c}; }).filter(Boolean).sort(function(a,b){ return b.c-a.c; }).slice(0,5).map(function(o){ return { title:'Best Reviewer', name:o.r.full_name||o.r.employee_id, id:o.r.employee_id, photo:o.r.photo||'', metricText:'Reviewer grade: <b>'+o.c.toFixed(1)+'</b>' }; });
+    _AWNOMS.mostimproved=await _mostImprovedNoms(_awMonth, all);
+    var stdMap={'early bird award':'early','perfect attendance':'perfect','spotless record':'spotless','sales mvp':'sales','workhorse award':'workhorse','best reviewer':'bestreviewer','best idea award':'bestidea','most improved':'mostimproved'};
+    var keys=['early','perfect','spotless','sales','workhorse','bestreviewer','bestidea','mostimproved'];
+    _AWPICK={}; AW=[];
+    keys.forEach(function(k){ _AWPICK[k]=((_AWNOMS[k]||[]).length? 0 : -1); });
+    saved.forEach(function(a){ var t=String(a.title||'').toLowerCase().trim(); var k=stdMap[t];
+      if(k){ var noms=_AWNOMS[k]||[]; var idx=-1;
+        for(var i=0;i<noms.length;i++){ if(String(noms[i].id||'').toLowerCase()===String(a.winner_id||'').toLowerCase() || String(noms[i].name||'').toLowerCase()===String(a.winner_name||'').toLowerCase()){ idx=i; break; } }
+        _AWPICK[k]=(idx>=0?idx:(a.winner_name?0:-1));
+      } else { AW.push({ id:a.id||_awUID(), title:a.title||'', winner_id:a.winner_id||'', winner_name:a.winner_name||'', photo:a.photo||'', blurb:a.blurb||'' }); }
+    });
+    _awDirty=false; awRender();
+  }catch(e){ document.getElementById('award-body').innerHTML='<div style="color:#ff9d9d;padding:20px;text-align:center;">Could not load nominees: '+_awEsc(e&&e.message||e)+'</div>'; }
 }
 function closeAwards(){ if(_awDirty && !confirm('You have unsaved changes. Close anyway?')) return; document.getElementById('award-modal').style.display='none'; }
 function awAdd(){ AW.push({id:_awUID(),title:'',winner_id:'',winner_name:'',photo:'',blurb:''}); _awDirty=true; awRender(); setTimeout(function(){ var els=document.querySelectorAll('#award-body input[data-f="title"]'); if(els.length) els[els.length-1].focus(); },30); }
+var _AW_PRESETS=['Team Player','Client Favorite','Rising Star','Most Reliable','Culture Champion','Clutch Performer','Above & Beyond','Positivity Award','Best Teammate'];
+function awAddPreset(t){ AW.push({id:_awUID(),title:t,winner_id:'',winner_name:'',photo:'',blurb:''}); _awDirty=true; awRender(); setTimeout(function(){ var sels=document.querySelectorAll('#award-body select'); if(sels.length) sels[sels.length-1].focus(); },30); }
+function _awQuickPick(){
+  return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);">'+
+    '<div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:rgba(255,255,255,.5);margin-bottom:8px;">QUICK ADD AN AWARD</div>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:7px;">'+
+    _AW_PRESETS.map(function(t){ return '<button type="button" onclick="awAddPreset(\''+t.replace(/'/g,"\\'")+'\')" style="background:rgba(255,196,60,.12);border:1px solid rgba(255,196,60,.4);color:#ffd98a;border-radius:999px;padding:6px 12px;font:700 12px Inter,system-ui;cursor:pointer;">+ '+_awEsc(t)+'</button>'; }).join('')+
+    '<button type="button" onclick="awAdd()" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:999px;padding:6px 12px;font:700 12px Inter,system-ui;cursor:pointer;">+ Custom title…</button>'+
+    '</div></div>';
+}
 function awDel(id){ var a=null; for(var i=0;i<AW.length;i++)if(AW[i].id===id)a=AW[i]; if(a&&(a.title||a.winner_name)&&!confirm('Delete "'+(a.title||'this award')+'"?'))return; AW=AW.filter(function(x){return x.id!==id;}); _awDirty=true; awRender(); }
 function awMove(id,dir){ var i=-1,j; for(j=0;j<AW.length;j++)if(AW[j].id===id)i=j; if(i<0)return; var t=i+dir; if(t<0||t>=AW.length)return; var tmp=AW[i];AW[i]=AW[t];AW[t]=tmp; _awDirty=true; awRender(); }
 function awSet(id,f,v){
@@ -6220,40 +6252,71 @@ function awSet(id,f,v){
   var b=document.getElementById('award-save'); if(b) b.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save *';
   if(f==='winner_id') awRender();
 }
+async function _mostImprovedNoms(month, rows){
+  try{
+    var pm=_prevMonthKey(month); if(!pm) return [];
+    var snap=await _loadFinal(pm); if(!snap||!snap.rows||!snap.rows.length) return [];
+    var prevRanked=_scRankSort(_scFilterActive(snap.rows)); var prevRank={}, prevOv={};
+    prevRanked.forEach(function(r,i){ var id=String(r.employee_id||'').toLowerCase(); if(!id) return; prevRank[id]=i+1; var ov=parseFloat(r.overall); if(!isNaN(ov)) prevOv[id]=ov; });
+    var cur=_scRankSort(rows), arr=[];
+    cur.forEach(function(r,i){ var id=String(r.employee_id||'').toLowerCase(); if(!id||prevRank[id]==null) return;
+      var cr=i+1, climb=prevRank[id]-cr; var ov=parseFloat(r.overall); var dOv=(!isNaN(ov)&&prevOv[id]!=null)?(ov-prevOv[id]):0;
+      if(climb>0 || dOv>0) arr.push({ r:r, climb:climb, dOv:dOv, pr:prevRank[id], cr:cr, k:(Math.max(0,climb)*1000+Math.max(0,dOv)) }); });
+    arr.sort(function(a,b){ return b.k-a.k; });
+    return arr.slice(0,5).map(function(b){ return { title:'Most Improved', name:b.r.full_name||b.r.employee_id, id:b.r.employee_id, photo:b.r.photo||'',
+      metricText:(b.climb>0?('Climbed <b>'+b.climb+'</b> place'+(b.climb===1?'':'s')+' (#'+b.pr+' &rarr; #'+b.cr+')'+(b.dOv>0?(' &middot; +<b>'+b.dOv.toFixed(1)+'</b> pts'):'')):('Overall up <b>'+b.dOv.toFixed(1)+'</b> pts')) }; });
+  }catch(e){ return []; }
+}
+function awPick(key, idx){ _AWPICK[key]=idx; _awDirty=true; var b=document.getElementById('award-save'); if(b) b.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save *'; }
+var _AW_STD=[['early','Early Bird Award'],['perfect','Perfect Attendance'],['spotless','Spotless Record'],['sales','Sales MVP'],['workhorse','Workhorse Award'],['bestreviewer','Best Reviewer'],['bestidea','Best Idea Award'],['mostimproved','Most Improved']];
 function awRender(){
   var body=document.getElementById('award-body');
-  var opts=function(sel){ return '<option value="">— pick winner —</option>'+AW_ROSTER.map(function(p){ return '<option value="'+_awEsc(p.id)+'"'+(p.id===sel?' selected':'')+'>'+_awEsc(p.name)+'</option>'; }).join(''); };
-  if(!AW.length){ body.innerHTML='<div style="text-align:center;color:rgba(255,255,255,.45);padding:44px 10px;"><div style="font-size:15px;font-weight:700;color:rgba(255,255,255,.75);margin-bottom:6px;">No extra custom awards</div><div style="font-size:13px;margin-bottom:18px;">The standard awards already play automatically. Add one here only for a one-off like “Team Player” or “Client Favorite”.</div><button class="blogout" onclick="awAdd()" style="border-color:rgba(255,196,60,.5);color:#ffd98a;font-weight:700;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M12 5v14M5 12h14"/></svg> Add a custom award</button></div>'; return; }
+  var html='<div style="font-size:11px;font-weight:800;letter-spacing:.09em;color:#ffd98a;margin:2px 0 10px;">STANDARD AWARDS &mdash; pick a winner from the nominees</div>';
+  _AW_STD.forEach(function(pair){ var key=pair[0], label=pair[1]; var noms=(_AWNOMS&&_AWNOMS[key])||[];
+    html+='<div style="background:linear-gradient(180deg,rgba(255,196,60,.05),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.12);border-left:3px solid #ffc43c;border-radius:12px;padding:12px;margin-bottom:10px;">'+
+      '<div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:8px;">'+_awEsc(label)+'</div>';
+    if(!noms.length){ html+='<div style="font-size:12px;color:rgba(255,255,255,.45);">No eligible nominees this month &mdash; skipped.</div>'; }
+    else {
+      noms.slice(0,5).forEach(function(n,i){ var on=(_AWPICK[key]===i);
+        var av=n.photo?('<img src="'+_awEsc(n.photo)+'" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">'):('<span style="width:30px;height:30px;border-radius:50%;background:rgba(255,196,60,.16);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#ffd98a;">'+_awEsc(_scInitials(n.name||'?'))+'</span>');
+        html+='<label style="display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid rgba(255,255,255,.14);border-radius:9px;margin-bottom:5px;cursor:pointer;background:'+(on?'rgba(255,196,60,.1)':'rgba(255,255,255,.03)')+';">'+
+          '<input type="radio" name="std-'+key+'" value="'+i+'"'+(on?' checked':'')+' onchange="awPick(\''+key+'\','+i+')" style="accent-color:#ffc43c;">'+av+
+          '<span style="flex:1;min-width:0;font-size:13px;font-weight:700;color:#fff;">'+_awEsc(n.name)+'</span>'+
+          '<span style="font-size:11px;color:rgba(255,255,255,.6);text-align:right;">'+(n.metricText||'')+'</span></label>';
+      });
+      html+='<label style="display:flex;align-items:center;gap:9px;padding:6px 9px;cursor:pointer;font-size:12px;color:rgba(255,255,255,.5);"><input type="radio" name="std-'+key+'" value="-1"'+(_AWPICK[key]===-1?' checked':'')+' onchange="awPick(\''+key+'\',-1)" style="accent-color:#ffc43c;"> Skip &mdash; don\'t give this award</label>';
+    }
+    html+='</div>';
+  });
+  html+='<div style="font-size:11px;font-weight:800;letter-spacing:.09em;color:rgba(255,255,255,.6);margin:16px 0 8px;border-top:1px solid rgba(255,255,255,.1);padding-top:14px;">CUSTOM / ONE-OFF AWARDS</div>';
   var inS='background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);border-radius:9px;color:#fff;font:600 13px Inter,system-ui,sans-serif;padding:9px 11px;outline:none;width:100%;';
-  var html='';
-  for(var i=0;i<AW.length;i++){ var a=AW[i];
-    var ph=a.photo?('<img src="'+_awEsc(a.photo)+'" style="width:46px;height:46px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,196,60,.6);">'):('<div style="width:46px;height:46px;border-radius:50%;background:rgba(255,196,60,.14);border:2px solid rgba(255,196,60,.4);display:flex;align-items:center;justify-content:center;font-size:18px;"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px;flex:none;\"><circle cx=\"12\" cy=\"8\" r=\"5\"/><path d=\"M9 13l-2 8 5-3 5 3-2-8\"/></svg></div>');
-    html+='<div style="background:linear-gradient(180deg,rgba(255,196,60,.06),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.12);border-left:3px solid #ffc43c;border-radius:14px;padding:13px;margin-bottom:11px;">'+
-      '<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">'+
-        '<div style="display:flex;flex-direction:column;gap:2px;">'+
-          '<button onclick="awMove(\''+a.id+'\',-1)" title="Move up" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#fff;width:24px;height:20px;border-radius:6px;cursor:pointer;font-size:10px;line-height:1;"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px;flex:none;\"><polyline points=\"6 15 12 9 18 15\"/></svg></button>'+
-          '<button onclick="awMove(\''+a.id+'\',1)" title="Move down" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#fff;width:24px;height:20px;border-radius:6px;cursor:pointer;font-size:10px;line-height:1;"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px;flex:none;\"><polyline points=\"6 9 12 15 18 9\"/></svg></button>'+
-        '</div>'+
-        ph+
-        '<div style="flex:1;"><input data-f="title" value="'+_awEsc(a.title)+'" placeholder="Award title (e.g. Most Improved)" oninput="awSet(\''+a.id+'\',\'title\',this.value)" style="'+inS+'font-size:15px;font-weight:800;"></div>'+
-        '<button onclick="awDel(\''+a.id+'\')" title="Delete" style="flex:none;background:rgba(217,72,72,.16);border:1px solid rgba(217,72,72,.4);color:#ff9d9d;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:13px;"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>'+
+  var opts=function(sel){ return '<option value="">&mdash; pick winner &mdash;</option>'+AW_ROSTER.map(function(p){ return '<option value="'+_awEsc(p.id)+'"'+(p.id===sel?' selected':'')+'>'+_awEsc(p.name)+'</option>'; }).join(''); };
+  if(!AW.length){ html+='<div style="font-size:12.5px;color:rgba(255,255,255,.5);margin-bottom:6px;">None yet. Add a one-off like &ldquo;Team Player&rdquo; or &ldquo;Client Favorite&rdquo; below.</div>'; }
+  else { for(var i=0;i<AW.length;i++){ var a=AW[i];
+    html+='<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.12);border-left:3px solid #9aa6ff;border-radius:12px;padding:12px;margin-bottom:9px;">'+
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">'+
+        '<input data-f="title" value="'+_awEsc(a.title)+'" placeholder="Award title (e.g. Team Player)" oninput="awSet(\''+a.id+'\',\'title\',this.value)" style="'+inS+'font-weight:800;">'+
+        '<button onclick="awDel(\''+a.id+'\')" title="Delete" style="flex:none;background:rgba(217,72,72,.16);border:1px solid rgba(217,72,72,.4);color:#ff9d9d;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:15px;line-height:1;">&times;</button>'+
       '</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
-        '<select onchange="awSet(\''+a.id+'\',\'winner_id\',this.value)" style="'+inS+'flex:1;min-width:180px;cursor:pointer;">'+opts(a.winner_id)+'</select>'+
-        '<input data-f="blurb" value="'+_awEsc(a.blurb)+'" placeholder="One line to read out (optional)" oninput="awSet(\''+a.id+'\',\'blurb\',this.value)" style="'+inS+'flex:2;min-width:200px;">'+
-      '</div>'+
-      (a.winner_id?'':'<div style="font-size:11px;color:#ffb3a0;margin-top:7px;"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M12 3 2 20h20z\"/><path d=\"M12 10v5M12 18h.01\"/></svg> Pick a winner so this award has a name and photo on screen.</div>')+
-    '</div>';
-  }
+        '<select onchange="awSet(\''+a.id+'\',\'winner_id\',this.value)" style="'+inS+'flex:1;min-width:170px;cursor:pointer;">'+opts(a.winner_id)+'</select>'+
+        '<input data-f="blurb" value="'+_awEsc(a.blurb)+'" placeholder="One line (optional)" oninput="awSet(\''+a.id+'\',\'blurb\',this.value)" style="'+inS+'flex:2;min-width:180px;">'+
+      '</div></div>';
+  } }
+  html+=_awQuickPick();
   body.innerHTML=html;
 }
 async function awSave(){
   var b=document.getElementById('award-save'); var old=ICO.save+' Save'; b.innerHTML='Saving…'; b.disabled=true;
-  var clean=AW.filter(function(a){ return (a.title||'').trim() || a.winner_id; });
+  var out=[];
+  _AW_STD.forEach(function(pair){ var key=pair[0], label=pair[1]; var noms=(_AWNOMS&&_AWNOMS[key])||[]; var idx=_AWPICK[key];
+    if(idx>=0 && noms[idx]){ var n=noms[idx]; out.push({ id:_awUID(), title:(n.title||label), winner_id:(n.id||''), winner_name:(n.name||''), photo:(n.photo||''), blurb:_revStripTags(n.metricText||'') }); }
+  });
+  AW.filter(function(a){ return (a.title||'').trim() || a.winner_id; }).forEach(function(a){ out.push({ id:a.id, title:a.title, winner_id:a.winner_id, winner_name:a.winner_name, photo:a.photo, blurb:a.blurb }); });
   try{
-    var r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'awards_save',pass:admPass(),month:_awMonth,awards:clean})});
+    var r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'awards_save',pass:admPass(),month:_awMonth,awards:out})});
     var d=await r.json();
-    if(d&&d.ok){ AW=clean; _awDirty=false; b.innerHTML=ICO.check+' Saved'; setTimeout(function(){ b.innerHTML=old; b.disabled=false; },1400); awRender(); }
+    if(d&&d.ok){ _awDirty=false; b.innerHTML=ICO.check+' Saved'; setTimeout(function(){ b.innerHTML=old; b.disabled=false; },1400); }
     else { alert('Save failed: '+((d&&d.error)||'error')); b.innerHTML=old; b.disabled=false; }
   }catch(e){ alert('Save failed — check connection.'); b.innerHTML=old; b.disabled=false; }
 }
@@ -6484,6 +6547,11 @@ var _REV=null;
      YouTube weight the rest of the time. */
 var REV_MUSIC_ID='zLJ9cXWct1g';
 var REV_MUSIC_VOL=45;
+/* Per-rank voice-over (ElevenLabs). '' = off (music + stings only). Set to the folder the clips
+   live in, e.g. 'revoice/'. Files it looks for: intro.mp3, awards-intro.mp3, award-0.mp3…,
+   noms-10.mp3, noms-5.mp3, rank-1.mp3 (champion) … rank-N.mp3, final2.mp3, drumroll.mp3, close.mp3.
+   Missing files are simply skipped, so you can record only the ranks you want narrated. */
+var REV_VO='';
 function _revMusicLoad(cb){
   if(window.YT && window.YT.Player) return cb();
   var prev=window.onYouTubeIframeAPIReady;
@@ -6522,7 +6590,40 @@ function _revMute(){
   if(!_REV) return;
   _REV.muted=!_REV.muted;
   try{ if(_REV.yt&&_REV.yt.setVolume) _REV.yt.setVolume(_REV.muted?0:REV_MUSIC_VOL); }catch(e){}
+  try{ if(_REV._vo) _REV._vo.muted=_REV.muted; }catch(e){}
   var b=document.getElementById('rev-mute'); if(b) b.textContent=_REV.muted?'':'';
+}
+/* ── PER-RANK VOICE-OVER (optional; enabled by REV_VO) ──
+   Plays a clip per beat and holds the ceremony music low underneath it (over any sting duck),
+   lifting the music back the moment the line ends. Tease/split stay silent — the pause is the drama. */
+function _revCueVO(b){
+  if(!REV_VO || !b) return;
+  var f=null;
+  switch(b.t){
+    case 'intro':       f='intro.mp3'; break;
+    case 'awardsIntro': f='awards-intro.mp3'; break;
+    case 'award':       f='award-'+b.idx+'.mp3'; break;
+    case 'noms':        f='noms-'+b.n+'.mp3'; break;
+    case 'card':        if(b.e) f='rank-'+b.e.rank+'.mp3'; break;
+    case 'final2':      f='final2.mp3'; break;
+    case 'drum':        f='drumroll.mp3'; break;
+    case 'finale':      f='close.mp3'; break;
+  }
+  if(f) _revPlayVO(REV_VO+f); else _revStopVO();
+}
+function _revPlayVO(url){
+  try{
+    _revStopVO();
+    var a=new Audio(url); if(_REV) _REV._vo=a; a.muted=!!(_REV&&_REV.muted);
+    function low(){ try{ if(_REV&&_REV.yt&&_REV.yt.setVolume&&!_REV.muted) _REV.yt.setVolume(7); }catch(_e){} }
+    low(); if(_REV) _REV._voGuard=setInterval(low,300);
+    a.play().catch(function(){});
+    a.onended=function(){ _revStopVO(); };
+  }catch(e){}
+}
+function _revStopVO(){
+  if(_REV){ if(_REV._vo){ try{ _REV._vo.pause(); }catch(_e){} } if(_REV._voGuard){ clearInterval(_REV._voGuard); _REV._voGuard=null; } }
+  try{ if(_REV&&_REV.yt&&_REV.yt.setVolume&&!_REV.muted) _REV.yt.setVolume(REV_MUSIC_VOL); }catch(_e){}
 }
 /* ═══════════════ CEREMONY AUDIO ═══════════════
    Rebuilt Aug 2026. The old palette was filtered white noise (read as a water splash) and a
@@ -7137,6 +7238,7 @@ function _revNext(ev){
   if(n>=_REV.beats.length) return;                 // finished — hold on the finale
   _REV.i=n;
   var b=_REV.beats[n], e=b.e;
+  _revCueVO(b);   // per-rank / framing voice-over (no-op unless REV_VO is set)
   var play=document.getElementById('rev-play'); if(play) play.textContent='▶ Next';
   var hint=document.getElementById('rev-hint');
 
@@ -7321,6 +7423,7 @@ var _AWMETA={
   workhorse:{title:'Workhorse Award',emoji:'<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M19 5c-1 3-3 3-5 3-1 4-4 6-8 6l-2 6M14 8l3 11\"/></svg>',color:'#B91C1C',cite:'for the most productive hours tracked this month — sheer dedication and a relentless work ethic.'},
   bestidea:{title:'Best Idea Award',emoji:'<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z\"/></svg>',color:'#7C3AED',cite:'for the month’s best innovation idea — a real, feasible improvement we are putting into action.'}
 };
+var _AWNOMS={}, _AWPICK={};
 function _ce(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 /* ── Event-based (manually assigned) certificates ── */
 var _EVENT_AWMETA={
@@ -7412,49 +7515,56 @@ async function openCertPicker(){
   try{
     var month=document.getElementById('sc-month-filter').value;
     var fin=await _loadFinal(month);
-    var all, ex, ebRows;
-    if(fin){ all=_scRankSort(_scFilterActive(_attachPhotos(fin.rows||[]))).filter(_scValid); ex=fin.ex||{}; ebRows=(fin.eb_list&&fin.eb_list.length)?fin.eb_list:(fin.eb?[fin.eb]:[]); }
-    else { var data=await _scRanked(); all=data.rows.filter(_scValid); var r=await Promise.all([_awardExtras(month), _earlyBirdList(month)]); ex=r[0]||{}; ebRows=r[1]||[]; }
+    var all;
+    if(fin){ all=_scRankSort(_scFilterActive(_attachPhotos(fin.rows||[]))).filter(_scValid); }
+    else { var data=await _scRanked(); all=data.rows.filter(_scValid); }
     if(!all.length){ alert('No ranked scorecards for this month yet.'); return; }
-    var ideas=[]; try{ var ir=await jGet(API+'?action=list_innovations&month='+encodeURIComponent(month)+'&_='+Date.now(), 3000, 60000); var idd=await ir.json(); ideas=(idd&&idd.items)||[]; }catch(_i){}
-    _CERT_CTX={ all:all, month:month, monthLabel:_scMonthLabel(month), noms:_awardNominees(all, ebRows, ex, ideas), finalized:!!fin };
-    _evtReset();
+    var awards=await _loadAwards(month);   // the awards entered in the Special Awards panel
+    _CERT_CTX={ all:all, top5:all.slice(0,5), awards:awards, month:month, monthLabel:_scMonthLabel(month), finalized:!!fin };
     _renderCertPicker();
-  }catch(e){ alert('Could not load nominees: '+(e&&e.message||e)); }
+  }catch(e){ alert('Could not load: '+(e&&e.message||e)); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old||' Certificates & Awards'; } }
 }
 function _renderCertPicker(){
   var c=_CERT_CTX; if(!c) return;
   var ov=document.getElementById('cert-picker'); if(!ov){ ov=document.createElement('div'); ov.id='cert-picker'; document.body.appendChild(ov); }
   ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,12,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
-  var top5=c.all.slice(0,5);
+  var top5=c.top5||[];
   var placeHtml=top5.map(function(r,i){ return '<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0;"><b style="width:20px;color:#c2410c;">'+(i+1)+'.</b><span style="flex:1;">'+_ce(r.full_name||r.employee_id)+'</span><b style="color:#c2410c;">'+(parseFloat(r.overall).toFixed(2))+'</b></div>'; }).join('');
-  var order=[['early','<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><circle cx=\"12\" cy=\"14\" r=\"4\"/><path d=\"M12 3v3M4 14H1M23 14h-3M2 20h20\"/></svg> Early Bird'],['perfect','<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><circle cx=\"12\" cy=\"8\" r=\"5\"/><path d=\"M9 13l-2 8 5-3 5 3-2-8\"/></svg> Perfect Attendance'],['spotless','<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M12 3l1.6 4.8L18 9l-4.4 1.2L12 15l-1.6-4.8L6 9z\"/></svg> Spotless Record'],['sales','<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><ellipse cx=\"12\" cy=\"7\" rx=\"7\" ry=\"3\"/><path d=\"M5 7v6c0 1.7 3.1 3 7 3s7-1.3 7-3V7\"/></svg> Sales MVP'],['workhorse','<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M19 5c-1 3-3 3-5 3-1 4-4 6-8 6l-2 6M14 8l3 11\"/></svg> Workhorse'],['bestidea','<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z\"/></svg> Best Idea']];
-  var awHtml=order.map(function(o){
-    var key=o[0], list=c.noms[key]||[];
-    var rows=list.length? list.map(function(n,i){
-      var av=n.photo?('<img src="'+_ce(n.photo)+'" style="width:26px;height:26px;border-radius:50%;object-fit:cover;">'):('<span style="width:26px;height:26px;border-radius:50%;background:#eee;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#a16207;">'+_ce(_scInitials(n.name))+'</span>');
-      return '<label style="display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--border);border-radius:9px;margin-bottom:5px;cursor:pointer;background:'+(i===0?'rgba(255,107,26,.06)':'#fff')+';">'+
-        '<input type="radio" name="nom-'+key+'" value="'+i+'"'+(i===0?' checked':'')+' style="accent-color:var(--o2,#e83d00);">'+
-        '<b style="width:16px;color:var(--t3);font-size:11px;">'+(i+1)+'</b>'+av+
-        '<span style="flex:1;font-size:12.5px;font-weight:600;">'+_ce(n.name)+'</span>'+
-        '<span style="font-size:11px;color:var(--t3);">'+n.metricText+'</span></label>';
-    }).join('') : '<div style="font-size:12px;color:var(--t3);padding:6px;">No eligible nominees this month.</div>';
-    return '<div style="margin-bottom:14px;"><div style="font-size:13px;font-weight:800;color:var(--t1);margin-bottom:6px;">'+o[1]+'</div>'+rows+'</div>';
-  }).join('');
-  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:640px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
+  var withWinner=(c.awards||[]).filter(function(a){ return a.winner_name; });
+  var awardsHtml=(c.awards&&c.awards.length)
+    ? c.awards.map(function(a){
+        var nm=a.winner_name?('<span style="font-weight:700;">'+_ce(a.winner_name)+'</span>'):('<span style="color:#b91c1c;font-size:11px;">no winner picked — skipped</span>');
+        var av=a.photo?('<img src="'+_ce(a.photo)+'" style="width:26px;height:26px;border-radius:50%;object-fit:cover;">'):('<span style="width:26px;height:26px;border-radius:50%;background:#f3e9d6;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#a16207;">'+_ce(_scInitials(a.winner_name||a.title||'?'))+'</span>');
+        return '<div style="display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--border);border-radius:9px;margin-bottom:5px;background:#fff;">'+av+'<div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:800;">'+_ce(a.title||'Untitled award')+'</div><div style="font-size:11px;color:var(--t3);">'+nm+(a.blurb?(' · '+_ce(a.blurb)):'')+'</div></div></div>';
+      }).join('')
+    : '<div style="font-size:12px;color:var(--t3);padding:8px;">No special awards recorded for this month. Add them in the <b>Special Awards</b> panel, then reopen this to print.</div>';
+  ov.innerHTML='<div style="background:var(--card,#fff);border-radius:16px;max-width:600px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);">'+
     '<div style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;gap:10px;z-index:2;">'+
-      '<div style="font-size:16px;font-weight:800;color:var(--t1);"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><circle cx=\"12\" cy=\"8\" r=\"5\"/><path d=\"M9 13l-2 8 5-3 5 3-2-8\"/></svg> Award Nominees — '+_ce(c.monthLabel)+(c.finalized?' <span style="font-size:10px;color:#7c3aed;font-weight:700;"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><rect x=\"4\" y=\"11\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 11V7a4 4 0 0 1 8 0v4\"/></svg> finalized</span>':'')+'</div><span style="flex:1;"></span>'+
-      '<button class="bsm" onclick="_closeCertPicker()"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M18 6 6 18M6 6l12 12"/></svg> Close</button></div>'+
+      '<div style="font-size:16px;font-weight:800;color:var(--t1);">Certificates — '+_ce(c.monthLabel)+(c.finalized?' <span style="font-size:10px;color:#7c3aed;font-weight:700;">· finalized</span>':'')+'</div><span style="flex:1;"></span>'+
+      '<button class="bsm" onclick="_closeCertPicker()">Close</button></div>'+
     '<div style="padding:18px 20px;">'+
-      '<div style="font-size:11px;color:var(--t3);margin-bottom:12px;">Pick one winner per award (top nominee is pre-selected). Top-5 placement certificates print automatically.</div>'+
-      '<div style="background:rgba(255,107,26,.05);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:16px;"><div style="font-size:12px;font-weight:800;color:#c2410c;margin-bottom:5px;"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M8 21h8M12 17v4M7 4h10v4a5 5 0 0 1-10 0z\"/><path d=\"M7 4H4v2a3 3 0 0 0 3 3M17 4h3v2a3 3 0 0 0-3 3\"/></svg> Top 5 (by Overall)</div>'+placeHtml+'</div>'+
-      awHtml+_evtSectionHtml()+
+      '<div style="font-size:11px;color:var(--t3);margin-bottom:14px;">Prints a certificate for the <b>Top 5</b> placements and for each <b>Special Award</b> you entered (that has a winner). Awards without a winner are skipped.</div>'+
+      '<div style="background:rgba(255,107,26,.05);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:16px;"><div style="font-size:12px;font-weight:800;color:#c2410c;margin-bottom:5px;">Top 5 (by Overall)</div>'+placeHtml+'</div>'+
+      '<div style="font-size:13px;font-weight:800;color:var(--t1);margin-bottom:8px;">Special Awards'+(withWinner.length?(' ('+withWinner.length+')'):'')+'</div>'+awardsHtml+
+      '<div style="margin-top:12px;"><button class="bsm" onclick="closeCertAndOpenAwards()" style="border-color:rgba(255,196,60,.5);color:#b8860b;">Edit Special Awards</button></div>'+
     '</div>'+
     '<div style="position:sticky;bottom:0;background:var(--card,#fff);border-top:1px solid var(--border);padding:14px 20px;display:flex;gap:10px;justify-content:flex-end;">'+
       '<button class="bsm" onclick="_closeCertPicker()">Cancel</button>'+
-      '<button class="bsm" style="color:#fff;background:linear-gradient(135deg,#ff6b1a,#e83d00);border-color:transparent;font-weight:700;" onclick="printSelectedCerts()"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><rect x=\"6\" y=\"3\" width=\"12\" height=\"6\"/><path d=\"M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2\"/><rect x=\"6\" y=\"14\" width=\"12\" height=\"7\"/></svg> Print certificates</button>'+
+      '<button class="bsm" style="color:#fff;background:linear-gradient(135deg,#ff6b1a,#e83d00);border-color:transparent;font-weight:700;" onclick="_printCerts()">Print certificates</button>'+
     '</div></div>';
+}
+function closeCertAndOpenAwards(){ _closeCertPicker(); try{ openAwards(); }catch(e){} }
+function _printCerts(){
+  var c=_CERT_CTX; if(!c) return;
+  var awardsForCert=(c.awards||[]).filter(function(a){ return a.winner_name; }).map(function(a){
+    return { title:a.title||'Special Award', name:a.winner_name, cite:(a.blurb||''), metricText:'' };
+  });
+  if(!(c.top5&&c.top5.length) && !awardsForCert.length){ alert('Nothing to print — add a Special Award (with a winner) or make sure the month has ranked scores.'); return; }
+  var html=_certHTML(c.top5||[], c.monthLabel, awardsForCert);
+  var w=window.open('','_blank');
+  if(!w){ alert('Please allow pop-ups for this site to print certificates.'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 }
 function _closeCertPicker(){ var ov=document.getElementById('cert-picker'); if(ov) ov.remove(); }
 
