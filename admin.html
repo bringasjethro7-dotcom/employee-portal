@@ -6204,17 +6204,24 @@ async function openAwards(){
   document.getElementById('award-body').innerHTML='<div style="text-align:center;color:rgba(255,255,255,.5);padding:40px;">Loading nominees…</div>';
   _awRosterLoad(function(){});
   try{
-    var r=await fetch(API+'?action=awards_get&month='+encodeURIComponent(_awMonth)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
-    var d=await r.json();
+    // Fire every independent backend call at once instead of one-by-one (Apps Script is slow).
+    var _pm=_prevMonthKey(_awMonth);
+    var _batch=await Promise.all([
+      fetch(API+'?action=awards_get&month='+encodeURIComponent(_awMonth)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now()).then(function(r){return r.json();}).catch(function(){return {};}),
+      _loadFinal(_awMonth).catch(function(){return null;}),
+      jGet(API+'?action=list_innovations&month='+encodeURIComponent(_awMonth)+'&_='+Date.now(),3000,60000).then(function(r){return r.json();}).catch(function(){return {};}),
+      (_pm?_loadFinal(_pm).catch(function(){return null;}):Promise.resolve(null))
+    ]);
+    var d=_batch[0]||{}, fin=_batch[1], idd=_batch[2]||{}, _prevSnap=_batch[3];
     if(d&&d.error==='UNAUTHORIZED'){ try{sessionStorage.removeItem('adm_pass');}catch(e){} PASS=''; alert('Wrong admin password.'); closeAwards(); return; }
     var saved=(d&&d.awards instanceof Array)?d.awards:[];
-    var fin=await _loadFinal(_awMonth), all, ex, ebRows;
+    var all, ex, ebRows;
     if(fin){ all=_scRankSort(_scFilterActive(_attachPhotos(fin.rows||[]))).filter(_scValid); ex=fin.ex||{}; ebRows=(fin.eb_list&&fin.eb_list.length)?fin.eb_list:(fin.eb?[fin.eb]:[]); }
-    else { var data=await _scRanked(); all=data.rows.filter(_scValid); var rr=await Promise.all([_awardExtras(_awMonth), _earlyBirdList(_awMonth)]); ex=rr[0]||{}; ebRows=rr[1]||[]; }
-    var ideas=[]; try{ var ir=await jGet(API+'?action=list_innovations&month='+encodeURIComponent(_awMonth)+'&_='+Date.now(),3000,60000); var idd=await ir.json(); ideas=(idd&&idd.items)||[]; }catch(_i){}
+    else { var rr=await Promise.all([_scRanked(), _awardExtras(_awMonth), _earlyBirdList(_awMonth)]); all=rr[0].rows.filter(_scValid); ex=rr[1]||{}; ebRows=rr[2]||[]; }
+    var ideas=(idd&&idd.items)||[];
     _AWNOMS=_awardNominees(all, ebRows, ex, ideas);
     _AWNOMS.bestreviewer=(all||[]).map(function(x){ var c=parseFloat(x.csat); return isNaN(c)?null:{r:x,c:c}; }).filter(Boolean).sort(function(a,b){ return b.c-a.c; }).slice(0,5).map(function(o){ return { title:'Best Reviewer', name:o.r.full_name||o.r.employee_id, id:o.r.employee_id, photo:o.r.photo||'', metricText:'Reviewer grade: <b>'+o.c.toFixed(1)+'</b>' }; });
-    _AWNOMS.mostimproved=await _mostImprovedNoms(_awMonth, all);
+    _AWNOMS.mostimproved=_mostImprovedFrom(_prevSnap, all);
     var stdMap={'early bird award':'early','perfect attendance':'perfect','spotless record':'spotless','sales mvp':'sales','workhorse award':'workhorse','best reviewer':'bestreviewer','best idea award':'bestidea','most improved':'mostimproved'};
     var keys=['early','perfect','spotless','sales','workhorse','bestreviewer','bestidea','mostimproved'];
     _AWPICK={}; AW=[];
@@ -6253,9 +6260,11 @@ function awSet(id,f,v){
   if(f==='winner_id') awRender();
 }
 async function _mostImprovedNoms(month, rows){
+  try{ var pm=_prevMonthKey(month); if(!pm) return []; var snap=await _loadFinal(pm); return _mostImprovedFrom(snap, rows); }catch(e){ return []; }
+}
+function _mostImprovedFrom(snap, rows){
   try{
-    var pm=_prevMonthKey(month); if(!pm) return [];
-    var snap=await _loadFinal(pm); if(!snap||!snap.rows||!snap.rows.length) return [];
+    if(!snap||!snap.rows||!snap.rows.length) return [];
     var prevRanked=_scRankSort(_scFilterActive(snap.rows)); var prevRank={}, prevOv={};
     prevRanked.forEach(function(r,i){ var id=String(r.employee_id||'').toLowerCase(); if(!id) return; prevRank[id]=i+1; var ov=parseFloat(r.overall); if(!isNaN(ov)) prevOv[id]=ov; });
     var cur=_scRankSort(rows), arr=[];
