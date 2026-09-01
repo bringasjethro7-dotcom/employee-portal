@@ -1886,12 +1886,13 @@ async function loadFxMargins(){
 }
 function _salesStatusSel(id,st){
   st=String(st||'pending').toLowerCase();
-  var c={pending:'#fbbf24',sent:'#60a5fa',paid:'#34d399'}[st]||'#fbbf24';
+  var c={pending:'#fbbf24',sent:'#60a5fa',paid:'#34d399',lost:'#ef4444'}[st]||'#fbbf24';
   function opt(v,l){ return '<option value="'+v+'"'+(st===v?' selected':'')+'>'+l+'</option>'; }
   return '<select onchange="setSalesStatus(\''+escAdmin(id)+'\',this.value)" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;color:'+c+';font-family:inherit;font-size:12px;font-weight:700;padding:4px 8px;cursor:pointer;">'+
-    opt('pending','● Pending')+opt('sent','● Sent')+opt('paid','● Paid')+'</select>';
+    opt('pending','● Pending')+opt('sent','● Sent')+opt('paid','● Paid')+opt('lost','● Lost')+'</select>';
 }
 async function setSalesStatus(id,status){
+  if(status==='lost' && !confirm('Mark this invoice as LOST?\n\nIt will be written off as shrinkage and EXCLUDED from all income and team-sales totals. You can switch it back to Pending later.')){ loadSalesData(); return; }
   try{
     var r=await fetch(API+'?action=set_sales_status&id='+encodeURIComponent(id)+'&status='+encodeURIComponent(status)+'&_='+Date.now());
     var d=await r.json();
@@ -1978,7 +1979,7 @@ function renderSalesRows(){
   });
   var scope = period ? (' · '+period) : ((from||to) ? (' · '+(from||'…')+' → '+(to||'…')) : '');
   if(!rows.length){ tb.innerHTML='<tr><td colspan="14" class="es">No sales for this selection.</td></tr>'; document.getElementById('sales-summary').innerHTML='<div class="ls"><b>—</b><span>No records'+scope+'</span></div>'; return; }
-  var tRev=0,tPay=0,tNet=0; rows.forEach(function(x){ tRev+=x.revenue_php||0; tPay+=x.payroll_php||0; tNet+=x.net_php||0; });
+  var tRev=0,tPay=0,tNet=0; rows.forEach(function(x){ if(String(x.status||'').toLowerCase()==='lost') return; tRev+=x.revenue_php||0; tPay+=x.payroll_php||0; tNet+=x.net_php||0; });
   document.getElementById('sales-summary').innerHTML=
     '<div class="ls"><b>'+_peso(tRev)+'</b><span>Gross revenue'+scope+'</span></div>'+
     '<div class="ls"><b>'+_peso(tPay)+'</b><span>Payroll paid</span></div>'+
@@ -4095,7 +4096,14 @@ async function generateInvoice(){
   var outstanding=parseFloat((document.getElementById('wl-outstanding')||{}).value)||0;
   // Manual line items — appear as normal invoice lines (no special label) and add to the subtotal
   // (so they're booked as revenue too). Not affected by the hidden hours markup.
-  (window.INV_EXTRA||[]).forEach(function(x){ var amt=Math.round((parseFloat(x.amount)||0)*100)/100; lines.push({category:x.category, hours:'', rate:'', amount:amt, _extra:true}); subtotal+=amt; });
+  (window.INV_EXTRA||[]).forEach(function(x){
+    var amt=Math.round((parseFloat(x.amount)||0)*100)/100; var lbl=String(x.category||'').trim();
+    // If the label matches an existing category line, MERGE the amount into it (no duplicate row).
+    var hit=null; for(var li=0;li<lines.length;li++){ if(String(lines[li].category||'').trim().toLowerCase()===lbl.toLowerCase()){ hit=lines[li]; break; } }
+    if(hit){ hit.amount=Math.round(((parseFloat(hit.amount)||0)+amt)*100)/100; }
+    else { lines.push({category:x.category, hours:'', rate:'', amount:amt, _extra:true}); }
+    subtotal+=amt;
+  });
   openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100, history, outstanding);
 }
 // Build a no-print comparative trend panel (bars of prior invoice amounts + % change vs last).
