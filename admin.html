@@ -1671,11 +1671,17 @@ function _jText(url,tries,timeout,delay,pri){
 }
 // Per-endpoint default client TTLs — how long a repeat read is served instantly from memory.
 // Writes always jBust() or pass ttl=0, so acting on something still refetches fresh.
-var _jTTL={ get_all_employees:45000, admin_bootstrap:8000, get_tracker_projects:120000, get_banks:60000,
-  get_notif_templates:120000, get_worklog:15000, get_attendance:15000, get_all_scorecards:20000,
-  get_finalized:30000, get_leave_requests:15000, get_coe_requests:15000, redeem_list:15000,
-  lead_demerit_list:15000, get_all_demerit_disputes:15000, get_appeals:15000, payslip_funding:20000,
-  po_progress_all:12000, list_innovations:15000, get_all_qa_weekly:20000 };   // qa_review_list dropped with the chain
+/* TTLs raised because Apps Script runs ONE execution per user — shorter TTLs meant the same dozen
+   reads re-queued constantly and each waited behind the others (the 5s+ lag). Every mutation calls
+   jBust() which clears the cache, so a saved change is still fetched fresh immediately; these longer
+   TTLs only stop *passive* re-fetching while navigating, and stale-while-revalidate still refreshes
+   in the background past half-TTL. Net effect: far fewer queued requests, snappier console. */
+var _jTTL={ get_all_employees:90000, admin_bootstrap:15000, get_tracker_projects:180000, get_banks:120000,
+  get_notif_templates:180000, get_worklog:45000, get_attendance:45000, get_all_scorecards:45000,
+  get_finalized:90000, get_leave_requests:30000, get_coe_requests:30000, redeem_list:30000,
+  lead_demerit_list:30000, get_all_demerit_disputes:30000, get_appeals:30000, payslip_funding:45000,
+  po_progress_all:30000, list_innovations:30000, get_all_qa_weekly:45000, get_all_qa_disputes:30000,
+  get_finalized_prod:45000, sales_teams:45000, sales_breakdown:45000 };
 // Google sometimes answers with an HTML error page ("Sorry, cannot open the file…") instead of
 // JSON during a hiccup. That is NOT data: never cache it, and treat it as a retryable failure —
 // otherwise one blip gets cached and every panel keeps replaying it for the whole TTL.
@@ -1725,8 +1731,8 @@ function jBust(){ _jCache={}; try{ sessionStorage.removeItem('_jSnap'); }catch(e
 setInterval(function(){ try{
   var keep={}, now=Date.now();
   Object.keys(_jCache).forEach(function(k){
-    if(!/action=(get_all_employees|admin_bootstrap|get_tracker_projects|get_all_scorecards|get_worklog)/.test(k)) return;
-    var c=_jCache[k]; if(c && c.txt && c.txt.length<300000 && (now-c.t)<10*60*1000) keep[k]={t:c.t, txt:c.txt};
+    if(!/action=(get_all_employees|admin_bootstrap|get_tracker_projects|get_all_scorecards|get_worklog|get_attendance|get_all_qa_weekly|get_finalized|payslip_funding|list_innovations|get_appeals|get_leave_requests|get_coe_requests)/.test(k)) return;
+    var c=_jCache[k]; if(c && c.txt && c.txt.length<400000 && (now-c.t)<15*60*1000) keep[k]={t:c.t, txt:c.txt};
   });
   sessionStorage.setItem('_jSnap', JSON.stringify(keep));
 }catch(e){} }, 12000);
