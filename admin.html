@@ -1266,6 +1266,12 @@ body{background-attachment:initial !important}
           </select>
           <label style="font-size:11px;color:var(--t3);" title="Unpaid amount carried over from a previous invoice — shown as its own line and added to the total due. Leave 0 when the client is fully settled.">Outstanding (USD)
             <input class="sinp" id="wl-outstanding" type="number" min="0" step="any" placeholder="0.00" style="width:100px;"></label>
+          <span style="display:inline-flex;align-items:center;gap:6px;" title="Add a manual line to the invoice — a category/label and an amount. It appears as a normal invoice line and adds to the subtotal.">
+            <input class="sinp" id="wl-xcat" placeholder="Line category" style="width:130px;">
+            <input class="sinp" id="wl-xamt" type="number" step="any" placeholder="Amount (USD)" style="width:110px;">
+            <button class="bsm" onclick="addInvLine()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add line</button>
+          </span>
+          <span id="wl-xlist" style="font-size:11px;color:var(--t2);"></span>
           <button class="bsm" onclick="generateInvoice()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Generate Invoice</button>
           <button class="bsm" onclick="exportWorkLogCSV()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
           <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
@@ -4026,6 +4032,21 @@ function exportWorkLogCSV(){
 // ── INVOICE GENERATION (per project, from current Work Log filters) ──
 function invMoney(n){ return '$' + (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function invDate(d){ if(!d) return ''; var p=String(d).split('-'); return (p.length===3) ? (p[1]+'/'+p[2]+'/'+p[0].slice(2)) : String(d); }
+/* Manual invoice line items — a category/label + amount that render as normal invoice lines. */
+window.INV_EXTRA=window.INV_EXTRA||[];
+function addInvLine(){
+  var cEl=document.getElementById('wl-xcat'), aEl=document.getElementById('wl-xamt');
+  var c=(cEl.value||'').trim(), a=parseFloat(aEl.value);
+  if(!c){ alert('Enter a category / label for the line.'); return; }
+  if(isNaN(a)){ alert('Enter an amount (USD) for the line.'); return; }
+  window.INV_EXTRA.push({category:c, amount:Math.round(a*100)/100});
+  cEl.value=''; aEl.value=''; cEl.focus(); renderInvExtra();
+}
+function renderInvExtra(){
+  var el=document.getElementById('wl-xlist'); if(!el) return;
+  if(!window.INV_EXTRA.length){ el.innerHTML=''; return; }
+  el.innerHTML='Lines: '+window.INV_EXTRA.map(function(x,i){ return escAdmin(x.category)+' $'+(Number(x.amount)||0).toFixed(2)+' <a href="#" title="remove" onclick="window.INV_EXTRA.splice('+i+',1);renderInvExtra();return false;" style="color:#dc2626;text-decoration:none;font-weight:700;">&times;</a>'; }).join(' &nbsp;·&nbsp; ');
+}
 async function generateInvoice(){
   var project = (document.getElementById('wl-project-filter')||{}).value;
   if(!project){ alert('Pick a specific Project in the filter first — invoices are generated per project.'); return; }
@@ -4072,6 +4093,9 @@ async function generateInvoice(){
   /* Outstanding balance from a previous cutoff the client only part-paid. Carried as its own
      line on the invoice so the client sees exactly what is old debt and what is new work. */
   var outstanding=parseFloat((document.getElementById('wl-outstanding')||{}).value)||0;
+  // Manual line items — appear as normal invoice lines (no special label) and add to the subtotal
+  // (so they're booked as revenue too). Not affected by the hidden hours markup.
+  (window.INV_EXTRA||[]).forEach(function(x){ var amt=Math.round((parseFloat(x.amount)||0)*100)/100; lines.push({category:x.category, hours:'', rate:'', amount:amt, _extra:true}); subtotal+=amt; });
   openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100, history, outstanding);
 }
 // Build a no-print comparative trend panel (bars of prior invoice amounts + % change vs last).
@@ -4112,10 +4136,11 @@ function openInvoiceWindow(project, from, to, lines, subtotal, history, outstand
   var today=new Date(); var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
   var logo='<svg width="58" height="58" viewBox="76 82 360 360" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="ilM" x1="0" y1="0.05" x2="0" y2="0.95"><stop offset="0%" stop-color="#FFE0BE"/><stop offset="16%" stop-color="#FFB16A"/><stop offset="46%" stop-color="#FF7A29"/><stop offset="78%" stop-color="#F1560F"/><stop offset="100%" stop-color="#C3380A"/></linearGradient><linearGradient id="ilB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF8E45"/><stop offset="55%" stop-color="#E64C10"/><stop offset="100%" stop-color="#A52E08"/></linearGradient></defs><rect x="241" y="110" width="30" height="304" rx="15" fill="url(#ilM)"/><path d="M256 226 Q341 264 398 320 Q341 376 256 414 Q171 376 114 320 Q171 264 256 226 Z" fill="none" stroke="url(#ilB)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/><path d="M256 110 Q341 148 398 204 Q341 260 256 298 Q171 260 114 204 Q171 148 256 110 Z" fill="none" stroke="url(#ilM)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   var rowsHtml=lines.map(function(l){
+    var isX=(l._extra===true);
     return '<tr>'+
       '<td class="svc">'+escAdmin(l.category||'Uncategorized')+'</td>'+
-      '<td class="num">'+(Number(l.hours)||0).toFixed(2)+'</td>'+
-      '<td class="num">'+invMoney(l.rate)+'</td>'+
+      '<td class="num">'+(isX?'':(Number(l.hours)||0).toFixed(2))+'</td>'+
+      '<td class="num">'+(isX?'':invMoney(l.rate))+'</td>'+
       '<td class="num">'+invMoney(l.amount)+'</td>'+
     '</tr>';
   }).join('');
@@ -7181,13 +7206,22 @@ function _revMetricNums(){
     }, 340+i*90);
   });
 }
+function _revSafeBlurb(b, title){
+  /* Awards play BEFORE the countdown — never let a blurb leak a final rank position
+     (e.g. "Climbed 5 places (#11 -> #6)"). Strip anything rank-revealing. */
+  var s=String(b||'');
+  var spoils=/#\s*\d|&rarr;|&#8594;|→|\bclimb|\bplace|\brank\b|\bposition/i.test(s);
+  if(!spoils) return s;
+  if(/most improved/i.test(String(title||''))) return 'The biggest climb on the team this month';
+  return '';
+}
 function _revAward(a){
   /* Special-award slide: a big trophy, the award title, then the winner's photo + name and an
      optional line the host reads out. Same warm ceremony palette as the ranking cards, but its
      own gold accent so the room can tell an award apart from a rank. */
   var title=String((a&&a.title)||'Special Award').replace(/</g,'&lt;');
   var name=String((a&&a.winner_name)||'').replace(/</g,'&lt;');
-  var blurb=String((a&&a.blurb)||'').replace(/</g,'&lt;');
+  var blurb=String(_revSafeBlurb((a&&a.blurb)||'', (a&&a.title)||'')).replace(/</g,'&lt;');
   var pic;
   if(a&&a.photo){ pic='<img src="'+String(a.photo).replace(/"/g,'&quot;')+'" alt="" onerror="this.outerHTML=\'<div class=&quot;rev-awinit&quot;><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px;flex:none;\"><circle cx=\"12\" cy=\"8\" r=\"5\"/><path d=\"M9 13l-2 8 5-3 5 3-2-8\"/></svg></div>\'">'; }
   else { pic='<div class="rev-awinit">'+(name?name.trim().charAt(0).toUpperCase():'<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><circle cx=\"12\" cy=\"8\" r=\"5\"/><path d=\"M9 13l-2 8 5-3 5 3-2-8\"/></svg>')+'</div>'; }
