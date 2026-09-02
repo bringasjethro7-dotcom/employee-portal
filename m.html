@@ -105,6 +105,32 @@ img{max-width:100%}
 .mrow.mine ~ .pills{justify-content:flex-end}
 .pill{background:#fff;border:1px solid var(--line);border-radius:12px;font-size:11px;padding:2px 7px;
   box-shadow:0 1px 3px rgba(0,0,0,.06)}
+/* message grouping — consecutive bubbles from one sender hug together like Messenger */
+.mrow.mine .bub.g-first{border-bottom-right-radius:6px}
+.mrow.mine .bub.g-mid{border-top-right-radius:6px;border-bottom-right-radius:6px}
+.mrow.mine .bub.g-last{border-top-right-radius:6px}
+.mrow.theirs .bub.g-first{border-bottom-left-radius:6px}
+.mrow.theirs .bub.g-mid{border-top-left-radius:6px;border-bottom-left-radius:6px}
+.mrow.theirs .bub.g-last{border-top-left-radius:6px}
+.gtime{font-size:10.5px;color:var(--t3);margin:4px 6px 10px;text-align:center}
+.gtime.mine{text-align:right;margin-right:8px}
+.gtime.theirs{text-align:left;margin-left:44px}
+.sent{font-size:10px;color:var(--t3);text-align:right;margin:2px 8px 6px}
+@keyframes msgin{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+.mrow.anim{animation:msgin .22s cubic-bezier(.2,.8,.2,1)}
+/* typing indicator bubble */
+#typing{display:none;align-items:flex-end;gap:8px;margin:4px 0 8px}
+#typing .tb{background:#fff;border:1px solid var(--line);border-radius:18px;border-bottom-left-radius:5px;
+  padding:12px 15px;display:flex;gap:5px}
+#typing .tb i{width:7px;height:7px;border-radius:50%;background:var(--t3);animation:tybl 1.2s infinite}
+#typing .tb i:nth-child(2){animation-delay:.15s}
+#typing .tb i:nth-child(3){animation-delay:.3s}
+@keyframes tybl{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-5px);opacity:1}}
+/* jump to latest */
+#jump{position:absolute;right:14px;bottom:14px;width:40px;height:40px;border-radius:50%;border:none;
+  background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.18);display:none;align-items:center;justify-content:center;
+  cursor:pointer;z-index:5}
+#jump svg{width:20px;height:20px;stroke:var(--org)}
 /* reaction picker */
 #rxbar{position:fixed;z-index:60;background:#fff;border-radius:26px;box-shadow:0 10px 34px rgba(0,0,0,.18);
   display:none;padding:7px 10px;gap:4px}
@@ -132,13 +158,13 @@ img{max-width:100%}
 #sendbtn svg{stroke:#fff}
 
 /* ── bottom nav ── */
-#nav{flex:none;display:flex;background:var(--bg);border-top:1px solid var(--line);
+.nav{flex:none;display:flex;background:var(--bg);border-top:1px solid var(--line);
   padding:6px 0 calc(6px + var(--sab))}
-#nav button{flex:1;border:none;background:none;display:flex;flex-direction:column;align-items:center;
+.nav button{flex:1;border:none;background:none;display:flex;flex-direction:column;align-items:center;
   gap:3px;padding:6px 0;cursor:pointer;color:var(--t3);font-size:10.5px;font-weight:700;position:relative}
-#nav button.on{color:var(--org)}
-#nav svg{width:23px;height:23px;stroke:currentColor}
-#nav .navbadge{position:absolute;top:2px;left:calc(50% + 6px);background:var(--org);color:#fff;
+.nav button.on{color:var(--org)}
+.nav svg{width:23px;height:23px;stroke:currentColor}
+.nav .navbadge{position:absolute;top:2px;left:calc(50% + 6px);background:var(--org);color:#fff;
   font-size:9.5px;font-weight:800;min-width:16px;height:16px;border-radius:9px;
   display:flex;align-items:center;justify-content:center;padding:0 4px}
 
@@ -205,7 +231,7 @@ img{max-width:100%}
     <img class="mini" id="me-av" alt="">
   </div>
   <div id="convs"><div class="spin"></div></div>
-  <div id="nav"></div>
+  <div id="nav" class="nav"></div>
 </div>
 
 <!-- ══ CHAT THREAD ══ -->
@@ -215,7 +241,10 @@ img{max-width:100%}
     <div class="avwrap"><div class="av" id="ch-av" style="width:38px;height:38px;font-size:13px;"></div><span class="dot hide" id="ch-dot"></span></div>
     <div style="flex:1;min-width:0;"><div id="ch-title"></div><div id="ch-sub"></div></div>
   </div>
-  <div id="msgs"></div>
+  <div style="flex:1;position:relative;display:flex;flex-direction:column;min-height:0;">
+    <div id="msgs" style="flex:1;"></div>
+    <button id="jump" onclick="var m=document.getElementById('msgs');m.scrollTop=m.scrollHeight;"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
+  </div>
   <div id="composer">
     <div id="replybar"><span>Replying to <b id="rb-name"></b>: <span id="rb-text"></span></span><button onclick="cancelReply()">✕</button></div>
     <div id="imgprev"><img id="ip-img"><button onclick="clearImg()">✕</button></div>
@@ -236,7 +265,7 @@ img{max-width:100%}
     <a class="gcard g2" href="https://internals.jmbvirtuals.com/quizbee-play.html" target="_blank" rel="noopener"><span class="emj">🧠</span><h3>Quiz Bee</h3><p>Trivia showdown across 40 categories</p></a>
     <a class="gcard g3" href="https://internals.jmbvirtuals.com/tetris3v3-play.html" target="_blank" rel="noopener"><span class="emj">🕹️</span><h3>Tetris 3v3</h3><p>Team battle — stack, clear, survive</p></a>
   </div>
-  <div id="nav2"></div>
+  <div id="nav2" class="nav"></div>
 </div>
 
 <!-- ══ LEAVE ══ -->
@@ -247,8 +276,8 @@ img{max-width:100%}
       <h4>Request time off</h4>
       <div class="ltypes" id="ltypes"></div>
       <div class="lrow">
-        <input class="fld" type="date" id="lv-start" style="flex:1;">
-        <input class="fld" type="date" id="lv-end" style="flex:1;">
+        <div style="flex:1;"><div style="font-size:11px;font-weight:800;color:var(--t3);margin:0 0 4px 2px;">FIRST DAY</div><input class="fld" type="date" id="lv-start" style="width:100%;"></div>
+        <div style="flex:1;"><div style="font-size:11px;font-weight:800;color:var(--t3);margin:0 0 4px 2px;">LAST DAY</div><input class="fld" type="date" id="lv-end" style="width:100%;"></div>
       </div>
       <textarea class="fld" id="lv-reason" rows="2" placeholder="Reason (be honest — it helps approval)"></textarea>
       <button class="btn" id="lv-btn" onclick="submitLeave()">Submit request</button>
@@ -256,7 +285,7 @@ img{max-width:100%}
     <div class="sechead" style="padding-left:2px;">My requests</div>
     <div id="lv-list"><div class="spin"></div></div>
   </div>
-  <div id="nav3"></div>
+  <div id="nav3" class="nav"></div>
 </div>
 
 <div id="rxbar"></div>
@@ -300,7 +329,8 @@ async function doLogin(){
 function boot(){
   $('scr-login').classList.add('hide');
   showList();
-  $('me-av').src=ME.photo||('data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34"><rect width="34" height="34" rx="17" fill="#ffe3cf"/><text x="17" y="22" font-size="13" font-weight="800" text-anchor="middle" fill="#a24a12">'+initials(ME.full_name)+'</text></svg>'));
+  $('me-av').onerror=function(){ this.src='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34"><rect width="34" height="34" rx="17" fill="#ffe3cf"/><text x="17" y="22" font-size="13" font-weight="800" text-anchor="middle" fill="#a24a12">'+initials(ME.full_name)+'</text></svg>'); };
+  $('me-av').src=goodPhoto(ME.photo)||('data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34"><rect width="34" height="34" rx="17" fill="#ffe3cf"/><text x="17" y="22" font-size="13" font-weight="800" text-anchor="middle" fill="#a24a12">'+initials(ME.full_name)+'</text></svg>'));
   navRender();
   SB=window.supabase.createClient(SUPA_URL,SUPA_KEY);
   Promise.all([loadEmployees(),loadChannels(),refreshPresence()]).then(function(){ loadAllMessages(); });
@@ -315,11 +345,8 @@ async function loadEmployees(){
     var d=await (await fetch(API+'?action=get_all_employees&_='+Date.now())).json();
     ((d&&d.employees)||d||[]).forEach(function(e){ if(e&&e.employee_id) EMPS[String(e.employee_id).toUpperCase()]={id:e.employee_id,name:e.full_name||e.employee_id}; });
   }catch(e){}
-  try{
-    var a=await (await fetch(API+'?action=get_all_avatars&_='+Date.now())).json();
-    var avs=(a&&a.avatars)||a||{};
-    Object.keys(avs).forEach(function(k){ AVA[String(k).toUpperCase()]=avs[k]; });
-  }catch(e){}
+  /* photos come from the presence table (the portal writes them there); the avatar-builder
+     endpoint returns config objects, not images, so it is useless here */
 }
 async function loadChannels(){
   try{
@@ -355,14 +382,64 @@ function presenceLoop(){
 async function loadAllMessages(){
   try{
     var r=await SB.from('messages').select('*').order('created_at',{ascending:false}).limit(300);
-    if(r&&r.data){ MSGS=r.data.reverse(); renderConvs(); if(CUR) renderThread(); navRender(); }
+    if(r&&r.data){
+      MSGS=r.data.reverse();
+      /* first launch on this device: everything that already happened is history, not unread */
+      if(!localStorage.getItem('jmbc_lastread')){
+        var seen={}; MSGS.forEach(function(m){ var k=convKey(m); if(k) seen[k]=1; });
+        Object.keys(seen).forEach(function(k){ LASTREAD[k]=Date.now(); });
+        try{ localStorage.setItem('jmbc_lastread',JSON.stringify(LASTREAD)); }catch(e){}
+      }
+      renderConvs(); if(CUR) renderThread(); navRender();
+    }
   }catch(e){}
 }
+var _prevIds={};
 function subscribeRealtime(){
   try{
     SB.channel('m-messages')
-      .on('postgres_changes',{event:'*',schema:'public',table:'messages'},function(){ loadAllMessages(); })
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},function(pl){
+        try{ var m=pl['new']||{};
+          if(String(m.sender_id||'').toUpperCase()!==String(ME.employee_id).toUpperCase()) ding();
+        }catch(e){}
+        loadAllMessages();
+      })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages'},function(){ loadAllMessages(); })
       .subscribe();
+  }catch(e){}
+  /* typing broadcasts */
+  try{
+    TYCH=SB.channel('m-typing',{config:{broadcast:{self:false}}})
+      .on('broadcast',{event:'ty'},function(p){
+        var d=(p&&p.payload)||{};
+        if(!CUR) return;
+        var relevant=(d.to==='group'&&CUR==='group')||(String(d.to).toUpperCase()===String(ME.employee_id).toUpperCase()&&String(d.from).toUpperCase()===String(CUR).toUpperCase())||(d.to===CUR&&CUR.indexOf('ch:')===0);
+        if(!relevant) return;
+        var t=$('typing'); if(!t) return;
+        var av=$('ty-av'); if(av) av.textContent=initials(d.name||'');
+        t.style.display='flex';
+        var el=$('msgs'); if(el.scrollHeight-el.scrollTop-el.clientHeight<150) el.scrollTop=el.scrollHeight;
+        clearTimeout(window._tyT); window._tyT=setTimeout(function(){ t.style.display='none'; },2500);
+      }).subscribe();
+  }catch(e){}
+}
+var TYCH=null,_lastTy=0;
+function emitTyping(){
+  var now=Date.now(); if(now-_lastTy<1600||!TYCH||!CUR) return;
+  _lastTy=now;
+  try{ TYCH.send({type:'broadcast',event:'ty',payload:{from:ME.employee_id,name:ME.full_name,to:CUR}}); }catch(e){}
+}
+/* soft incoming pop */
+var _ac2=null;
+function ding(){
+  try{
+    if(!_ac2) _ac2=new (window.AudioContext||window.webkitAudioContext)();
+    var o=_ac2.createOscillator(), g=_ac2.createGain();
+    o.frequency.value=880; o.type='sine';
+    g.gain.setValueAtTime(0.12,_ac2.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,_ac2.currentTime+0.25);
+    o.connect(g); g.connect(_ac2.destination);
+    o.start(); o.stop(_ac2.currentTime+0.25);
   }catch(e){}
 }
 function convKey(m){
@@ -400,14 +477,15 @@ function tShort(iso){
 }
 
 /* ── CONVERSATION LIST ── */
+function goodPhoto(p){ p=String(p||''); return (p.indexOf('http')===0||p.indexOf('data:image')===0)?p:''; }
 function avatarHtml(key,name,size){
   var up=String(key).toUpperCase();
-  var photo=(PRESENCE[up]&&PRESENCE[up].photo)||AVA[up]||'';
+  var photo=goodPhoto(PRESENCE[up]&&PRESENCE[up].photo);
   var on=PRESENCE[up]&&PRESENCE[up].online;
+  var fb='<div class="av" style="width:'+size+'px;height:'+size+'px;font-size:'+Math.round(size*.33)+'px;'+(photo?'display:none;':'')+'">'+esc(initials(name))+'</div>';
   return '<div class="avwrap">'+(photo
-    ? '<img class="av" style="width:'+size+'px;height:'+size+'px;" src="'+esc(photo)+'">'
-    : '<div class="av" style="width:'+size+'px;height:'+size+'px;font-size:'+(size*.33)+'px;">'+esc(initials(name))+'</div>')
-    +(on?'<span class="dot"></span>':'')+'</div>';
+    ? '<img class="av" style="width:'+size+'px;height:'+size+'px;" src="'+esc(photo)+'" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">'
+    : '')+fb+(on?'<span class="dot"></span>':'')+'</div>';
 }
 function renderConvs(){
   if(!$('scr-list')||$('scr-list').classList.contains('hide')) { /* still update badge */ }
@@ -488,7 +566,7 @@ function paintChatHead(){
   else if(!isDm){ av.textContent='#'; av.style.background='linear-gradient(135deg,#8f7bff,#5b3fe0)'; $('ch-sub').textContent='group channel'; $('ch-dot').classList.add('hide'); }
   else{
     var p=PRESENCE[String(CUR).toUpperCase()];
-    var photo=(p&&p.photo)||AVA[String(CUR).toUpperCase()];
+    var photo=goodPhoto(p&&p.photo);
     if(photo){ av.innerHTML='<img src="'+esc(photo)+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">'; }
     else av.textContent=initials(CURNAME);
     $('ch-sub').textContent=(p&&p.online)?'Active now':'Offline';
@@ -500,16 +578,29 @@ function markRead(){
   try{ localStorage.setItem('jmbc_lastread',JSON.stringify(LASTREAD)); }catch(e){}
   renderConvs(); navRender();
 }
+var _renCount={};
 function renderThread(){
   var list=msgsFor(CUR), me=String(ME.employee_id).toUpperCase();
-  var h='', lastDay='', lastSender='';
-  list.forEach(function(m){
+  var h='', lastDay='';
+  var prevN=_renCount[CUR]||0;
+  var GAP=3*60*1000;
+  function grp(i){ // first/mid/last/solo within a same-sender 3-minute run
+    var m=list[i];
+    var pv=list[i-1], nx=list[i+1];
+    var samePrev=pv&&String(pv.sender_id)===String(m.sender_id)&&(new Date(m.created_at)-new Date(pv.created_at))<GAP&&new Date(pv.created_at).toDateString()===new Date(m.created_at).toDateString();
+    var sameNext=nx&&String(nx.sender_id)===String(m.sender_id)&&(new Date(nx.created_at)-new Date(m.created_at))<GAP&&new Date(nx.created_at).toDateString()===new Date(m.created_at).toDateString();
+    if(samePrev&&sameNext) return 'g-mid';
+    if(samePrev) return 'g-last';
+    if(sameNext) return 'g-first';
+    return '';
+  }
+  list.forEach(function(m,i){
     var d=new Date(m.created_at), day=d.toDateString();
-    if(day!==lastDay){ h+='<div class="daysep">'+((day===new Date().toDateString())?'Today':d.toLocaleDateString([],{weekday:'long',month:'short',day:'numeric'}))+'</div>'; lastDay=day; lastSender=''; }
+    var g=grp(i);
+    if(day!==lastDay){ h+='<div class="daysep">'+((day===new Date().toDateString())?'Today':d.toLocaleDateString([],{weekday:'long',month:'short',day:'numeric'}))+'</div>'; lastDay=day; }
     var mine=String(m.sender_id).toUpperCase()===me;
-    if(!mine&&String(m.sender_id)!==lastSender&&(CUR==='group'||CUR.indexOf('ch:')===0))
+    if(!mine&&(g===''||g==='g-first')&&(CUR==='group'||CUR.indexOf('ch:')===0))
       h+='<div class="mname">'+esc(firstName(m.sender_name))+'</div>';
-    lastSender=String(m.sender_id);
     var reply='';
     if(m.reply){ var rp=m.reply; if(typeof rp==='string'){ try{ rp=JSON.parse(rp);}catch(e){ rp=null; } }
       if(rp) reply='<div class="replyq"><b>'+esc(firstName(rp.name||''))+'</b> '+esc(String(rp.text||'').slice(0,80))+'</div>'; }
@@ -522,17 +613,31 @@ function renderThread(){
     if(m.message&&!(m.image&&!/\.(png|jpe?g|gif|webp)/i.test(m.image))) body+=esc(m.message);
     var rx={}; try{ rx=m.reactions?JSON.parse(m.reactions):{}; }catch(e){} delete rx._pin;
     var pills=Object.keys(rx).map(function(e2){ return '<span class="pill">'+e2+' '+(rx[e2]||[]).length+'</span>'; }).join('');
-    h+='<div class="mrow '+(mine?'mine':'theirs')+'" data-id="'+esc(m.id)+'">'
-      +(!mine?('<div class="mav">'+(AVA[String(m.sender_id).toUpperCase()]?'<img src="'+esc(AVA[String(m.sender_id).toUpperCase()])+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">':esc(initials(m.sender_name)))+'</div>'):'')
-      +'<div class="mgroup"><div class="bub" oncontextmenu="return rxOpen(event,\''+esc(m.id)+'\')" ontouchstart="rxTouch(event,\''+esc(m.id)+'\')" ontouchend="rxTouchEnd()" onclick="setReplyFrom(\''+esc(m.id)+'\')">'+reply+body+'</div>'
+    h+='<div class="mrow '+(mine?'mine':'theirs')+(i>=prevN?' anim':'')+'" data-id="'+esc(m.id)+'">'
+      +(!mine?(function(){ if(g==='g-first'||g==='g-mid') return '<div class="mav" style="visibility:hidden;"></div>';
+          var ph=goodPhoto(PRESENCE[String(m.sender_id).toUpperCase()]&&PRESENCE[String(m.sender_id).toUpperCase()].photo);
+          return '<div class="mav">'+(ph?'<img src="'+esc(ph)+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.remove();">':esc(initials(m.sender_name)))+'</div>'; })():'')
+      +'<div class="mgroup"><div class="bub '+g+'" oncontextmenu="return rxOpen(event,\''+esc(m.id)+'\')" ontouchstart="rxTouch(event,\''+esc(m.id)+'\')" ontouchend="rxTouchEnd()" onclick="setReplyFrom(\''+esc(m.id)+'\')">'+reply+body+'</div>'
       +(pills?'<div class="pills">'+pills+'</div>':'')+'</div></div>';
+    /* time under the last bubble of each run — how real messengers do it */
+    if(g===''||g==='g-last')
+      h+='<div class="gtime '+(mine?'mine':'theirs')+'">'+d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+(m._tmp?' · sending…':'')+'</div>';
   });
+  /* delivered state on my newest message */
+  for(var li=list.length-1;li>=0;li--){
+    if(String(list[li].sender_id).toUpperCase()===me){ if(!list[li]._tmp) h+='<div class="sent">Sent ✓</div>'; break; }
+  }
+  h+='<div id="typing"><div class="mav" style="font-size:9px;" id="ty-av"></div><div class="tb"><i></i><i></i><i></i></div></div>';
+  _renCount[CUR]=list.length;
   if(!list.length) h='<div style="text-align:center;color:var(--t3);margin-top:60px;font-size:13.5px;">No messages yet — start the conversation 🧡</div>';
   var el=$('msgs'), atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<120;
   el.innerHTML=h;
   if(atBottom) el.scrollTop=el.scrollHeight;
   if(!$('scr-chat').classList.contains('hide')) markRead();
 }
+$('msgs').addEventListener('scroll',function(){
+  var el=this; $('jump').style.display=(el.scrollHeight-el.scrollTop-el.clientHeight>300)?'flex':'none';
+});
 function viewImg(src){ $('vw-img').src=src; $('viewer').style.display='flex'; }
 
 /* dbl-tap a bubble sets reply; long-press opens reactions */
@@ -576,7 +681,7 @@ async function react(emoji){
 }
 
 /* composer */
-$('inp').addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(110,this.scrollHeight)+'px'; });
+$('inp').addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(110,this.scrollHeight)+'px'; emitTyping(); });
 $('inp').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } });
 function pickImg(input){
   var f=input.files&&input.files[0]; if(!f) return;
@@ -606,10 +711,14 @@ async function send(){
   if(CUR.indexOf('ch:')===0) rec.channel_id=CUR.slice(3);
   if(IMGDATA) rec.image=IMGDATA;
   if(REPLY) rec.reply=JSON.stringify(REPLY);
-  $('inp').value=''; $('inp').style.height='auto'; clearImg(); cancelReply();
+  $('inp').value=''; $('inp').style.height='auto'; var _img=IMGDATA; clearImg(); cancelReply();
+  /* optimistic: the bubble appears the instant you hit send */
+  var tmp=Object.assign({},rec,{id:'tmp-'+Date.now(),created_at:new Date().toISOString(),_tmp:true});
+  MSGS.push(tmp); renderThread();
+  var el=$('msgs'); el.scrollTop=el.scrollHeight;
   try{
     var r=await SB.from('messages').insert([rec]);
-    if(r&&r.error){ toast('Send failed: '+(r.error.message||'')); return; }
+    if(r&&r.error){ MSGS=MSGS.filter(function(x){return x!==tmp;}); renderThread(); toast('Send failed: '+(r.error.message||'')); return; }
     loadAllMessages();
     fetch(API+'?action=push_chat&from='+encodeURIComponent(ME.employee_id)
       +'&from_name='+encodeURIComponent(ME.full_name)+'&to='+encodeURIComponent(CUR)
@@ -654,7 +763,9 @@ async function submitLeave(){
 async function loadLeave(){
   var el=$('lv-list'); el.innerHTML='<div class="spin"></div>';
   try{
-    var d=await (await fetch(API+'?action=get_leave_requests&employee_id='+encodeURIComponent(ME.employee_id)+'&_='+Date.now())).json();
+    /* the backend filters by `id`, not employee_id — and caches per user */
+    var ctrl=new AbortController(); setTimeout(function(){ ctrl.abort(); },15000);
+    var d=await (await fetch(API+'?action=get_leave_requests&id='+encodeURIComponent(ME.employee_id)+'&_='+Date.now(),{signal:ctrl.signal})).json();
     var rows=(d&&(d.requests||d.leaves))||[];
     rows=rows.filter(function(r){ return String(r.employee_id||'').toUpperCase()===String(ME.employee_id).toUpperCase(); });
     if(!rows.length){ el.innerHTML='<div style="color:var(--t3);font-size:13px;padding:8px 2px;">No requests yet.</div>'; return; }
