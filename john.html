@@ -91,7 +91,7 @@
 
 <div class="wrap" id="app" style="display:none">
   <h1>𝕏 Project John — Warm-up Tracker <span style="font-size:12px;color:var(--ink3);font-weight:600" id="who"></span></h1>
-  <div class="sub">Each account follows the SOP day plan. <b>Every completed session counts +1 output instantly</b> — no waiting for the day to finish, and a takeover mid-day credits whoever completed each session. Randomize batches &amp; scroll times so every account looks human. <span style="opacity:.55">Build 2026-08-23c · dark vertical UI + SVG icons — if you don't see this line, press Ctrl+Shift+R.</span></div>
+  <div class="sub">Each account follows the SOP day plan. <b>Every completed session counts +1 output instantly</b> — no waiting for the day to finish, and a takeover mid-day credits whoever completed each session. Randomize batches &amp; scroll times so every account looks human. <span style="opacity:.55">Build 2026-08-26a · fewer false "server busy" errors — if you don't see this line, press Ctrl+Shift+R.</span></div>
   <div class="top" id="stats"></div>
   <div id="poolbar"></div>
   <div class="addbox">
@@ -108,6 +108,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="jmb-fetch.js"></script>
 <script>
 var API='https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec';
 var PROJECT='John';
@@ -116,17 +117,24 @@ var NAMES={}, SHIFTOF={}, PHOTOOF={};
 function drivePhoto(u){ u=String(u||''); if(!u) return ''; var m=u.match(/[-\w]{25,}/); return m?('https://drive.google.com/thumbnail?id='+m[0]+'&sz=w128'):u; }
 /* ── fetching layer: timeout + retry on READS (never on writes), local cache for instant paint,
    visibility-aware polling (pauses when the tab is hidden, refreshes on focus) ── */
+/* WHY THE TIMEOUT IS 28s AND NOT 10s (fix, Aug 26)
+   VAs were seeing "Server is busy" constantly. The server was usually fine — this function was
+   aborting at 10 SECONDS and calling it a failure. Apps Script regularly needs longer than that
+   on a cold cache or at shift change, so normal-but-slow responses were being thrown away.
+   Worse, it then retried twice: every slow request became THREE requests, so the tool was
+   manufacturing the very congestion it was complaining about. Longer patience, fewer retries,
+   and a real backoff between them. */
 async function jFetch(url, tries){
-  tries=(tries==null)?2:tries;
-  for(var a=0;a<=tries;a++){
-    try{
-      var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
-      var tm=ctl?setTimeout(function(){ try{ctl.abort();}catch(_){} },10000):null;
-      var r=await fetch(url, ctl?{signal:ctl.signal}:undefined);
-      if(tm) clearTimeout(tm);
-      return await r.json();
-    }catch(e){ if(a===tries) throw e; await new Promise(function(res){ setTimeout(res, 500*(a+1)); }); }
-  }
+  /* Delegates to the shared fetch layer (jmb-fetch.js): in-flight dedupe, a short
+     TTL cache, cross-tab sharing and ONE retry. Call sites are unchanged — this is
+     deliberately a drop-in so no tool logic had to be rewritten.
+     Falls back to a plain fetch if the shared file ever fails to load. */
+  if (window.JF) return JF.get(url, { ttl: (/action=(pa_list|emp_dir|john_pool|po_va_progress)/.test(url) ? 12000 : 0) });
+  const ctl = (typeof AbortController!=='undefined') ? new AbortController() : null;
+  const tm = ctl ? setTimeout(()=>{ try{ctl.abort();}catch(_){} }, 28000) : null;
+  const r = await fetch(url, ctl?{signal:ctl.signal}:undefined);
+  if (tm) clearTimeout(tm);
+  return await r.json();
 }
 function cacheRows(){ try{ sessionStorage.setItem('dc_rows_'+PROJECT, JSON.stringify({t:Date.now(), rows:ROWS})); }catch(e){} }
 function paintCached(){ try{ var c=JSON.parse(sessionStorage.getItem('dc_rows_'+PROJECT)||'null');
@@ -282,7 +290,22 @@ function renderByVA(segs, doneFn, activeFn, amFn){
     var done=doneFn?act.filter(doneFn).length:0, tot=act.length;
     return {k:k,i:i,done:done,tot:tot,pct:tot?Math.round(done/tot*100):0,n:rows.length};
   }).sort(function(a,b){ return b.pct-a.pct || b.tot-a.tot; });
-  try{ var _me=list.filter(function(o){ return o.k===mine; })[0]; if(_me) _maybeSnap(_me.done, _me.tot); }catch(_ms){}
+  try{
+    /* WALLBOARD COUNTS SESSIONS, NOT ACCOUNTS (his ask, Aug 25): the first wave of the day is
+       Session 1 on every account — under account-counting the wallboard showed 0 done until an
+       account finished ALL its sessions. Each session is one unit of output: a follow-phase
+       account is 3 units (setup days D1–3 stay 1), so a finished first wave already reads as
+       ~1/3 board progress instead of nothing. */
+    var _sd=0,_st=0;
+    ROWS.forEach(function(r){
+      if(r.status==='suspended') return;
+      if(String(r.assigned_to||r.created_by||'').toLowerCase()!==mine) return;
+      var _full=markOk(r.meta&&r.meta.last, r.assigned_to||r.created_by);
+      if(r.day<=3){ _st+=1; _sd+=(_full?1:0); }
+      else { var _n=jnSess(r); _st+=_n; _sd+=(_full?_n:Math.min(_n,sessDone(r))); }
+    });
+    if(_st) _maybeSnap(_sd,_st);
+  }catch(_ms){}
   host.innerHTML='<div class="pvwrap">'+
     '<div style="display:flex;align-items:baseline;gap:9px;margin-bottom:4px;"><span style="font-family:\'Sora\',sans-serif;font-size:15px;font-weight:800;">'+ic('chart',14)+'Today — progress per VA</span><span style="font-size:11px;color:var(--ink3);font-weight:700;">worked this shift · resets per shift · ☀ 8 AM / 🌙 8 PM</span></div>'+
     list.map(function(o,ix){
@@ -695,8 +718,13 @@ function start(){ try{ fetch(API+'?action=tool_used&employee_id='+encodeURICompo
 /* ── TARGET-POOL PROGRESS BAR ──
    One glance answers "how much of the client's list is left": USED (days completed with that
    list) · ASSIGNED (reserved on an account, day not finished yet) · FREE (still in the pool). */
-var POOL=null;
+var POOL=null, _poolAt=0;
 async function poolLoad(){
+  /* THROTTLED (Aug 25): this fired on every board poll and each call was a full 6k-row sheet
+     read server-side — a standing load that slowed the whole deployment. Once per 5 minutes
+     is plenty for a capacity bar. */
+  if(Date.now()-_poolAt < 300000) return;
+  _poolAt=Date.now();
   try{
     var d=await (await fetch(API+'?action=john_pool&_='+Date.now())).json();
     if(d&&d.ok){ POOL=d; poolRender(); }
@@ -722,17 +750,36 @@ function poolRender(){
         (POOL.free<50?'<span style="color:#f87171;">'+ic('warn')+'running low — ask the client for more targets</span>':'')+
       '</div></div>';
 }
+var _loading=false, _loadFails=0;
 async function load(){
+  /* ONE REQUEST AT A TIME. The 60s poll, the focus handler and the visibility handler could all
+     fire at once, so a slow response had three more requests stacked behind it. */
+  if(_loading) return;
+  _loading=true;
   poolLoad();
   var d=null;
   try{
     d=await jFetch(API+'?action=pa_list&project='+encodeURIComponent(PROJECT)+'&_='+Date.now());
   }catch(e){
-    $('grid').innerHTML='<div class="muted">Server is busy — retrying in 8s…</div>';
-    setTimeout(load, 8000);   // congestion, not a broken deployment — retry by itself
+    _loading=false; _loadFails++;
+    /* Keep the board on screen. Blanking it to an error message is what made a slow request feel
+       like an outage — the VA's accounts were still perfectly good to work from. */
+    var had=(ROWS&&ROWS.length)?true:paintCached();
+    if(had){ toast('Connection slow — showing your last loaded board. Retrying…'); }
+    else { $('grid').innerHTML='<div class="muted">Connection is slow — retrying…</div>'; }
+    setTimeout(load, Math.min(45000, 8000*_loadFails));   // back off instead of hammering
     return;
   }
-  if(!d||!d.ok){ $('grid').innerHTML='<div class="muted">Server returned an error ('+esc((d&&d.error)||'unknown')+') — retrying in 8s…</div>'; setTimeout(load, 8000); return; }
+  if(!d||!d.ok){
+    _loading=false; _loadFails++;
+    var busy=(d&&d.error==='BUSY');
+    var had2=(ROWS&&ROWS.length)?true:paintCached();
+    if(!had2) $('grid').innerHTML='<div class="muted">'+(busy?'Server is busy':'Server error ('+esc((d&&d.error)||'unknown')+')')+' — retrying…</div>';
+    else if(busy) toast('Server busy — your board is still up to date from the last load.');
+    setTimeout(load, Math.min(45000, 8000*_loadFails));
+    return;
+  }
+  _loading=false; _loadFails=0;
   ROWS=d.rows||[]; cacheRows();
   try{ render(); }
   catch(re){ $('grid').innerHTML='<div class="muted">Display error: '+esc(String(re&&re.message||re))+' — tell the admin (data loaded fine).</div>'; }
@@ -876,17 +923,22 @@ async function jnGetList(id){
 }
 function jnSess(r){ return JN_SESSIONS; }   // all follow days: 3 sessions
 function sessMark(r,n){ return ((r&&r.meta)||{})['s'+n]; }
-/* SESSIONS DO NOT RESET DAILY (unlike every other lane in this tool). A session mark stays
-   valid across days until the account COMPLETES its required sessions — finishing the day
-   clears the marks, and only then does the account start over at Session 1.
-   Legacy guard: before this change, dayDone never cleared marks, so completed days left
-   stale s-marks behind. A mark dated on-or-before the last day-completion belongs to that
-   finished day and is ignored. This also auto-restores yesterday's partial progress: an
-   account that logged S1 on Aug 17 opens on S2 today, exactly where it left off. */
+/* SESSION MARKS LIVE FOR ONE SHIFT WINDOW ONLY (Sept 2026).
+   A completed day is untouched — finishing all sessions stamps meta.last and those marks are
+   consumed as before. But an INCOMPLETE day no longer carries over: if the account did not
+   finish its sessions by the VA's reset (☀ 8 AM / 🌙 8 PM, the same reset everything else in
+   this tool already uses), the partial marks expire and the account opens back at Session 1,
+   proof required — instead of resuming mid-day on stale evidence. The reset time itself and
+   all other reset behaviour are unchanged; this only expires leftover incomplete marks. */
 function sessOk(r,n){
   var m=sessMark(r,n); if(!m) return false;
   var last=((r&&r.meta)||{}).last;
   if(last && String(m).slice(0,10)<=String(last).slice(0,10)) return false;   // consumed by a completed day
+  /* expire marks from any shift window that has already ended */
+  var nightKey;
+  try{ nightKey=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date(Date.now()-20*3600*1000))+'·PM'; }
+  catch(e){ nightKey=new Date(Date.now()-20*3600*1000).toISOString().slice(0,10)+'·PM'; }
+  if(m!==today()+'·AM' && m!==nightKey && m!==today()) return false;    // stale window → not started
   return true;
 }
 function sessDone(r){ var c=0; for(var i=1;i<=jnSess(r);i++) if(sessOk(r,i)) c++; return c; }
