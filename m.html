@@ -10,6 +10,7 @@
 <link rel="apple-touch-icon" href="/icons/chat-apple-180.png">
 <title>JMB Chat</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 <style>
 /* ══════════════════════════════════════════════════════════════════════════════
    JMB CHAT — mobile PWA. Chat first (the reason this app exists), games and leave
@@ -57,6 +58,11 @@ img{max-width:100%}
 .abar h2{font-size:21px;font-weight:800;margin:0;flex:1}
 .abar .mini{width:34px;height:34px;border-radius:50%;object-fit:cover;background:var(--orgSoft)}
 
+/* search */
+#search-wrap{padding:4px 16px 8px}
+#search{width:100%;background:var(--bg2);border:none;border-radius:12px;padding:10px 14px;font-size:14px;outline:none}
+.unsent{font-style:italic;color:var(--t3);font-size:12.5px;padding:8px 13px;border:1.5px dashed var(--line);border-radius:16px;background:transparent!important}
+#rxbar .rxact{font-size:13px!important;font-weight:800;color:var(--t2);padding:6px 10px!important;border-left:1px solid var(--line)}
 /* ── conversation list ── */
 #convs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .conv{display:flex;align-items:center;gap:13px;padding:11px 16px;cursor:pointer;transition:background .12s}
@@ -78,7 +84,8 @@ img{max-width:100%}
   padding:12px 16px 6px;scrollbar-width:none}
 #online-strip::-webkit-scrollbar{display:none}
 .ou{display:flex;flex-direction:column;align-items:center;gap:5px;flex:none;width:60px;cursor:pointer}
-.ou .avwrap .av{width:54px;height:54px}
+.ou .avwrap .av{width:54px;height:54px;
+  box-shadow:0 0 0 2.5px #fff,0 0 0 5px var(--org)}
 .ou span{font-size:11px;font-weight:700;color:var(--t2);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;max-width:60px}
 .sechead{padding:14px 18px 4px;font-size:11px;font-weight:800;letter-spacing:.8px;color:var(--t3);text-transform:uppercase}
@@ -243,6 +250,14 @@ img{max-width:100%}
 #ringbar span{font-size:11px;opacity:.75}
 #ringbar .rj{background:#22b573;color:#fff;border:none;border-radius:12px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
 #ringbar .rd{background:rgba(255,255,255,.14);color:#fff;border:none;border-radius:12px;padding:9px 12px;font-weight:700;font-size:13px;cursor:pointer}
+#offline{position:fixed;left:0;right:0;top:0;z-index:90;background:var(--red);color:#fff;text-align:center;
+  font-size:12px;font-weight:800;padding:calc(4px + var(--sat)) 0 5px;display:none}
+#notifbar{display:none;align-items:center;gap:10px;background:var(--orgSoft);border-bottom:1px solid #f5d9c2;
+  padding:10px 16px;font-size:12.5px;color:#8a4a20}
+#notifbar b{color:var(--org)}
+#notifbar button{border:none;border-radius:10px;padding:8px 14px;font-weight:800;font-size:12px;cursor:pointer}
+#notifbar .on{background:var(--org);color:#fff}
+#notifbar .off{background:none;color:#8a4a20}
 /* toast */
 #toast{position:fixed;left:50%;bottom:calc(90px + var(--sab));transform:translateX(-50%) translateY(8px);
   background:var(--ink);color:#fff;padding:10px 18px;border-radius:12px;font-size:13px;font-weight:600;
@@ -276,6 +291,8 @@ img{max-width:100%}
     <h2>Chats</h2>
     <img class="mini" id="me-av" alt="">
   </div>
+  <div id="notifbar"><span style="flex:1;">🔔 <b>Turn on notifications</b> so messages reach you when the app is closed</span><button class="on" onclick="enablePush()">Enable</button><button class="off" onclick="hideNotifBar(true)">✕</button></div>
+  <div id="search-wrap"><input id="search" placeholder="Search people and chats…" oninput="SEARCHQ=this.value.toLowerCase();renderConvs();"></div>
   <div id="convs"><div class="spin"></div></div>
   <div id="nav" class="nav"></div>
 </div>
@@ -355,6 +372,7 @@ img{max-width:100%}
 </div>
 <div id="rxbar"></div>
 <div id="viewer" onclick="this.style.display='none'"><img id="vw-img"></div>
+<div id="offline">No connection — reconnecting…</div>
 <div id="toast"></div>
 
 <script>
@@ -363,7 +381,7 @@ var SUPA_URL='https://rvyrnkjqxnijxydloujk.supabase.co';
 var SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2eXJua2pxeG5panh5ZGxvdWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NzAwODQsImV4cCI6MjA5NzE0NjA4NH0.SwkSkmbeWrhm5PZZDSZ1Z4hbjpQ0L2CRtuKQmpHshBE';
 
 var ME=null, SB=null, EMPS={}, AVA={}, CHANNELS=[], PRESENCE={}, MSGS=[], CUR=null, CURNAME='';
-var REPLY=null, IMGDATA='', LASTREAD={}, POLL=null;
+var REPLY=null, IMGDATA='', LASTREAD={}, POLL=null, SEARCHQ='';
 try{ LASTREAD=JSON.parse(localStorage.getItem('jmbc_lastread')||'{}'); }catch(e){}
 
 function $(i){ return document.getElementById(i); }
@@ -400,6 +418,7 @@ function boot(){
   SB=window.supabase.createClient(SUPA_URL,SUPA_KEY);
   Promise.all([loadEmployees(),loadChannels(),refreshPresence()]).then(function(){ loadAllMessages(); });
   subscribeRealtime();
+  linkPush(); setTimeout(maybeShowNotifBar,2500);
   try{ initVoiceM(); }catch(e){}
   presenceLoop();
   POLL=setInterval(function(){ loadAllMessages(); refreshPresence(); },20000);
@@ -456,12 +475,12 @@ async function loadAllMessages(){
     var r=await SB.from('messages').select('*').order('created_at',{ascending:false}).limit(300);
     if(r&&r.data){
       MSGS=r.data.reverse();
-      /* first launch on this device: everything that already happened is history, not unread */
-      if(!localStorage.getItem('jmbc_lastread')){
-        var seen={}; MSGS.forEach(function(m){ var k=convKey(m); if(k) seen[k]=1; });
-        Object.keys(seen).forEach(function(k){ LASTREAD[k]=Date.now(); });
-        try{ localStorage.setItem('jmbc_lastread',JSON.stringify(LASTREAD)); }catch(e){}
-      }
+      /* Any conversation this device is seeing for the FIRST time starts as read — history is
+         history. Only messages that arrive after that first sight count as unread. This also
+         retro-fixes devices carrying old lastread data that never covered every conversation. */
+      var dirty=false;
+      MSGS.forEach(function(m){ var k=convKey(m); if(k&&!LASTREAD[k]){ LASTREAD[k]=Date.now(); dirty=true; } });
+      if(dirty){ try{ localStorage.setItem('jmbc_lastread',JSON.stringify(LASTREAD)); }catch(e){} }
       renderConvs(); if(CUR) renderThread(); navRender();
     }
   }catch(e){}
@@ -597,14 +616,18 @@ function renderConvs(){
         +'<span>'+esc(firstName(nm)||nm)+'</span></div>';
     }).join('')+'</div>';
   }
+  function match(nm){ return !SEARCHQ||String(nm).toLowerCase().indexOf(SEARCHQ)>=0; }
   // pinned: group chat
   var gm=lastMsg('group'), gu=unread('group');
+  if(!match('team group chat')) gm=gm; /* group always listed unless searching something else */
+  if(match('team group chat'))
   h+='<div class="conv" onclick="openChat(\'group\',\'Team Group Chat\')">'
     +'<div class="avwrap"><div class="av" style="background:linear-gradient(135deg,#ff9a4d,#e2560f);color:#fff;">👥</div></div>'
     +'<div class="cbody"><div class="cname">Team Group Chat</div><div class="cprev">'+esc(prevText(gm))+'</div></div>'
     +'<div class="cmeta">'+(gm?'<span class="ctime">'+tShort(gm.created_at)+'</span>':'')+(gu?'<span class="badge">'+gu+'</span>':'')+'</div></div>';
   // channels
   CHANNELS.forEach(function(c){
+    if(!match(c.name)) return;
     var k='ch:'+c.id, m=lastMsg(k), u=unread(k);
     h+='<div class="conv" onclick="openChat(\''+esc(k)+'\',\''+esc(c.name)+'\')">'
       +'<div class="avwrap"><div class="av" style="background:linear-gradient(135deg,#8f7bff,#5b3fe0);color:#fff;">#</div></div>'
@@ -621,6 +644,7 @@ function renderConvs(){
   var listed={};
   order.forEach(function(k){ listed[k]=1;
     var nm=(EMPS[k]&&EMPS[k].name)||(PRESENCE[k]&&PRESENCE[k].name)||k;
+    if(!match(nm)) return;
     var m=lastMsg(k), u=unread(k);
     h+='<div class="conv" onclick="openChat(\''+esc(k)+'\',\''+esc(nm).replace(/'/g,"\\'")+'\')" ontouchstart="convLP(event,\''+esc(k)+'\',\''+esc(nm).replace(/'/g,"\\'")+'\')" ontouchend="convLPend()" oncontextmenu="event.preventDefault();delConv(\''+esc(k)+'\',\''+esc(nm).replace(/'/g,"\\'")+'\');return false;">'+avatarHtml(k,nm,52)
       +'<div class="cbody"><div class="cname">'+esc(nm)+'</div><div class="cprev">'+esc(prevText(m))+'</div></div>'
@@ -629,6 +653,7 @@ function renderConvs(){
   Object.keys(EMPS).sort(function(a,b){ return (EMPS[a].name||'').localeCompare(EMPS[b].name||''); }).forEach(function(k){
     if(k===me||listed[k]) return;
     var nm=EMPS[k].name;
+    if(!match(nm)) return;
     h+='<div class="conv" onclick="openChat(\''+esc(k)+'\',\''+esc(nm).replace(/'/g,"\\'")+'\')">'+avatarHtml(k,nm,52)
       +'<div class="cbody"><div class="cname">'+esc(nm)+'</div><div class="cprev" style="color:var(--t3);">Say hi 👋</div></div></div>';
   });
@@ -638,6 +663,7 @@ function renderConvs(){
 /* ── NAV ── */
 function navRender(){
   var u=totalUnread();
+  setBadge(u);
   var mk=function(){
     return '<button '+(_tab==='chats'?'class="on"':'')+' onclick="goTab(\'chats\')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>Chats'+(u?'<span class="navbadge">'+(u>99?'99+':u)+'</span>':'')+'</button>'
       +'<button '+(_tab==='games'?'class="on"':'')+' onclick="goTab(\'games\')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="18" y1="10" x2="18.01" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></svg>Games</button>'
@@ -680,7 +706,17 @@ function paintChatHead(){
     $('ch-dot').classList.toggle('hide',!(p&&p.online));
   }
 }
+var _seenT={};
+function markSeen(){
+  /* DM only: flip is_read on their messages so the sender gets a "Seen" */
+  if(!CUR||CUR==='group'||CUR.indexOf('ch:')===0) return;
+  var now=Date.now(); if(_seenT[CUR]&&now-_seenT[CUR]<4000) return; _seenT[CUR]=now;
+  try{ SB.from('messages').update({is_read:true})
+        .eq('receiver_id',ME.employee_id).eq('sender_id',CUR).eq('is_read',false)
+        .then(function(){}); }catch(e){}
+}
 function markRead(){
+  markSeen();
   LASTREAD[CUR]=Date.now();
   try{ localStorage.setItem('jmbc_lastread',JSON.stringify(LASTREAD)); }catch(e){}
   renderConvs(); navRender();
@@ -708,6 +744,10 @@ function renderThread(){
     var mine=String(m.sender_id).toUpperCase()===me;
     if(!mine&&(g===''||g==='g-first')&&(CUR==='group'||CUR.indexOf('ch:')===0))
       h+='<div class="mname">'+esc(firstName(m.sender_name))+'</div>';
+    if(m.unsent){
+      h+='<div class="mrow '+(mine?'mine':'theirs')+'"><div class="mgroup"><div class="bub unsent">'+(mine?'🚫 You unsent a message':'🚫 This message was unsent')+'</div></div></div>';
+      return;
+    }
     var reply='';
     if(m.reply){ var rp=m.reply; if(typeof rp==='string'){ try{ rp=JSON.parse(rp);}catch(e){ rp=null; } }
       if(rp) reply='<div class="replyq"><b>'+esc(firstName(rp.name||''))+'</b> '+esc(String(rp.text||'').slice(0,80))+'</div>'; }
@@ -732,9 +772,13 @@ function renderThread(){
     if(g===''||g==='g-last')
       h+='<div class="gtime '+(mine?'mine':'theirs')+'">'+d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+(m._tmp?' · sending…':'')+'</div>';
   });
-  /* delivered state on my newest message */
+  /* delivered / seen state on my newest message (Seen only meaningful in DMs) */
+  var isDmCur=CUR!=='group'&&CUR.indexOf('ch:')!==0;
   for(var li=list.length-1;li>=0;li--){
-    if(String(list[li].sender_id).toUpperCase()===me){ if(!list[li]._tmp) h+='<div class="sent">Sent ✓</div>'; break; }
+    if(String(list[li].sender_id).toUpperCase()===me){
+      if(!list[li]._tmp) h+='<div class="sent">'+((isDmCur&&list[li].is_read)?'Seen 👁':'Sent ✓')+'</div>';
+      break;
+    }
   }
   h+='<div id="typing"><div class="mav" style="font-size:9px;" id="ty-av"></div><div class="tb"><i></i><i></i><i></i></div></div>';
   _renCount[CUR]=list.length;
@@ -770,14 +814,33 @@ function rxTouch(ev,id){ _rxTimer=setTimeout(function(){ rxShow(ev.touches[0],id
 function rxTouchEnd(){ clearTimeout(_rxTimer); }
 function rxShow(pt,id){
   _rxMsg=id;
+  var m=MSGS.filter(function(x){return String(x.id)===String(id);})[0];
+  var mine=m&&String(m.sender_id).toUpperCase()===String(ME.employee_id).toUpperCase();
   var bar=$('rxbar');
-  bar.innerHTML=RX.map(function(e){ return '<button onclick="react(\''+e+'\')">'+e+'</button>'; }).join('');
+  bar.innerHTML=RX.map(function(e){ return '<button onclick="react(\''+e+'\')">'+e+'</button>'; }).join('')
+    +'<button class="rxact" onclick="rxCopy()">Copy</button>'
+    +(mine&&!(m&&m.unsent)?'<button class="rxact" style="color:var(--red);" onclick="rxUnsend()">Unsend</button>':'');
   bar.style.display='flex';
   var x=Math.min(Math.max(10,(pt.clientX||60)-130),window.innerWidth-290);
   bar.style.left=x+'px'; bar.style.top=Math.max(60,(pt.clientY||200)-70)+'px';
   setTimeout(function(){ document.addEventListener('click',rxHide,{once:true}); },50);
 }
 function rxHide(){ $('rxbar').style.display='none'; }
+function rxCopy(){
+  rxHide();
+  var m=MSGS.filter(function(x){return String(x.id)===String(_rxMsg);})[0]; if(!m) return;
+  try{ navigator.clipboard.writeText(m.message||m.image||''); toast('Copied'); }catch(e){ toast('Could not copy'); }
+}
+async function rxUnsend(){
+  rxHide();
+  if(!confirm('Unsend this message? Everyone will see it was removed.')) return;
+  try{
+    var r=await SB.from('messages').update({unsent:true}).eq('id',_rxMsg);
+    if(r&&r.error){ toast('Could not unsend: '+(r.error.message||'')); return; }
+    buzz(); loadAllMessages();
+  }catch(e){ toast('Could not unsend.'); }
+}
+function buzz(){ try{ if(navigator.vibrate) navigator.vibrate(12); }catch(e){} }
 async function react(emoji){
   rxHide();
   var m=MSGS.filter(function(x){return String(x.id)===String(_rxMsg);})[0]; if(!m) return;
@@ -786,11 +849,13 @@ async function react(emoji){
   rx[emoji]=rx[emoji]||[];
   var i=rx[emoji].indexOf(me);
   if(i>=0){ rx[emoji].splice(i,1); if(!rx[emoji].length) delete rx[emoji]; } else rx[emoji].push(me);
+  buzz();
   try{ await SB.from('messages').update({reactions:JSON.stringify(rx)}).eq('id',m.id); loadAllMessages(); }catch(e){}
 }
 
 /* composer */
 $('inp').addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(110,this.scrollHeight)+'px'; emitTyping(); });
+$('inp').addEventListener('focus',function(){ setTimeout(function(){ var el=$('msgs'); el.scrollTop=el.scrollHeight; },350); });
 $('inp').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } });
 function pickImg(input){
   var f=input.files&&input.files[0]; if(!f) return;
@@ -823,7 +888,7 @@ async function send(){
   $('inp').value=''; $('inp').style.height='auto'; var _img=IMGDATA; clearImg(); cancelReply();
   /* optimistic: the bubble appears the instant you hit send */
   var tmp=Object.assign({},rec,{id:'tmp-'+Date.now(),created_at:new Date().toISOString(),_tmp:true});
-  MSGS.push(tmp); renderThread();
+  MSGS.push(tmp); renderThread(); buzz();
   var el=$('msgs'); el.scrollTop=el.scrollHeight;
   try{
     var r=await SB.from('messages').insert([rec]);
@@ -1167,6 +1232,68 @@ function ringTone(){ /* Island Kalimba */
 }
 var _ringT2=null;
 function stopRing(){ if(_ringT2){ clearInterval(_ringT2); _ringT2=null; } }
+
+/* ══ PUSH NOTIFICATIONS (OneSignal — same app as the portal) ══ */
+var ONESIGNAL_APP_ID='';   // ←──── PASTE YOUR ONESIGNAL APP ID HERE (same as portal)
+var PUSH_READY=false;
+window.OneSignalDeferred=window.OneSignalDeferred||[];
+if(ONESIGNAL_APP_ID){
+  window.OneSignalDeferred.push(async function(OneSignal){
+    try{
+      await OneSignal.init({appId:ONESIGNAL_APP_ID,serviceWorkerPath:'sw.js',
+        serviceWorkerParam:{scope:'/'},autoResume:true,promptOptions:{slidedown:{enabled:false}}});
+      PUSH_READY=true; linkPush();
+    }catch(e){}
+  });
+}
+function linkPush(){
+  if(!PUSH_READY||!ME) return;
+  window.OneSignalDeferred.push(async function(OneSignal){
+    try{ await OneSignal.login(String(ME.employee_id).toLowerCase());
+         await OneSignal.User.addTag('employee_id',String(ME.employee_id)); }catch(e){}
+  });
+}
+function enablePush(){
+  hideNotifBar(false);
+  if(!ONESIGNAL_APP_ID){ toast('Push not configured yet — ask the admin.'); return; }
+  window.OneSignalDeferred.push(async function(OneSignal){
+    try{
+      await OneSignal.Notifications.requestPermission();
+      linkPush(); toast('Notifications on 🔔');
+      try{ localStorage.setItem('jmbc_notif','1'); }catch(e){}
+    }catch(e){ toast('Could not enable notifications.'); }
+  });
+}
+function hideNotifBar(remember){
+  $('notifbar').style.display='none';
+  if(remember){ try{ localStorage.setItem('jmbc_notif','dismissed'); }catch(e){} }
+}
+function maybeShowNotifBar(){
+  try{
+    if(localStorage.getItem('jmbc_notif')) return;
+    if(window.Notification&&Notification.permission==='granted') return;
+    $('notifbar').style.display='flex';
+  }catch(e){}
+}
+/* app icon badge on the installed PWA */
+function setBadge(n){
+  try{ if('setAppBadge' in navigator){ n>0?navigator.setAppBadge(Math.min(n,99)):navigator.clearAppBadge(); } }catch(e){}
+}
+/* offline awareness + auto-resync */
+window.addEventListener('offline',function(){ $('offline').style.display='block'; });
+window.addEventListener('online',function(){
+  $('offline').style.display='none';
+  toast('Back online'); loadAllMessages(); refreshPresence();
+});
+if(!navigator.onLine) setTimeout(function(){ $('offline').style.display='block'; },500);
+/* iOS keyboard — composer rides above the keyboard */
+if(window.visualViewport){
+  visualViewport.addEventListener('resize',function(){
+    var kb=Math.max(0, window.innerHeight-visualViewport.height-visualViewport.offsetTop);
+    var c=$('composer'); if(c) c.style.transform=kb>50?('translateY(-'+kb+'px)'):'';
+    var mm=$('msgs'); if(mm){ mm.style.paddingBottom=kb>50?(kb+12)+'px':''; if(kb>50) mm.scrollTop=mm.scrollHeight; }
+  });
+}
 
 /* ── STARTUP ── */
 if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('/sw.js'); }catch(e){} }
