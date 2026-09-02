@@ -920,6 +920,20 @@ body{background-attachment:initial !important}
         <div class="dash-card" onclick="goTab('worklog')"><div class="dc-top"><span class="dc-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span><span class="dc-count" id="dc-appeals">—</span></div><div class="dc-label">Hour appeals</div></div>
         <div class="dash-card" onclick="goTab('demerits')"><div class="dc-top"><span class="dc-ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/><circle cx="18" cy="6" r="3" fill="currentColor" stroke="none"/></svg></span><span class="dc-count" id="dc-demdisp">—</span></div><div class="dc-label">Demerit disputes</div></div>
       </div>
+      <!-- ROAD TO 20,000 HOURS — team milestone (mirrors the VA portal bar) -->
+      <div id="adm-ms20k" style="display:none;margin-top:1.4rem;padding:15px 20px 12px;border-radius:14px;border:1px solid rgba(255,107,26,.3);background:linear-gradient(160deg,rgba(255,107,26,.10),rgba(255,107,26,.02) 60%);">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;">
+          <span id="adm-ms-label" style="font-family:'Sora',sans-serif;font-weight:800;font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--t2);">🏁 ROAD TO <b style="color:var(--o3);">20,000</b> HOURS — WHOLE TEAM</span>
+          <span id="adm-ms-pct" style="font-family:'Sora',sans-serif;font-weight:800;font-size:18px;color:var(--o3);">—</span>
+        </div>
+        <div style="position:relative;height:13px;border-radius:999px;background:rgba(128,128,144,.18);">
+          <div id="adm-ms-fill" style="height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,#c3380a,#f1560f 45%,#ff7a29 75%,#ffb16a);box-shadow:0 0 14px -2px rgba(255,122,41,.5);transition:width 1.4s cubic-bezier(.2,.8,.2,1);"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11.5px;color:var(--t3);">
+          <span><b id="adm-ms-cur" style="color:var(--t1);">—</b> hours logged all-time</span>
+          <span id="adm-ms-left"></span>
+        </div>
+      </div>
       <div class="toolbar" style="margin-top:1.75rem;">
         <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Payslips — this cutoff</span> <span id="dash-pay-count" style="font-size:12px;color:var(--t3);margin-left:6px;"></span></div>
         <button class="bsm" onclick="goTab('payslips')" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Open payslips →</button>
@@ -1725,6 +1739,26 @@ function jGet(url, ttl, timeout){
   });
 }
 function jBust(){ _jCache={}; try{ sessionStorage.removeItem('_jSnap'); }catch(e){} }
+/* ROAD TO 20,000 HOURS — fill the dashboard milestone bar (one cheap cached endpoint). */
+(function(){
+  function go(){
+    try{
+      fetch(API+'?action=team_hours_total&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+        if(!d||!d.ok) return;
+        var card=document.getElementById('adm-ms20k'); if(!card) return;
+        card.style.display='block';
+        var pct=Math.max(0,Math.min(100,d.pct||0));
+        document.getElementById('adm-ms-pct').textContent=(d.reached?'100':pct.toFixed(1))+'%';
+        document.getElementById('adm-ms-cur').textContent=Math.round(d.total).toLocaleString();
+        document.getElementById('adm-ms-left').textContent=d.reached?'🏆 MILESTONE REACHED!':(Math.max(0,Math.round(d.target-d.total)).toLocaleString()+' hrs to go');
+        if(d.reached){ document.getElementById('adm-ms-label').innerHTML='🏆 WE DID IT — <b style="color:#ffd23f;">20,000</b> HOURS!';
+          document.getElementById('adm-ms-fill').style.background='linear-gradient(90deg,#b8860b,#ffd23f 55%,#fff3c4)'; }
+        setTimeout(function(){ document.getElementById('adm-ms-fill').style.width=Math.max(2,pct)+'%'; },200);
+      }).catch(function(){});
+    }catch(e){}
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',go); else setTimeout(go,800);
+})();
 // Persist the hottest GET caches across reloads — the admin shell paints instantly on reopen,
 // then stale-while-revalidate refreshes in the background.
 (function(){ try{ var _s=JSON.parse(sessionStorage.getItem('_jSnap')||'{}'); Object.keys(_s).forEach(function(k){ if(!_jCache[k]) _jCache[k]=_s[k]; }); }catch(e){} })();
