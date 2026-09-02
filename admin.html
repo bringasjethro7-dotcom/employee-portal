@@ -8448,6 +8448,7 @@ function pipeDetails(c, inS){
       '</div>'+
       '<div style="font-size:10.5px;color:rgba(255,255,255,.4);margin:4px 0 9px;">Rate prefilled at USD '+(c.rate!=null&&c.rate!==''?pipeEsc(c.rate):'2.25')+'/productive hour (editable) · '+need_contractors(c)+' contractor(s) · you sign &amp; date on your end.</div>'+
       '<button onclick="pipeGenContract(\''+c.id+'\')" '+(contractReady?'':'disabled')+' style="width:100%;background:'+(contractReady?'linear-gradient(135deg,#f16623,#ff8a45)':'rgba(255,255,255,.06)')+';border:none;border-radius:10px;color:#fff;font-weight:800;font-size:13px;padding:11px;cursor:'+(contractReady?'pointer':'not-allowed')+';opacity:'+(contractReady?'1':'.5')+';">'+ICO.doc+' Generate Contract (PDF)</button>'+
+      (c.contractUrl?('<div style="margin-top:6px;"><a href="'+pipeEsc(c.contractUrl)+'" target="_blank" rel="noopener" style="font-size:11px;color:#8fd0ff;text-decoration:none;font-weight:700;">&#128196; Archived in Drive &mdash; JMB Contracts</a></div>'):'')+
       (contractReady?'':'<div style="font-size:10.5px;color:#ffb3a0;margin-top:6px;">Missing: '+_cmiss.join(', ')+' — set the client name at the top of this card (or the representative below). Everything else prints as a blank line to fill in.</div>')+
       '<div style="height:1px;background:rgba(255,255,255,.1);margin:13px 0;"></div>'+
       lab('Project &amp; tasks'+(isActive?'':' — set up at Onboarding/Active'))+
@@ -8561,6 +8562,17 @@ function pipeGenContract(id){
     '</body></html>';
   w.document.write(html); w.document.close(); w.focus();
   setTimeout(function(){ try{ w.print(); }catch(e){} }, 500);
+  /* Archive a PDF copy to Drive ("JMB Contracts") — fire and forget, the popup is not delayed. */
+  try{
+    var _archHtml=html.replace(/<div class="noprint"[\s\S]*?<\/div>/,'');
+    var _fname='Service Agreement - '+(c.name||c.rep||'Client')+' - '+(c.agreementNo||'');
+    fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'contract_save',pass:admPass(),html:_archHtml,name:_fname})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d&&d.ok){ c.contractUrl=d.url; _pipeDirty=true; pipeMarkSave(); pipeRender(); toast('Contract archived to Drive 📄'); }
+        else toast('Contract NOT archived: '+((d&&d.error)||'unknown'));
+      }).catch(function(){ toast('Contract NOT archived — network error'); });
+  }catch(_ce){}
   pipeRender();
 }
 async function pipeSave(){
