@@ -930,7 +930,7 @@ body{background-attachment:initial !important}
           <div id="adm-ms-fill" style="height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,#c3380a,#f1560f 45%,#ff7a29 75%,#ffb16a);box-shadow:0 0 14px -2px rgba(255,122,41,.5);transition:width 1.4s cubic-bezier(.2,.8,.2,1);"></div>
         </div>
         <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11.5px;color:var(--t3);">
-          <span><b id="adm-ms-cur" style="color:var(--t1);">—</b> hours logged all-time</span>
+          <span><b id="adm-ms-cur" style="color:var(--t1);">—</b> hours logged · Sept 1 – Nov 30</span>
           <span id="adm-ms-left"></span>
         </div>
       </div>
@@ -8423,7 +8423,10 @@ function pipeDetails(c, inS){
     '</div>';
   }).join('');
   var isActive=(c.stage==='Onboarding'||c.stage==='Active');
-  var contractReady=(c.name&&c.rep&&c.email);
+  /* The PDF template prints a fill-in line for any blank field, so the only thing truly
+     required is somebody to address it to. Show exactly what's missing instead of a riddle. */
+  var _cmiss=[]; if(!c.name&&!c.rep)_cmiss.push('client name');
+  var contractReady=!_cmiss.length;
   return head+
     '<div style="margin-top:8px;background:rgba(0,0,0,.14);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px;">'+
       lab('Contract — client details')+
@@ -8445,7 +8448,7 @@ function pipeDetails(c, inS){
       '</div>'+
       '<div style="font-size:10.5px;color:rgba(255,255,255,.4);margin:4px 0 9px;">Rate prefilled at USD '+(c.rate!=null&&c.rate!==''?pipeEsc(c.rate):'2.25')+'/productive hour (editable) · '+need_contractors(c)+' contractor(s) · you sign &amp; date on your end.</div>'+
       '<button onclick="pipeGenContract(\''+c.id+'\')" '+(contractReady?'':'disabled')+' style="width:100%;background:'+(contractReady?'linear-gradient(135deg,#f16623,#ff8a45)':'rgba(255,255,255,.06)')+';border:none;border-radius:10px;color:#fff;font-weight:800;font-size:13px;padding:11px;cursor:'+(contractReady?'pointer':'not-allowed')+';opacity:'+(contractReady?'1':'.5')+';">'+ICO.doc+' Generate Contract (PDF)</button>'+
-      (contractReady?'':'<div style="font-size:10.5px;color:#ffb3a0;margin-top:6px;">Fill client name, representative &amp; email to generate.</div>')+
+      (contractReady?'':'<div style="font-size:10.5px;color:#ffb3a0;margin-top:6px;">Missing: '+_cmiss.join(', ')+' — set the client name at the top of this card (or the representative below). Everything else prints as a blank line to fill in.</div>')+
       '<div style="height:1px;background:rgba(255,255,255,.1);margin:13px 0;"></div>'+
       lab('Project &amp; tasks'+(isActive?'':' — set up at Onboarding/Active'))+
       fld('projName','Project name (e.g. '+(c.name||'Client')+' — Social)',c.projName)+
@@ -8506,7 +8509,7 @@ function pipeGenContract(id){
     '.siglab{font-size:9pt;font-weight:700;color:#444;letter-spacing:.04em;margin-bottom:26px}'+
     '.line{border-bottom:1px solid #333;margin-bottom:4px}.small{font-size:9.5pt;color:#333}.role{color:#d24f16;font-size:9pt}'+
     '@media print{.noprint{display:none}}';
-  var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>Service Agreement — '+E(c.name||'Client')+'</title><style>'+css+'</style></head><body>'+
+  var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>Service Agreement — '+E(c.name||c.rep||'Client')+'</title><style>'+css+'</style></head><body>'+
     (logo?'<img class="logo" src="'+logo+'" alt="">':'')+
     '<div class="brand">JMB VIRTUALS</div>'+
     '<div class="sub">jmbvirtuals.com  ·  virtualsjmb@gmail.com  ·  Republic of the Philippines</div>'+
@@ -8514,7 +8517,7 @@ function pipeGenContract(id){
     '<h2>Social Media Management Service Agreement</h2>'+
     '<div class="no">Agreement No. '+E(c.agreementNo)+'</div>'+
     '<p>THIS AGREEMENT is made as of the Effective Date below, by and between <b>JMB VIRTUALS</b>, a virtual-assistance agency of the Republic of the Philippines, represented by its Founder, MR. JETHRO BRINGAS (the &ldquo;Agency&rdquo;), and the Client identified below (the &ldquo;Client&rdquo;), each a &ldquo;Party&rdquo; and together the &ldquo;Parties&rdquo;.</p>'+
-    '<div class="fld"><span class="k">Client / Company name:</span> '+fill(c.name)+'</div>'+
+    '<div class="fld"><span class="k">Client / Company name:</span> '+fill(c.name||c.rep)+'</div>'+
     '<div class="fld"><span class="k">Authorized representative:</span> '+fill(c.rep)+'</div>'+
     '<div class="fld"><span class="k">Email address:</span> '+fill(c.email)+'</div>'+
     '<div class="fld"><span class="k">Country:</span> '+fill(c.country)+'</div>'+
