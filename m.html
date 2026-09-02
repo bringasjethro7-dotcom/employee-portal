@@ -418,7 +418,7 @@ function boot(){
   SB=window.supabase.createClient(SUPA_URL,SUPA_KEY);
   Promise.all([loadEmployees(),loadChannels(),refreshPresence()]).then(function(){ loadAllMessages(); });
   subscribeRealtime();
-  linkPush(); setTimeout(maybeShowNotifBar,2500);
+  linkPush(); setTimeout(maybeShowNotifBar,1200);
   try{ initVoiceM(); }catch(e){}
   presenceLoop();
   POLL=setInterval(function(){ loadAllMessages(); refreshPresence(); },20000);
@@ -1126,6 +1126,8 @@ async function startCall(){
   showCallBar('Calling '+firstName(CURNAME)+'…');
   await joinRoom(true);
   sendCtl('ring',CALL.peer);
+  /* also ring their phone through a push, in case the app is closed */
+  fetch(API+'?action=push_call&to='+encodeURIComponent(CALL.peer)+'&from='+encodeURIComponent(ME.employee_id)+'&from_name='+encodeURIComponent(ME.full_name)+'&_='+Date.now()).catch(function(){});
   clearTimeout(CALL.timer);
   CALL.timer=setTimeout(function(){
     if(CALL.state==='ringing-out'){ sendCtl('cancel',CALL.peer); toast('No answer'); resetCall(); }

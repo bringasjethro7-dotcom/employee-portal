@@ -13285,6 +13285,7 @@ function setupPresence() {
 
   try { initBubbleCam(); } catch(e) {}   // live-camera-in-bubbles signalling
   try { initVoice(); } catch(e) {}       // voice-room watcher (instant join for late logins)
+  try { initDirectCalls(); } catch(e) {}  // 1:1 calls from the JMB Chat mobile app
   try { setupTyping(); } catch(e) {}     // realtime typing indicators
   try { _syncStatusSelect(); } catch(e) {}   // reflect the saved manual status in the picker
   try { if (window.tetrisSetupLobby) window.tetrisSetupLobby(); } catch(e) {}   // Tetris challenge invites
@@ -16779,6 +16780,120 @@ function onLeaveSignal(msg){
   delete voiceMutedMap[d.id]; delete voiceNames[d.id];
   renderVoiceBar();
 }
+/* ══ DIRECT 1:1 CALLS (from the JMB Chat mobile app) ══════════════════════════
+   The phone app rings a specific person on the 'm-ring' channel and carries audio on a
+   private per-pair channel ("call-A-B", ids sorted). This receiver lets a desktop portal
+   user ANSWER those calls: banner with Accept/Decline, in-call pill with mute/end.
+   Completely separate from the group voice room above. */
+var DC={state:'idle',peer:null,peerName:'',room:null,pc:null,stream:null,audio:null,muted:false,timer:null};
+var DCRING=null;
+function _dcMe(){ return String(chatEmpId||'').toUpperCase(); }
+function initDirectCalls(){
+  if(!supaClient||DCRING||!chatEmpId) return;
+  DCRING=supaClient.channel('m-ring',{config:{broadcast:{self:false}}})
+    .on('broadcast',{event:'ctl'},function(m){ dcCtl((m&&m.payload)||{}); })
+    .subscribe();
+  dcBuildUi();
+}
+function dcSend(kind,to,extra){
+  try{ DCRING.send({type:'broadcast',event:'ctl',payload:Object.assign({kind:kind,to:String(to).toUpperCase(),from:_dcMe(),name:chatEmpName||_dcMe()},extra||{})}); }catch(e){}
+}
+function dcCtl(d){
+  if(String(d.to||'').toUpperCase()!==_dcMe()) return;
+  if(d.kind==='ring'){
+    if(DC.state!=='idle'||inVoice){ dcSend('busy',d.from); return; }
+    DC.state='ringing-in'; DC.peer=String(d.from).toUpperCase(); DC.peerName=d.name||d.from;
+    var t=document.getElementById('dc-who'); if(t) t.textContent=DC.peerName;
+    var b=document.getElementById('dc-banner'); if(b) b.style.display='flex';
+    try{ playCallRing(); }catch(e){}
+    clearTimeout(DC.timer);
+    DC.timer=setTimeout(function(){ if(DC.state==='ringing-in') dcReset(); },35000);
+  }
+  else if(d.kind==='cancel'){ if(DC.state==='ringing-in'&&String(d.from).toUpperCase()===DC.peer) dcReset(); }
+  else if(d.kind==='hangup'){ if(String(d.from).toUpperCase()===DC.peer&&DC.state!=='idle'){ try{showToast('Call ended');}catch(e){} dcReset(); } }
+}
+async function dcAccept(){
+  try{ stopCallRing(); }catch(e){}
+  var b=document.getElementById('dc-banner'); if(b) b.style.display='none';
+  try{ DC.stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false}); }
+  catch(e){ try{showToast('Allow microphone access to answer.');}catch(_e){} dcSend('decline',DC.peer); dcReset(); return; }
+  DC.state='live';
+  var pill=document.getElementById('dc-pill'); if(pill) pill.style.display='flex';
+  var pn=document.getElementById('dc-pill-name'); if(pn) pn.textContent='📞 '+DC.peerName;
+  var room='call-'+[_dcMe(),DC.peer].sort().join('-');
+  DC.room=supaClient.channel(room,{config:{presence:{key:_dcMe()},broadcast:{self:false}}});
+  DC.room.on('presence',{event:'sync'},function(){
+    var ids=Object.keys(DC.room.presenceState());
+    var other=ids.filter(function(i){ return i!==_dcMe(); })[0];
+    if(other&&!DC.pc) dcPeer(false);
+  });
+  DC.room.on('presence',{event:'leave'},function(){ if(DC.state==='live'){ try{showToast('Call ended');}catch(e){} dcReset(); } });
+  DC.room.on('broadcast',{event:'vsignal'},dcSignal);
+  await DC.room.subscribe(function(st){ if(st==='SUBSCRIBED'){ try{ DC.room.track({name:chatEmpName||_dcMe()}); }catch(e){} } });
+}
+function dcDecline(){ dcSend('decline',DC.peer); dcReset(); }
+function dcPeer(initiator){
+  var pc=new RTCPeerConnection(ICE);
+  DC.pc=pc;
+  DC.stream.getTracks().forEach(function(t){ pc.addTrack(t,DC.stream); });
+  pc.onicecandidate=function(ev){ if(ev.candidate) dcRoomSend({kind:'candidate',candidate:ev.candidate}); };
+  pc.ontrack=function(ev){
+    if(!DC.audio){ var a=document.createElement('audio'); a.autoplay=true; a.playsInline=true; document.body.appendChild(a); DC.audio=a; }
+    DC.audio.srcObject=ev.streams[0];
+  };
+  pc.onconnectionstatechange=function(){ if(pc.connectionState==='failed'){ try{showToast('Call connection lost');}catch(e){} dcReset(); } };
+  if(initiator){
+    pc.onnegotiationneeded=async function(){
+      try{ var o=await pc.createOffer(); await pc.setLocalDescription(o); dcRoomSend({kind:'offer',sdp:pc.localDescription}); }catch(e){}
+    };
+  }
+}
+function dcRoomSend(data){ try{ DC.room.send({type:'broadcast',event:'vsignal',payload:Object.assign({from:_dcMe()},data)}); }catch(e){} }
+async function dcSignal(msg){
+  var d=msg.payload; if(!d||String(d.from).toUpperCase()===_dcMe()) return;
+  if(!DC.pc) dcPeer(false);
+  var pc=DC.pc;
+  try{
+    if(d.kind==='offer'){ await pc.setRemoteDescription(new RTCSessionDescription(d.sdp)); var a=await pc.createAnswer(); await pc.setLocalDescription(a); dcRoomSend({kind:'answer',sdp:pc.localDescription}); }
+    else if(d.kind==='answer'){ await pc.setRemoteDescription(new RTCSessionDescription(d.sdp)); }
+    else if(d.kind==='candidate'){ try{ await pc.addIceCandidate(new RTCIceCandidate(d.candidate)); }catch(e){} }
+  }catch(e){}
+}
+function dcMute(){
+  if(!DC.stream) return;
+  DC.muted=!DC.muted;
+  DC.stream.getAudioTracks().forEach(function(t){ t.enabled=!DC.muted; });
+  var b=document.getElementById('dc-mute'); if(b) b.textContent=DC.muted?'Unmute':'Mute';
+}
+function dcHangup(){ if(DC.peer) dcSend('hangup',DC.peer); dcReset(); }
+function dcReset(){
+  try{ stopCallRing(); }catch(e){}
+  clearTimeout(DC.timer);
+  try{ if(DC.pc) DC.pc.close(); }catch(e){}
+  if(DC.audio){ try{ DC.audio.srcObject=null; DC.audio.remove(); }catch(e){} }
+  if(DC.stream){ DC.stream.getTracks().forEach(function(t){ t.stop(); }); }
+  if(DC.room){ try{ DC.room.untrack(); supaClient.removeChannel(DC.room); }catch(e){} }
+  var b=document.getElementById('dc-banner'); if(b) b.style.display='none';
+  var p2=document.getElementById('dc-pill'); if(p2) p2.style.display='none';
+  var mb=document.getElementById('dc-mute'); if(mb) mb.textContent='Mute';
+  DC={state:'idle',peer:null,peerName:'',room:null,pc:null,stream:null,audio:null,muted:false,timer:null};
+}
+function dcBuildUi(){
+  if(document.getElementById('dc-banner')) return;
+  var b=document.createElement('div'); b.id='dc-banner';
+  b.style.cssText='position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:100001;display:none;align-items:center;gap:14px;background:#101418;color:#fff;border-radius:16px;padding:14px 18px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:600 14px Manrope,system-ui,sans-serif;';
+  b.innerHTML='<div>📞 <b id="dc-who">Someone</b> is calling you…</div>'+
+    '<button onclick="dcAccept()" style="background:#22b573;color:#fff;border:none;border-radius:10px;padding:9px 18px;font-weight:800;cursor:pointer;">Accept</button>'+
+    '<button onclick="dcDecline()" style="background:#e5484d;color:#fff;border:none;border-radius:10px;padding:9px 14px;font-weight:800;cursor:pointer;">Decline</button>';
+  document.body.appendChild(b);
+  var p2=document.createElement('div'); p2.id='dc-pill';
+  p2.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100001;display:none;align-items:center;gap:12px;background:linear-gradient(135deg,#12a06b,#0a8a63);color:#fff;border-radius:999px;padding:10px 18px;box-shadow:0 12px 30px rgba(10,138,99,.5);font:700 13px Manrope,system-ui,sans-serif;';
+  p2.innerHTML='<span id="dc-pill-name">📞 On call</span>'+
+    '<button id="dc-mute" onclick="dcMute()" style="background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:999px;padding:7px 14px;font-weight:800;cursor:pointer;">Mute</button>'+
+    '<button onclick="dcHangup()" style="background:#e5484d;color:#fff;border:none;border-radius:999px;padding:7px 14px;font-weight:800;cursor:pointer;">End</button>';
+  document.body.appendChild(p2);
+}
+
 function startTeamCall(){ toggleVoice(); }
 function toggleVoice(){ if (inVoice) leaveVoice(); else joinVoice(false); }
 async function joinVoice(fromRing) {
