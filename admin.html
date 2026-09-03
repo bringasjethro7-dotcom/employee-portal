@@ -3942,11 +3942,15 @@ async function doPartialPay(){
   if(!r) return;
   if(isNaN(amt)||amt<=0){ if(typeof toast==='function') toast('Enter the amount to send.'); return; }
   var note=(document.getElementById('ppm-note')||{}).value||'';
+  /* Gross (undeducted) figure for the EMAIL: the amount being sent + this tranche's pro-rata
+     deduction share. The email shows the whole partial amount; the money sent stays net. */
+  var _gctx=window._ppmCtx||{}, _dedShare=(_gctx.totH>0)?Math.round((_gctx.ded||0)*((sel.selH||0)/_gctx.totH)*100)/100:0;
+  var amtGross=Math.round((amt+_dedShare)*100)/100;
   if(!confirm('Send PARTIAL payment?\n\n  '+r.name+' · '+r.period+'\n  Amount now: ₱'+amt.toLocaleString()+(sel.selP.length?('\n  Covers: '+sel.selH+'h — '+sel.selP.join(', ')):'')+(sel.leftP.length?('\n  Outstanding: '+sel.leftH+'h — '+sel.leftP.join(', ')):'')+'\n\nThe contractor will be emailed this exact breakdown.')) return;
   var btn=document.getElementById('ppm-send'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
   try{
     var res=await fetch(API+'?action=payslip_partial&employee_id='+encodeURIComponent(r.empId)+'&period='+encodeURIComponent(r.period)+
-      '&amount='+encodeURIComponent(amt)+'&hours_paid='+encodeURIComponent(sel.selH||'')+'&client_paid='+encodeURIComponent(sel.selP.join(', '))+
+      '&amount='+encodeURIComponent(amt)+'&amount_gross='+encodeURIComponent(amtGross)+'&hours_paid='+encodeURIComponent(sel.selH||'')+'&client_paid='+encodeURIComponent(sel.selP.join(', '))+
       '&hours_left='+encodeURIComponent(sel.leftH||'')+'&client_left='+encodeURIComponent(sel.leftP.join(', '))+
       '&note='+encodeURIComponent(note)+'&by=Admin&_='+Date.now());
     var d=await res.json();
