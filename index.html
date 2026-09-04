@@ -21284,7 +21284,7 @@ function loadMyRedemptions(){
     }, 110);
   }
   function startMusic(){ stopMusic(); if(!M) return;
-    if(M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'){ startHuntMusic(M.mode); return; }
+    if(M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'||M.mode==='wizardhunt'){ startHuntMusic(M.mode); return; }
     scheduleMusic(); }
   function stopMusic(){ if(musicTimer){ clearInterval(musicTimer); musicTimer=null; }
     if(window._huntNodes){ window._huntNodes.forEach(function(n){ try{ if(n.stop)n.stop(); }catch(e){} try{ if(n.disconnect)n.disconnect(); }catch(e){} }); window._huntNodes=null; } }
@@ -21294,7 +21294,7 @@ function loadMyRedemptions(){
      heartbeat, dissonant minor-second string swells, tritone stabs and unsettling high
      shimmers. The wolf's cut adds a periodic chest-rumbling GROWL and a distant HOWL.
      Pure synthesis; every node registers in _huntNodes so stopMusic() silences it all. */
-  function startHuntMusic(kind){ var wolf=(kind==='wolfhunt'||kind===true), bear=(kind==='bearhunt');
+  function startHuntMusic(kind){ var wolf=(kind==='wolfhunt'||kind===true), bear=(kind==='bearhunt'), wiz=(kind==='wizardhunt');
     try{
       var a=ac(); if(!a) return;
       window._huntNodes=[];
@@ -21339,6 +21339,7 @@ function loadMyRedemptions(){
           if(wolf && bar%5===4) sfxWolfGrowl(t+.7);
           if(wolf && bar%11===9) sfxWolfHowl(t+.4);
           if(bear && bar%7===6) sfxBearGrunt(t+.6);
+          if(wiz && bar%4===3) sfxWizChime(t+.5);
           bar++; }catch(_h){}
       },2000);
     }catch(e){}
@@ -21352,6 +21353,22 @@ function loadMyRedemptions(){
     trem.connect(tg); tg.connect(g.gain); trem.start(t); trem.stop(t+1.3);
     g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(.14,t+.12); g.gain.exponentialRampToValueAtTime(.0001,t+1.25);
     o.connect(lp); lp.connect(g); g.connect(a.destination); o.start(t); o.stop(t+1.3); }catch(e){} }
+  // ── WIZARD VOICE — glissando casts, glass shatters, eerie chimes ──
+  function sfxWizCast(when){ try{ var a=ac(); var t=(when!=null?when:a.currentTime+.02);
+    var o=a.createOscillator(),g=a.createGain(); o.type='sine';
+    o.frequency.setValueAtTime(300,t); o.frequency.exponentialRampToValueAtTime(1900,t+.5);
+    g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(.12,t+.08); g.gain.exponentialRampToValueAtTime(.0001,t+.6);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+.7); }catch(e){} }
+  function sfxWizShatter(vol,when){ try{ var a=ac(); var t=(when!=null?when:a.currentTime+.02); vol=vol||1;
+    for(var i=0;i<9;i++){ var o=a.createOscillator(),hp=a.createBiquadFilter(),g=a.createGain();
+      o.type='square'; o.frequency.value=1800+i*640; hp.type='highpass'; hp.frequency.value=2200;
+      g.gain.setValueAtTime(.05*vol,t+i*.012); g.gain.exponentialRampToValueAtTime(.0001,t+.9);
+      o.connect(hp); hp.connect(g); g.connect(a.destination); o.start(t); o.stop(t+1); } }catch(e){} }
+  function sfxWizChime(when){ try{ var a=ac(); var t=(when!=null?when:a.currentTime+.02);
+    [1244,1318,1660][Math.floor(Math.random()*3)] && (function(f){ var o=a.createOscillator(),g=a.createGain();
+      o.type='triangle'; o.frequency.value=f;
+      g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(.05,t+.03); g.gain.exponentialRampToValueAtTime(.0001,t+1.8);
+      o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+2); })( [1244,1318,1660][Math.floor(Math.random()*3)] ); }catch(e){} }
   function sfxBearGrunt(when){ try{ var a=ac(); var t=(when!=null?when:a.currentTime+.02);
     var o=a.createOscillator(),lp=a.createBiquadFilter(),g=a.createGain();
     o.type='sawtooth'; o.frequency.setValueAtTime(44,t); o.frequency.linearRampToValueAtTime(36,t+.8);
@@ -21515,7 +21532,7 @@ function loadMyRedemptions(){
       if(e0<DUR && alive){ _confRAF=requestAnimationFrame(frame); } else { ctx.clearRect(0,0,w,h); cv.style.display='none'; _confRAF=null; }
     })(performance.now());
   }
-  var SOLO_MODES=['sprint','ultra','combo','cheese','overgrow','snakehunt','wolfhunt','bearhunt'];
+  var SOLO_MODES=['sprint','ultra','combo','cheese','overgrow','snakehunt','wolfhunt','bearhunt','wizardhunt'];
   function isSolo(m){ return SOLO_MODES.indexOf(m)>=0; }
   window.tetrisQuit=function(){
     if(M && M.playing && !M.ended){
@@ -21827,7 +21844,7 @@ function loadMyRedemptions(){
        vine/garbage cells (value 8) — digging out the forest keeps you alive but pays nothing. */
     /* 🐍 BLIND CLEAR ×2 — clearing lines while a snake is crossing pays double: every
        such line adds one bonus line to the score. Courage is worth points. */
-    if((M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt') && c>0){ var _nw=Date.now(), _wolfM=(M.mode==='wolfhunt'), _bearM=(M.mode==='bearhunt');
+    if((M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'||M.mode==='wizardhunt') && c>0){ var _nw=Date.now(), _wolfM=(M.mode==='wolfhunt'), _bearM=(M.mode==='bearhunt'), _wizM=(M.mode==='wizardhunt');
       var _blind=(M.snk&&_nw>M.snk.t0&&_nw<M.snk.t0+M.snk.dur)||(M.snk2&&_nw>M.snk2.t0&&_nw<M.snk2.t0+M.snk2.dur)
               ||(M.wolf&&_nw>M.wolf.t0&&_nw<M.wolf.t0+M.wolf.dur)||(M.pack&&_nw>M.pack.t0&&_nw<M.pack.t0+M.pack.dur)
               ||(M.paw&&_nw>M.paw.t0&&_nw<M.paw.t0+M.paw.dur)||(M.roar&&_nw>M.roar.t0&&_nw<M.roar.t0+M.roar.dur);
@@ -21835,7 +21852,25 @@ function loadMyRedemptions(){
       /* every line WOUNDS the snake (blind clears cut twice as deep). Kill it and the
          hunt is over: no more sweeps, no more vines — free scoring till the clock ends. */
       if(!M.snkDead){
-        var _hpWas=M.snkHP, _dmg=c*(_bearM?3.85:(_wolfM?2.0:1.5))*(_blind?2:1);   // 130% of the short cut: ~26 clean lines (13 blind)
+        var _hpWas=M.snkHP, _dmg=c*(_wizM?3.5:(_bearM?3.85:(_wolfM?2.0:1.5)))*(_wizM?1:(_blind?2:1));
+        if(_wizM){
+          // rune DEFUSAL — clearing a rune's row before detonation: +3 bonus damage each
+          if(M.runes&&M.runes.length){ var _defused=0;
+            for(var _ri=M.runes.length-1;_ri>=0;_ri--){
+              if(full.indexOf(M.runes[_ri].y)>=0){ M.runes.splice(_ri,1); _defused++; }
+              else { var _below=0; for(var _fj=0;_fj<full.length;_fj++){ if(full[_fj]>M.runes[_ri].y) _below++; } M.runes[_ri].y+=_below; }
+            }
+            if(_defused){ _dmg+=_defused*3; announce('✨ RUNE DEFUSED ×'+_defused+' — bonus damage!','combo'); try{ sfxCombo(4); }catch(_df){} } }
+          // shield absorbs — unless you SHATTER it
+          if(M.wizShield && _nw<M.wizShield.until){
+            M.wizShield.dmg+=_dmg;
+            if(M.wizShield.dmg>=12){ M.wizShield=null; M.wizStun=_nw+4000; M.wizShatter={ t0:_nw, x:M.wizPos.x, y:M.wizPos.y };
+              announce('💥 SHIELD SHATTERED — HE IS STUNNED! ×2!','tetris');
+              try{ sfxWizShatter(1); boardShake(8); }catch(_sh2){} _dmg*=1; }
+            else { M.wizShield.hit=_nw; announce('🔮 Absorbed… '+Math.ceil(12-M.wizShield.dmg)+' more to shatter'); _dmg=0; }
+          }
+          if(M.wizStun && _nw<M.wizStun && _dmg>0){ _dmg*=2; announce('😵 STUNNED — ×2 DAMAGE!','combo'); }
+        }
         if(_bearM && M.guard && _nw<M.guard.until){
           var _heavy=(c>=3)||!!ts;                       // Triples, Tetrises and T-spins CRACK the guard
           if(_heavy){ M.guard=null; _dmg*=1.5; announce('💥 GUARD BROKEN! ×1.5!','tetris'); try{ boardShake(8); }catch(_gb){} }
@@ -21851,16 +21886,18 @@ function loadMyRedemptions(){
           _oH.frequency.exponentialRampToValueAtTime(60,_aH.currentTime+.12);
           _gH.gain.setValueAtTime(.35,_aH.currentTime); _gH.gain.exponentialRampToValueAtTime(.0001,_aH.currentTime+.16);
           _oH.connect(_gH); _gH.connect(_aH.destination); _oH.start(); _oH.stop(_aH.currentTime+.2); }catch(_ht){}
-        if(M.snkHP<=0){ M.snkDead=true; M.snk=null; M.snk2=null; M.wolf=null; M.pack=null; M.paw=null; M.roar=null; M.guard=null; M.dizzyUntil=0;
+        if(M.snkHP<=0){ M.snkDead=true; M.snk=null; M.snk2=null; M.wolf=null; M.pack=null; M.paw=null; M.roar=null; M.guard=null; M.dizzyUntil=0; M.runes=[]; M.wizShield=null; M.wizStun=0; M.hexUntil=0;
           M.snkSlayMs=Date.now()-(M._t0||Date.now());          // THE score: how fast you slew it
           if(M.mode==='snakehunt'){ try{ localStorage.setItem('mfWolfUnlocked','1'); }catch(_lu){}
             setTimeout(function(){ try{ showToast('🐺 BEAST LEVEL 2 UNLOCKED — the Wolf awaits in Solo Arcade.'); }catch(_tw){} },2800); }
           else if(M.mode==='wolfhunt'){ try{ localStorage.setItem('mfBearUnlocked','1'); }catch(_lb){}
             setTimeout(function(){ try{ showToast('🐻 BEAST LEVEL 3 UNLOCKED — the Bear stirs in Solo Arcade.'); }catch(_tb){} },2800); }
+          else if(M.mode==='bearhunt'){ try{ localStorage.setItem('mfWizardUnlocked','1'); }catch(_lw){}
+            setTimeout(function(){ try{ showToast('🧙 BEAST LEVEL 4 UNLOCKED — the Wizard awaits in Solo Arcade.'); }catch(_tz){} },2800); }
           setTimeout(function(){ if(M&&!M.ended) soloEnd('slain'); },2600);   // savor the kill, then the board
           // ── DEATH FX: convulsion, dissolve, banner — the board remembers this moment ──
           M.snkDeath={ t0:Date.now() };
-          announce(_bearM?'💀 THE BEAR IS SLAIN!':(_wolfM?'💀 THE WOLF IS SLAIN!':'💀 THE SNAKE IS SLAIN!'),'tetris'); try{ sfxWin(); tetConfetti({count:220,dur:3200}); }catch(_sl){}
+          announce(_wizM?'💀 THE WIZARD FALLS!':(_bearM?'💀 THE BEAR IS SLAIN!':(_wolfM?'💀 THE WOLF IS SLAIN!':'💀 THE SNAKE IS SLAIN!')),'tetris'); try{ sfxWin(); tetConfetti({count:220,dur:3200}); }catch(_sl){}
           try{ var _aD=ac(), _tD=_aD.currentTime;
             var _oD=_aD.createOscillator(), _gD=_aD.createGain();                  // death BOOM
             _oD.type='sine'; _oD.frequency.setValueAtTime(130,_tD); _oD.frequency.exponentialRampToValueAtTime(30,_tD+.7);
@@ -21874,12 +21911,12 @@ function loadMyRedemptions(){
             var _gS=_aD.createGain(); _gS.gain.value=.18;
             _sr.connect(_bp); _bp.connect(_gS); _gS.connect(_aD.destination); _sr.start(_tD); }catch(_da){}
           try{ boardShake(8); }catch(_bd){} }
-        else if(_hpWas>66&&M.snkHP<=66){ announce(_bearM?'🐻 The bear grunts…':(_wolfM?'🐺 The wolf staggers…':'🐍 The snake weakens…')); }
-        else if(_hpWas>33&&M.snkHP<=33){ announce(_bearM?'🐻 THE BEAR IS WOUNDED!':(_wolfM?'🐺 THE WOLF IS BLEEDING!':'🐍 THE SNAKE IS WOUNDED!')); }
+        else if(_hpWas>66&&M.snkHP<=66){ announce(_wizM?'🧙 His robes smoulder…':(_bearM?'🐻 The bear grunts…':(_wolfM?'🐺 The wolf staggers…':'🐍 The snake weakens…'))); }
+        else if(_hpWas>33&&M.snkHP<=33){ announce(_wizM?'🧙 HIS MAGIC FALTERS!':(_bearM?'🐻 THE BEAR IS WOUNDED!':(_wolfM?'🐺 THE WOLF IS BLEEDING!':'🐍 THE SNAKE IS WOUNDED!'))); }
         /* DEATH THROES — at 10% the dying snake thrashes and hurls FIVE rows of vines
            in one convulsion. The kill is right there… if you survive the tantrum. */
         else if(_hpWas>10&&M.snkHP<=10&&M.snkHP>0){
-          announce(_bearM?'🐻 FINAL RAMPAGE!':(_wolfM?'🐺 THE PACK FRENZIES!':'🐍 DEATH THROES!'),'tspin'); try{ boardShake(_bearM?9:5); }catch(_dt){}
+          announce(_wizM?'🧙 FORBIDDEN INCANTATION!':(_bearM?'🐻 FINAL RAMPAGE!':(_wolfM?'🐺 THE PACK FRENZIES!':'🐍 DEATH THROES!')),'tspin'); try{ boardShake((_bearM||_wizM)?9:5); }catch(_dt){}
           setTimeout(function(){ if(M&&!M.ended&&M.alive&&!M.snkDead){ addGarbage(5); try{ updateIncoming(); }catch(_ui){} draw(); } },350); }
       } }
     if(M.mode==='overgrow' && c>0){ var _rl=0;
@@ -21923,7 +21960,7 @@ function loadMyRedemptions(){
       if(M.pendingGarbage>0 && sent>0){ var cx=Math.min(M.pendingGarbage,sent); M.pendingGarbage-=cx; sent-=cx; updateIncoming(); }
       if(sent>0){ sfxAttack(); sendAttack(sent); }
       // Survival drives its own gravity off the clock, so leave it alone.
-      if(M.mode!=='survival'){
+      if(M.mode!=='survival' && !(M.hexUntil&&M.hexUntil>Date.now())){
         var _floor=120;
         var ns=Math.max(_floor,700-(M.level-1)*55); if(ns!==M.dropMs){ M.dropMs=ns; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); }
       }
@@ -22097,7 +22134,7 @@ function loadMyRedemptions(){
   window.tetRelease=function(a){ if(a==='left'||a==='right'||a==='down') stopRepeat(a); };
   window.tetKey=window.tetHold;   // back-compat
   // ── Pause / Restart (solo modes only — never a live match) ──
-  var SOLO_MODES=['sprint','ultra','combo','cheese','overgrow','snakehunt','wolfhunt','bearhunt','daily'];
+  var SOLO_MODES=['sprint','ultra','combo','cheese','overgrow','snakehunt','wolfhunt','bearhunt','wizardhunt','daily'];
   function _isSoloMode(){ return M && SOLO_MODES.indexOf(M.mode)>=0; }
   function _tetPauseNow(){
     if(!M||!M.alive) return; M.paused=true;
@@ -22211,7 +22248,7 @@ function loadMyRedemptions(){
     if(!M.alive) return; M.alive=false;
     if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='combo'){ soloEnd('topout'); return; }   // solo run ends on top-out
 
-    if(M.mode==='cheese'||M.mode==='survival'||M.mode==='overgrow'||M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'){ soloEnd('topout'); return; }
+    if(M.mode==='cheese'||M.mode==='survival'||M.mode==='overgrow'||M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'||M.mode==='wizardhunt'){ soloEnd('topout'); return; }
     boardHit(); koStamp();   // shake + KO stamp on my board
     M.kos=(M.kos||0)+1; M.myKos=M.kos; updateKoDisplay();
     var elim=(M.kos>=koMax());
@@ -22325,7 +22362,7 @@ function loadMyRedemptions(){
 
   // ── Networking: broadcast my board so the opponent can watch ──
   function sendAttack(n){
-    if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='cheese'||M.mode==='overgrow'||M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'||M.mode==='survival'||M.mode==='ration') return;   // solo modes have no opponent
+    if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='cheese'||M.mode==='overgrow'||M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'||M.mode==='wizardhunt'||M.mode==='survival'||M.mode==='ration') return;   // solo modes have no opponent
     attackPop(n);   // green "＋N SENT" pop on my board
     if(M.mode==='training'){ if(BOT){ BOT.pending+=n; } tetThrowGarbage(n, el('tet-opp')); return; }
     if(M.mode==='tourney'){
@@ -23995,6 +24032,205 @@ function loadMyRedemptions(){
           });
           ctx.restore(); } }
     }catch(_wdr){ try{ ctx.restore(); }catch(_r2){} }
+    // ═══ 🧙 THE WIZARD — the arcane duel, painted ═══
+    //  A hooded figure floats above the stack, teleporting in a swirl of motes between casts.
+    //  Runes burn violet on cursed cells with a fuse ring. His mana shield is a humming hex
+    //  bubble; shattered, he sprawls with stars. Polymorph flashes the falling piece.
+    if(M.mode==='wizardhunt') try{
+      var nz=Date.now(), stunned=(M.wizStun>nz), shielded=(M.wizShield&&nz<M.wizShield.until);
+      // ── ENTRANCE: a vortex tears open and the duelist assembles from motes ──
+      var intro=M.wizIntro?Math.min(1,(nz-M.wizIntro)/2400):1;
+      if(intro<1){ ctx.save();
+        ctx.fillStyle='rgba(8,2,18,'+(0.7*(1-intro))+')'; ctx.fillRect(0,0,cv.width,cv.height);
+        var vx=cv.width/2, vy=cv.height*0.3;
+        for(var vr7=0;vr7<3;vr7++){ ctx.strokeStyle='rgba(168,85,247,'+(0.8*(1-intro))+')';
+          ctx.lineWidth=Math.max(2,cs*0.12*(1-intro));
+          ctx.beginPath(); ctx.arc(vx,vy,(cs*6*(1-intro))+vr7*cs*1.4, nz/300+vr7, nz/300+vr7+4.2); ctx.stroke(); }
+        for(var vm7=0;vm7<16;vm7++){ var va7=vm7/16*6.283+nz/400;
+          ctx.fillStyle='rgba(196,181,253,'+(0.85*(1-intro))+')';
+          ctx.beginPath(); ctx.arc(vx+Math.cos(va7)*cs*7*(1-intro), vy+Math.sin(va7)*cs*5*(1-intro), cs*0.12,0,6.283); ctx.fill(); }
+        var ti7=Math.max(0,Math.min(1,(intro-0.25)/0.4))*Math.max(0,Math.min(1,(0.95-intro)/0.2));
+        if(ti7>0){ ctx.globalAlpha=ti7; ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.shadowColor='#a855f7'; ctx.shadowBlur=26;
+          ctx.fillStyle='#ede9fe'; ctx.font='900 '+(cs*1.7)+'px Sora,Inter,serif';
+          ctx.fillText('THE WIZARD', vx, cv.height*0.52);
+          ctx.shadowBlur=0; ctx.font='800 '+(cs*0.6)+'px Sora,Inter,sans-serif'; ctx.fillStyle='#c4b5fd';
+          ctx.fillText('— BEAST LEVEL 4 —', vx, cv.height*0.52+cs*1.5); }
+        ctx.restore(); }
+      // ambient arcane haze
+      if(!M.snkDead){ ctx.save(); ctx.globalAlpha=0.08+0.04*Math.sin(nz/900);
+        var az2=ctx.createRadialGradient(cv.width/2,cv.height*0.3,0,cv.width/2,cv.height*0.3,cv.width*0.8);
+        az2.addColorStop(0,'rgba(168,85,247,.5)'); az2.addColorStop(1,'rgba(88,28,135,0)');
+        ctx.fillStyle=az2; ctx.fillRect(0,0,cv.width,cv.height); ctx.restore(); }
+      // ── ARCANE FIELD — faint rune constellations drifting behind the duel ──
+      if(!M.snkDead){ ctx.save(); ctx.globalAlpha=0.10;
+        ctx.fillStyle='#c4b5fd'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        for(var gf7=0;gf7<12;gf7++){ var gseed=gf7*137;
+          var gxx=((gseed%97)/97*cv.width + nz/(160+gf7*14)) % (cv.width+40) - 20;
+          var gyy=((gseed*7%89)/89*cv.height + Math.sin(nz/2200+gf7)*14);
+          ctx.font='700 '+(cs*(0.4+((gseed%5)/10)))+'px serif';
+          ctx.save(); ctx.translate(gxx,gyy); ctx.rotate(Math.sin(nz/3000+gf7)*0.4);
+          ctx.fillText(['ᚠ','ᛟ','ᚹ','ᚱ','ᛉ','ᛗ','ᛞ'][gf7%7],0,0); ctx.restore(); }
+        ctx.restore(); }
+      // ── HEX TRAIL — the falling piece smears violet after-images while time is warped ──
+      if(M.hexUntil>nz && M.cur){ ctx.save(); ctx.globalCompositeOperation='lighter';
+        for(var ht7=1;ht7<=3;ht7++){ ctx.globalAlpha=0.22-ht7*0.055;
+          for(var hr7=0;hr7<M.cur.m.length;hr7++)for(var hc7=0;hc7<M.cur.m[hr7].length;hc7++){ if(!M.cur.m[hr7][hc7]) continue;
+            ctx.fillStyle='#a855f7';
+            ctx.fillRect((M.cur.x+hc7)*cs+2,(M.cur.y+hr7-ht7)*cs+2,cs-4,cs-4); } }
+        ctx.restore(); }
+      // ── RUNE DETONATION BURSTS — violet explosions where curses land ──
+      if(M.runeBursts&&M.runeBursts.length){ for(var rb7=M.runeBursts.length-1;rb7>=0;rb7--){ var RB=M.runeBursts[rb7], ba7=(nz-RB.t0)/650;
+          if(ba7>=1){ M.runeBursts.splice(rb7,1); continue; }
+          var bx8=RB.x*cs+cs/2, by8=RB.y*cs+cs/2;
+          ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=(1-ba7);
+          ctx.strokeStyle='#f0abfc'; ctx.lineWidth=Math.max(1.5,cs*0.14*(1-ba7));
+          ctx.beginPath(); ctx.arc(bx8,by8,cs*2.2*ba7,0,6.283); ctx.stroke();
+          for(var sp7=0;sp7<8;sp7++){ var spa=sp7/8*6.283;
+            ctx.fillStyle='#c4b5fd';
+            ctx.beginPath(); ctx.arc(bx8+Math.cos(spa)*cs*2.4*ba7, by8+Math.sin(spa)*cs*2.4*ba7, cs*0.11*(1-ba7),0,6.283); ctx.fill(); }
+          ctx.restore(); } }
+      // ── SHIELD SHATTER — glass fragments exploding off the broken bubble ──
+      if(M.wizShatter){ var sh7=(nz-M.wizShatter.t0)/750;
+        if(sh7>=1){ M.wizShatter=null; }
+        else { var swx=M.wizShatter.x*cv.width, swy=M.wizShatter.y*cv.height;
+          ctx.save(); ctx.globalAlpha=(1-sh7);
+          for(var fg7=0;fg7<14;fg7++){ var fa7=fg7/14*6.283, fd7=cs*2+sh7*cs*7;
+            var fx8=swx+Math.cos(fa7)*fd7, fy8=swy+Math.sin(fa7)*fd7+sh7*sh7*cs*3;
+            ctx.save(); ctx.translate(fx8,fy8); ctx.rotate(fa7+sh7*6);
+            var fs7=cs*(0.3+((fg7*7)%4)/10);
+            var fgr=ctx.createLinearGradient(0,-fs7,0,fs7);
+            fgr.addColorStop(0,'rgba(240,171,252,.95)'); fgr.addColorStop(1,'rgba(124,58,237,.3)');
+            ctx.fillStyle=fgr;
+            ctx.beginPath(); ctx.moveTo(0,-fs7); ctx.lineTo(fs7*0.55,0); ctx.lineTo(0,fs7*0.7); ctx.lineTo(-fs7*0.45,0); ctx.closePath(); ctx.fill();
+            ctx.restore(); }
+          ctx.restore(); } }
+      // ── SPELL BOLTS — comets arcing from the staff orb to their targets ──
+      if(M.wizBolts&&M.wizBolts.length){ var wxS=M.wizPos.x*cv.width, wyS=M.wizPos.y*cv.height;
+        for(var bl7=M.wizBolts.length-1;bl7>=0;bl7--){ var B7=M.wizBolts[bl7], bp7=(nz-B7.t0)/480;
+          if(bp7>=1){ M.wizBolts.splice(bl7,1); continue; } if(bp7<0) continue;
+          var tx7=B7.tx*cv.width, ty7=B7.ty*cv.height, mx7=(wxS+tx7)/2+cs*2, my7=Math.min(wyS,ty7)-cs*2.5;
+          ctx.save(); ctx.globalCompositeOperation='lighter';
+          for(var tr7=0;tr7<6;tr7++){ var tp7=Math.max(0,bp7-tr7*0.05), u7=1-tp7;
+            var bx7=u7*u7*wxS+2*u7*tp7*mx7+tp7*tp7*tx7, by7=u7*u7*wyS+2*u7*tp7*my7+tp7*tp7*ty7;
+            ctx.globalAlpha=(1-tr7/6)*0.9;
+            ctx.fillStyle=B7.col;
+            ctx.beginPath(); ctx.arc(bx7,by7,cs*(0.26-tr7*0.035),0,6.283); ctx.fill(); }
+          ctx.restore(); } }
+      // THE WIZARD himself
+      if(!M.snkDead){ var wx=M.wizPos.x*cv.width, wy=M.wizPos.y*cv.height+Math.sin(nz/500)*cs*0.3;
+        var blinkA=Math.min(1,(nz-(M.wizPos.blink||0))/350);              // teleport fade-in
+        ctx.save(); ctx.globalAlpha=blinkA*(stunned?0.9:1);
+        if(blinkA<1){ for(var mo5=0;mo5<8;mo5++){ var ma5=mo5/8*6.283+nz/200;
+          ctx.fillStyle='rgba(196,181,253,'+(0.7*(1-blinkA))+')';
+          ctx.beginPath(); ctx.arc(wx+Math.cos(ma5)*cs*2*(1-blinkA+0.3), wy+Math.sin(ma5)*cs*2*(1-blinkA+0.3), cs*0.1,0,6.283); ctx.fill(); } }
+        var hsc=cs*0.16;
+        // SUMMONING CIRCLE — twin counter-rotating rune rings beneath him
+        if(!stunned){ ctx.save(); ctx.translate(wx,wy+hsc*10); ctx.scale(1,0.32);
+          ctx.strokeStyle='rgba(168,85,247,.5)'; ctx.lineWidth=Math.max(1.5,hsc*0.4);
+          ctx.beginPath(); ctx.arc(0,0,hsc*8,0,6.283); ctx.stroke();
+          ctx.strokeStyle='rgba(240,171,252,.35)'; ctx.lineWidth=Math.max(1,hsc*0.25);
+          ctx.beginPath(); ctx.arc(0,0,hsc*6,0,6.283); ctx.stroke();
+          ctx.fillStyle='rgba(196,181,253,.8)'; ctx.font='700 '+(hsc*2.4)+'px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+          for(var rg7=0;rg7<6;rg7++){ var rga=rg7/6*6.283+nz/1600;
+            ctx.save(); ctx.translate(Math.cos(rga)*hsc*8,Math.sin(rga)*hsc*8); ctx.scale(1,3.1); ctx.rotate(rga+1.57);
+            ctx.fillText(['ᚠ','ᛟ','ᚹ','ᚱ','ᛉ','ᛗ'][rg7],0,0); ctx.restore(); }
+          ctx.restore(); }
+        ctx.translate(wx,wy); if(stunned) ctx.rotate(0.6);
+        // robe — hooded, trailing to wisps
+        var rg2=ctx.createLinearGradient(0,-hsc*8,0,hsc*9);
+        rg2.addColorStop(0,'#4c1d95'); rg2.addColorStop(.55,'#2e1065'); rg2.addColorStop(1,'rgba(30,10,60,0)');
+        ctx.fillStyle=rg2;
+        ctx.beginPath();
+        ctx.moveTo(0,-hsc*8);
+        ctx.quadraticCurveTo(-hsc*5,-hsc*5,-hsc*4.4,hsc*2);
+        ctx.quadraticCurveTo(-hsc*3,hsc*6,-hsc*1.5,hsc*9);
+        ctx.quadraticCurveTo(0,hsc*7,hsc*1.5,hsc*9);
+        ctx.quadraticCurveTo(hsc*3,hsc*6,hsc*4.4,hsc*2);
+        ctx.quadraticCurveTo(hsc*5,-hsc*5,0,-hsc*8);
+        ctx.closePath(); ctx.fill();
+        // the hood's void + burning eyes
+        ctx.fillStyle='#0c0518';
+        ctx.beginPath(); ctx.ellipse(0,-hsc*5,hsc*2.4,hsc*2.8,0,0,6.283); ctx.fill();
+        if(!stunned){ var eb=((nz/3000)%1)>0.93?0.15:1;
+          ctx.fillStyle='#c4b5fd'; ctx.shadowColor='#a855f7'; ctx.shadowBlur=8;
+          ctx.save(); ctx.scale(1,eb);
+          ctx.beginPath(); ctx.ellipse(-hsc*0.8,-hsc*5,hsc*0.42,hsc*0.24,0,0,6.283); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(hsc*0.8,-hsc*5,hsc*0.42,hsc*0.24,0,0,6.283); ctx.fill();
+          ctx.restore(); ctx.shadowBlur=0; }
+        else { ctx.strokeStyle='#c4b5fd'; ctx.lineWidth=2;                    // X-eyes when stunned
+          [[-hsc*0.8,0],[hsc*0.8,0]].forEach(function(ee){
+            ctx.beginPath(); ctx.moveTo(ee[0]-hsc*0.3,-hsc*5.3); ctx.lineTo(ee[0]+hsc*0.3,-hsc*4.7);
+            ctx.moveTo(ee[0]+hsc*0.3,-hsc*5.3); ctx.lineTo(ee[0]-hsc*0.3,-hsc*4.7); ctx.stroke(); }); }
+        // sleeves + skeletal hands
+        ctx.fillStyle='#3b0f7e';
+        ctx.beginPath(); ctx.moveTo(-hsc*1.2,-hsc*2.5); ctx.quadraticCurveTo(-hsc*4.6,-hsc*2,-hsc*5.2,hsc*0.5);
+        ctx.quadraticCurveTo(-hsc*4,-hsc*0.2,-hsc*2.4,hsc*0.2); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(hsc*1.2,-hsc*2.5); ctx.quadraticCurveTo(hsc*3.6,-hsc*3.4,hsc*4.2,-hsc*4.6);
+        ctx.quadraticCurveTo(hsc*3.2,-hsc*2.6,hsc*2,hsc*0.2); ctx.closePath(); ctx.fill();
+        ctx.fillStyle='#d8cfe8';
+        ctx.beginPath(); ctx.arc(-hsc*5.1,hsc*0.4,hsc*0.5,0,6.283); ctx.fill();
+        ctx.beginPath(); ctx.arc(hsc*4.2,-hsc*4.7,hsc*0.5,0,6.283); ctx.fill();
+        // gold trim on the robe hem
+        ctx.strokeStyle='rgba(232,185,58,.55)'; ctx.lineWidth=Math.max(1,hsc*0.24);
+        ctx.beginPath(); ctx.moveTo(-hsc*4,hsc*3.2); ctx.quadraticCurveTo(0,hsc*4.6,hsc*4,hsc*3.2); ctx.stroke();
+        // staff + orb (the orb charges as his next cast approaches; dropped when stunned)
+        var chg=Math.max(0,Math.min(1,1-((M._wcNext-nz)/3000)));
+        ctx.save(); if(stunned){ ctx.rotate(1.1); ctx.translate(hsc*2,hsc*4); }
+        else if(M._wcLast && nz-M._wcLast<420){ ctx.rotate(-0.38*Math.sin((nz-M._wcLast)/420*Math.PI)); }
+        ctx.strokeStyle='#6d28d9'; ctx.lineWidth=Math.max(2,hsc*0.4); ctx.lineCap='round';
+        ctx.beginPath(); ctx.moveTo(hsc*3.4,hsc*3); ctx.lineTo(hsc*4.6,-hsc*6.4); ctx.stroke();
+        ctx.fillStyle='rgba(196,181,253,'+(0.35+0.6*chg)+')'; ctx.shadowColor='#c4b5fd'; ctx.shadowBlur=12*chg;
+        ctx.beginPath(); ctx.arc(hsc*4.7,-hsc*7,hsc*(0.8+0.35*chg),0,6.283); ctx.fill(); ctx.shadowBlur=0;
+        ctx.restore();
+        // stun stars
+        if(stunned){ for(var st6=0;st6<3;st6++){ var sa6=nz/250+st6*2.09;
+          ctx.font='900 '+(hsc*2)+'px sans-serif'; ctx.textAlign='center'; ctx.fillStyle='#fde047';
+          ctx.fillText('✶', Math.cos(sa6)*hsc*3.4, -hsc*8+Math.sin(sa6)*hsc); } }
+        ctx.restore();
+        // MANA SHIELD bubble around him
+        if(shielded){ var shPct=Math.max(0,1-(M.wizShield.dmg/12));
+          ctx.save(); ctx.globalAlpha=0.5+0.2*Math.sin(nz/160);
+          ctx.strokeStyle='rgba(168,85,247,'+(0.4+0.5*shPct)+')'; ctx.lineWidth=Math.max(2,cs*0.12);
+          ctx.beginPath(); ctx.arc(wx,wy-hsc*2,hsc*11,0,6.283); ctx.stroke();
+          // ripple where the last blow was drunk by the shield
+          if(M.wizShield.hit && nz-M.wizShield.hit<400){ var rp8=(nz-M.wizShield.hit)/400;
+            ctx.globalAlpha=(1-rp8); ctx.strokeStyle='#f0abfc'; ctx.lineWidth=Math.max(1.5,cs*0.1*(1-rp8));
+            ctx.beginPath(); ctx.arc(wx,wy-hsc*2,hsc*11*(1+rp8*0.35),0,6.283); ctx.stroke(); }
+          for(var hx6=0;hx6<6;hx6++){ var ha6=hx6/6*6.283+nz/1400;         // rotating hex facets
+            ctx.strokeStyle='rgba(196,181,253,.35)'; ctx.lineWidth=1.5;
+            ctx.beginPath(); ctx.arc(wx,wy-hsc*2,hsc*11,ha6,ha6+0.5); ctx.stroke(); }
+          ctx.restore(); } }
+      // ARCANE RUNES on the stack — glowing glyphs with a shrinking fuse ring
+      if(M.runes&&M.runes.length){ ctx.save();
+        M.runes.forEach(function(RU){ var rx7=RU.x*cs+cs/2, ry7=RU.y*cs+cs/2;
+          var fuse=Math.max(0,(RU.det-nz)/6000);
+          ctx.globalAlpha=0.85;
+          ctx.shadowColor='#a855f7'; ctx.shadowBlur=10;
+          ctx.fillStyle=fuse<0.25?(Math.sin(nz/70)>0?'#f0abfc':'#a855f7'):'#c4b5fd';
+          ctx.font='900 '+(cs*0.78)+'px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(['ᚠ','ᛟ','ᚹ'][ (RU.x+RU.y)%3 ], rx7, ry7); ctx.shadowBlur=0;
+          ctx.strokeStyle='rgba(240,171,252,.9)'; ctx.lineWidth=Math.max(1,cs*0.07);
+          ctx.beginPath(); ctx.arc(rx7,ry7,cs*0.44,-1.5708,-1.5708+6.283*fuse); ctx.stroke(); });
+        ctx.restore(); }
+      // POLYMORPH flash on the falling piece
+      if(M.polyFlash && nz-M.polyFlash<450 && M.cur){ var pf=(nz-M.polyFlash)/450;
+        ctx.save(); ctx.globalAlpha=(1-pf)*0.9; ctx.globalCompositeOperation='lighter';
+        for(var pr7=0;pr7<M.cur.m.length;pr7++)for(var pc7=0;pc7<M.cur.m[pr7].length;pc7++){ if(!M.cur.m[pr7][pc7]) continue;
+          var fx7=(M.cur.x+pc7)*cs, fy7=(M.cur.y+pr7)*cs;
+          ctx.fillStyle='rgba(196,181,253,.8)'; ctx.fillRect(fx7-2,fy7-2,cs+4,cs+4); }
+        ctx.restore(); }
+      // GRAVITY HEX indicator + violet time-warp vignette
+      if(M.hexUntil>nz){ ctx.save();
+        ctx.globalAlpha=0.14+0.08*Math.sin(nz/90);
+        var hxg=ctx.createRadialGradient(cv.width/2,cv.height/2,cv.width*0.25,cv.width/2,cv.height/2,cv.width*0.8);
+        hxg.addColorStop(0,'rgba(0,0,0,0)'); hxg.addColorStop(1,'rgba(168,85,247,.85)');
+        ctx.fillStyle=hxg; ctx.fillRect(0,0,cv.width,cv.height);
+        ctx.globalAlpha=0.75;
+        ctx.font='900 '+(cs*0.62)+'px Sora,Inter,sans-serif'; ctx.textAlign='center'; ctx.fillStyle='#f0abfc';
+        ctx.fillText('⏳ HEXED — FAST FALL', cv.width/2, cv.height-cs*0.8);
+        ctx.restore(); }
+    }catch(_wzd){ try{ ctx.restore(); }catch(_r4){} }
     // ═══ 🐻 THE BEAR — full boss production ═══
     //  Ambient: two huge amber eyes breathing in the dark + heaving breath-vignette.
     //  Warning: a clawed paw SHADOW swells over the doomed half.
@@ -24134,7 +24370,7 @@ function loadMyRedemptions(){
         ctx.restore(); }
     }catch(_bdr){ try{ ctx.restore(); }catch(_r3){} }
     // 🐍 SNAKE LIFE BAR — pinned to the top of the board, drawn over everything
-    if(M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'){ var hp=Math.max(0,Math.min(100,M.snkHP||0)), dead=!!M.snkDead, _wIc=(M.mode==='bearhunt'?((M.guard&&Date.now()<M.guard.until)?'🛡':'🐻'):(M.mode==='wolfhunt'?'🐺':'🐍'));
+    if(M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'||M.mode==='wizardhunt'){ var hp=Math.max(0,Math.min(100,M.snkHP||0)), dead=!!M.snkDead, _wIc=(M.mode==='wizardhunt'?((M.wizShield&&Date.now()<M.wizShield.until)?'🔮':((M.wizStun>Date.now())?'😵':'🧙')):(M.mode==='bearhunt'?((M.guard&&Date.now()<M.guard.until)?'🛡':'🐻'):(M.mode==='wolfhunt'?'🐺':'🐍')));
       var bw=cv.width-cs*1.2, bx=cs*0.6, byy=cs*0.28, bh=Math.max(5,cs*0.34);
       ctx.save();
       ctx.fillStyle='rgba(3,10,5,.72)';
@@ -24142,7 +24378,8 @@ function loadMyRedemptions(){
       ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(bx,byy,bw,bh);
       if(!dead && hp>0){
         var fg4=ctx.createLinearGradient(bx,0,bx+bw,0);
-        fg4.addColorStop(0,'#8fd06a'); fg4.addColorStop(.55,'#e8c93a'); fg4.addColorStop(1,'#e05545');
+        if(M.mode==='wizardhunt'){ fg4.addColorStop(0,'#c4b5fd'); fg4.addColorStop(.55,'#a855f7'); fg4.addColorStop(1,'#e05545'); }
+        else { fg4.addColorStop(0,'#8fd06a'); fg4.addColorStop(.55,'#e8c93a'); fg4.addColorStop(1,'#e05545'); }
         ctx.save(); ctx.beginPath(); ctx.rect(bx,byy,bw*hp/100,bh); ctx.clip();
         ctx.fillStyle=fg4; ctx.fillRect(bx,byy,bw,bh);
         // scale ticks on the fill
@@ -24186,16 +24423,17 @@ function loadMyRedemptions(){
         else { var dE=1-Math.pow(1-Math.min(1,dAge*1.4),3);
           if(dAge<0.14){ ctx.globalAlpha=(0.14-dAge)*6; ctx.fillStyle='#eaffe8'; ctx.fillRect(0,0,cv.width,cv.height); ctx.globalAlpha=1; }
           ctx.save();
+          var _dw=(M.mode==='wizardhunt');
           ctx.globalAlpha=Math.max(0,1-dAge)*.9;                               // shockwave rings
-          ctx.strokeStyle='#8fd06a'; ctx.lineWidth=Math.max(2,8*(1-dAge));
+          ctx.strokeStyle=_dw?'#a855f7':'#8fd06a'; ctx.lineWidth=Math.max(2,8*(1-dAge));
           ctx.beginPath(); ctx.arc(cv.width/2,cv.height/2,Math.max(cv.width,cv.height)*.8*dE,0,6.283); ctx.stroke();
-          ctx.lineWidth=Math.max(1,4*(1-dAge)); ctx.strokeStyle='#d9f99d';
+          ctx.lineWidth=Math.max(1,4*(1-dAge)); ctx.strokeStyle=_dw?'#f0abfc':'#d9f99d';
           ctx.beginPath(); ctx.arc(cv.width/2,cv.height/2,Math.max(cv.width,cv.height)*.55*dE,0,6.283); ctx.stroke();
           // the serpent's ghost — a fading S-curve dissolving into rising motes
           if(!M.snkDeath.motes){ M.snkDeath.motes=[]; for(var mo3=0;mo3<46;mo3++){ var u3=mo3/46;
             M.snkDeath.motes.push({ u:u3, ox:(Math.random()-.5)*10, vy:-.4-Math.random()*1.2, ph:Math.random()*6.283, r:1.2+Math.random()*2 }); } }
           ctx.globalAlpha=Math.max(0,.55-dAge*.6);
-          ctx.strokeStyle='#556339'; ctx.lineWidth=cs*1.1*(1-dAge*.6); ctx.lineCap='round';
+          ctx.strokeStyle=_dw?'#4c1d95':'#556339'; ctx.lineWidth=cs*1.1*(1-dAge*.6); ctx.lineCap='round';
           ctx.beginPath();
           for(var gx3=0;gx3<=cv.width;gx3+=cs){ var gy3=cv.height*.42+Math.sin(gx3*.02+dAge*3)*cv.height*.1;
             gx3?ctx.lineTo(gx3,gy3):ctx.moveTo(gx3,gy3); }
@@ -24203,17 +24441,17 @@ function loadMyRedemptions(){
           M.snkDeath.motes.forEach(function(mm){ var mx3=mm.u*cv.width+mm.ox*dAge*10;
             var my3=cv.height*.42+Math.sin(mm.u*cv.width*.02+dAge*3)*cv.height*.1+mm.vy*dAge*140;
             ctx.globalAlpha=Math.max(0,(1-dAge))*(.4+.6*Math.abs(Math.sin(dAge*10+mm.ph)));
-            ctx.fillStyle='#fde68a';
+            ctx.fillStyle=_dw?'#c4b5fd':'#fde68a';
             ctx.beginPath(); ctx.arc(mx3,my3,mm.r*(1-dAge*.4),0,6.283); ctx.fill(); });
           // the banner
           var bA=Math.max(0,Math.min(1,(dAge-.12)/.18))*Math.max(0,Math.min(1,(1-dAge)/.25));
           if(bA>0){ ctx.globalAlpha=bA; ctx.textAlign='center'; ctx.textBaseline='middle';
             var bs3=cs*1.6*(1+ (1-Math.min(1,(dAge-.12)/.18))*.6);
             ctx.font='900 '+bs3+'px Sora,Inter,sans-serif';
-            ctx.shadowColor='#8fd06a'; ctx.shadowBlur=30;
-            ctx.fillStyle='#eaffe8'; ctx.fillText((M.mode==='bearhunt'?'BEAR SLAIN':(M.mode==='wolfhunt'?'WOLF SLAIN':'SNAKE SLAIN')), cv.width/2, cv.height/2 - cs*1.2);
+            ctx.shadowColor=(M.mode==='wizardhunt')?'#a855f7':'#8fd06a'; ctx.shadowBlur=30;
+            ctx.fillStyle='#eaffe8'; ctx.fillText((M.mode==='wizardhunt'?'WIZARD SLAIN':(M.mode==='bearhunt'?'BEAR SLAIN':(M.mode==='wolfhunt'?'WOLF SLAIN':'SNAKE SLAIN'))), cv.width/2, cv.height/2 - cs*1.2);
             ctx.shadowBlur=0; ctx.font='800 '+cs*0.7+'px Sora,Inter,sans-serif'; ctx.fillStyle='#d9f99d';
-            ctx.fillText('💀  the forest is yours  💀', cv.width/2, cv.height/2 + cs*0.4); }
+            ctx.fillText((M.mode==='wizardhunt')?'🧙  the magic dies with him  🧙':'💀  the forest is yours  💀', cv.width/2, cv.height/2 + cs*0.4); }
           ctx.restore(); } }
       ctx.restore(); }
 
@@ -26398,8 +26636,8 @@ function loadMyRedemptions(){
   /* 🏆 BEAST TROPHIES — 🐍 slew the Anaconda, 🐺 slew the Wolf. Sourced from the ranking
      rows (server keeps them permanent in Settings), shown beside the name everywhere:
      player card, leaderboard, and tournament brackets — bragging rights that travel. */
-  var _BEAST_ICON={ snake:'🐍', wolf:'🐺', bear:'🐻' };
-  var _BEAST_TTL ={ snake:'Slew the Anaconda', wolf:'Slew the Wolf', bear:'Slew the Bear' };
+  var _BEAST_ICON={ snake:'🐍', wolf:'🐺', bear:'🐻', wizard:'🧙' };
+  var _BEAST_TTL ={ snake:'Slew the Anaconda', wolf:'Slew the Wolf', bear:'Slew the Bear', wizard:'Defeated the Wizard' };
   function beastsOf(id){ try{
       var k=String(id||'').toLowerCase();
       var rows=(typeof _tetBoard!=='undefined'&&_tetBoard)||[];
@@ -26458,6 +26696,7 @@ function loadMyRedemptions(){
     ration:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.2 12 3.5l9 4.7v7.6L12 20.5 3 15.8z"/><path d="M3 8.2 12 13l9-4.8M12 13v7.5"/></svg>',
     ranked:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.6l2.6 5.5 6 .9-4.3 4.3 1 6.1-5.3-2.9-5.3 2.9 1-6.1L3.4 9l6-.9z"/></svg>',
     wolfhunt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l3 4 2-2 3 2 3-2 2 2 3-4-1 8c0 4-3 7-7 7s-7-3-7-7z" fill="rgba(120,120,140,.18)"/><path d="M9.5 12.5l1 1M14.5 12.5l-1 1" stroke="#fde047"/><path d="M12 16.5v1.6M10.6 19.3l1.4-1.2 1.4 1.2"/><path d="M4 6L2.4 3.4M20 6l1.6-2.6"/></svg>',
+    wizardhunt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.2 5.5L12 9 9.8 7.5z" fill="rgba(168,85,247,.3)"/><path d="M7 21c1-6 3-9 5-12 2 3 4 6 5 12z" fill="rgba(124,58,237,.18)"/><path d="M6.5 21h11"/><circle cx="12" cy="13.5" r="1" fill="#c4b5fd" stroke="none"/><path d="M4 6l1.2.4L6.4 6 5.6 7z" fill="#c4b5fd" stroke="none"/><path d="M19 9l1 .3 1-.3-.6.9z" fill="#c4b5fd" stroke="none"/></svg>',
     bearhunt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="6.5" r="2.4" fill="rgba(140,110,80,.25)"/><circle cx="16.5" cy="6.5" r="2.4" fill="rgba(140,110,80,.25)"/><path d="M5.5 11c0-3 3-5 6.5-5s6.5 2 6.5 5c0 4-2.6 7-6.5 7S5.5 15 5.5 11z" fill="rgba(140,110,80,.18)"/><path d="M9.8 11.4l.9.9M14.2 11.4l-.9.9" stroke="#fde047"/><path d="M12 14.2v1.2M10.8 16.4l1.2-1 1.2 1"/></svg>',
     overgrow:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21c0-6 2-10 5-13"/><path d="M9 8C9 5 7 3.4 4 3.3c0 3 1.8 4.8 5 4.7z" fill="rgba(74,222,128,.3)"/><path d="M12 21c0-4.5 1.6-7.6 4-10"/><path d="M16 11c0-2.5 1.7-4 4.4-3.9 0 2.6-1.8 4-4.4 3.9z" fill="rgba(190,242,100,.28)"/><path d="M8 21c1.5-2 3.6-3 6.5-3M3 21h18"/></svg>',
     snakehunt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c3 2 6 2 8-.5S15 12 18 13"/><path d="M18 13c2 .6 3-1 2.6-2.6"/><ellipse cx="19.4" cy="8.6" rx="2.6" ry="1.9" fill="rgba(74,222,128,.3)" transform="rotate(-20 19.4 8.6)"/><circle cx="20" cy="8.2" r=".5" fill="currentColor" stroke="none"/><path d="M22 7.6q1.4-.2 2-1M22 7.6q1.4.4 2 1" stroke-width="1.1"/><path d="M5 15.5l1-1M9 16.5l1 1"/></svg>',
@@ -26667,16 +26906,17 @@ function loadMyRedemptions(){
   window.tetOpenSolo=function(){ var m=el('tet-solo-modal'); if(!m) return;
     var host=el('tet-solo-grid');
     if(host){
-      var wolfOpen=false, bearOpen=false;
-      try{ wolfOpen=localStorage.getItem('mfWolfUnlocked')==='1'; bearOpen=localStorage.getItem('mfBearUnlocked')==='1'; }catch(_wu){}
+      var wolfOpen=false, bearOpen=false, wizOpen=false;
+      try{ wolfOpen=localStorage.getItem('mfWolfUnlocked')==='1'; bearOpen=localStorage.getItem('mfBearUnlocked')==='1'; wizOpen=localStorage.getItem('mfWizardUnlocked')==='1'; }catch(_wu){}
       var modes=[['combo','Combo Rush','Best combo in 1:30'],['sprint','Sprint 40','Fastest 40 lines'],['ultra','Ultra','2-min score attack'],['cheese','Cheese Race','Dig 10 garbage rows fast'],['overgrow','Overgrowth','The forest rises — survive 2:00'],['snakehunt','Snake Hunt','BEAST LV.1 — slay the Anaconda'],
                  ['wolfhunt','Wolf Hunt', wolfOpen?'BEAST LV.2 — the pack hunts at speed':'🔒 Slay the Anaconda to unlock'],
-                 ['bearhunt','Bear Hunt', bearOpen?'BEAST LV.3 — sheer force of the forest':'🔒 Slay the Wolf to unlock']];
+                 ['bearhunt','Bear Hunt', bearOpen?'BEAST LV.3 — sheer force of the forest':'🔒 Slay the Wolf to unlock'],
+                 ['wizardhunt','Wizard Hunt', wizOpen?'BEAST LV.4 — magic bends your reality':'🔒 Slay the Bear to unlock']];
       host.innerHTML=modes.map(function(x){
-        var locked=(x[0]==='wolfhunt'&&!wolfOpen)||(x[0]==='bearhunt'&&!bearOpen);
-        return '<button class="solo-card'+(locked?' locked':'')+'" onclick="'+(locked?(x[0]==='bearhunt'?'tetBearLocked()':'tetWolfLocked()'):('tetSoloGo(\''+x[0]+'\')'))+'"><span class="hi">'+(HUBIC[x[0]]||'')+'</span><span>'+x[1]+'<small>'+x[2]+'</small></span></button>'; }).join('');
+        var locked=(x[0]==='wolfhunt'&&!wolfOpen)||(x[0]==='bearhunt'&&!bearOpen)||(x[0]==='wizardhunt'&&!wizOpen);
+        return '<button class="solo-card'+(locked?' locked':'')+'" onclick="'+(locked?(x[0]==='wizardhunt'?'tetWizLocked()':(x[0]==='bearhunt'?'tetBearLocked()':'tetWolfLocked()')):('tetSoloGo(\''+x[0]+'\')'))+'"><span class="hi">'+(HUBIC[x[0]]||'')+'</span><span>'+x[1]+'<small>'+x[2]+'</small></span></button>'; }).join('');
       // server-truth unlocks: a recorded slay on the previous level opens the next gate
-      [['snakehunt','mfWolfUnlocked',wolfOpen],['wolfhunt','mfBearUnlocked',bearOpen]].forEach(function(gate){
+      [['snakehunt','mfWolfUnlocked',wolfOpen],['wolfhunt','mfBearUnlocked',bearOpen],['bearhunt','mfWizardUnlocked',wizOpen]].forEach(function(gate){
         if(gate[2]||typeof eid!=='function'||!eid()) return;
         fetch(APPS_SCRIPT_URL+'?action=solo_ranking&mode='+gate[0]+'&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
           var me=String(eid()).toLowerCase();
@@ -26695,6 +26935,7 @@ function loadMyRedemptions(){
                snakehunt:{lbl:'Snake Hunt',ic:'🐍',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'},
                wolfhunt:{lbl:'Wolf Hunt',ic:'🐺',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'},
                bearhunt:{lbl:'Bear Hunt',ic:'🐻',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'},
+               wizardhunt:{lbl:'Wizard Hunt',ic:'🧙',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'},
                sprint:{lbl:'Sprint 40',ic:'🏁',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'},
                cheese:{lbl:'Cheese Race',ic:'🧀',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'} };
   function loadGauntlet(){
@@ -26755,6 +26996,7 @@ function loadMyRedemptions(){
     else if(mode==='snakehunt'){ if(window.tetrisSnakehunt) tetrisSnakehunt(); }
     else if(mode==='wolfhunt'){ if(window.tetrisWolfhunt) tetrisWolfhunt(); }
     else if(mode==='bearhunt'){ if(window.tetrisBearhunt) tetrisBearhunt(); }
+    else if(mode==='wizardhunt'){ if(window.tetrisWizardhunt) tetrisWizardhunt(); }
     else if(mode==='ration'){ if(window.tetrisRation) tetrisRation(); }
     else if(mode==='tourney'){ if(window.tourneyStart) tourneyStart(); }
   };
@@ -28126,6 +28368,8 @@ function loadMyRedemptions(){
   window.tetrisSnakehunt=function(){ startSolo('snakehunt'); };
   window.tetrisWolfhunt=function(){ startSolo('wolfhunt'); };
   window.tetrisBearhunt=function(){ startSolo('bearhunt'); };
+  window.tetrisWizardhunt=function(){ startSolo('wizardhunt'); };
+  window.tetWizLocked=function(){ try{ showToast('🔒 The Wizard only duels those who have slain the Bear.'); }catch(_t){ alert('Slay the Bear first!'); } };
   window.tetBearLocked=function(){ try{ showToast('🔒 The Bear only wakes for those who have slain the Wolf.'); }catch(_t){ alert('Slay the Wolf first!'); } };
   window.tetWolfLocked=function(){ try{ showToast('🔒 The Wolf only answers those who have slain the Anaconda.'); }catch(_t){ alert('Slay the Anaconda first!'); } };
   window.tetrisRation=function(){ startSolo('ration'); };
@@ -28176,6 +28420,7 @@ function loadMyRedemptions(){
          : mode==='snakehunt'? '🐍 Snake Hunt'
          : mode==='wolfhunt' ? '🐺 Wolf Hunt'
          : mode==='bearhunt' ? '🐻 Bear Hunt'
+         : mode==='wizardhunt'?'🧙 Wizard Hunt'
          : mode==='ration'   ? '📦 Ration 50'
          : mode==='daily'    ? '🗓️ Daily Challenge'
          : 'Ultra 2:00';
@@ -28382,6 +28627,76 @@ function loadMyRedemptions(){
           announce('🛡 The bear guards — damage halved!');
         }
       }, 100);
+    } else if(mode==='wizardhunt'){
+      /* 🧙 WIZARD HUNT — Beast Level 4. He doesn't touch your board; he bends the RULES.
+         POLYMORPH transmutes your falling piece mid-air. GRAVITY HEX doubles fall speed.
+         ARCANE RUNES burn on your stack — clear their rows to defuse (bonus damage!) or
+         they detonate into stone. And his MANA SHIELD absorbs everything: pour 12+ damage
+         into it before it fades and it SHATTERS, stunning him — 4 seconds of ×2 damage. */
+      M.timeLeft=120; M.snkHP=100; M.snkDead=false; M.blindBonus=0;
+      M.runes=[]; M.wizShield=null; M.wizStun=0; M.hexUntil=0; M.wizPos={x:0.5,y:0.12};
+      M.wizIntro=Date.now(); M.wizBolts=[];
+      M._wcNext=Date.now()+4000; M._wsNext=Date.now()+10000;
+      status('🧙 2:00 · wizard 100%');
+      announce('🧙 THE WIZARD DUELS YOU — shatter his shield to stun him!');
+      M.timer=setInterval(function(){ if(!M||M.ended) return; M.timeLeft--;
+        if(M.timeLeft<=0){ soloEnd('time'); return; }
+        var sTxt=(M.wizShield&&Date.now()<M.wizShield.until)?(' · 🔮 shield '+Math.max(0,Math.ceil(12-M.wizShield.dmg))):((M.wizStun>Date.now())?' · 😵 STUNNED ×2':'');
+        status((M.snkDead?'💀 WIZARD SLAIN · ':'🧙 ')+fmtT(M.timeLeft)+' · '+(M.lines||0)+' lines'+(M.snkDead?'':(' · wizard '+Math.max(0,Math.round(M.snkHP))+'%'+sTxt)));
+        if(M.timeLeft<=10) sfxUrgent(M.timeLeft); }, 1000);
+      M.snkTimer=setInterval(function(){ if(!M||M.ended) return;
+        var now=Date.now(), enr=(!M.snkDead && M.snkHP<=40);
+        // he TELEPORTS between casts
+        if(!M._wTel||now>M._wTel){ M._wTel=now+2600+Math.random()*2200;
+          M.wizPos={ x:0.16+Math.random()*0.68, y:0.08+Math.random()*0.16, blink:now }; }
+        // SPELLCAST — polymorph, hex or runes, on one clock
+        if(!M.snkDead && M.wizStun<now && now>=M._wcNext){
+          M._wcLast=now;
+          M._wcNext=now+(6500+Math.random()*2500)*(enr?0.55:1);
+          var spell=Math.random();
+          if(spell<0.4 && M.cur){                                   // 🔮 POLYMORPH
+            try{ var t2=TYPES[Math.floor(Math.random()*TYPES.length)];
+              var keep={x:M.cur.x,y:M.cur.y};
+              M.cur={ type:t2, rot:0, m:STATES[t2][0], x:keep.x, y:keep.y };
+              while(collide(M.cur.m,M.cur.x,M.cur.y)&&M.cur.x>0) M.cur.x--;
+              while(collide(M.cur.m,M.cur.x,M.cur.y)&&M.cur.x<W-1) M.cur.x++;
+              if(collide(M.cur.m,M.cur.x,M.cur.y)) M.cur.y=Math.max(0,M.cur.y-1);
+              M.polyFlash=now; announce('🔮 POLYMORPHED!','tspin'); try{ sfxWizCast(); }catch(_c1){}
+              try{ M.wizBolts.push({ tx:(M.cur.x+M.cur.m[0].length/2)/W, ty:(M.cur.y+1)/H, t0:now, col:'#c4b5fd' }); }catch(_b1){}
+              draw(); }catch(_pm){}
+          } else if(spell<0.7){                                     // ⏳ GRAVITY HEX
+            M.hexUntil=now+5000; announce('⏳ GRAVITY HEX — everything falls faster!','tspin');
+            try{ M.wizBolts.push({ tx:0.5, ty:0.55, t0:now, col:'#f0abfc' }); }catch(_b2){}
+            try{ sfxWizCast(); var oldMs=M.dropMs; M.dropMs=Math.max(90,Math.round(M.dropMs/2));
+              clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs);
+              setTimeout(function(){ if(M&&!M.ended&&M.loop){ M.dropMs=oldMs; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); } },5000); }catch(_hx){}
+          } else {                                                  // 🕯 ARCANE RUNES
+            try{ var cands=[];
+              for(var ry=3;ry<H;ry++)for(var rx=0;rx<W;rx++){ if(M.grid[ry][rx]>0) cands.push([ry,rx]); }
+              var nR=Math.min(3,cands.length);
+              for(var rn=0;rn<nR;rn++){ var pk2=cands.splice(Math.floor(Math.random()*cands.length),1)[0];
+                M.runes.push({ y:pk2[0], x:pk2[1], det:now+6000 });
+                try{ M.wizBolts.push({ tx:(pk2[1]+0.5)/W, ty:(pk2[0]+0.5)/H, t0:now+rn*120, col:'#a855f7' }); }catch(_b3){} }
+              if(nR){ announce('🕯 ARCANE RUNES — clear their rows or they turn to stone!','tspin'); try{ sfxWizCast(); }catch(_c2){} } }catch(_rn){}
+          }
+        }
+        // rune DETONATION — the cell and a neighbour petrify
+        if(M.runes.length){ for(var di2=M.runes.length-1;di2>=0;di2--){ var RU=M.runes[di2];
+          if(now>=RU.det){ M.runes.splice(di2,1);
+            try{ if(M.grid[RU.y]&&M.grid[RU.y][RU.x]>0) M.grid[RU.y][RU.x]=8;
+              var nbs=[[RU.y-1,RU.x],[RU.y,RU.x-1],[RU.y,RU.x+1],[RU.y+1,RU.x]].filter(function(q){ return M.grid[q[0]]&&M.grid[q[0]][q[1]]>0&&M.grid[q[0]][q[1]]!==8; });
+              if(nbs.length){ var nq=nbs[Math.floor(Math.random()*nbs.length)]; M.grid[nq[0]][nq[1]]=8; }
+              announce('🕯 PETRIFIED!','tspin'); try{ boardShake(3); sfxWizShatter(0.5); }catch(_p2){}
+              M.runeBursts=M.runeBursts||[]; M.runeBursts.push({ x:RU.x, y:RU.y, t0:now }); draw(); }catch(_dt2){} } } }
+        // MANA SHIELD windows
+        if(!M.snkDead && M.wizStun<now && !M.wizShield && now>=M._wsNext){
+          M.wizShield={ until:now+8000, dmg:0 };
+          M._wsNext=now+8000+(12000+Math.random()*5000)*(enr?0.7:1);
+          announce('🔮 MANA SHIELD — pour 12 damage in to SHATTER it!');
+        }
+        if(M.wizShield && now>=M.wizShield.until){ M.wizShield=null; }
+        if(M.wizStun && now>=M.wizStun && M.wizStun>0){ /* stun expiry handled by reads */ }
+      }, 100);
     } else if(mode==='ration'){
       announce('📦 50 pieces · hard drop to place');
       rationStatus();
@@ -28406,18 +28721,18 @@ function loadMyRedemptions(){
     cancelRender(); stopMusic(); detachControls();
     var mode=M.mode, elapsed=Date.now()-(M._t0||Date.now());
     var timeMode=(mode==='sprint'||mode==='cheese'||mode==='survival');
-    if(mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt') timeMode=true;
+    if(mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt'||mode==='wizardhunt') timeMode=true;
     var win = (mode==='sprint'||mode==='cheese') ? (how==='done')
             : (mode==='survival') ? (elapsed>=60000)      // lasting a full minute counts as a good run
             : (mode==='ration') ? ((M.lines||0)>=9)       // 9+ lines from 50 pieces is a genuinely good run
             : (mode==='overgrow') ? (how==='time')        // outlasting the forest IS the win
-            : (mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt') ? (!!M.snkDead)
+            : (mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt'||mode==='wizardhunt') ? (!!M.snkDead)
             : (how==='time');
     var soloScore = (mode==='combo') ? (M.maxCombo||0)
                   : (mode==='overgrow') ? (M.realLines||0)
-                  : (mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt') ? ((M.lines||0)+(M.blindBonus||0))   // kept for the result card
+                  : (mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt'||mode==='wizardhunt') ? ((M.lines||0)+(M.blindBonus||0))   // kept for the result card
                   : (M.score||0);
-    var res={ mode:mode, win:win, time_ms:((mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt')?(M.snkSlayMs||elapsed):(timeMode?elapsed:(mode==='combo'?90000:120000))), score:soloScore, lines:M.lines||0, slain:!!M.snkDead };
+    var res={ mode:mode, win:win, time_ms:((mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt'||mode==='wizardhunt')?(M.snkSlayMs||elapsed):(timeMode?elapsed:(mode==='combo'?90000:120000))), score:soloScore, lines:M.lines||0, slain:!!M.snkDead };
     if(win){ try{ sfxWin(); }catch(_){} } else { try{ sfxLose(); }catch(_){} }
     window._tetLast={ kind:'solo', mode:mode };   // enable Play again
     showSoloResult(how, res);
@@ -28433,7 +28748,7 @@ function loadMyRedemptions(){
               || (mode==='survival' && how==='topout')
               || (mode==='ration')
               || (mode==='overgrow')                       // every run counts — even the forest's wins
-              || ((mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt') && win)   // only SLAYS make the board
+              || ((mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt'||mode==='wizardhunt') && win)   // only SLAYS make the board
               || ((mode==='ultra'||mode==='combo') && how==='time');
     if(record){
       fetch(APPS_SCRIPT_URL+'?action=solo_result&mode='+mode+'&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())
@@ -28473,6 +28788,10 @@ function loadMyRedemptions(){
       hero = r.win
         ? '<div style="font-size:12px;color:#9fb0d6;">You outlasted the forest — clean lines</div><div style="font-size:44px;font-weight:900;color:#7bf5a8;line-height:1.1;">'+Number(r.score).toLocaleString()+'<span style="font-size:20px;"> lines</span></div><div style="font-size:11.5px;color:#9fb0d6;">2:00 survived 🌿 · vine rows dug out don\'t count — only your own blocks</div>'
         : '<div style="font-size:26px;font-weight:900;color:#f87171;">Overgrown</div><div style="font-size:12.5px;color:#9fb0d6;margin-top:5px;">The vines took the board — '+Number(r.score).toLocaleString()+' clean lines before it fell.</div>';
+    } else if(r.mode==='wizardhunt'){
+      hero = r.slain
+        ? '<div style="font-size:12px;color:#9fb0d6;">You defeated the WIZARD in</div><div style="font-size:44px;font-weight:900;color:#c4b5fd;line-height:1.1;">'+(r.time_ms/1000).toFixed(2)+'<span style="font-size:20px;">s</span></div><div style="font-size:11.5px;color:#9fb0d6;">🧙💀 Beast Level 4 conquered — the magic dies with him</div>'
+        : '<div style="font-size:26px;font-weight:900;color:#f87171;">The wizard endures</div><div style="font-size:12.5px;color:#9fb0d6;margin-top:5px;">'+Number(r.score).toLocaleString()+' lines of damage — shatter his shield, then punish the stun.</div>';
     } else if(r.mode==='bearhunt'){
       hero = r.slain
         ? '<div style="font-size:12px;color:#9fb0d6;">You slew the BEAR in</div><div style="font-size:44px;font-weight:900;color:#7bf5a8;line-height:1.1;">'+(r.time_ms/1000).toFixed(2)+'<span style="font-size:20px;">s</span></div><div style="font-size:11.5px;color:#9fb0d6;">🐻💀 Beast Level 3 conquered — the forest itself bows</div>'
@@ -28526,7 +28845,7 @@ function loadMyRedemptions(){
       el('solo-res-board').innerHTML=rows.slice(0,10).map(function(p){
         var mine=String(p.employee_id||'').toLowerCase()===me;
         var medal=p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:('<span style="color:#6b7d90;">'+p.rank+'</span>');
-        var val = (mode==='sprint'||mode==='cheese'||mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt') ? ((p.time_ms/1000).toFixed(2)+'s')
+        var val = (mode==='sprint'||mode==='cheese'||mode==='snakehunt'||mode==='wolfhunt'||mode==='bearhunt'||mode==='wizardhunt') ? ((p.time_ms/1000).toFixed(2)+'s')
                 : (mode==='survival') ? fmtT(Math.floor((p.time_ms||0)/1000))
                 : (mode==='combo') ? (Number(p.score).toLocaleString()+' combo')
                 : (Number(p.score).toLocaleString()+' pts');
