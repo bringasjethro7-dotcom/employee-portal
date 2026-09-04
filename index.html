@@ -5524,7 +5524,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
              field kept its name; only the label changed. -->
         <div class="card" style="padding:1rem;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-            <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">Reviewer Grade</p>
+            <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;" id="sc-csat-label">Reviewer Grade</p>
             <span id="sc-csat-badge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(14,165,164,0.14);color:#0ea5a4;">—</span>
           </div>
           <p id="sc-csat-num" style="font-size:26px;font-weight:700;color:var(--text-1);margin:0 0 10px;">—</p>
@@ -8323,7 +8323,13 @@ async function loadScorecard() {
     setScCard('qual', sc.quality);
     setScCard('att',  (data.attendance!=null && data.attendance!=='') ? data.attendance : sc.attendance);       // live running score
     setScCard('sales', (sc.team_sales!==undefined?sc.team_sales:null));
-    setScCard('csat', (sc.csat!==undefined?sc.csat:null));
+    /* SEP 2026: this card slot shows RESULTS (10%, per-SOP outcomes) instead of the retired
+       Reviewer-Grade/CSAT. The scorecard tab always shows the current month, so once the
+       server starts sending a results value the label and number follow it. */
+    var _hasRes = sc && sc.results!==undefined && sc.results!==null;
+    var _lbl=document.getElementById('sc-csat-label');
+    if(_lbl) _lbl.textContent = _hasRes ? 'Results' : 'Reviewer Grade';
+    setScCard('csat', _hasRes ? sc.results : (sc.csat!==undefined?sc.csat:null));
     /* Innovation counts from 2026-08. For earlier months the server returns null on purpose, and
        a bare dash there reads like "you scored nothing" — so the note says why instead. */
     setScCard('inno', (sc.innovation!==undefined?sc.innovation:null));

@@ -1194,7 +1194,7 @@ body{background-attachment:initial !important}
             <th>Assessment</th>
             <th>Team Sales</th>
             <th>Demerit</th>
-            <th>Reviewer Grade</th>
+            <th>Results</th>
             <th>Innovation</th>
             <th>Overall</th>
           </tr></thead>
@@ -1243,6 +1243,8 @@ body{background-attachment:initial !important}
             <div>
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z"/></svg> Innovation (0–100)</label>
               <input type="number" id="sc-form-inno" class="sinp" min="0" max="100" step="1" placeholder="grade this month's idea" style="width:100%;" />
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin:10px 0 4px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none"><path d="M3 17l5-5 4 4 8-8"/><path d="M14 8h6v6"/></svg> Results (0–100) · from Sep 2026 · 10%</label>
+              <input type="number" id="sc-form-results" class="sinp" min="0" max="100" step="1" placeholder="per-SOP outcomes from Account Center" style="width:100%;" />
               <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">1 idea/month required · <a href="#" onclick="openInnoRubric();return false;" style="color:var(--o3);">grading rubric</a> · 5% weight · blank = no idea (0)</p>
             </div>
           </div>
@@ -5595,7 +5597,7 @@ function _scPaint(rows){
       '<td><span style="color:#9333ea;font-weight:600;">' + dash(sc.assessment) + '</span></td>' +
       '<td><span onclick="openSalesBreakdown(\''+_ce(sc.employee_id)+'\')" title="How is this Team Sales score computed?" style="color:#0891b2;font-weight:600;cursor:pointer;border-bottom:1px dashed rgba(8,145,178,.5);">' + dash(sc.team_sales) + '</span></td>' +
       '<td><span style="color:' + demCol + ';font-weight:600;">' + dem + '</span></td>' +
-      '<td><span style="color:#0ea5a4;font-weight:600;">' + dash(sc.csat) + '</span></td>' +
+      '<td><span style="color:#0ea5a4;font-weight:600;">' + dash(String(sc.month||'')>='2026-09' ? sc.results : sc.csat) + '</span></td>' +
       '<td><span style="color:#a855f7;font-weight:600;">' + dash(sc.innovation) + '</span></td>' +
       '<td><strong style="color:var(--o3);">' + overall + '</strong>' + dvH + '</td>' +
     '</tr>';
@@ -7032,7 +7034,7 @@ function _revIntroScenes(rows){
         '<div class="ri-stat"><b>'+avg.toFixed(1)+'</b><span>Team average</span></div>'+
       '</div></div>' },
     { d:5200, snd:function(){ _revShimmer(1.4,0.07); },      html:'<div class="ri s4"><div class="ri-kick">measured on</div><div class="ri-chips">'+
-        ['Productivity','Quality','Attendance','Assessment','Team Sales','Conduct','Reviewer Grade','Innovation']
+        ['Productivity','Quality','Attendance','Assessment','Team Sales','Conduct','Results','Innovation']
           .map(function(t,i){ return '<span style="animation-delay:'+(0.15+i*0.16).toFixed(2)+'s">'+t+'</span>'; }).join('')+
       '</div></div>' },
     /* ROLL CALL — every contractor, face and ID, in random order, then a band of light sweeps
@@ -7237,7 +7239,7 @@ function _revMetrics(r){
      must never be labelled that on screen. (The PPTX export calls it "Rev Grade" already.) */
   var M=[['Productivity',r.productivity],['Quality',r.quality],['Attendance',r.attendance],
          ['Assessment',r.assessment],['Team Sales',r.team_sales],['Conduct',r.demerit],
-         ['Reviewer Grade',r.csat],['Innovation',r.innovation]];
+         ['Results',(r.results!=null?r.results:r.csat)],['Innovation',r.innovation]];
   var out=M.filter(function(m){ return m[1]!==''&&m[1]!=null&&!isNaN(parseFloat(m[1])); })
            .map(function(m,i){
     var v=Math.max(0,Math.min(100,parseFloat(m[1])));
@@ -7881,6 +7883,7 @@ function editScorecard(sc) {
   document.getElementById('sc-form-vp').value    = sc.violation_points || '';
   document.getElementById('sc-form-csat').value  = (sc.csat!=null && sc.csat!=='') ? sc.csat : '';
   var inoEl=document.getElementById('sc-form-inno'); if(inoEl) inoEl.value=(sc.innovation!=null && sc.innovation!=='') ? sc.innovation : '';
+  var resEl=document.getElementById('sc-form-results'); if(resEl) resEl.value=(sc.results!=null && sc.results!=='') ? sc.results : '';
 }
 
 async function submitScorecard() {
@@ -7896,13 +7899,15 @@ async function submitScorecard() {
   try {
   var vp = document.getElementById('sc-form-vp').value || '0';
   var inno = (document.getElementById('sc-form-inno')||{value:''}).value;
+  var resv = (document.getElementById('sc-form-results')||{value:''}).value;
     var url = API + '?action=save_scorecard' +
       '&employee_id='      + encodeURIComponent(empId) +
       '&full_name='        + encodeURIComponent(fullName) +
       '&month='            + encodeURIComponent(month) +
       '&note='             + encodeURIComponent(note||'') +
       '&violation_points=' + encodeURIComponent(vp) +
-      '&innovation='       + encodeURIComponent(inno);
+      '&innovation='       + encodeURIComponent(inno) +
+      '&results='          + encodeURIComponent(resv);
     var res  = await fetch(url);
     var data = await res.json();
     if (data.success) {
