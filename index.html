@@ -21829,7 +21829,7 @@ function loadMyRedemptions(){
       /* every line WOUNDS the snake (blind clears cut twice as deep). Kill it and the
          hunt is over: no more sweeps, no more vines — free scoring till the clock ends. */
       if(!M.snkDead){
-        var _hpWas=M.snkHP, _dmg=c*(_bearM?1.8:(_wolfM?2.0:1.5))*(_blind?2:1);   // the bear is the biggest beast yet
+        var _hpWas=M.snkHP, _dmg=c*(_bearM?1.3:(_wolfM?2.0:1.5))*(_blind?2:1);   // APEX: ~77 clean lines (39 blind) — hardest beast in the forest
         if(_bearM && M.guard && _nw<M.guard.until){ _dmg*=0.5; announce('🛡 Guarded — half damage'); }
         M.snkHP=Math.max(0, M.snkHP - _dmg);                 // tougher beast: ~40 clean lines (or 20 blind) to slay
         // ── HIT FX: the snake takes the blow — flash, sap burst, damage number, wince ──
@@ -23983,6 +23983,133 @@ function loadMyRedemptions(){
           });
           ctx.restore(); } }
     }catch(_wdr){ try{ ctx.restore(); }catch(_r2){} }
+    // ═══ 🐻 THE BEAR — full boss production ═══
+    //  Ambient: two huge amber eyes breathing in the dark + heaving breath-vignette.
+    //  Warning: a clawed paw SHADOW swells over the doomed half.
+    //  Slam: a furred forearm and five-clawed paw CRASHES down — shockwave, dust,
+    //  radiating cracks. Roar: the board becomes the bear's MAW — jaws of teeth clamp
+    //  from above and below over a burning throat. Guard: a hulking back rises at the
+    //  bottom under a golden shield dome.
+    if(M.mode==='bearhunt') try{
+      var nb2=Date.now(), br2=0.5+0.5*Math.sin(nb2/1400);
+      var inRoar=(M.roar&&nb2>M.roar.t0&&nb2<M.roar.t0+M.roar.dur);
+      // ── ambient presence (hidden while roaring — the maw takes over) ──
+      if(!M.snkDead && !inRoar){
+        ctx.save();
+        ctx.globalAlpha=0.10+0.07*br2;                                   // heaving breath at the edges
+        var bvg=ctx.createRadialGradient(cv.width/2,cv.height*0.45,cv.width*0.3,cv.width/2,cv.height*0.5,cv.width*0.85);
+        bvg.addColorStop(0,'rgba(0,0,0,0)'); bvg.addColorStop(1,'rgba(20,10,4,.9)');
+        ctx.fillStyle=bvg; ctx.fillRect(0,0,cv.width,cv.height);
+        var blink=((nb2/3400)%1)>0.94?0.12:1;                            // the eyes blink, slowly
+        [[0.32,1],[0.68,-1]].forEach(function(ep){
+          var ex6=cv.width*ep[0], ey6=cv.height*0.09+br2*3;
+          ctx.globalAlpha=(0.22+0.1*br2);
+          var eg6=ctx.createRadialGradient(ex6,ey6,0,ex6,ey6,cs*1.4);
+          eg6.addColorStop(0,'rgba(255,190,60,.9)'); eg6.addColorStop(.5,'rgba(200,120,20,.35)'); eg6.addColorStop(1,'rgba(200,120,20,0)');
+          ctx.fillStyle=eg6; ctx.fillRect(ex6-cs*1.4,ey6-cs*1.4,cs*2.8,cs*2.8);
+          ctx.save(); ctx.translate(ex6,ey6); ctx.scale(1,blink);
+          ctx.fillStyle='#e8a53a'; ctx.beginPath(); ctx.ellipse(0,0,cs*0.42,cs*0.3,ep[1]*0.15,0,6.283); ctx.fill();
+          ctx.fillStyle='#160b04'; ctx.beginPath(); ctx.ellipse(0,0,cs*0.15,cs*0.26,0,0,6.283); ctx.fill();
+          ctx.fillStyle='rgba(255,250,235,.9)'; ctx.beginPath(); ctx.arc(-cs*0.12,-cs*0.1,cs*0.07,0,6.283); ctx.fill();
+          ctx.restore(); });
+        ctx.restore();
+      }
+      // ── paw: shadow warning → THE SLAM ──
+      if(M.paw){ var PW=M.paw, half=PW.side, hx0=half?cv.width/2:0;
+        if(nb2<PW.t0){                                                    // the shadow swells
+          var wp=(nb2-(PW.t0-500))/500;
+          ctx.save(); ctx.globalAlpha=0.5*wp;
+          ctx.fillStyle='#000';
+          ctx.beginPath(); ctx.ellipse(hx0+cv.width/4, cv.height*0.3, cv.width*0.22*(0.6+0.4*wp), cv.height*0.2*(0.6+0.4*wp),0,0,6.283); ctx.fill();
+          for(var cw2=0;cw2<5;cw2++){ ctx.beginPath();
+            ctx.ellipse(hx0+cv.width*(0.09+cw2*0.08), cv.height*0.14, cs*0.32*wp, cs*0.5*wp, 0,0,6.283); ctx.fill(); }
+          ctx.restore();
+        } else {                                                          // THE SLAM
+          var sp3=(nb2-PW.t0)/PW.dur;
+          var drop=sp3<0.22 ? (sp3/0.22) : 1;                             // crashes in the first 22%
+          var lift=sp3>0.75 ? (sp3-0.75)/0.25 : 0;                        // withdraws at the end
+          var pawW=cv.width*0.46, pawH=cv.height*0.5;
+          var px6=hx0+cv.width*0.02, py6=-pawH+(pawH*0.98)*drop*drop-(pawH*0.7)*lift*lift;
+          ctx.save();
+          // furred forearm
+          var fg6=ctx.createLinearGradient(px6,0,px6+pawW,0);
+          fg6.addColorStop(0,'#3a2a18'); fg6.addColorStop(.5,'#57402a'); fg6.addColorStop(1,'#2c1e10');
+          ctx.fillStyle=fg6;
+          ctx.beginPath();
+          ctx.moveTo(px6+pawW*0.16,py6-cv.height);
+          ctx.lineTo(px6+pawW*0.84,py6-cv.height);
+          ctx.lineTo(px6+pawW*0.94,py6+pawH*0.55);
+          ctx.quadraticCurveTo(px6+pawW*0.5,py6+pawH*0.78,px6+pawW*0.06,py6+pawH*0.55);
+          ctx.closePath(); ctx.fill();
+          // fur strokes down the arm
+          ctx.strokeStyle='rgba(20,12,6,.5)'; ctx.lineWidth=Math.max(1,cs*0.08); ctx.lineCap='round';
+          for(var fs3=0;fs3<7;fs3++){ var fxx=px6+pawW*(0.18+fs3*0.11);
+            ctx.beginPath(); ctx.moveTo(fxx,py6-pawH*0.2); ctx.lineTo(fxx+pawW*0.02,py6+pawH*0.42); ctx.stroke(); }
+          ctx.strokeStyle='rgba(140,105,70,.35)'; ctx.lineWidth=Math.max(1,cs*0.04);
+          for(var fs4=0;fs4<6;fs4++){ var fx4=px6+pawW*(0.22+fs4*0.11);
+            ctx.beginPath(); ctx.moveTo(fx4,py6-pawH*0.1); ctx.lineTo(fx4+pawW*0.015,py6+pawH*0.35); ctx.stroke(); }
+          // the great pad + five toes + claws
+          var padY=py6+pawH*0.58;
+          ctx.fillStyle='#1c1208';
+          ctx.beginPath(); ctx.ellipse(px6+pawW*0.5,padY,pawW*0.3,pawH*0.16,0,0,6.283); ctx.fill();
+          for(var toe=0;toe<5;toe++){ var tx6=px6+pawW*(0.12+toe*0.19), ty6=padY+pawH*0.15;
+            ctx.fillStyle='#241708';
+            ctx.beginPath(); ctx.ellipse(tx6,ty6,pawW*0.075,pawH*0.075,0,0,6.283); ctx.fill();
+            ctx.fillStyle='#e8e0d0';                                     // the claw
+            ctx.beginPath(); ctx.moveTo(tx6-pawW*0.035,ty6+pawH*0.04);
+            ctx.quadraticCurveTo(tx6,ty6+pawH*0.2,tx6+pawW*0.012,ty6+pawH*0.05); ctx.closePath(); ctx.fill(); }
+          // impact: shockwave + dust + cracks
+          if(sp3>0.22 && sp3<0.8){ var imp=(sp3-0.22)/0.58;
+            var iy=py6+pawH*0.9;
+            ctx.globalAlpha=(1-imp);
+            ctx.strokeStyle='rgba(220,200,170,.8)'; ctx.lineWidth=Math.max(2,cs*0.12*(1-imp));
+            ctx.beginPath(); ctx.ellipse(px6+pawW*0.5,iy,pawW*0.7*imp+10,cs*0.9*imp+4,0,0,6.283); ctx.stroke();
+            if(!PW.debris){ PW.debris=[]; for(var db=0;db<14;db++) PW.debris.push({a:Math.random()*3.14, v:2+Math.random()*4, r:1+Math.random()*3}); }
+            PW.debris.forEach(function(dd2){ var dx6=Math.cos(dd2.a)*dd2.v*imp*30, dy6=-Math.abs(Math.sin(dd2.a))*dd2.v*imp*26+imp*imp*40;
+              ctx.fillStyle='rgba(160,130,95,'+(0.8*(1-imp))+')';
+              ctx.beginPath(); ctx.arc(px6+pawW*0.5+dx6,iy+dy6,dd2.r,0,6.283); ctx.fill(); });
+            ctx.strokeStyle='rgba(30,20,10,'+(0.7*(1-imp))+')'; ctx.lineWidth=Math.max(1,cs*0.06);
+            for(var ck2=0;ck2<5;ck2++){ var ca2=-0.5+ck2*0.55;
+              ctx.beginPath(); ctx.moveTo(px6+pawW*0.5,iy);
+              ctx.lineTo(px6+pawW*0.5+Math.cos(ca2)*pawW*0.4*imp, iy+Math.abs(Math.sin(ca2))*cs*2*imp); ctx.stroke(); }
+            ctx.globalAlpha=1; }
+          ctx.restore();
+        } }
+      // ── the ROAR: the board becomes the maw ──
+      if(inRoar){ var rp3=(nb2-M.roar.t0)/M.roar.dur;
+        var clamp2=rp3<0.5? rp3*2 : (1-rp3)*2;                            // teeth close then release
+        ctx.save();
+        ctx.fillStyle='rgba(8,3,1,'+(0.92*Math.min(1,clamp2*1.6))+')';
+        ctx.fillRect(0,0,cv.width,cv.height);
+        var tg2=ctx.createRadialGradient(cv.width/2,cv.height/2,0,cv.width/2,cv.height/2,cv.width*0.42);
+        tg2.addColorStop(0,'rgba(180,30,10,'+(0.75*clamp2)+')'); tg2.addColorStop(.6,'rgba(90,12,4,'+(0.4*clamp2)+')'); tg2.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=tg2; ctx.fillRect(0,0,cv.width,cv.height);
+        var reach=cv.height*0.34*clamp2, nT=7;
+        for(var th2=0;th2<nT;th2++){ var txx=cv.width*(th2+0.5)/nT, tw6=cv.width/nT*0.72;
+          ctx.fillStyle='#efe6d2';
+          ctx.beginPath(); ctx.moveTo(txx-tw6/2,0); ctx.lineTo(txx+tw6/2,0); ctx.lineTo(txx,reach); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(txx-tw6/2,cv.height); ctx.lineTo(txx+tw6/2,cv.height); ctx.lineTo(txx+cv.width*0.03,cv.height-reach*0.85); ctx.closePath(); ctx.fill();
+          ctx.strokeStyle='rgba(120,90,50,.5)'; ctx.lineWidth=1;
+          ctx.beginPath(); ctx.moveTo(txx-tw6/2,0); ctx.lineTo(txx,reach); ctx.stroke(); }
+        ctx.restore(); }
+      // ── the GUARD: hunched back + golden shield dome ──
+      if(!M.snkDead && M.guard && nb2<M.guard.until && !inRoar){
+        var gl2=Math.min(1,(nb2-(M.guard.until-8000))/400)*Math.min(1,(M.guard.until-nb2)/400);
+        ctx.save(); ctx.globalAlpha=gl2;
+        ctx.fillStyle='rgba(30,20,10,.85)';                               // the hunched back
+        ctx.beginPath(); ctx.moveTo(-10,cv.height+4);
+        ctx.quadraticCurveTo(cv.width*0.25,cv.height*0.82,cv.width*0.5,cv.height*0.86);
+        ctx.quadraticCurveTo(cv.width*0.75,cv.height*0.82,cv.width+10,cv.height+4); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='rgba(90,66,40,.5)'; ctx.lineWidth=Math.max(1,cs*0.06); ctx.lineCap='round';
+        for(var bf2=0;bf2<9;bf2++){ var bfx=cv.width*(0.1+bf2*0.1);
+          ctx.beginPath(); ctx.moveTo(bfx,cv.height*0.98); ctx.lineTo(bfx+cs*0.2,cv.height*0.86); ctx.stroke(); }
+        var shp=0.6+0.4*Math.sin(nb2/300);                                // the dome shimmers
+        ctx.strokeStyle='rgba(245,215,110,'+(0.5*shp*gl2)+')'; ctx.lineWidth=Math.max(2,cs*0.1);
+        ctx.beginPath(); ctx.arc(cv.width/2,cv.height*1.05,cv.width*0.62,Math.PI*1.12,Math.PI*1.88); ctx.stroke();
+        ctx.strokeStyle='rgba(255,236,170,'+(0.3*shp*gl2)+')'; ctx.lineWidth=Math.max(1,cs*0.05);
+        ctx.beginPath(); ctx.arc(cv.width/2,cv.height*1.05,cv.width*0.56,Math.PI*1.15,Math.PI*1.85); ctx.stroke();
+        ctx.restore(); }
+    }catch(_bdr){ try{ ctx.restore(); }catch(_r3){} }
     // 🐍 SNAKE LIFE BAR — pinned to the top of the board, drawn over everything
     if(M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='bearhunt'){ var hp=Math.max(0,Math.min(100,M.snkHP||0)), dead=!!M.snkDead, _wIc=(M.mode==='bearhunt'?((M.guard&&Date.now()<M.guard.until)?'🛡':'🐻'):(M.mode==='wolfhunt'?'🐺':'🐍'));
       var bw=cv.width-cs*1.2, bx=cs*0.6, byy=cs*0.28, bh=Math.max(5,cs*0.34);
@@ -28199,28 +28326,33 @@ function loadMyRedemptions(){
         if(M.timeLeft<=10) sfxUrgent(M.timeLeft); }, 1000);
       M.snkTimer=setInterval(function(){ if(!M||M.ended) return;
         var now=Date.now(), enr=(!M.snkDead && M.snkHP<=40);
+        // the bear HEALS while it guards — break its rhythm or it out-lasts you
+        if(!M.snkDead && M.snkHP>0 && M.guard && now<M.guard.until){ M.snkHP=Math.min(100, M.snkHP+0.1); }
         if(!M.snkDead && !M.paw && now>=M._pNext){
           M.paw={ t0:now+500, dur:900, side:(Math.random()<0.5?0:1) };       // shadow grows, then the SLAM
-          M._pNext=now+500+900+(5000+Math.random()*2000)*(enr?0.6:1);
+          M._pNext=now+500+900+(4200+Math.random()*1600)*(enr?0.5:1);
+          M._slamN=(M._slamN||0)+1;
           try{ sfxBearGrunt(); }catch(_bg){}
         }
         if(M.paw && now>M.paw.t0 && !M.paw.quaked){ M.paw.quaked=true;
           // THE QUAKE — the falling piece is shoved one column toward the slam
           try{ if(M.cur){ var shove=(M.paw.side?1:-1);
             if(!collide(M.cur.m,M.cur.x+shove,M.cur.y)){ M.cur.x+=shove; draw(); } }
-            boardShake(4); announce('🐻 SLAM!','tspin'); }catch(_qk){}
+            boardShake(4); announce('🐻 SLAM!','tspin');
+            // every 3rd slam CRUSHES — the quake shakes a stone row loose under you
+            if((M._slamN%3)===0){ setTimeout(function(){ if(M&&!M.ended&&M.alive&&!M.snkDead){ addGarbage(1); announce('🐻 CRUSHED!'); } },400); } }catch(_qk){}
         }
         if(M.paw && now>M.paw.t0+M.paw.dur+200){ M.paw=null; }
         if(!M.snkDead && !M.roar && now>=M._rNext){
           M.roar={ t0:now, dur:800 };
           M._rNext=now+(19000+Math.random()*6000)*(enr?0.6:1);
           announce('🐻 RRRAAAAGH!','tetris'); try{ sfxBearRoar(); boardShake(6); }catch(_rr){}
-          setTimeout(function(){ if(M&&!M.ended&&M.alive&&!M.snkDead){ addGarbage(1); } },850);
+          setTimeout(function(){ if(M&&!M.ended&&M.alive&&!M.snkDead){ addGarbage(enr?2:1); } },850);
         }
         if(M.roar && now>M.roar.t0+M.roar.dur+150){ M.roar=null; }
         if(!M.snkDead && (!M.guard||now>M.guard.until) && now>=M._gNext){
           M.guard={ until:now+8000 };
-          M._gNext=now+8000+14000+Math.random()*6000;
+          M._gNext=now+8000+(11000+Math.random()*5000);
           announce('🛡 The bear guards — damage halved!');
         }
       }, 100);
