@@ -28094,13 +28094,30 @@ function loadMyRedemptions(){
         }
         if(M.wolf && now>M.wolf.t0+M.wolf.dur+150){
           M.wolf=null;
-          // THE BITE — rip 3 filled cells out of the stack, leaving holes
+          // THE BITE — a connected CHUNK torn out of the stack: 2×2 normally (4 blocks,
+          // one deep wound), 2×3 when enraged (6 blocks). Falls back to 3 scattered cells
+          // if the stack is too thin to hold a chunk.
           if(!M.snkDead && M.alive && !M.clearing){ try{
-            var filled=[]; for(var y=2;y<H;y++)for(var x=0;x<W;x++){ if(M.grid[y][x]>0) filled.push([y,x]); }
-            if(filled.length>4){ for(var b2=0;b2<3&&filled.length;b2++){
-                var pick=filled.splice(Math.floor(Math.random()*filled.length),1)[0];
-                M.grid[pick[0]][pick[1]]=0; }
-              announce('🐺 BITE!','tspin'); try{ boardShake(3); }catch(_b3){} draw(); }
+            var wide=(M.snkHP<=50)?3:2;                       // enraged wolves take bigger mouthfuls
+            var anchors=[];
+            for(var y=2;y<H-1;y++)for(var x=0;x<=W-wide;x++){
+              var fillN=0; for(var dy=0;dy<2;dy++)for(var dx=0;dx<wide;dx++){ if(M.grid[y+dy][x+dx]>0) fillN++; }
+              if(fillN>=wide*2-1) anchors.push([y,x]);        // at least all-but-one cells filled
+            }
+            var ate=0;
+            if(anchors.length){
+              var an2=anchors[Math.floor(Math.random()*anchors.length)];
+              for(var dy2=0;dy2<2;dy2++)for(var dx2=0;dx2<wide;dx2++){
+                if(M.grid[an2[0]+dy2][an2[1]+dx2]>0){ M.grid[an2[0]+dy2][an2[1]+dx2]=0; ate++; }
+              }
+            } else {
+              var filled=[]; for(var y2=2;y2<H;y2++)for(var x2=0;x2<W;x2++){ if(M.grid[y2][x2]>0) filled.push([y2,x2]); }
+              if(filled.length>4){ for(var b2=0;b2<3&&filled.length;b2++){
+                  var pick=filled.splice(Math.floor(Math.random()*filled.length),1)[0];
+                  M.grid[pick[0]][pick[1]]=0; ate++; } }
+            }
+            if(ate){ announce(wide===3?('🐺 RAVENOUS BITE! −'+ate):('🐺 BITE! −'+ate),'tspin');
+              try{ boardShake(wide===3?4:3); }catch(_b3){} draw(); }
           }catch(_bt){} }
         }
         if(!M.snkDead && now>=M._howlAt){
@@ -35236,9 +35253,9 @@ window.EB_UNITS_MORE3 = [
 @keyframes mfWet{ from{ background-position:120% 0;} to{ background-position:-160% 0;} }
 
 /* ── NIGHT — the grove after dark: scene dims, the living lights take over ── */
-#tet-rank-modal .rk-card.mf-night #tet-inf-bg{ filter:brightness(.5) saturate(.85) hue-rotate(-8deg); }
+#tet-rank-modal .rk-card.mf-night #tet-inf-bg{ filter:brightness(.74) saturate(.9) hue-rotate(-6deg); }
 #tet-rank-modal .rk-card.mf-night .mf-life{
-  background:linear-gradient(180deg, rgba(8,12,34,.30) 0%, rgba(3,7,20,.42) 100%); }
+  background:linear-gradient(180deg, rgba(8,12,34,.14) 0%, rgba(3,7,20,.2) 100%); }
 #tet-rank-modal .rk-card.mf-night .mf-fireflies i{
   box-shadow:0 0 16px 6px rgba(253,230,138,.75); }
 #tet-rank-modal .rk-card.mf-night .shroom::before, #tet-rank-modal .rk-card.mf-night .shroom::after{
