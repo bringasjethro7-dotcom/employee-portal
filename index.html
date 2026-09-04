@@ -25597,7 +25597,7 @@ function loadMyRedemptions(){
     var ph=(typeof rkPhoto==='function')?rkPhoto(id):'';
     var av=ph?('<img src="'+ph+'" alt="">'):('<i>'+esc(String(bkName(id)).charAt(0).toUpperCase()||'?')+'</i>');
     var badge=r?(r.winner===id?'<b>W</b>':'<b class="l">L</b>'):'';
-    return '<div class="'+cls+'">'+av+'<span>'+esc(bkName(id))+'</span>'+badge+'</div>';
+    return '<div class="'+cls+'">'+av+'<span>'+esc(bkName(id))+beastChips(id)+'</span>'+badge+'</div>';
   }
   function bkRender(msg){
     if(!TB) return;
@@ -26215,6 +26215,21 @@ function loadMyRedemptions(){
   };
   window.tetCloseRanking=function(){ var m=el('tet-rank-modal'); if(m) m.classList.remove('open'); try{ stopInfernoAmbience(); }catch(e){} try{ stopInfernoBg(); }catch(e){} };
   function rkInitial(n){ n=String(n||'?').trim(); return (n.charAt(0)||'?').toUpperCase(); }
+  /* 🏆 BEAST TROPHIES — 🐍 slew the Anaconda, 🐺 slew the Wolf. Sourced from the ranking
+     rows (server keeps them permanent in Settings), shown beside the name everywhere:
+     player card, leaderboard, and tournament brackets — bragging rights that travel. */
+  var _BEAST_ICON={ snake:'🐍', wolf:'🐺' };
+  var _BEAST_TTL ={ snake:'Slew the Anaconda', wolf:'Slew the Wolf' };
+  function beastsOf(id){ try{
+      var k=String(id||'').toLowerCase();
+      var rows=(typeof _tetBoard!=='undefined'&&_tetBoard)||[];
+      for(var i=0;i<rows.length;i++){ if(String(rows[i].employee_id||'').toLowerCase()===k) return rows[i].beasts||[]; }
+    }catch(e){} return []; }
+  function beastChips(idOrList, big){
+    var list=Array.isArray(idOrList)?idOrList:beastsOf(idOrList);
+    if(!list||!list.length) return '';
+    return list.map(function(b){ return '<span class="beast-chip'+(big?' big':'')+'" title="'+(_BEAST_TTL[b]||b)+'">'+(_BEAST_ICON[b]||'')+'</span>'; }).join('');
+  }
   function rkAvColor(rank){ return rank===1?'linear-gradient(135deg,#ffe08a,#f59e0b)':rank===2?'linear-gradient(135deg,#e6ecf5,#9aa7bd)':'linear-gradient(135deg,#f0b98a,#c77e46)'; }
   function rkRing(rank){ return rank===1?'#f59e0b':rank===2?'#9aa7bd':rank===3?'#c77e46':'rgba(255,255,255,.14)'; }
   function rkPhoto(id){
@@ -26338,7 +26353,7 @@ function loadMyRedemptions(){
                   : (R.to_next+' ★ to Rank '+(R.rank+1)+(nextTier!==R.tier?(' · '+nextTier):''));
     host.innerHTML=av+
       '<div class="hp-main">'+
-        '<div class="hp-name">'+esc(name||'Player')+'</div>'+
+        '<div class="hp-name">'+esc(name||'Player')+((me&&me.beasts&&me.beasts.length)?(' '+beastChips(me.beasts,true)):'')+'</div>'+
         '<div class="hp-tier" style="--tc:'+rc+';"><span class="hpt-star">★</span> Rank '+R.rank+' · <b>'+esc(R.tier)+(R.god?' 👑':'')+'</b></div>'+
         // Career best — shown only when it's ABOVE the live rank, i.e. after a season reset.
         // Reaching Demi-god is a permanent fact; the ladder resetting shouldn't erase it.
@@ -27748,7 +27763,7 @@ function loadMyRedemptions(){
           av2+
           '<div style="flex:1;min-width:0;text-align:left;font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+
             medal+(p.crown?'<span class="crown" title="Reigning Grand Final champion">👑</span> ':'')+
-            esc(p.name)+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
+            esc(p.name)+beastChips(p.beasts||[])+(mine?' <span style="color:#fbbf24;font-size:9px;">(you)</span>':'')+'</div>'+
           '<div style="font-size:11px;font-weight:800;color:#e0a878;white-space:nowrap;">'+Number(PR.stars).toLocaleString()+'★</div>'+
           '<div class="rk-rank '+tierCls(PR.tier)+'"><span>'+esc(PR.tier)+'</span></div></div>';
       }).join('') : '<div style="text-align:center;color:#6b7d90;padding:8px;font-size:12px;">That\'s everyone so far — climb the ranks! 🎮</div>';
@@ -35412,6 +35427,15 @@ window.EB_UNITS_MORE3 = [
   font:900 13px Sora,Inter,sans-serif; letter-spacing:.06em; border:none; border-radius:11px; padding:10px 26px; cursor:pointer;
   box-shadow:0 8px 18px -8px rgba(232,185,58,.8); }
 @media(prefers-reduced-motion:reduce){ .tch-box,.tch-glow,#tet-chest-card,#tet-chest-card::before,#tet-chest-card::after,.tch-cta{ animation:none !important; } .tchm-wheel{ transition-duration:.6s; } }
+
+/* ── 🏆 BEAST TROPHY CHIPS — worn beside the name, everywhere ── */
+.beast-chip{ display:inline-block; margin-left:4px; font-size:.95em; line-height:1; vertical-align:-1px;
+  filter:drop-shadow(0 0 4px rgba(232,185,58,.75)); cursor:help;
+  animation:beastGlow 3s ease-in-out infinite; }
+.beast-chip.big{ font-size:1.05em; margin-left:6px; }
+@keyframes beastGlow{ 0%,100%{ filter:drop-shadow(0 0 3px rgba(232,185,58,.5)); }
+  50%{ filter:drop-shadow(0 0 8px rgba(255,213,74,.95)); } }
+@media(prefers-reduced-motion:reduce){ .beast-chip{ animation:none; } }
 
 /* ── LEAF RUSTLE + FIREFLY SPARK (spawned by JS) ── */
 .mf-rustle{ position:fixed; z-index:100000; width:13px; height:8px; pointer-events:none;
