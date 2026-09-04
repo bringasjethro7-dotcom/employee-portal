@@ -21852,7 +21852,10 @@ function loadMyRedemptions(){
       /* every line WOUNDS the snake (blind clears cut twice as deep). Kill it and the
          hunt is over: no more sweeps, no more vines — free scoring till the clock ends. */
       if(!M.snkDead){
-        var _hpWas=M.snkHP, _dmg=c*(_wizM?2.2:(_bearM?3.85:(_wolfM?2.0:1.5)))*(_wizM?1:(_blind?2:1));
+        var _hpWas=M.snkHP, _dmg;
+        if(_wizM){ _dmg=(c>=2)? c*0.9 : 0.2;                 // life DOUBLED: only sustained heavy magic brings her down
+          if(c===1) announce('🧙 "Weak magic…" — doubles or better wound him'); }
+        else { _dmg=c*(_bearM?3.85:(_wolfM?2.0:1.5))*(_blind?2:1); }
         if(_wizM){
           // rune DEFUSAL — clearing a rune's row before detonation: +3 bonus damage each
           if(M.runes&&M.runes.length){ var _defused=0;
@@ -21865,11 +21868,11 @@ function loadMyRedemptions(){
           if(M.wizShield && _nw<M.wizShield.until){
             M.wizShield.dmg+=_dmg;
             if(M.wizShield.dmg>=15){ M.wizShield=null; M.wizStun=_nw+3000; M.wizShatter={ t0:_nw, x:M.wizPos.x, y:M.wizPos.y };
-              announce('💥 SHIELD SHATTERED — 3s OF ×2 DAMAGE!','tetris');
+              announce('💥 SHIELD SHATTERED — 3s OF ×3 DAMAGE!','tetris');
               try{ sfxWizShatter(1); boardShake(8); }catch(_sh2){} _dmg*=1; }
             else { M.wizShield.hit=_nw; announce('🔮 Absorbed… '+Math.ceil(15-M.wizShield.dmg)+' more to shatter'); _dmg=0; }
           }
-          if(M.wizStun && _nw<M.wizStun && _dmg>0){ _dmg*=2; announce('😵 STUNNED — ×2 DAMAGE!','combo'); }
+          if(M.wizStun && _nw<M.wizStun && _dmg>0){ _dmg*=3; announce('😵 STUNNED — ×3 DAMAGE!','combo'); }
         }
         if(_bearM && M.guard && _nw<M.guard.until){
           var _heavy=(c>=3)||!!ts;                       // Triples, Tetrises and T-spins CRACK the guard
@@ -28638,7 +28641,7 @@ function loadMyRedemptions(){
       M.wizIntro=Date.now(); M.wizBolts=[];
       M._wcNext=Date.now()+4000; M._wsNext=Date.now()+10000;
       status('🧙 2:00 · wizard 100%');
-      announce('🧙 THE WIZARD DUELS YOU — shatter his shield to stun him!');
+      announce('🧙 THE WIZARD DUELS YOU — he shrugs off singles. Hit him BIG.');
       M.timer=setInterval(function(){ if(!M||M.ended) return; M.timeLeft--;
         if(M.timeLeft<=0){ soloEnd('time'); return; }
         var sTxt=(M.wizShield&&Date.now()<M.wizShield.until)?(' · 🔮 shield '+Math.max(0,Math.ceil(15-M.wizShield.dmg))):((M.wizStun>Date.now())?' · 😵 STUNNED ×2':'');
@@ -28652,10 +28655,15 @@ function loadMyRedemptions(){
         // SPELLCAST — polymorph, hex or runes, on one clock
         if(!M.snkDead && M.wizStun<now && now>=M._wcNext){
           M._wcLast=now;
-          M._wcNext=now+(4500+Math.random()*2000)*(enr?0.5:1);
+          M._wcNext=now+(3500+Math.random()*2000)*(enr?0.45:1);
           if(enr && Math.random()<0.5){ M._wcNext=now+900; announce('🧙 TWIN CURSE!','tspin'); }
           var spell=Math.random();
-          if(spell<0.4 && M.cur){                                   // 🔮 POLYMORPH
+          if(spell>=0.78){                                          // 🗿 STONE WAVE — survival pressure
+            announce('🗿 STONE WAVE!','tspin');
+            try{ sfxWizCast(); M.wizBolts.push({ tx:0.5, ty:0.92, t0:now, col:'#9ca3af' }); }catch(_sw){}
+            setTimeout(function(){ if(M&&!M.ended&&M.alive&&!M.snkDead){ addGarbage(2); try{ boardShake(5); }catch(_s5){} } },500);
+          }
+          else if(spell<0.3 && M.cur){                              // 🔮 POLYMORPH
             try{ var t2=TYPES[Math.floor(Math.random()*TYPES.length)];
               var keep={x:M.cur.x,y:M.cur.y};
               M.cur={ type:t2, rot:0, m:STATES[t2][0], x:keep.x, y:keep.y };
@@ -28665,7 +28673,7 @@ function loadMyRedemptions(){
               M.polyFlash=now; announce('🔮 POLYMORPHED!','tspin'); try{ sfxWizCast(); }catch(_c1){}
               try{ M.wizBolts.push({ tx:(M.cur.x+M.cur.m[0].length/2)/W, ty:(M.cur.y+1)/H, t0:now, col:'#c4b5fd' }); }catch(_b1){}
               draw(); }catch(_pm){}
-          } else if(spell<0.7){                                     // ⏳ GRAVITY HEX
+          } else if(spell<0.55){                                    // ⏳ GRAVITY HEX
             M.hexUntil=now+6000; announce('⏳ GRAVITY HEX — everything falls faster!','tspin');
             try{ M.wizBolts.push({ tx:0.5, ty:0.55, t0:now, col:'#f0abfc' }); }catch(_b2){}
             try{ sfxWizCast(); var oldMs=M.dropMs; M.dropMs=Math.max(90,Math.round(M.dropMs/2));
@@ -28686,7 +28694,7 @@ function loadMyRedemptions(){
           if(now>=RU.det){ M.runes.splice(di2,1);
             try{ if(M.grid[RU.y]&&M.grid[RU.y][RU.x]>0) M.grid[RU.y][RU.x]=8;
               var nbs=[[RU.y-1,RU.x],[RU.y,RU.x-1],[RU.y,RU.x+1],[RU.y+1,RU.x]].filter(function(q){ return M.grid[q[0]]&&M.grid[q[0]][q[1]]>0&&M.grid[q[0]][q[1]]!==8; });
-              if(nbs.length){ var nq=nbs[Math.floor(Math.random()*nbs.length)]; M.grid[nq[0]][nq[1]]=8; }
+              for(var _nb2=0;_nb2<2&&nbs.length;_nb2++){ var nq=nbs.splice(Math.floor(Math.random()*nbs.length),1)[0]; M.grid[nq[0]][nq[1]]=8; }
               announce('🕯 PETRIFIED!','tspin'); try{ boardShake(3); sfxWizShatter(0.5); }catch(_p2){}
               M.runeBursts=M.runeBursts||[]; M.runeBursts.push({ x:RU.x, y:RU.y, t0:now }); draw(); }catch(_dt2){} } } }
         // MANA SHIELD windows
@@ -28792,7 +28800,7 @@ function loadMyRedemptions(){
     } else if(r.mode==='wizardhunt'){
       hero = r.slain
         ? '<div style="font-size:12px;color:#9fb0d6;">You defeated the WIZARD in</div><div style="font-size:44px;font-weight:900;color:#c4b5fd;line-height:1.1;">'+(r.time_ms/1000).toFixed(2)+'<span style="font-size:20px;">s</span></div><div style="font-size:11.5px;color:#9fb0d6;">🧙💀 Beast Level 4 conquered — the magic dies with him</div>'
-        : '<div style="font-size:26px;font-weight:900;color:#f87171;">The wizard endures</div><div style="font-size:12.5px;color:#9fb0d6;margin-top:5px;">'+Number(r.score).toLocaleString()+' lines of damage — shatter his shield, then punish the stun.</div>';
+        : '<div style="font-size:26px;font-weight:900;color:#f87171;">The wizard endures</div><div style="font-size:12.5px;color:#9fb0d6;margin-top:5px;">'+Number(r.score).toLocaleString()+' lines — he shrugs off singles. Build doubles+, shatter the shield, punish the ×3 stun.</div>';
     } else if(r.mode==='bearhunt'){
       hero = r.slain
         ? '<div style="font-size:12px;color:#9fb0d6;">You slew the BEAR in</div><div style="font-size:44px;font-weight:900;color:#7bf5a8;line-height:1.1;">'+(r.time_ms/1000).toFixed(2)+'<span style="font-size:20px;">s</span></div><div style="font-size:11.5px;color:#9fb0d6;">🐻💀 Beast Level 3 conquered — the forest itself bows</div>'
