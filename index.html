@@ -21277,8 +21277,86 @@ function loadMyRedemptions(){
       }
     }, 110);
   }
-  function startMusic(){ stopMusic(); if(M) scheduleMusic(); }
-  function stopMusic(){ if(musicTimer){ clearInterval(musicTimer); musicTimer=null; } }
+  function startMusic(){ stopMusic(); if(!M) return;
+    if(M.mode==='snakehunt'||M.mode==='wolfhunt'){ startHuntMusic(M.mode==='wolfhunt'); return; }
+    scheduleMusic(); }
+  function stopMusic(){ if(musicTimer){ clearInterval(musicTimer); musicTimer=null; }
+    if(window._huntNodes){ window._huntNodes.forEach(function(n){ try{ if(n.stop)n.stop(); }catch(e){} try{ if(n.disconnect)n.disconnect(); }catch(e){} }); window._huntNodes=null; } }
+
+  /* ══ THE HUNT SCORE — ominous horror bed for the beast fights ══
+     Replaces the normal game music in Snake/Wolf Hunt: a low tectonic drone, a slow
+     heartbeat, dissonant minor-second string swells, tritone stabs and unsettling high
+     shimmers. The wolf's cut adds a periodic chest-rumbling GROWL and a distant HOWL.
+     Pure synthesis; every node registers in _huntNodes so stopMusic() silences it all. */
+  function startHuntMusic(wolf){
+    try{
+      var a=ac(); if(!a) return;
+      window._huntNodes=[];
+      function keep(n){ window._huntNodes.push(n); return n; }
+      var out=keep(a.createGain()); out.gain.value=.0001; out.connect(a.destination);
+      out.gain.setTargetAtTime(.5,a.currentTime,1.5);
+      // the drone — two barely-detuned saws over a sub sine, felt more than heard
+      [[55,'sawtooth',.045],[55.7,'sawtooth',.04],[27.5,'sine',.09]].forEach(function(d){
+        var o=keep(a.createOscillator()), lp=keep(a.createBiquadFilter()), g=keep(a.createGain());
+        o.type=d[1]; o.frequency.value=d[0]; lp.type='lowpass'; lp.frequency.value=170;
+        g.gain.value=d[2];
+        var lfo=keep(a.createOscillator()), lg=keep(a.createGain());
+        lfo.frequency.value=.07+Math.random()*.05; lg.gain.value=d[2]*.5;
+        lfo.connect(lg); lg.connect(g.gain); lfo.start();
+        o.connect(lp); lp.connect(g); g.connect(out); o.start(); });
+      function E(g,t,pk,at,dr){ g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(pk,t+at); g.gain.exponentialRampToValueAtTime(.0001,t+dr); }
+      function boom(t,pk){ var o=a.createOscillator(),g=a.createGain(); o.type='sine';
+        o.frequency.setValueAtTime(70,t); o.frequency.exponentialRampToValueAtTime(32,t+.3);
+        E(g,t,pk,.005,.5); o.connect(g); g.connect(out); o.start(t); o.stop(t+.6); }
+      function swell(t,f,pk,dur){ [0,1.03].forEach(function(det,i){   // minor-second dissonance
+        var o=a.createOscillator(),g=a.createGain(),lp=a.createBiquadFilter();
+        o.type='sawtooth'; o.frequency.value=f*(i?1.0595:1); lp.type='lowpass'; lp.frequency.value=900;
+        g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(pk/(1+i),t+dur*.6);
+        g.gain.setTargetAtTime(.0001,t+dur*.85,.4);
+        o.connect(lp); lp.connect(g); g.connect(out); o.start(t); o.stop(t+dur+1); }); }
+      function stab(t){ [110,155.6].forEach(function(f){               // the tritone — dread itself
+        var o=a.createOscillator(),g=a.createGain(),lp=a.createBiquadFilter();
+        o.type='square'; o.frequency.value=f; lp.type='lowpass'; lp.frequency.value=500;
+        E(g,t,.09,.01,1.1); o.connect(lp); lp.connect(g); g.connect(out); o.start(t); o.stop(t+1.2); }); }
+      function shimmer(t){ [1244,1318].forEach(function(f,i){          // high, wrong, too close together
+        var o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.value=f;
+        g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(.022,t+1.4);
+        g.gain.setTargetAtTime(.0001,t+2.2,.6); o.connect(g); g.connect(out); o.start(t); o.stop(t+3.4); }); }
+      var bar=0;
+      musicTimer=setInterval(function(){
+        if(!M||M.ended){ stopMusic(); return; }
+        try{ var t=a.currentTime+.05;
+          boom(t,.5); boom(t+.32,.3);                                  // the heartbeat, every 2s
+          if(bar%2===0) swell(t+.5, bar%8<4?98:92.5, .05, 2.2);        // shifting semitone = tragic pull
+          if(bar%4===3) stab(t+1.1);
+          if(bar%6===5) shimmer(t+.3);
+          if(wolf && bar%5===4) sfxWolfGrowl(t+.7);
+          if(wolf && bar%11===9) sfxWolfHowl(t+.4);
+          bar++; }catch(_h){}
+      },2000);
+    }catch(e){}
+  }
+  // ── WOLF VOICE ──
+  function sfxWolfGrowl(when){ try{ var a=ac(); var t=(when!=null?when:a.currentTime+.02);
+    var o=a.createOscillator(),lp=a.createBiquadFilter(),g=a.createGain();
+    o.type='sawtooth'; o.frequency.setValueAtTime(58,t); o.frequency.linearRampToValueAtTime(46,t+1.1);
+    lp.type='lowpass'; lp.frequency.value=240;
+    var trem=a.createOscillator(),tg=a.createGain(); trem.type='sine'; trem.frequency.value=26; tg.gain.value=.06;
+    trem.connect(tg); tg.connect(g.gain); trem.start(t); trem.stop(t+1.3);
+    g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(.14,t+.12); g.gain.exponentialRampToValueAtTime(.0001,t+1.25);
+    o.connect(lp); lp.connect(g); g.connect(a.destination); o.start(t); o.stop(t+1.3); }catch(e){} }
+  function sfxWolfHowl(when){ try{ var a=ac(); var t=(when!=null?when:a.currentTime+.02);
+    var o=a.createOscillator(),g=a.createGain(),lp=a.createBiquadFilter();
+    o.type='sine'; lp.type='lowpass'; lp.frequency.value=1400;
+    o.frequency.setValueAtTime(310,t);
+    o.frequency.exponentialRampToValueAtTime(520,t+.55);               // rise…
+    o.frequency.setValueAtTime(520,t+1.1);
+    o.frequency.exponentialRampToValueAtTime(300,t+2.1);               // …and the mournful fall
+    var vib=a.createOscillator(),vg=a.createGain(); vib.type='sine'; vib.frequency.value=5.5; vg.gain.value=7;
+    vib.connect(vg); vg.connect(o.frequency); vib.start(t); vib.stop(t+2.2);
+    g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(.11,t+.4);
+    g.gain.setValueAtTime(.11,t+1.2); g.gain.exponentialRampToValueAtTime(.0001,t+2.2);
+    o.connect(lp); lp.connect(g); g.connect(a.destination); o.start(t); o.stop(t+2.3); }catch(e){} }
 
   function eid(){ try{ return chatEmpId||''; }catch(e){ return ''; } }
   function ename(){ try{ return chatEmpName||''; }catch(e){ return ''; } }
@@ -21731,7 +21809,7 @@ function loadMyRedemptions(){
       /* every line WOUNDS the snake (blind clears cut twice as deep). Kill it and the
          hunt is over: no more sweeps, no more vines — free scoring till the clock ends. */
       if(!M.snkDead){
-        var _hpWas=M.snkHP, _dmg=c*(_wolfM?1.2:1.5)*(_blind?2:1);   // apex monsters; the wolf is tougher still
+        var _hpWas=M.snkHP, _dmg=c*(_wolfM?1.6:1.5)*(_blind?2:1);   // wolf life = 75% of its first cut: ~62 clean lines (31 blind) fells it
         M.snkHP=Math.max(0, M.snkHP - _dmg);                 // tougher beast: ~40 clean lines (or 20 blind) to slay
         // ── HIT FX: the snake takes the blow — flash, sap burst, damage number, wince ──
         M.snkHits=M.snkHits||[];
@@ -23804,13 +23882,29 @@ function loadMyRedemptions(){
         } else if(nwf<WF.t0+WF.dur){                     // ── the pounce ──
           var pp=(nwf-WF.t0)/WF.dur, lunge=Math.sin(Math.min(1,pp*1.4)*Math.PI);
           ctx.save();
-          var fg5=ctx.createLinearGradient(Q.x,Q.y,Q.x,Q.y+Q.h);
-          fg5.addColorStop(0,'#2a2d38'); fg5.addColorStop(.5,'#181b24'); fg5.addColorStop(1,'#0b0d14');
-          ctx.globalAlpha=Math.min(1,lunge*1.6);
-          ctx.fillStyle=fg5; ctx.fillRect(Q.x,Q.y,Q.w,Q.h);
-          // fur texture — quick strokes
-          ctx.strokeStyle='rgba(90,96,116,.35)'; ctx.lineWidth=Math.max(1,cs*0.05); ctx.lineCap='round';
-          for(var fu=0;fu<10;fu++){ var fx5=Q.x+((fu*73)%100)/100*Q.w, fy5=Q.y+((fu*37)%100)/100*Q.h;
+          /* ORGANIC SHADOW-MASS — no hard rectangle. A feathered radial dark blob centred on
+             the quadrant, ringed with fur spikes, breathing with the lunge. */
+          var qcx=Q.x+Q.w*0.5, qcy=Q.y+Q.h*0.5;
+          var rX=Q.w*0.72*(0.8+0.2*lunge), rY=Q.h*0.72*(0.8+0.2*lunge);
+          ctx.globalAlpha=Math.min(1,lunge*1.5);
+          var fg5=ctx.createRadialGradient(qcx,qcy,0,qcx,qcy,Math.max(rX,rY));
+          fg5.addColorStop(0,'rgba(16,18,26,.99)'); fg5.addColorStop(.55,'rgba(20,23,32,.96)');
+          fg5.addColorStop(.82,'rgba(20,23,32,.6)'); fg5.addColorStop(1,'rgba(20,23,32,0)');
+          ctx.save(); ctx.translate(qcx,qcy); ctx.scale(rX/Math.max(rX,rY), rY/Math.max(rX,rY)); ctx.translate(-qcx,-qcy);
+          ctx.fillStyle=fg5;
+          ctx.fillRect(qcx-Math.max(rX,rY)*1.05,qcy-Math.max(rX,rY)*1.05,Math.max(rX,rY)*2.1,Math.max(rX,rY)*2.1);
+          ctx.restore();
+          // ragged FUR RIM — triangular tufts bristling around the mass edge
+          ctx.fillStyle='rgba(20,23,32,'+(0.85*Math.min(1,lunge*1.5))+')';
+          for(var tf2=0;tf2<22;tf2++){ var ta=tf2/22*6.283, tj=((tf2*37)%7)/7;
+            var bxT=qcx+Math.cos(ta)*rX*0.86, byT=qcy+Math.sin(ta)*rY*0.86;
+            var txT=qcx+Math.cos(ta+0.06)*rX*(1.0+tj*0.14), tyT=qcy+Math.sin(ta+0.06)*rY*(1.0+tj*0.14);
+            var pxT=qcx+Math.cos(ta+0.13)*rX*0.84, pyT=qcy+Math.sin(ta+0.13)*rY*0.84;
+            ctx.beginPath(); ctx.moveTo(bxT,byT); ctx.lineTo(txT,tyT); ctx.lineTo(pxT,pyT); ctx.closePath(); ctx.fill(); }
+          // fur texture — quick strokes inside the mass
+          ctx.strokeStyle='rgba(90,96,116,.3)'; ctx.lineWidth=Math.max(1,cs*0.05); ctx.lineCap='round';
+          for(var fu=0;fu<10;fu++){ var fa=((fu*73)%100)/100*6.283, fr2=((fu*37)%100)/100*0.7;
+            var fx5=qcx+Math.cos(fa)*rX*fr2, fy5=qcy+Math.sin(fa)*rY*fr2;
             ctx.beginPath(); ctx.moveTo(fx5,fy5); ctx.lineTo(fx5+cs*0.6,fy5+cs*0.25); ctx.stroke(); }
           // the head silhouette lunging in from the quadrant's outer corner
           var hx5=Q.x+Q.w*0.5, hy5=Q.y+Q.h*(0.3+0.14*lunge), hs=Math.min(Q.w,Q.h)*0.42*(0.7+0.3*lunge);
@@ -23835,23 +23929,34 @@ function loadMyRedemptions(){
           ctx.fillStyle='#e8e4da';
           ctx.beginPath(); ctx.moveTo(hx5-hs*0.12,hy5+hs*0.42); ctx.lineTo(hx5-hs*0.07,hy5+hs*0.56); ctx.lineTo(hx5-hs*0.02,hy5+hs*0.42); ctx.closePath(); ctx.fill();
           ctx.beginPath(); ctx.moveTo(hx5+hs*0.12,hy5+hs*0.42); ctx.lineTo(hx5+hs*0.07,hy5+hs*0.56); ctx.lineTo(hx5+hs*0.02,hy5+hs*0.42); ctx.closePath(); ctx.fill();
-          // claw slashes raking the quadrant
-          ctx.strokeStyle='rgba(220,225,235,.5)'; ctx.lineWidth=Math.max(1.5,cs*0.09);
-          for(var cl2=0;cl2<3;cl2++){ var cx5=Q.x+Q.w*(0.2+cl2*0.12)+lunge*Q.w*0.2;
-            ctx.beginPath(); ctx.moveTo(cx5,Q.y+Q.h*0.15); ctx.lineTo(cx5+Q.w*0.16,Q.y+Q.h*0.85); ctx.stroke(); }
+          // claw slashes — gradient strokes that fade at both ends (no hard tips)
+          for(var cl2=0;cl2<3;cl2++){ var cx5=qcx-rX*0.35+cl2*rX*0.18+lunge*rX*0.24;
+            var cgr=ctx.createLinearGradient(cx5,qcy-rY*0.6,cx5+rX*0.24,qcy+rY*0.6);
+            cgr.addColorStop(0,'rgba(220,225,235,0)'); cgr.addColorStop(.5,'rgba(220,225,235,.55)'); cgr.addColorStop(1,'rgba(220,225,235,0)');
+            ctx.strokeStyle=cgr; ctx.lineWidth=Math.max(1.5,cs*0.09); ctx.lineCap='round';
+            ctx.beginPath(); ctx.moveTo(cx5,qcy-rY*0.6); ctx.lineTo(cx5+rX*0.24,qcy+rY*0.6); ctx.stroke(); }
           ctx.restore();
         } }
       if(M.pack){ var PK=M.pack, pp2=(nwf-PK.t0)/PK.dur;
         if(pp2>0&&pp2<1){ ctx.save();
           PK.rows.forEach(function(rf,ri2){
-            var py5=rf*cv.height, ph5=cv.height*0.09;
+            var py5=rf*cv.height, ph5=cv.height*0.085;
             var px5=(PK.dirs[ri2]>0? -cv.width*0.35+pp2*cv.width*1.7 : cv.width*1.35-pp2*cv.width*1.7);
-            var grd=ctx.createLinearGradient(px5-cv.width*0.3,0,px5+cv.width*0.08,0);
-            grd.addColorStop(0,'rgba(18,20,28,0)'); grd.addColorStop(.75,'rgba(18,20,28,.95)'); grd.addColorStop(1,'rgba(18,20,28,.95)');
-            ctx.fillStyle=grd; ctx.fillRect(px5-cv.width*0.3,py5-ph5/2,cv.width*0.38,ph5);
-            ctx.fillStyle='#fde047';
-            ctx.beginPath(); ctx.arc(px5+cv.width*0.05*PK.dirs[ri2],py5-ph5*0.12,cs*0.08,0,6.283); ctx.fill();
-            ctx.beginPath(); ctx.arc(px5+cv.width*0.05*PK.dirs[ri2],py5+ph5*0.14,cs*0.08,0,6.283); ctx.fill();
+            // a soft speed-blurred body: radial ellipse, dense at the head, trailing to nothing
+            var grd=ctx.createRadialGradient(px5,py5,0,px5,py5,cv.width*0.26);
+            grd.addColorStop(0,'rgba(18,20,28,.96)'); grd.addColorStop(.4,'rgba(18,20,28,.75)'); grd.addColorStop(1,'rgba(18,20,28,0)');
+            ctx.save(); ctx.translate(px5,py5); ctx.scale(1,ph5/(cv.width*0.26)); ctx.translate(-px5,-py5);
+            ctx.fillStyle=grd; ctx.fillRect(px5-cv.width*0.3,py5-cv.width*0.3,cv.width*0.6,cv.width*0.6);
+            ctx.restore();
+            // motion streaks behind it
+            ctx.strokeStyle='rgba(60,66,84,.4)'; ctx.lineWidth=Math.max(1,cs*0.06); ctx.lineCap='round';
+            for(var mk2=0;mk2<3;mk2++){ var sy5=py5+(mk2-1)*ph5*0.3;
+              ctx.beginPath(); ctx.moveTo(px5-PK.dirs[ri2]*cv.width*0.08,sy5);
+              ctx.lineTo(px5-PK.dirs[ri2]*cv.width*0.24,sy5); ctx.stroke(); }
+            ctx.fillStyle='#fde047'; ctx.shadowColor='#fde047'; ctx.shadowBlur=8;
+            ctx.beginPath(); ctx.arc(px5+cv.width*0.05*PK.dirs[ri2],py5-ph5*0.14,cs*0.08,0,6.283); ctx.fill();
+            ctx.beginPath(); ctx.arc(px5+cv.width*0.05*PK.dirs[ri2],py5+ph5*0.16,cs*0.08,0,6.283); ctx.fill();
+            ctx.shadowBlur=0;
           });
           ctx.restore(); } }
     }catch(_wdr){ try{ ctx.restore(); }catch(_r2){} }
@@ -27980,9 +28085,10 @@ function loadMyRedemptions(){
         var now=Date.now(), enr=(!M.snkDead && M.snkHP<=50);
         // regen while its body is on the board — faster than the snake's
         if(!M.snkDead && M.snkHP>0 && M.wolf && now>M.wolf.t0 && now<M.wolf.t0+M.wolf.dur){
-          M.snkHP=Math.min(100, M.snkHP+0.15); }
+          M.snkHP=Math.min(100, M.snkHP+0.08); }
         if(!M.snkDead && !M.wolf && now>=M._wNext){
           M.wolf={ t0:now+320, dur:750+Math.random()*250, quad:Math.floor(Math.random()*4) };   // 0.32s glint, then the strike
+          try{ sfxWolfGrowl(); }catch(_gr){}
           M._wNext=now+320+M.wolf.dur+(3200+Math.random()*1400)*(enr?0.55:1);
           try{ boardShake(2); }catch(_b){}
         }
@@ -27999,7 +28105,7 @@ function loadMyRedemptions(){
         }
         if(!M.snkDead && now>=M._howlAt){
           M._howlAt=now+(17000+Math.random()*5000)*(enr?0.6:1);
-          announce('🐺 AWOOOO — THE PACK!','combo');
+          announce('🐺 AWOOOO — THE PACK!','combo'); try{ sfxWolfHowl(); }catch(_hw){}
           M.pack={ t0:now, dur:950, rows:[0.15+Math.random()*0.2, 0.42+Math.random()*0.16, 0.68+Math.random()*0.2],
                    dirs:[Math.random()<0.5?1:-1, Math.random()<0.5?1:-1, Math.random()<0.5?1:-1] };
         }
