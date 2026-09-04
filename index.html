@@ -21852,7 +21852,7 @@ function loadMyRedemptions(){
       /* every line WOUNDS the snake (blind clears cut twice as deep). Kill it and the
          hunt is over: no more sweeps, no more vines — free scoring till the clock ends. */
       if(!M.snkDead){
-        var _hpWas=M.snkHP, _dmg=c*(_wizM?3.5:(_bearM?3.85:(_wolfM?2.0:1.5)))*(_wizM?1:(_blind?2:1));
+        var _hpWas=M.snkHP, _dmg=c*(_wizM?2.2:(_bearM?3.85:(_wolfM?2.0:1.5)))*(_wizM?1:(_blind?2:1));
         if(_wizM){
           // rune DEFUSAL — clearing a rune's row before detonation: +3 bonus damage each
           if(M.runes&&M.runes.length){ var _defused=0;
@@ -21864,10 +21864,10 @@ function loadMyRedemptions(){
           // shield absorbs — unless you SHATTER it
           if(M.wizShield && _nw<M.wizShield.until){
             M.wizShield.dmg+=_dmg;
-            if(M.wizShield.dmg>=12){ M.wizShield=null; M.wizStun=_nw+4000; M.wizShatter={ t0:_nw, x:M.wizPos.x, y:M.wizPos.y };
-              announce('💥 SHIELD SHATTERED — HE IS STUNNED! ×2!','tetris');
+            if(M.wizShield.dmg>=15){ M.wizShield=null; M.wizStun=_nw+3000; M.wizShatter={ t0:_nw, x:M.wizPos.x, y:M.wizPos.y };
+              announce('💥 SHIELD SHATTERED — 3s OF ×2 DAMAGE!','tetris');
               try{ sfxWizShatter(1); boardShake(8); }catch(_sh2){} _dmg*=1; }
-            else { M.wizShield.hit=_nw; announce('🔮 Absorbed… '+Math.ceil(12-M.wizShield.dmg)+' more to shatter'); _dmg=0; }
+            else { M.wizShield.hit=_nw; announce('🔮 Absorbed… '+Math.ceil(15-M.wizShield.dmg)+' more to shatter'); _dmg=0; }
           }
           if(M.wizStun && _nw<M.wizStun && _dmg>0){ _dmg*=2; announce('😵 STUNNED — ×2 DAMAGE!','combo'); }
         }
@@ -28641,7 +28641,7 @@ function loadMyRedemptions(){
       announce('🧙 THE WIZARD DUELS YOU — shatter his shield to stun him!');
       M.timer=setInterval(function(){ if(!M||M.ended) return; M.timeLeft--;
         if(M.timeLeft<=0){ soloEnd('time'); return; }
-        var sTxt=(M.wizShield&&Date.now()<M.wizShield.until)?(' · 🔮 shield '+Math.max(0,Math.ceil(12-M.wizShield.dmg))):((M.wizStun>Date.now())?' · 😵 STUNNED ×2':'');
+        var sTxt=(M.wizShield&&Date.now()<M.wizShield.until)?(' · 🔮 shield '+Math.max(0,Math.ceil(15-M.wizShield.dmg))):((M.wizStun>Date.now())?' · 😵 STUNNED ×2':'');
         status((M.snkDead?'💀 WIZARD SLAIN · ':'🧙 ')+fmtT(M.timeLeft)+' · '+(M.lines||0)+' lines'+(M.snkDead?'':(' · wizard '+Math.max(0,Math.round(M.snkHP))+'%'+sTxt)));
         if(M.timeLeft<=10) sfxUrgent(M.timeLeft); }, 1000);
       M.snkTimer=setInterval(function(){ if(!M||M.ended) return;
@@ -28652,7 +28652,8 @@ function loadMyRedemptions(){
         // SPELLCAST — polymorph, hex or runes, on one clock
         if(!M.snkDead && M.wizStun<now && now>=M._wcNext){
           M._wcLast=now;
-          M._wcNext=now+(6500+Math.random()*2500)*(enr?0.55:1);
+          M._wcNext=now+(4500+Math.random()*2000)*(enr?0.5:1);
+          if(enr && Math.random()<0.5){ M._wcNext=now+900; announce('🧙 TWIN CURSE!','tspin'); }
           var spell=Math.random();
           if(spell<0.4 && M.cur){                                   // 🔮 POLYMORPH
             try{ var t2=TYPES[Math.floor(Math.random()*TYPES.length)];
@@ -28665,17 +28666,17 @@ function loadMyRedemptions(){
               try{ M.wizBolts.push({ tx:(M.cur.x+M.cur.m[0].length/2)/W, ty:(M.cur.y+1)/H, t0:now, col:'#c4b5fd' }); }catch(_b1){}
               draw(); }catch(_pm){}
           } else if(spell<0.7){                                     // ⏳ GRAVITY HEX
-            M.hexUntil=now+5000; announce('⏳ GRAVITY HEX — everything falls faster!','tspin');
+            M.hexUntil=now+6000; announce('⏳ GRAVITY HEX — everything falls faster!','tspin');
             try{ M.wizBolts.push({ tx:0.5, ty:0.55, t0:now, col:'#f0abfc' }); }catch(_b2){}
             try{ sfxWizCast(); var oldMs=M.dropMs; M.dropMs=Math.max(90,Math.round(M.dropMs/2));
               clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs);
-              setTimeout(function(){ if(M&&!M.ended&&M.loop){ M.dropMs=oldMs; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); } },5000); }catch(_hx){}
+              setTimeout(function(){ if(M&&!M.ended&&M.loop){ M.dropMs=oldMs; clearInterval(M.loop); M.loop=setInterval(tick,M.dropMs); } },6000); }catch(_hx){}
           } else {                                                  // 🕯 ARCANE RUNES
             try{ var cands=[];
               for(var ry=3;ry<H;ry++)for(var rx=0;rx<W;rx++){ if(M.grid[ry][rx]>0) cands.push([ry,rx]); }
-              var nR=Math.min(3,cands.length);
+              var nR=Math.min(4,cands.length);
               for(var rn=0;rn<nR;rn++){ var pk2=cands.splice(Math.floor(Math.random()*cands.length),1)[0];
-                M.runes.push({ y:pk2[0], x:pk2[1], det:now+6000 });
+                M.runes.push({ y:pk2[0], x:pk2[1], det:now+5000 });
                 try{ M.wizBolts.push({ tx:(pk2[1]+0.5)/W, ty:(pk2[0]+0.5)/H, t0:now+rn*120, col:'#a855f7' }); }catch(_b3){} }
               if(nR){ announce('🕯 ARCANE RUNES — clear their rows or they turn to stone!','tspin'); try{ sfxWizCast(); }catch(_c2){} } }catch(_rn){}
           }
@@ -28691,7 +28692,7 @@ function loadMyRedemptions(){
         // MANA SHIELD windows
         if(!M.snkDead && M.wizStun<now && !M.wizShield && now>=M._wsNext){
           M.wizShield={ until:now+8000, dmg:0 };
-          M._wsNext=now+8000+(12000+Math.random()*5000)*(enr?0.7:1);
+          M._wsNext=now+8000+(8000+Math.random()*4000)*(enr?0.6:1);
           announce('🔮 MANA SHIELD — pour 12 damage in to SHATTER it!');
         }
         if(M.wizShield && now>=M.wizShield.until){ M.wizShield=null; }
