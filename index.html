@@ -19139,6 +19139,7 @@ function loadMyRedemptions(){
   #tet-solo-modal .solo-card:hover{ transform:translateY(-3px); border-color:rgba(134,239,172,.7); box-shadow:0 16px 34px -16px rgba(74,200,110,.7); }
   #tet-solo-modal .solo-card .hi{ width:40px; height:40px; border-radius:11px; background:rgba(74,222,128,.16); color:#6ee7a0; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
   #tet-solo-modal .solo-card .hi svg{ width:20px; height:20px; }
+  #tet-solo-modal .solo-card.locked{ opacity:.55; filter:grayscale(.5); cursor:not-allowed; }
   #tet-solo-modal .solo-card small{ display:block; font-size:11px; font-weight:500; color:#93c29f; margin-top:2px; }
 
   /* ══════════════════ TRIVIA CHAMPIONS — its own identity ══════════════════
@@ -21411,7 +21412,7 @@ function loadMyRedemptions(){
       if(e0<DUR && alive){ _confRAF=requestAnimationFrame(frame); } else { ctx.clearRect(0,0,w,h); cv.style.display='none'; _confRAF=null; }
     })(performance.now());
   }
-  var SOLO_MODES=['sprint','ultra','combo','cheese','overgrow','snakehunt'];
+  var SOLO_MODES=['sprint','ultra','combo','cheese','overgrow','snakehunt','wolfhunt'];
   function isSolo(m){ return SOLO_MODES.indexOf(m)>=0; }
   window.tetrisQuit=function(){
     if(M && M.playing && !M.ended){
@@ -21723,13 +21724,14 @@ function loadMyRedemptions(){
        vine/garbage cells (value 8) — digging out the forest keeps you alive but pays nothing. */
     /* 🐍 BLIND CLEAR ×2 — clearing lines while a snake is crossing pays double: every
        such line adds one bonus line to the score. Courage is worth points. */
-    if(M.mode==='snakehunt' && c>0){ var _nw=Date.now();
-      var _blind=(M.snk&&_nw>M.snk.t0&&_nw<M.snk.t0+M.snk.dur)||(M.snk2&&_nw>M.snk2.t0&&_nw<M.snk2.t0+M.snk2.dur);
-      if(_blind){ M.blindBonus=(M.blindBonus||0)+c; announce('🐍 BLIND CLEAR ×2!','combo'); try{ sfxCombo(5); }catch(_bc){} }
+    if((M.mode==='snakehunt'||M.mode==='wolfhunt') && c>0){ var _nw=Date.now(), _wolfM=(M.mode==='wolfhunt');
+      var _blind=(M.snk&&_nw>M.snk.t0&&_nw<M.snk.t0+M.snk.dur)||(M.snk2&&_nw>M.snk2.t0&&_nw<M.snk2.t0+M.snk2.dur)
+              ||(M.wolf&&_nw>M.wolf.t0&&_nw<M.wolf.t0+M.wolf.dur)||(M.pack&&_nw>M.pack.t0&&_nw<M.pack.t0+M.pack.dur);
+      if(_blind){ M.blindBonus=(M.blindBonus||0)+c; announce((_wolfM?'🐺':'🐍')+' BLIND CLEAR ×2!','combo'); try{ sfxCombo(5); }catch(_bc){} }
       /* every line WOUNDS the snake (blind clears cut twice as deep). Kill it and the
          hunt is over: no more sweeps, no more vines — free scoring till the clock ends. */
       if(!M.snkDead){
-        var _hpWas=M.snkHP, _dmg=c*1.5*(_blind?2:1);   // an APEX monster: ~67 clean lines (34 blind) to slay
+        var _hpWas=M.snkHP, _dmg=c*(_wolfM?1.2:1.5)*(_blind?2:1);   // apex monsters; the wolf is tougher still
         M.snkHP=Math.max(0, M.snkHP - _dmg);                 // tougher beast: ~40 clean lines (or 20 blind) to slay
         // ── HIT FX: the snake takes the blow — flash, sap burst, damage number, wince ──
         M.snkHits=M.snkHits||[];
@@ -21740,12 +21742,14 @@ function loadMyRedemptions(){
           _oH.frequency.exponentialRampToValueAtTime(60,_aH.currentTime+.12);
           _gH.gain.setValueAtTime(.35,_aH.currentTime); _gH.gain.exponentialRampToValueAtTime(.0001,_aH.currentTime+.16);
           _oH.connect(_gH); _gH.connect(_aH.destination); _oH.start(); _oH.stop(_aH.currentTime+.2); }catch(_ht){}
-        if(M.snkHP<=0){ M.snkDead=true; M.snk=null; M.snk2=null;
+        if(M.snkHP<=0){ M.snkDead=true; M.snk=null; M.snk2=null; M.wolf=null; M.pack=null;
           M.snkSlayMs=Date.now()-(M._t0||Date.now());          // THE score: how fast you slew it
+          if(!_wolfM){ try{ localStorage.setItem('mfWolfUnlocked','1'); }catch(_lu){}
+            setTimeout(function(){ try{ showToast('🐺 BEAST LEVEL 2 UNLOCKED — the Wolf awaits in Solo Arcade.'); }catch(_tw){} },2800); }
           setTimeout(function(){ if(M&&!M.ended) soloEnd('slain'); },2600);   // savor the kill, then the board
           // ── DEATH FX: convulsion, dissolve, banner — the board remembers this moment ──
           M.snkDeath={ t0:Date.now() };
-          announce('💀 THE SNAKE IS SLAIN!','tetris'); try{ sfxWin(); tetConfetti({count:220,dur:3200}); }catch(_sl){}
+          announce(_wolfM?'💀 THE WOLF IS SLAIN!':'💀 THE SNAKE IS SLAIN!','tetris'); try{ sfxWin(); tetConfetti({count:220,dur:3200}); }catch(_sl){}
           try{ var _aD=ac(), _tD=_aD.currentTime;
             var _oD=_aD.createOscillator(), _gD=_aD.createGain();                  // death BOOM
             _oD.type='sine'; _oD.frequency.setValueAtTime(130,_tD); _oD.frequency.exponentialRampToValueAtTime(30,_tD+.7);
@@ -21759,12 +21763,12 @@ function loadMyRedemptions(){
             var _gS=_aD.createGain(); _gS.gain.value=.18;
             _sr.connect(_bp); _bp.connect(_gS); _gS.connect(_aD.destination); _sr.start(_tD); }catch(_da){}
           try{ boardShake(8); }catch(_bd){} }
-        else if(_hpWas>66&&M.snkHP<=66){ announce('🐍 The snake weakens…'); }
-        else if(_hpWas>33&&M.snkHP<=33){ announce('🐍 THE SNAKE IS WOUNDED!'); }
+        else if(_hpWas>66&&M.snkHP<=66){ announce(_wolfM?'🐺 The wolf staggers…':'🐍 The snake weakens…'); }
+        else if(_hpWas>33&&M.snkHP<=33){ announce(_wolfM?'🐺 THE WOLF IS BLEEDING!':'🐍 THE SNAKE IS WOUNDED!'); }
         /* DEATH THROES — at 10% the dying snake thrashes and hurls FIVE rows of vines
            in one convulsion. The kill is right there… if you survive the tantrum. */
         else if(_hpWas>10&&M.snkHP<=10&&M.snkHP>0){
-          announce('🐍 DEATH THROES!','tspin'); try{ boardShake(5); }catch(_dt){}
+          announce(_wolfM?'🐺 THE PACK FRENZIES!':'🐍 DEATH THROES!','tspin'); try{ boardShake(5); }catch(_dt){}
           setTimeout(function(){ if(M&&!M.ended&&M.alive&&!M.snkDead){ addGarbage(5); try{ updateIncoming(); }catch(_ui){} draw(); } },350); }
       } }
     if(M.mode==='overgrow' && c>0){ var _rl=0;
@@ -21980,7 +21984,7 @@ function loadMyRedemptions(){
   window.tetRelease=function(a){ if(a==='left'||a==='right'||a==='down') stopRepeat(a); };
   window.tetKey=window.tetHold;   // back-compat
   // ── Pause / Restart (solo modes only — never a live match) ──
-  var SOLO_MODES=['sprint','ultra','combo','cheese','overgrow','snakehunt','daily'];
+  var SOLO_MODES=['sprint','ultra','combo','cheese','overgrow','snakehunt','wolfhunt','daily'];
   function _isSoloMode(){ return M && SOLO_MODES.indexOf(M.mode)>=0; }
   function _tetPauseNow(){
     if(!M||!M.alive) return; M.paused=true;
@@ -22094,7 +22098,7 @@ function loadMyRedemptions(){
     if(!M.alive) return; M.alive=false;
     if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='combo'){ soloEnd('topout'); return; }   // solo run ends on top-out
 
-    if(M.mode==='cheese'||M.mode==='survival'||M.mode==='overgrow'||M.mode==='snakehunt'){ soloEnd('topout'); return; }
+    if(M.mode==='cheese'||M.mode==='survival'||M.mode==='overgrow'||M.mode==='snakehunt'||M.mode==='wolfhunt'){ soloEnd('topout'); return; }
     boardHit(); koStamp();   // shake + KO stamp on my board
     M.kos=(M.kos||0)+1; M.myKos=M.kos; updateKoDisplay();
     var elim=(M.kos>=koMax());
@@ -22208,7 +22212,7 @@ function loadMyRedemptions(){
 
   // ── Networking: broadcast my board so the opponent can watch ──
   function sendAttack(n){
-    if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='cheese'||M.mode==='overgrow'||M.mode==='snakehunt'||M.mode==='survival'||M.mode==='ration') return;   // solo modes have no opponent
+    if(M.mode==='sprint'||M.mode==='ultra'||M.mode==='cheese'||M.mode==='overgrow'||M.mode==='snakehunt'||M.mode==='wolfhunt'||M.mode==='survival'||M.mode==='ration') return;   // solo modes have no opponent
     attackPop(n);   // green "＋N SENT" pop on my board
     if(M.mode==='training'){ if(BOT){ BOT.pending+=n; } tetThrowGarbage(n, el('tet-opp')); return; }
     if(M.mode==='tourney'){
@@ -23780,8 +23784,79 @@ function loadMyRedemptions(){
           ctx.restore();
         }
       } }); }catch(_snx){ try{ ctx.restore(); }catch(_r1){} }
+    // 🐺 THE WOLF — eye-glint warning, then a fur-dark POUNCE covering a quadrant of the
+    // board with a lunging silhouette, glowing eyes and claw slashes. Howls send THE PACK:
+    // three lean shapes sprinting across at once. All cheap fills — no per-frame sprites needed.
+    if(M.mode==='wolfhunt') try{
+      var nwf=Date.now();
+      function quadRect(q){ return { x:(q%2)?cv.width/2:0, y:(q>1)?cv.height/2:0, w:cv.width/2, h:cv.height/2 }; }
+      if(M.wolf){ var WF=M.wolf, Q=quadRect(WF.quad);
+        if(nwf<WF.t0){                                   // ── the glint ──
+          var gAl=Math.sin(nwf/50)>0?1:.35;
+          ctx.save(); ctx.globalAlpha=gAl;
+          var ex4=Q.x+Q.w*0.5, ey4=Q.y+Q.h*0.42;
+          [[-1,0],[1,0]].forEach(function(o2){
+            ctx.fillStyle='#fde047'; ctx.beginPath();
+            ctx.ellipse(ex4+o2[0]*cs*0.55,ey4,cs*0.3,cs*0.16,o2[0]*0.35,0,6.283); ctx.fill();
+            ctx.fillStyle='#1a1208'; ctx.beginPath();
+            ctx.ellipse(ex4+o2[0]*cs*0.55,ey4,cs*0.09,cs*0.14,0,0,6.283); ctx.fill(); });
+          ctx.restore();
+        } else if(nwf<WF.t0+WF.dur){                     // ── the pounce ──
+          var pp=(nwf-WF.t0)/WF.dur, lunge=Math.sin(Math.min(1,pp*1.4)*Math.PI);
+          ctx.save();
+          var fg5=ctx.createLinearGradient(Q.x,Q.y,Q.x,Q.y+Q.h);
+          fg5.addColorStop(0,'#2a2d38'); fg5.addColorStop(.5,'#181b24'); fg5.addColorStop(1,'#0b0d14');
+          ctx.globalAlpha=Math.min(1,lunge*1.6);
+          ctx.fillStyle=fg5; ctx.fillRect(Q.x,Q.y,Q.w,Q.h);
+          // fur texture — quick strokes
+          ctx.strokeStyle='rgba(90,96,116,.35)'; ctx.lineWidth=Math.max(1,cs*0.05); ctx.lineCap='round';
+          for(var fu=0;fu<10;fu++){ var fx5=Q.x+((fu*73)%100)/100*Q.w, fy5=Q.y+((fu*37)%100)/100*Q.h;
+            ctx.beginPath(); ctx.moveTo(fx5,fy5); ctx.lineTo(fx5+cs*0.6,fy5+cs*0.25); ctx.stroke(); }
+          // the head silhouette lunging in from the quadrant's outer corner
+          var hx5=Q.x+Q.w*0.5, hy5=Q.y+Q.h*(0.3+0.14*lunge), hs=Math.min(Q.w,Q.h)*0.42*(0.7+0.3*lunge);
+          ctx.fillStyle='#12141c';
+          ctx.beginPath();
+          ctx.moveTo(hx5-hs*0.55,hy5-hs*0.5);            // left ear
+          ctx.lineTo(hx5-hs*0.32,hy5-hs*0.05);
+          ctx.lineTo(hx5-hs*0.5,hy5+hs*0.28);
+          ctx.lineTo(hx5,hy5+hs*0.62);                   // muzzle tip
+          ctx.lineTo(hx5+hs*0.5,hy5+hs*0.28);
+          ctx.lineTo(hx5+hs*0.32,hy5-hs*0.05);
+          ctx.lineTo(hx5+hs*0.55,hy5-hs*0.5);            // right ear
+          ctx.lineTo(hx5+hs*0.22,hy5-hs*0.26);
+          ctx.lineTo(hx5-hs*0.22,hy5-hs*0.26);
+          ctx.closePath(); ctx.fill();
+          // burning eyes + fangs
+          [[-1,0],[1,0]].forEach(function(o3){
+            ctx.fillStyle='#fde047'; ctx.shadowColor='#fde047'; ctx.shadowBlur=10;
+            ctx.beginPath(); ctx.ellipse(hx5+o3[0]*hs*0.2,hy5-hs*0.02,hs*0.09,hs*0.055,o3[0]*0.3,0,6.283); ctx.fill();
+            ctx.shadowBlur=0; ctx.fillStyle='#12141c';
+            ctx.beginPath(); ctx.ellipse(hx5+o3[0]*hs*0.2,hy5-hs*0.02,hs*0.028,hs*0.05,0,0,6.283); ctx.fill(); });
+          ctx.fillStyle='#e8e4da';
+          ctx.beginPath(); ctx.moveTo(hx5-hs*0.12,hy5+hs*0.42); ctx.lineTo(hx5-hs*0.07,hy5+hs*0.56); ctx.lineTo(hx5-hs*0.02,hy5+hs*0.42); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(hx5+hs*0.12,hy5+hs*0.42); ctx.lineTo(hx5+hs*0.07,hy5+hs*0.56); ctx.lineTo(hx5+hs*0.02,hy5+hs*0.42); ctx.closePath(); ctx.fill();
+          // claw slashes raking the quadrant
+          ctx.strokeStyle='rgba(220,225,235,.5)'; ctx.lineWidth=Math.max(1.5,cs*0.09);
+          for(var cl2=0;cl2<3;cl2++){ var cx5=Q.x+Q.w*(0.2+cl2*0.12)+lunge*Q.w*0.2;
+            ctx.beginPath(); ctx.moveTo(cx5,Q.y+Q.h*0.15); ctx.lineTo(cx5+Q.w*0.16,Q.y+Q.h*0.85); ctx.stroke(); }
+          ctx.restore();
+        } }
+      if(M.pack){ var PK=M.pack, pp2=(nwf-PK.t0)/PK.dur;
+        if(pp2>0&&pp2<1){ ctx.save();
+          PK.rows.forEach(function(rf,ri2){
+            var py5=rf*cv.height, ph5=cv.height*0.09;
+            var px5=(PK.dirs[ri2]>0? -cv.width*0.35+pp2*cv.width*1.7 : cv.width*1.35-pp2*cv.width*1.7);
+            var grd=ctx.createLinearGradient(px5-cv.width*0.3,0,px5+cv.width*0.08,0);
+            grd.addColorStop(0,'rgba(18,20,28,0)'); grd.addColorStop(.75,'rgba(18,20,28,.95)'); grd.addColorStop(1,'rgba(18,20,28,.95)');
+            ctx.fillStyle=grd; ctx.fillRect(px5-cv.width*0.3,py5-ph5/2,cv.width*0.38,ph5);
+            ctx.fillStyle='#fde047';
+            ctx.beginPath(); ctx.arc(px5+cv.width*0.05*PK.dirs[ri2],py5-ph5*0.12,cs*0.08,0,6.283); ctx.fill();
+            ctx.beginPath(); ctx.arc(px5+cv.width*0.05*PK.dirs[ri2],py5+ph5*0.14,cs*0.08,0,6.283); ctx.fill();
+          });
+          ctx.restore(); } }
+    }catch(_wdr){ try{ ctx.restore(); }catch(_r2){} }
     // 🐍 SNAKE LIFE BAR — pinned to the top of the board, drawn over everything
-    if(M.mode==='snakehunt'){ var hp=Math.max(0,Math.min(100,M.snkHP||0)), dead=!!M.snkDead;
+    if(M.mode==='snakehunt'||M.mode==='wolfhunt'){ var hp=Math.max(0,Math.min(100,M.snkHP||0)), dead=!!M.snkDead, _wIc=(M.mode==='wolfhunt'?'🐺':'🐍');
       var bw=cv.width-cs*1.2, bx=cs*0.6, byy=cs*0.28, bh=Math.max(5,cs*0.34);
       ctx.save();
       ctx.fillStyle='rgba(3,10,5,.72)';
@@ -23802,7 +23877,7 @@ function loadMyRedemptions(){
       }
       ctx.font='800 '+Math.max(9,bh*0.9)+'px Sora,Inter,sans-serif'; ctx.textBaseline='middle';
       ctx.textAlign='left'; ctx.fillStyle='#fff';
-      ctx.fillText('🐍', bx+3, byy+bh/2+0.5);
+      ctx.fillText(_wIc, bx+3, byy+bh/2+0.5);
       ctx.textAlign='right'; ctx.fillStyle=dead?'#ff9c8f':'#eaffe8';
       ctx.fillText(dead?'SLAIN 💀':(Math.round(hp)+'%'), bx+bw-4, byy+bh/2+0.5);
       // ── HIT FX ── every wound: the bar flashes red at the tip, green sap sprays out,
@@ -23858,7 +23933,7 @@ function loadMyRedemptions(){
             var bs3=cs*1.6*(1+ (1-Math.min(1,(dAge-.12)/.18))*.6);
             ctx.font='900 '+bs3+'px Sora,Inter,sans-serif';
             ctx.shadowColor='#8fd06a'; ctx.shadowBlur=30;
-            ctx.fillStyle='#eaffe8'; ctx.fillText('SNAKE SLAIN', cv.width/2, cv.height/2 - cs*1.2);
+            ctx.fillStyle='#eaffe8'; ctx.fillText((M.mode==='wolfhunt'?'WOLF SLAIN':'SNAKE SLAIN'), cv.width/2, cv.height/2 - cs*1.2);
             ctx.shadowBlur=0; ctx.font='800 '+cs*0.7+'px Sora,Inter,sans-serif'; ctx.fillStyle='#d9f99d';
             ctx.fillText('💀  the forest is yours  💀', cv.width/2, cv.height/2 + cs*0.4); }
           ctx.restore(); } }
@@ -26082,6 +26157,7 @@ function loadMyRedemptions(){
     survival:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>',
     ration:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.2 12 3.5l9 4.7v7.6L12 20.5 3 15.8z"/><path d="M3 8.2 12 13l9-4.8M12 13v7.5"/></svg>',
     ranked:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.6l2.6 5.5 6 .9-4.3 4.3 1 6.1-5.3-2.9-5.3 2.9 1-6.1L3.4 9l6-.9z"/></svg>',
+    wolfhunt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l3 4 2-2 3 2 3-2 2 2 3-4-1 8c0 4-3 7-7 7s-7-3-7-7z" fill="rgba(120,120,140,.18)"/><path d="M9.5 12.5l1 1M14.5 12.5l-1 1" stroke="#fde047"/><path d="M12 16.5v1.6M10.6 19.3l1.4-1.2 1.4 1.2"/><path d="M4 6L2.4 3.4M20 6l1.6-2.6"/></svg>',
     overgrow:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21c0-6 2-10 5-13"/><path d="M9 8C9 5 7 3.4 4 3.3c0 3 1.8 4.8 5 4.7z" fill="rgba(74,222,128,.3)"/><path d="M12 21c0-4.5 1.6-7.6 4-10"/><path d="M16 11c0-2.5 1.7-4 4.4-3.9 0 2.6-1.8 4-4.4 3.9z" fill="rgba(190,242,100,.28)"/><path d="M8 21c1.5-2 3.6-3 6.5-3M3 21h18"/></svg>',
     snakehunt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c3 2 6 2 8-.5S15 12 18 13"/><path d="M18 13c2 .6 3-1 2.6-2.6"/><ellipse cx="19.4" cy="8.6" rx="2.6" ry="1.9" fill="rgba(74,222,128,.3)" transform="rotate(-20 19.4 8.6)"/><circle cx="20" cy="8.2" r=".5" fill="currentColor" stroke="none"/><path d="M22 7.6q1.4-.2 2-1M22 7.6q1.4.4 2 1" stroke-width="1.1"/><path d="M5 15.5l1-1M9 16.5l1 1"/></svg>',
     daily:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4M12 13v4M9.5 15h5"/></svg>'
@@ -26290,8 +26366,20 @@ function loadMyRedemptions(){
   window.tetOpenSolo=function(){ var m=el('tet-solo-modal'); if(!m) return;
     var host=el('tet-solo-grid');
     if(host){
-      var modes=[['combo','Combo Rush','Best combo in 1:30'],['sprint','Sprint 40','Fastest 40 lines'],['ultra','Ultra','2-min score attack'],['cheese','Cheese Race','Dig 10 garbage rows fast'],['overgrow','Overgrowth','The forest rises — survive 2:00'],['snakehunt','Snake Hunt','Slay the snake — fastest kill tops the board']];
-      host.innerHTML=modes.map(function(x){ return '<button class="solo-card" onclick="tetSoloGo(\''+x[0]+'\')"><span class="hi">'+(HUBIC[x[0]]||'')+'</span><span>'+x[1]+'<small>'+x[2]+'</small></span></button>'; }).join('');
+      var wolfOpen=false; try{ wolfOpen=localStorage.getItem('mfWolfUnlocked')==='1'; }catch(_wu){}
+      var modes=[['combo','Combo Rush','Best combo in 1:30'],['sprint','Sprint 40','Fastest 40 lines'],['ultra','Ultra','2-min score attack'],['cheese','Cheese Race','Dig 10 garbage rows fast'],['overgrow','Overgrowth','The forest rises — survive 2:00'],['snakehunt','Snake Hunt','BEAST LV.1 — slay the Anaconda'],
+                 ['wolfhunt','Wolf Hunt', wolfOpen?'BEAST LV.2 — the pack hunts at speed':'🔒 Slay the Anaconda to unlock']];
+      host.innerHTML=modes.map(function(x){
+        var locked=(x[0]==='wolfhunt'&&!wolfOpen);
+        return '<button class="solo-card'+(locked?' locked':'')+'" onclick="'+(locked?'tetWolfLocked()':('tetSoloGo(\''+x[0]+'\')'))+'"><span class="hi">'+(HUBIC[x[0]]||'')+'</span><span>'+x[1]+'<small>'+x[2]+'</small></span></button>'; }).join('');
+      // server-truth unlock: if a wolf-less player already has a snakehunt slay on record, open the gate
+      if(!wolfOpen && typeof eid==='function' && eid()){
+        fetch(APPS_SCRIPT_URL+'?action=solo_ranking&mode=snakehunt&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+          var me=String(eid()).toLowerCase();
+          if(((d&&d.ranking)||[]).some(function(p){ return String(p.employee_id||'').toLowerCase()===me; })){
+            try{ localStorage.setItem('mfWolfUnlocked','1'); }catch(_ls){}
+            try{ if(el('tet-solo-modal')&&el('tet-solo-modal').classList.contains('open')) tetOpenSolo(); }catch(_ro){}
+          } }).catch(function(){}); }
     }
     m.classList.add('open'); try{ startInfernoBgSolo(); }catch(e){}
     try{ loadGauntlet(); }catch(_g){}
@@ -26301,6 +26389,7 @@ function loadMyRedemptions(){
                ultra:{lbl:'Ultra',ic:'⏱️',unit:function(v){return Number(v).toLocaleString()+' pts';},dir:'hi'},
                overgrow:{lbl:'Overgrowth',ic:'🌿',unit:function(v){return v+' lines';},dir:'hi'},
                snakehunt:{lbl:'Snake Hunt',ic:'🐍',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'},
+               wolfhunt:{lbl:'Wolf Hunt',ic:'🐺',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'},
                sprint:{lbl:'Sprint 40',ic:'🏁',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'},
                cheese:{lbl:'Cheese Race',ic:'🧀',unit:function(v){return (v/1000).toFixed(1)+'s';},dir:'lo'} };
   function loadGauntlet(){
@@ -26359,6 +26448,7 @@ function loadMyRedemptions(){
     else if(mode==='survival'){ if(window.tetrisSurvival) tetrisSurvival(); }
     else if(mode==='overgrow'){ if(window.tetrisOvergrow) tetrisOvergrow(); }
     else if(mode==='snakehunt'){ if(window.tetrisSnakehunt) tetrisSnakehunt(); }
+    else if(mode==='wolfhunt'){ if(window.tetrisWolfhunt) tetrisWolfhunt(); }
     else if(mode==='ration'){ if(window.tetrisRation) tetrisRation(); }
     else if(mode==='tourney'){ if(window.tourneyStart) tourneyStart(); }
   };
@@ -27728,6 +27818,8 @@ function loadMyRedemptions(){
   window.tetrisSurvival=function(){ startSolo('survival'); };
   window.tetrisOvergrow=function(){ startSolo('overgrow'); };
   window.tetrisSnakehunt=function(){ startSolo('snakehunt'); };
+  window.tetrisWolfhunt=function(){ startSolo('wolfhunt'); };
+  window.tetWolfLocked=function(){ try{ showToast('🔒 The Wolf only answers those who have slain the Anaconda.'); }catch(_t){ alert('Slay the Anaconda first!'); } };
   window.tetrisRation=function(){ startSolo('ration'); };
   window.tetrisDaily=function(){ startSolo('daily'); };
   // Today's date key (local — everyone on the team shares PHT). Drives the daily seed + board.
@@ -27774,6 +27866,7 @@ function loadMyRedemptions(){
          : mode==='survival' ? '⚡ Survival'
          : mode==='overgrow' ? '🌿 Overgrowth'
          : mode==='snakehunt'? '🐍 Snake Hunt'
+         : mode==='wolfhunt' ? '🐺 Wolf Hunt'
          : mode==='ration'   ? '📦 Ration 50'
          : mode==='daily'    ? '🗓️ Daily Challenge'
          : 'Ultra 2:00';
@@ -27869,6 +27962,49 @@ function loadMyRedemptions(){
           snkHiss(); }
         if(M.snk2 && now>M.snk2.t0+M.snk2.dur+200){ M.snk2=null; }
       }, 120);
+    } else if(mode==='wolfhunt'){
+      /* 🐺 WOLF HUNT — Beast Level 2. The wolf doesn't slither: it POUNCES. Quick quadrant
+         strikes with only an eye-glint of warning, howls that send THE PACK sprinting
+         across three rows at once, and every pounce ends with a BITE that rips holes out
+         of your stack. It heals while pouncing, enrages at half health. Slay it — the
+         clock is your score. */
+      M.timeLeft=120; M.snkHP=100; M.snkDead=false; M.blindBonus=0;
+      M.wolf=null; M.pack=null; M._wNext=Date.now()+2500; M._howlAt=Date.now()+15000;
+      status('🐺 2:00 · wolf 100%');
+      announce('🐺 THE WOLF IS LOOSE — it heals while it pounces!');
+      M.timer=setInterval(function(){ if(!M||M.ended) return; M.timeLeft--;
+        if(M.timeLeft<=0){ soloEnd('time'); return; }
+        status((M.snkDead?'💀 WOLF SLAIN · ':'🐺 ')+fmtT(M.timeLeft)+' · '+((M.lines||0)+(M.blindBonus||0))+' lines'+(M.snkDead?'':(' · wolf '+Math.max(0,Math.round(M.snkHP))+'%')));
+        if(M.timeLeft<=10) sfxUrgent(M.timeLeft); }, 1000);
+      M.snkTimer=setInterval(function(){ if(!M||M.ended) return;
+        var now=Date.now(), enr=(!M.snkDead && M.snkHP<=50);
+        // regen while its body is on the board — faster than the snake's
+        if(!M.snkDead && M.snkHP>0 && M.wolf && now>M.wolf.t0 && now<M.wolf.t0+M.wolf.dur){
+          M.snkHP=Math.min(100, M.snkHP+0.15); }
+        if(!M.snkDead && !M.wolf && now>=M._wNext){
+          M.wolf={ t0:now+320, dur:750+Math.random()*250, quad:Math.floor(Math.random()*4) };   // 0.32s glint, then the strike
+          M._wNext=now+320+M.wolf.dur+(3200+Math.random()*1400)*(enr?0.55:1);
+          try{ boardShake(2); }catch(_b){}
+        }
+        if(M.wolf && now>M.wolf.t0+M.wolf.dur+150){
+          M.wolf=null;
+          // THE BITE — rip 3 filled cells out of the stack, leaving holes
+          if(!M.snkDead && M.alive && !M.clearing){ try{
+            var filled=[]; for(var y=2;y<H;y++)for(var x=0;x<W;x++){ if(M.grid[y][x]>0) filled.push([y,x]); }
+            if(filled.length>4){ for(var b2=0;b2<3&&filled.length;b2++){
+                var pick=filled.splice(Math.floor(Math.random()*filled.length),1)[0];
+                M.grid[pick[0]][pick[1]]=0; }
+              announce('🐺 BITE!','tspin'); try{ boardShake(3); }catch(_b3){} draw(); }
+          }catch(_bt){} }
+        }
+        if(!M.snkDead && now>=M._howlAt){
+          M._howlAt=now+(17000+Math.random()*5000)*(enr?0.6:1);
+          announce('🐺 AWOOOO — THE PACK!','combo');
+          M.pack={ t0:now, dur:950, rows:[0.15+Math.random()*0.2, 0.42+Math.random()*0.16, 0.68+Math.random()*0.2],
+                   dirs:[Math.random()<0.5?1:-1, Math.random()<0.5?1:-1, Math.random()<0.5?1:-1] };
+        }
+        if(M.pack && now>M.pack.t0+M.pack.dur+200){ M.pack=null; }
+      }, 100);
     } else if(mode==='ration'){
       announce('📦 50 pieces · hard drop to place');
       rationStatus();
@@ -27893,18 +28029,18 @@ function loadMyRedemptions(){
     cancelRender(); stopMusic(); detachControls();
     var mode=M.mode, elapsed=Date.now()-(M._t0||Date.now());
     var timeMode=(mode==='sprint'||mode==='cheese'||mode==='survival');
-    if(mode==='snakehunt') timeMode=true;
+    if(mode==='snakehunt'||mode==='wolfhunt') timeMode=true;
     var win = (mode==='sprint'||mode==='cheese') ? (how==='done')
             : (mode==='survival') ? (elapsed>=60000)      // lasting a full minute counts as a good run
             : (mode==='ration') ? ((M.lines||0)>=9)       // 9+ lines from 50 pieces is a genuinely good run
             : (mode==='overgrow') ? (how==='time')        // outlasting the forest IS the win
-            : (mode==='snakehunt') ? (!!M.snkDead)
+            : (mode==='snakehunt'||mode==='wolfhunt') ? (!!M.snkDead)
             : (how==='time');
     var soloScore = (mode==='combo') ? (M.maxCombo||0)
                   : (mode==='overgrow') ? (M.realLines||0)
-                  : (mode==='snakehunt') ? ((M.lines||0)+(M.blindBonus||0))   // kept for the result card
+                  : (mode==='snakehunt'||mode==='wolfhunt') ? ((M.lines||0)+(M.blindBonus||0))   // kept for the result card
                   : (M.score||0);
-    var res={ mode:mode, win:win, time_ms:(mode==='snakehunt'?(M.snkSlayMs||elapsed):(timeMode?elapsed:(mode==='combo'?90000:120000))), score:soloScore, lines:M.lines||0, slain:!!M.snkDead };
+    var res={ mode:mode, win:win, time_ms:((mode==='snakehunt'||mode==='wolfhunt')?(M.snkSlayMs||elapsed):(timeMode?elapsed:(mode==='combo'?90000:120000))), score:soloScore, lines:M.lines||0, slain:!!M.snkDead };
     if(win){ try{ sfxWin(); }catch(_){} } else { try{ sfxLose(); }catch(_){} }
     window._tetLast={ kind:'solo', mode:mode };   // enable Play again
     showSoloResult(how, res);
@@ -27920,7 +28056,7 @@ function loadMyRedemptions(){
               || (mode==='survival' && how==='topout')
               || (mode==='ration')
               || (mode==='overgrow')                       // every run counts — even the forest's wins
-              || (mode==='snakehunt' && win)                 // only SLAYS make the board
+              || ((mode==='snakehunt'||mode==='wolfhunt') && win)   // only SLAYS make the board
               || ((mode==='ultra'||mode==='combo') && how==='time');
     if(record){
       fetch(APPS_SCRIPT_URL+'?action=solo_result&mode='+mode+'&employee_id='+encodeURIComponent(eid())+'&full_name='+encodeURIComponent(ename())
@@ -27960,6 +28096,10 @@ function loadMyRedemptions(){
       hero = r.win
         ? '<div style="font-size:12px;color:#9fb0d6;">You outlasted the forest — clean lines</div><div style="font-size:44px;font-weight:900;color:#7bf5a8;line-height:1.1;">'+Number(r.score).toLocaleString()+'<span style="font-size:20px;"> lines</span></div><div style="font-size:11.5px;color:#9fb0d6;">2:00 survived 🌿 · vine rows dug out don\'t count — only your own blocks</div>'
         : '<div style="font-size:26px;font-weight:900;color:#f87171;">Overgrown</div><div style="font-size:12.5px;color:#9fb0d6;margin-top:5px;">The vines took the board — '+Number(r.score).toLocaleString()+' clean lines before it fell.</div>';
+    } else if(r.mode==='wolfhunt'){
+      hero = r.slain
+        ? '<div style="font-size:12px;color:#9fb0d6;">You slew the WOLF in</div><div style="font-size:44px;font-weight:900;color:#7bf5a8;line-height:1.1;">'+(r.time_ms/1000).toFixed(2)+'<span style="font-size:20px;">s</span></div><div style="font-size:11.5px;color:#9fb0d6;">🐺💀 Beast Level 2 conquered — the pack falls silent</div>'
+        : '<div style="font-size:26px;font-weight:900;color:#f87171;">The wolf still breathes</div><div style="font-size:12.5px;color:#9fb0d6;margin-top:5px;">'+Number(r.score).toLocaleString()+' lines of damage — only a slay makes the board.</div>';
     } else if(r.mode==='snakehunt'){
       hero = r.slain
         ? '<div style="font-size:12px;color:#9fb0d6;">You slew the snake in</div><div style="font-size:44px;font-weight:900;color:#7bf5a8;line-height:1.1;">'+(r.time_ms/1000).toFixed(2)+'<span style="font-size:20px;">s</span></div><div style="font-size:11.5px;color:#9fb0d6;">💀 '+Number(r.score).toLocaleString()+' lines of damage — fastest slay tops the board</div>'
@@ -28005,7 +28145,7 @@ function loadMyRedemptions(){
       el('solo-res-board').innerHTML=rows.slice(0,10).map(function(p){
         var mine=String(p.employee_id||'').toLowerCase()===me;
         var medal=p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:('<span style="color:#6b7d90;">'+p.rank+'</span>');
-        var val = (mode==='sprint'||mode==='cheese'||mode==='snakehunt') ? ((p.time_ms/1000).toFixed(2)+'s')
+        var val = (mode==='sprint'||mode==='cheese'||mode==='snakehunt'||mode==='wolfhunt') ? ((p.time_ms/1000).toFixed(2)+'s')
                 : (mode==='survival') ? fmtT(Math.floor((p.time_ms||0)/1000))
                 : (mode==='combo') ? (Number(p.score).toLocaleString()+' combo')
                 : (Number(p.score).toLocaleString()+' pts');
