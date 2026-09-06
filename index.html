@@ -2363,7 +2363,7 @@
   .crb-join { font-family:inherit; font-size:12px; font-weight:600; color:#fff; background:linear-gradient(135deg,#10b981,#059669); border:none; border-radius:9px; padding:9px 16px; cursor:pointer; }
   .crb-dismiss { font-family:inherit; font-size:12px; color:var(--text-3); background:none; border:1px solid var(--border); border-radius:9px; padding:9px 14px; cursor:pointer; }
   /* voice room bar */
-  #voice-bar { position:fixed; right:18px; bottom:18px; z-index:9000; background:#ffffff; border:1px solid rgba(16,185,129,.5); border-radius:14px; padding:12px 14px; box-shadow:0 18px 50px rgba(0,0,0,.5); display:none; min-width:200px; }
+  #voice-bar { position:fixed; right:18px; bottom:84px; z-index:9000; /* raised above the Sprout bubble */ background:#ffffff; border:1px solid rgba(16,185,129,.5); border-radius:14px; padding:12px 14px; box-shadow:0 18px 50px rgba(0,0,0,.5); display:none; min-width:200px; }
   #voice-bar.show { display:block; }
   .vb-head { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; color:var(--text-1); margin-bottom:10px; }
   .vb-head .vb-dot { width:9px; height:9px; border-radius:50%; background:#10b981; box-shadow:0 0 0 4px rgba(16,185,129,.25); animation:tcPulse 1.6s infinite; }
@@ -38815,7 +38815,9 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
      Auto-answers portal questions from a built-in knowledge base, files tool-update
      requests and bug reports to the admin, and shows the VA their request statuses. -->
 <style id="sprout-css">
-#sprout-fab{ position:fixed; left:18px; bottom:18px; z-index:9400; width:54px; height:54px; border-radius:50%;
+/* Bottom-RIGHT — the bottom-left corner belongs to the sidebar's logout button (plus the
+   seasonal/tournament FABs), and Sprout was sitting on top of it. */
+#sprout-fab{ position:fixed; right:18px; bottom:18px; z-index:9400; width:54px; height:54px; border-radius:50%;
   background:linear-gradient(135deg,#16a34a,#4ade80); border:none; cursor:pointer; font-size:26px;
   box-shadow:0 10px 26px -8px rgba(22,163,74,.8), inset 0 1px 0 rgba(255,255,255,.4);
   transition:transform .15s ease; }
@@ -38823,14 +38825,17 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
 #sprout-fab .sp-ping{ position:absolute; inset:-4px; border-radius:50%; border:2px solid rgba(74,222,128,.7);
   animation:spPing 2.6s ease-out infinite; pointer-events:none; }
 @keyframes spPing{ 0%{ transform:scale(.9); opacity:.9;} 70%,100%{ transform:scale(1.35); opacity:0;} }
-#sprout-panel{ display:none; position:fixed; left:18px; bottom:84px; z-index:9401; width:min(360px,calc(100vw - 36px));
+#sprout-panel{ display:none; position:fixed; right:18px; bottom:84px; z-index:9401; width:min(360px,calc(100vw - 36px));
   height:min(520px,calc(100vh - 120px)); border-radius:18px; overflow:hidden; flex-direction:column;
   background:#fdfcf9; border:1px solid #e2e0d8; box-shadow:0 30px 80px rgba(20,30,20,.35); }
 #sprout-panel.open{ display:flex; }
 .sp-head{ background:linear-gradient(135deg,#14532d,#16a34a); color:#fff; padding:13px 16px; display:flex; align-items:center; gap:10px; }
 .sp-head b{ font-size:14.5px; } .sp-head small{ display:block; font-size:11px; opacity:.85; }
 .sp-x{ margin-left:auto; background:rgba(255,255,255,.15); border:none; color:#fff; width:28px; height:28px; border-radius:8px; cursor:pointer; font-size:14px; }
-#sp-msgs{ flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:9px; }
+/* min-height:0 is the fix for "chat box is not scrollable": a flex child refuses to shrink
+   below its content height by default, so the messages column grew past the panel and the
+   overflow scrollbar never engaged. overscroll-behavior stops the page behind from scrolling. */
+#sp-msgs{ flex:1 1 0; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:14px; display:flex; flex-direction:column; gap:9px; }
 .sp-m{ max-width:86%; padding:9px 12px; border-radius:14px; font-size:13px; line-height:1.5; white-space:pre-wrap; animation:spIn .22s ease; }
 @keyframes spIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:none;} }
 .sp-bot{ background:#eef5ea; color:#1d2b1f; border-bottom-left-radius:4px; align-self:flex-start; }
@@ -38851,7 +38856,8 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
 <div id="sprout-panel">
   <div class="sp-head"><span style="font-size:22px;">🌱</span>
     <div><b>Sprout</b><small>Portal Assistant · instant answers &amp; tool requests</small></div>
-    <button class="sp-x" onclick="sproutToggle()">✕</button></div>
+    <button class="sp-x" onclick="sproutHome()" title="Back to the main menu" style="margin-left:auto;">⌂</button>
+    <button class="sp-x" onclick="sproutToggle()" style="margin-left:6px;">✕</button></div>
   <div id="sp-msgs"></div>
   <div class="sp-inrow"><input id="sp-in" placeholder="Ask me anything, or describe a request…"
     onkeydown="if(event.key==='Enter')sproutSend()"><button class="sp-send" onclick="sproutSend()">➤</button></div>
@@ -38882,20 +38888,46 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
   function scrollDn(){ var b=box(); if(b) b.scrollTop=b.scrollHeight; }
   function bot(t,delay){ setTimeout(function(){ var d=document.createElement('div'); d.className='sp-m sp-bot'; d.innerHTML=t; box().appendChild(d); scrollDn(); }, delay||220); }
   function user(t){ var d=document.createElement('div'); d.className='sp-m sp-user'; d.textContent=t; box().appendChild(d); scrollDn(); }
-  function chips(list,delay){ setTimeout(function(){ var w=document.createElement('div'); w.className='sp-chips';
+  function chips(list,delay){ setTimeout(function(){
+    /* only ONE active chip group at a time — stale groups from earlier turns confused the flow */
+    box().querySelectorAll('.sp-chips').forEach(function(o){ o.remove(); });
+    var w=document.createElement('div'); w.className='sp-chips';
     list.forEach(function(c){ var b=document.createElement('button'); b.className='sp-chip'; b.textContent=c[0];
       b.onclick=function(){ w.remove(); user(c[0]); c[1](); }; w.appendChild(b); });
     box().appendChild(w); scrollDn(); }, delay||350); }
-  function menu(delay){ chips([
-      ['🛠 Request a tool update', function(){ ST.mode='pick-tool'; ST.kind='request'; bot('Great — which tool is this about?'); toolChips(); }],
-      ['🐞 Report a bug', function(){ ST.mode='pick-tool'; ST.kind='bug'; bot('Sorry about that! Which tool is misbehaving?'); toolChips(); }],
+  function resetST(){ ST.mode='idle'; ST.kind=''; ST.tool=''; idleClear(); }
+  function menu(delay){ resetST(); chips([
+      ['🛠 Request a tool update', function(){ ST.mode='pick-tool'; ST.kind='request'; bot('Great — which tool is this about?'); toolChips(); idleArm(); }],
+      ['🐞 Report a bug', function(){ ST.mode='pick-tool'; ST.kind='bug'; bot('Sorry about that! Which tool is misbehaving?'); toolChips(); idleArm(); }],
       ['❓ Help / troubleshoot', function(){ ST.mode='help'; bot('Ask away — logins, hours, appeals, payslips, Tetris, anything portal. I answer instantly. 🌱'); }],
       ['📨 My requests', function(){ myRequests(); }]
     ], delay);
   }
-  function toolChips(){ chips(TOOLS.map(function(t){ return [t, function(){ ST.tool=t; ST.mode='describe';
+  function toolChips(){ chips(TOOLS.map(function(t){ return [t, function(){ ST.tool=t; ST.mode='describe'; idleArm();
     bot(ST.kind==='bug' ? 'Describe the bug — what did you do, what happened, what did you expect? The more detail, the faster the fix.'
-                        : 'Describe the update you want — what should the tool do differently? I will send it straight to the admin\'s build queue.'); }]; })); }
+                        : 'Describe the update you want — what should the tool do differently? I will send it straight to the admin\'s build queue.');
+    chips([['↩️ Never mind — back to the menu', function(){ bot('No problem! What else can I do? 🌱'); menu(400); }]],900); }]; })
+    .concat([['↩️ Back to the menu', function(){ bot('Sure! What do you need? 🌱'); menu(400); }]])); }
+  /* ── idle watchdog: an unfinished request quietly returns to the main menu ──
+     If the VA starts a request/bug flow and stops replying, Sprout checks in once after
+     60s; with no answer 45s later it cancels the draft and restores the initial menu, so
+     the panel is never stranded mid-flow with no way forward. */
+  var _idle=null,_idle2=null;
+  function idleClear(){ if(_idle){clearTimeout(_idle);_idle=null;} if(_idle2){clearTimeout(_idle2);_idle2=null;} }
+  function idleArm(){ idleClear();
+    _idle=setTimeout(function(){
+      if(ST.mode!=='pick-tool'&&ST.mode!=='describe') return;
+      bot('Still there? Your '+(ST.kind==='bug'?'bug report':'request')+' isn\'t sent yet — you can keep going or I\'ll take us back to the start.');
+      chips([['✍️ Continue', function(){ idleArm(); bot(ST.mode==='pick-tool'?'Which tool is it?':'Go ahead — type the details below. 🌱'); if(ST.mode==='pick-tool') toolChips(); }],
+             ['↩️ Back to the menu', function(){ bot('No worries — nothing was sent. What do you need? 🌱'); menu(400); }]],400);
+      _idle2=setTimeout(function(){
+        if(ST.mode!=='pick-tool'&&ST.mode!=='describe') return;
+        bot('I\'ll park that for now — nothing was sent. Here\'s the menu whenever you\'re ready. 🌱');
+        menu(500);
+      },45000);
+    },60000);
+  }
+  window.sproutHome=function(){ bot('Back to the start — what do you need? 🌱'); menu(400); };
   async function myRequests(){
     bot('Fetching your requests…');
     try{
@@ -38923,13 +38955,22 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
       if(d&&d.ok) bot('✅ Filed! The admin reviews the queue and you\'ll get a 🔔 notification when it\'s <b>Planned</b>, <b>Done</b> or needs more info. Salamat! 🌱');
       else bot('Hmm, that didn\'t go through ('+((d&&d.error)||'error')+'). Try once more?');
     }catch(e){ bot('No connection — your request was NOT sent. Try again in a moment.'); }
-    ST.mode='idle'; ST.kind=''; ST.tool='';
+    resetST();
     menu(1200);
   }
   window.sproutSend=function(){
     var inp=document.getElementById('sp-in'); var t=(inp.value||'').trim(); if(!t) return;
     inp.value=''; user(t);
-    if(ST.mode==='describe'){ submitReq(t); return; }
+    if(ST.mode==='describe'){ idleClear(); submitReq(t); return; }
+    if(ST.mode==='pick-tool'){
+      /* typed instead of tapping a chip — accept a typed tool name too */
+      var q=t.toLowerCase(), hit=null;
+      TOOLS.forEach(function(x){ if(!hit && (q.indexOf(x.toLowerCase())>=0 || x.toLowerCase().indexOf(q)>=0)) hit=x; });
+      if(hit){ ST.tool=hit; ST.mode='describe'; idleArm();
+        bot('Got it — <b>'+hit+'</b>. Now describe the '+(ST.kind==='bug'?'bug':'update you want')+' below.'); }
+      else { idleArm(); bot('I didn\'t catch which tool that is — tap one of the chips, or tap ↩️ to go back.'); toolChips(); }
+      return;
+    }
     var a=kbAnswer(t);
     if(a){ bot(a); chips([['👍 That helped',function(){ bot('Anything else? 🌱'); menu(400); }],
                           ['🙁 Still stuck — tell the admin',function(){ ST.kind='help'; ST.tool='Portal'; submitReq('HELP ESCALATION: '+t); }]],700); }
@@ -39043,7 +39084,7 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
         '<div class="wn-garden"><div class="wn-soil"></div><div class="wn-stem"></div>'+
           '<div class="wn-leaf l"></div><div class="wn-leaf r"></div><div class="wn-bud"></div></div>'+
         '<h2>Meet <span class="wn-nm">Sprout</span> 🌱</h2>'+
-        '<p class="wn-sub">Your new portal assistant — living in the green bubble, bottom-left, 24/7.</p>'+
+        '<p class="wn-sub">Your new portal assistant — living in the green bubble, bottom-right, 24/7.</p>'+
         '<div class="wn-feat"><span class="fi">❓</span><div><b>Instant answers</b><span>Ask anything about the portal and get help right away.</span></div></div>'+
         '<div class="wn-feat"><span class="fi">🛠</span><div><b>Tool update requests</b><span>Pick your tool, describe the fix — it goes straight to the admin.</span></div></div>'+
         '<div class="wn-feat"><span class="fi">🐞</span><div><b>Bug reports</b><span>Spotted something broken? Logged instantly.</span></div></div>'+
