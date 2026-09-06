@@ -2482,7 +2482,8 @@ function demToggleAllDisputes(cb){ document.querySelectorAll('.dm-disp-check').f
 async function demApproveSelected(){
   var ids=Array.prototype.slice.call(document.querySelectorAll('.dm-disp-check:checked')).map(function(c){ return c.value; });
   if(!ids.length){ if(typeof toast==='function') toast('Select at least one dispute first.'); return; }
-  if(!confirm('Approve '+ids.length+' dispute'+(ids.length>1?'s':'')+'? This VOIDS the demerit for each (removes it from their score).')) return;
+  /* No confirm dialog — the admin asked for a zero-friction flow. Approving is the whole point
+     of clicking the button; a "are you sure" here only slowed a 30-dispute session to a crawl. */
   var btn=event&&event.target; if(btn){ btn.disabled=true; btn.textContent='Approving '+ids.length+'…'; }
   // ONE batched write — the old loop fired N serialized requests and saturated the backend
   // for minutes (the AFX HUD caught it: 22 failed reads while 37 approvals crawled through).
@@ -2497,7 +2498,7 @@ async function demApproveSelected(){
     if(d&&d.ok){ if(typeof toast==='function') toast('Approved '+d.done+' dispute'+(d.done!==1?'s':'')+(d.missing?(' · '+d.missing+' not found'):'')+'.');
       ids.forEach(function(did){ _optiRemove('[data-disp="'+did+'"]'); _optiTick('dc-demdisp'); });
       if(btn){ btn.disabled=false; btn.innerHTML='✓ Done'; }
-      setTimeout(function(){ try{ loadDemerits(); }catch(_d){} }, 800);
+      setTimeout(function(){ try{ demQuietSync(); }catch(_d){} }, 800);
       return;                                                   // no list repaint — the rows are already gone
     }
     else if(typeof toast==='function') toast('Could not approve: '+((d&&d.error)||'error'));
@@ -2507,9 +2508,17 @@ async function demApproveSelected(){
   }
   loadDemeritDisputes(); loadDemerits();
 }
+/* Quiet resync: refresh demerit standings data in the background WITHOUT touching the
+   disputes box and WITHOUT the "Loading…" flash. loadDemerits() repaints everything
+   (including re-fetching + rebuilding the dispute list), which looked like a reload
+   after every optimistic approval — exactly what the admin asked us to stop. */
+async function demQuietSync(){
+  try{ var r=await jGet(API+'?action=get_demerits&_='+Date.now()); var d=await r.json();
+    if(d&&d.rows){ DEM_STATE.rows=d.rows; DEM_STATE.standings=d.standings||[]; renderDemerits(); } }catch(e){}
+}
 async function demResolveDispute(id,status){
   var note=''; if(status==='rejected'){ note=prompt('Optional note to the contractor (reason for rejecting):')||''; }
-  if(status==='approved' && !confirm('Approve this dispute? This will VOID the demerit (removes it from their score).')) return;
+  /* No "are you sure" confirm on approve — one click, row grays out and collapses. */
   var _ds='[data-disp="'+id+'"]';
   _optiPending(_ds);
   try{ var r=await fetch(API+'?action=resolve_demerit_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note)+'&_='+Date.now()); var d=await r.json();
@@ -2517,7 +2526,7 @@ async function demResolveDispute(id,status){
       _optiRows(_ds).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(245,158,11"]')||document); });
       _optiRemove(_ds); _optiTick('dc-demdisp');
       jBust();
-      setTimeout(function(){ try{ loadDemerits(); }catch(_d){} }, 800);   // standings resync quietly; the dispute list never repaints
+      setTimeout(function(){ try{ demQuietSync(); }catch(_d){} }, 800);   // standings only — dispute list untouched
     } else { _optiRestore(_ds); if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error')); }
   }catch(e){ _optiRestore(_ds); if(typeof toast==='function') toast('Failed (network).'); }
 }
@@ -4460,7 +4469,7 @@ async function approveWithDemerit(entryId){
     _optiRows(_sel2).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(245,158,11"]')||document); });
     _optiRemove(_sel2); _optiTick('dc-appeals');
     jBust();
-    setTimeout(function(){ try{ loadWorkLog(); }catch(_w){} try{ if(typeof loadDemerits==='function') loadDemerits(); }catch(_d){} }, 600);
+    setTimeout(function(){ try{ loadWorkLog(); }catch(_w){} try{ if(typeof demQuietSync==='function') demQuietSync(); }catch(_d){} }, 600);
   }catch(e){ alert('Network error.'); }
 }
 // Mirror pending appeals onto the Dashboard so they aren't missed in the Time Log tab.
