@@ -131,6 +131,12 @@
   }
 
   /* ── LOGIN ── */
+  /* ── LOGIN RENDER GATE ── The login styles exist in layered generations further down
+     this file; on progressive renders the OLD design used to flash before the newest layer
+     parsed. The screen therefore starts invisible and is switched on ONLY by the final
+     login style block (see #jmb-login-tunnel). When redesigning the login again: put the
+     opacity release at the END of the newest block, and the old layers can never flash. */
+  #login-screen { opacity: 0; }
   #login-screen {
     display: grid;
     grid-template-columns: 1fr 480px;
@@ -28973,11 +28979,13 @@ function loadMyRedemptions(){
   syncTetClock(); setInterval(syncTetClock, 240000);   // re-sync every 4 min
   function phtNowParts(){ var d=new Date(Date.now()+(window._tetClockOffset||0)+8*3600*1000);
     return { H:d.getUTCHours(), M:d.getUTCMinutes(), S:d.getUTCSeconds(), date:d.toISOString().slice(0,10), dow:d.getUTCDay() }; }
-  var DAY_HOUR=13, DAY_MIN=5;                                      // 1:05 PM PHT day tournament
+  /* SEP 2026 — daytime tournaments RETIRED (DAY_HOUR=-1 keeps every day-path branch dead
+     without ripping out the plumbing). Nights only: Mon · Wed · Fri 9 PM + Sunday Grand Final. */
+  var DAY_HOUR=-1, DAY_MIN=5;
   // Tournaments run only on Tue · Thu · Sun (Sunday night = Grand Final). Must match _tetDayOK_ server-side.
-  function tetDayOK(dow){ return dow===0 || dow===2 || dow===4; }
+  function tetDayOK(dow){ return dow===0 || dow===1 || dow===3 || dow===5; }   // Sun (Grand) + Mon/Wed/Fri
   // The Grand Final (every Sunday night) starts at 7:45 PM PHT. Saturday nightly = 10 PM, weekdays = 11 PM.
-  function ntHour(dow){ return (dow===0) ? 19 : ((dow===6) ? 22 : 23); }   // Sun→7:45PM(Grand), Sat→10PM, else 11PM
+  function ntHour(dow){ return (dow===0) ? 19 : 21; }   // Sun→7:45PM (Grand Final) · Mon/Wed/Fri→9PM
   function ntMin(dateStr){
     // Sundays are the Grand Final → :45. Every other night → top of the hour.
     try{ var p=String(dateStr||'').split('-').map(Number);
@@ -37873,6 +37881,9 @@ var PORTAL_BUILD='2026-08-25-A';
 /* the captcha is the portal's own checkbox on a white card; the blanket white
    label rule outranked its inline #333 and made it white-on-white */
 #login-screen #local-captcha-label{ color:#333 !important; letter-spacing:0 !important; }
+
+/* the render gate opens here — this is the LAST login layer, so nothing older can flash */
+#login-screen{ opacity:1 !important; transition:opacity .25s ease; }
 </style>
 <script>
 (function(){
