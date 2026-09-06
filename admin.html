@@ -945,6 +945,10 @@ body{background-attachment:initial !important}
       </div>
       <div id="dash-list"><div class="es">Loading…</div></div>
       <div class="toolbar" style="margin-top:1.5rem;">
+        <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">🌱 Sprout — tool requests &amp; bug reports</span> <span id="dash-toolreq-total" style="font-size:12px;color:var(--t3);margin-left:6px;"></span></div>
+      </div>
+      <div id="dash-toolreq"><div class="es">Loading…</div></div>
+      <div class="toolbar" style="margin-top:1.5rem;">
         <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Hour appeals</span> <span id="dash-appeals-total" style="font-size:12px;color:var(--t3);margin-left:6px;"></span></div>
       </div>
       <div id="dash-appeals"><div class="es">Loading…</div></div>
@@ -2354,6 +2358,7 @@ async function loadDashboard(opts){
     _dashPrevTotal=total;
     if(typeof mirrorAdminBadges==='function') mirrorAdminBadges();
     loadDashAppeals();
+    try{ loadToolRequests(); }catch(e){}
     try{ loadDashPayslips(); }catch(e){}
     loadDashInvoices();
     var items=[];
@@ -2451,7 +2456,7 @@ async function loadDemeritDisputes(){
     var list=(d&&d.disputes)||[]; if(!list.length){ box.innerHTML=''; return; }
     box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">'+
-        '<div style="font-weight:700;font-size:13px;color:#fbbf24;">Demerit disputes to review ('+list.length+')</div>'+
+        '<div data-opti-count style="font-weight:700;font-size:13px;color:#fbbf24;">Demerit disputes to review ('+list.length+')</div>'+
         '<div style="display:flex;align-items:center;gap:10px;">'+
           '<label style="font-size:12px;color:var(--t2);display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="dm-disp-all" onchange="demToggleAllDisputes(this)"> Select all</label>'+
           '<button class="bsm" style="color:#34d399;border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.12);" onclick="demApproveSelected()"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><polyline points=\"20 6 9 17 4 12\"/></svg> Approve selected</button>'+
@@ -2459,7 +2464,7 @@ async function loadDemeritDisputes(){
       '</div>'+
       list.map(function(x){
         var files=_dispFilesHtml(x.files);
-        return '<div style="border-top:1px solid rgba(15,23,42,.10);padding:9px 0;display:flex;gap:10px;">'+
+        return '<div data-disp="'+escAdmin(x.id)+'" style="border-top:1px solid rgba(15,23,42,.10);padding:9px 0;display:flex;gap:10px;">'+
           '<input type="checkbox" class="dm-disp-check" value="'+escAdmin(x.id)+'" style="margin-top:4px;flex:0 0 auto;width:16px;height:16px;cursor:pointer;">'+
           '<div style="flex:1;min-width:0;">'+
             '<div style="font-size:13px;color:var(--t1);"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.label||'')+'</div>'+
@@ -2489,7 +2494,12 @@ async function demApproveSelected(){
     if(tm) clearTimeout(tm);
     var d=await r.json();
     jBust();
-    if(d&&d.ok){ if(typeof toast==='function') toast('Approved '+d.done+' dispute'+(d.done!==1?'s':'')+(d.missing?(' · '+d.missing+' not found'):'')+'.'); }
+    if(d&&d.ok){ if(typeof toast==='function') toast('Approved '+d.done+' dispute'+(d.done!==1?'s':'')+(d.missing?(' · '+d.missing+' not found'):'')+'.');
+      ids.forEach(function(did){ _optiRemove('[data-disp="'+did+'"]'); _optiTick('dc-demdisp'); });
+      if(btn){ btn.disabled=false; btn.innerHTML='✓ Done'; }
+      setTimeout(function(){ try{ loadDemerits(); }catch(_d){} }, 800);
+      return;                                                   // no list repaint — the rows are already gone
+    }
     else if(typeof toast==='function') toast('Could not approve: '+((d&&d.error)||'error'));
   }catch(e){
     jBust();
@@ -2500,9 +2510,16 @@ async function demApproveSelected(){
 async function demResolveDispute(id,status){
   var note=''; if(status==='rejected'){ note=prompt('Optional note to the contractor (reason for rejecting):')||''; }
   if(status==='approved' && !confirm('Approve this dispute? This will VOID the demerit (removes it from their score).')) return;
+  var _ds='[data-disp="'+id+'"]';
+  _optiPending(_ds);
   try{ var r=await fetch(API+'?action=resolve_demerit_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note)+'&_='+Date.now()); var d=await r.json();
-    if(d&&d.ok){ if(typeof toast==='function') toast('Dispute '+status+'.'); jBust(); loadDemeritDisputes(); loadDemerits(); } else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error'));
-  }catch(e){ if(typeof toast==='function') toast('Failed (network).'); }
+    if(d&&d.ok){ if(typeof toast==='function') toast('Dispute '+status+'.');
+      _optiRows(_ds).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(245,158,11"]')||document); });
+      _optiRemove(_ds); _optiTick('dc-demdisp');
+      jBust();
+      setTimeout(function(){ try{ loadDemerits(); }catch(_d){} }, 800);   // standings resync quietly; the dispute list never repaints
+    } else { _optiRestore(_ds); if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error')); }
+  }catch(e){ _optiRestore(_ds); if(typeof toast==='function') toast('Failed (network).'); }
 }
 // Scan attendance + worklog and auto-log new demerits. silent=true skips the toast/button spinner.
 async function autoScanDemerits(days, silent){
@@ -4339,7 +4356,7 @@ async function loadAppeals(){
     var a=(d&&d.appeals)||[];
     if(!a.length){ box.innerHTML=''; return; }
     box.innerHTML='<div style="background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
-      '<div style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">Pending appeals ('+a.length+')</div>'+
+      '<div data-opti-count style="font-weight:700;font-size:13px;color:#fbbf24;margin-bottom:8px;">Pending appeals ('+a.length+')</div>'+
       a.map(function(x){
         _apCache[x.entry_id]=x;
         var isRetag=(x.appeal_type||'').toLowerCase()==='retag';
@@ -4349,7 +4366,7 @@ async function loadAppeals(){
         var detail = isRetag
           ? '<span style="color:#fb923c;font-weight:700;">Retag</span> <span style="color:var(--t2);font-size:12px;">'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+' → <b style="color:#4ade80">'+escAdmin(x.new_project||'')+(x.new_task?(' · '+escAdmin(x.new_task)):'')+'</b> <span style="color:var(--t3)">(time unchanged '+cur+')</span></span>'
           : '<span style="color:var(--t2);font-size:12px;">'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' <span style="color:#fbbf24">(untracked)</span>':'')+' — current '+cur+' → claim <b style="color:#4ade80">'+claim+'</b></span>';
-        return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(15,23,42,.08);">'+
+        return '<div data-ap="'+escAdmin(x.entry_id)+'" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(15,23,42,.08);">'+
           '<div style="flex:1;min-width:200px;"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.date)+'<br>'+detail+
           (x.note?('<br><span style="color:var(--t3);font-size:12px;">“'+escAdmin(x.note)+'”</span>'):'')+_appealDayHtml(x)+'</div>'+
           '<button class="bsm" style="color:#16a34a;border-color:rgba(22,163,74,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button>'+
@@ -4359,13 +4376,48 @@ async function loadAppeals(){
       }).join('')+'</div>';
   }catch(e){ box.innerHTML=''; }
 }
+/* ── OPTIMISTIC ROWS ── Approving used to refetch FOUR heavy lists per click (appeals,
+   dash appeals, worklog, demerits) — 5–20s of spinner and a full repaint for every single
+   decision, which is why 10–15 requests took forever. Now: the row grays out while its ONE
+   write is in flight, then collapses away smoothly; counters tick down locally; the heavy
+   lists resync quietly in the background without touching what you're looking at. */
+function _optiRows(sel){ return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+function _optiPending(sel){ _optiRows(sel).forEach(function(el){
+  el.style.transition='opacity .18s'; el.style.opacity='.45'; el.style.pointerEvents='none'; }); }
+function _optiRestore(sel){ _optiRows(sel).forEach(function(el){
+  el.style.opacity=''; el.style.pointerEvents=''; }); }
+function _optiRemove(sel){ _optiRows(sel).forEach(function(el){
+  var h=el.offsetHeight;
+  el.style.transition='none'; el.style.overflow='hidden'; el.style.maxHeight=h+'px';
+  void el.offsetWidth;
+  el.style.transition='max-height .35s ease, opacity .25s ease, padding .35s ease, margin .35s ease';
+  el.style.maxHeight='0px'; el.style.opacity='0'; el.style.paddingTop='0'; el.style.paddingBottom='0'; el.style.marginTop='0'; el.style.marginBottom='0';
+  setTimeout(function(){ try{ el.remove(); }catch(_r){} }, 380); }); }
+function _optiTick(id){ var el2=document.getElementById(id); if(!el2) return;
+  var n=parseInt(String(el2.textContent).replace(/[^0-9]/g,''),10);
+  if(!isNaN(n)) el2.textContent=String(Math.max(0,n-1)); }
+function _optiHeaderTick(container){ try{                       // "Pending appeals (7)" → (6)
+  var hd=container&&container.querySelector&&container.querySelector('[data-opti-count]');
+  if(!hd) return; var m=hd.textContent.match(/\((\d+)\)/);
+  if(m){ var v=Math.max(0,parseInt(m[1],10)-1); hd.textContent=hd.textContent.replace(/\(\d+\)/,'('+v+')'); } }catch(_h){} }
 async function resolveAppeal(entryId, decision){
   if(decision==='reject' && !confirm('Reject this appeal?')) return;
+  var _sel='[data-ap="'+entryId+'"]';
+  _optiPending(_sel);
   try{
     var r=await fetch(API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+'&_='+Date.now());
     var d=await r.json();
-    if(d&&d.ok){ jBust(); loadAppeals(); loadDashAppeals(); loadWorkLog(); } else { alert('Could not resolve the appeal.'); }
-  }catch(e){ alert('Network error.'); }
+    if(d&&d.ok){
+      _optiRows(_sel).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(245,158,11"]')||document); });
+      _optiRemove(_sel); _optiTick('dc-appeals');
+      var tot=document.getElementById('dash-appeals-total');
+      if(tot){ var tn=parseInt(String(tot.textContent).replace(/[^0-9]/g,''),10);
+        if(!isNaN(tn)) tot.textContent=(tn-1>0)?('· '+(tn-1)+' pending'):''; }
+      if(typeof toast==='function') toast(decision==='approve'?'Appeal approved.':'Appeal rejected.');
+      jBust();
+      setTimeout(function(){ try{ loadWorkLog(); }catch(_w){} }, 600);   // quiet background sync — the visible list never repaints
+    } else { _optiRestore(_sel); alert('Could not resolve the appeal.'); }
+  }catch(e){ _optiRestore(_sel); alert('Network error.'); }
 }
 // Cache of the current pending appeals, keyed by entry_id, so action buttons can read the
 // employee/date without escaping them into inline onclick handlers.
@@ -4404,10 +4456,58 @@ async function approveWithDemerit(entryId){
     if(typeof toast==='function') toast((d2&&d2.ok)
       ? ('Approved + '+pts+'pt demerit logged for '+who+'.')
       : ('Appeal approved, but the demerit failed'+(d2&&d2.error?(': '+d2.error):'.')));
-    jBust(); loadAppeals(); loadDashAppeals(); loadWorkLog(); if(typeof loadDemerits==='function') loadDemerits();
+    var _sel2='[data-ap="'+entryId+'"]';
+    _optiRows(_sel2).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(245,158,11"]')||document); });
+    _optiRemove(_sel2); _optiTick('dc-appeals');
+    jBust();
+    setTimeout(function(){ try{ loadWorkLog(); }catch(_w){} try{ if(typeof loadDemerits==='function') loadDemerits(); }catch(_d){} }, 600);
   }catch(e){ alert('Network error.'); }
 }
 // Mirror pending appeals onto the Dashboard so they aren't missed in the Time Log tab.
+/* ── 🌱 SPROUT QUEUE — VA tool requests & bug reports, reviewed here, built in Claude ── */
+async function loadToolRequests(){
+  var box=document.getElementById('dash-toolreq'); if(!box) return;
+  try{
+    var r=await jGet(API+'?action=toolreq_list&status=open&pass='+encodeURIComponent(ADMIN_PIN)+'&_='+Date.now());
+    var d=await r.json(); var list=(d&&d.requests)||[];
+    var tot=document.getElementById('dash-toolreq-total'); if(tot) tot.textContent=list.length?('· '+list.length+' open'):'';
+    if(!list.length){ box.innerHTML='<div class="es" style="padding:1rem;text-align:center;font-size:13px;">Queue clear — no open requests. 🌱</div>'; return; }
+    box.innerHTML=list.map(function(x){
+      var kindChip=x.kind==='bug'?'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:800;border-radius:10px;padding:1px 8px;">🐞 BUG</span>'
+                  :x.kind==='help'?'<span style="background:#e0e7ff;color:#3730a3;font-size:10px;font-weight:800;border-radius:10px;padding:1px 8px;">❓ HELP</span>'
+                  :'<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:800;border-radius:10px;padding:1px 8px;">🛠 REQUEST</span>';
+      var planned=(x.status==='planned');
+      return '<div class="dash-item" data-treq="'+escAdmin(x.id)+'">'+
+        '<div class="dash-item-main"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · <b style="color:#0d9488;">'+escAdmin(x.tool)+'</b> '+kindChip+
+        (planned?' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:800;border-radius:10px;padding:1px 8px;">📋 PLANNED</span>':'')+
+        ' <small style="color:var(--t3)">'+escAdmin(String(x.created_at).slice(0,16))+'</small><br>'+
+        '<small style="white-space:pre-wrap;">'+escAdmin(x.text)+'</small></div>'+
+        '<div class="dash-item-actions">'+
+          (planned?'':'<button class="bsm" style="color:#2563eb;border-color:rgba(37,99,235,.4)" onclick="toolreqSet(\''+escAdmin(x.id)+'\',\'planned\')">📋 Plan</button>')+
+          '<button class="bsm edit" onclick="toolreqSet(\''+escAdmin(x.id)+'\',\'done\')">✅ Done</button>'+
+          '<button class="bsm danger" onclick="toolreqSet(\''+escAdmin(x.id)+'\',\'declined\')">Decline</button>'+
+        '</div></div>';
+    }).join('');
+  }catch(e){ box.innerHTML='<div class="es">Could not load the Sprout queue.</div>'; }
+}
+async function toolreqSet(id,status){
+  var note='';
+  if(status==='declined'){ note=prompt('Note to the VA (why declined):')||''; if(note===null) return; }
+  else if(status==='done'){ note=prompt('Optional note to the VA (what shipped):','')||''; }
+  var sel='[data-treq="'+id+'"]';
+  _optiPending(sel);
+  try{
+    var r=await fetch(API+'?action=toolreq_update&id='+encodeURIComponent(id)+'&status='+encodeURIComponent(status)+'&note='+encodeURIComponent(note)+'&pass='+encodeURIComponent(ADMIN_PIN)+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){
+      if(typeof toast==='function') toast('Request '+status+' — the VA has been notified.');
+      if(status==='planned'){ _optiRestore(sel); setTimeout(function(){ try{ loadToolRequests(); }catch(_t){} },400); }   // planned stays in the queue
+      else { _optiRemove(sel);
+        var tot=document.getElementById('dash-toolreq-total');
+        if(tot){ var n=parseInt(String(tot.textContent).replace(/[^0-9]/g,''),10); if(!isNaN(n)) tot.textContent=(n-1>0)?('· '+(n-1)+' open'):''; } }
+    } else { _optiRestore(sel); if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error')); }
+  }catch(e){ _optiRestore(sel); if(typeof toast==='function') toast('Network error.'); }
+}
 async function loadDashAppeals(){
   var box=document.getElementById('dash-appeals'); if(!box) return;
   box.innerHTML = sklBar('100%',30) + sklBar('100%',30) + sklBar('100%',30);
@@ -4426,7 +4526,7 @@ async function loadDashAppeals(){
       var dDetail = isRetag
         ? ''+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+' → <b style="color:#4ade80">'+escAdmin(x.new_project||'')+(x.new_task?(' · '+escAdmin(x.new_task)):'')+'</b> (retag, time unchanged)'
         : escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' (untracked)':'')+' — '+cur+' → claim <b style="color:#4ade80">'+claim+'</b>';
-      return '<div class="dash-item"><span class="dash-chip chip-worklog">'+(isRetag?'Retag':'Appeal')+'</span>'+
+      return '<div class="dash-item" data-ap="'+escAdmin(x.entry_id)+'"><span class="dash-chip chip-worklog">'+(isRetag?'Retag':'Appeal')+'</span>'+
         '<div class="dash-item-main"><strong>'+escAdmin(x.full_name||x.employee_id)+'</strong> <small style="color:var(--t3)">'+escAdmin(x.date)+'</small><br>'+
         '<small>'+dDetail+(x.note?(' · “'+escAdmin(x.note)+'”'):'')+'</small>'+_appealDayHtml(x)+'</div>'+
         '<div class="dash-item-actions"><button class="bsm edit" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button><button class="bsm" style="color:#ea580c;border-color:rgba(234,88,12,.45)" onclick="approveWithDemerit(\''+escAdmin(x.entry_id)+'\')">Approve w/ demerit</button><button class="bsm danger" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'reject\')">Reject</button></div></div>';
