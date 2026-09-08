@@ -24684,6 +24684,7 @@ function loadMyRedemptions(){
     if(M && M.playing) return;
     if(TB && !TB.done) return;   // already in a bracket
     if(TL && TL.tid===p.tid) return;   // already showing this lobby
+    if(bkIsDay(p.tid)) return;         // ☀️ a peer on old code invited us to a day tournament — ignore it
     TL={ tid:p.tid, groupKey:p.groupKey, groupName:p.groupName, host:p.from, hostName:p.fromName, players:{}, started:false, nightly:!!p.nightly };
     TL.players[p.from]=p.fromName;
     openLobby(); sfxInvite();
@@ -24696,6 +24697,7 @@ function loadMyRedemptions(){
   // You are NOT auto-entered either — opening the lobby just shows you the field. You're in the
   // bracket only if you press Join.
   window.tourneyStartNightly=function(sid){
+    if(bkIsDay(sid)) return;                       // ☀️ day tournaments retired — refuse to open a DT- lobby
     if(M && M.playing) return;
     if(TB && !TB.done) return;
     if(typeof supaClient==='undefined' || !supaClient) return;
@@ -29153,6 +29155,7 @@ function loadMyRedemptions(){
   }
   // ── Nightly tournament trigger (poll the backend; prompt everyone at 11 PM) ──
   function showNightlyPrompt(sid){
+    if(bkIsDay(sid)) return;                       // ☀️ DAY TOURNAMENTS RETIRED (Sep 2026) — never prompt for a DT- sid
     if(tourneyDeclined(sid)) return;              // they said no — don't nag
     var e=el('tet-nightly-pop'); if(!e) return;
     e.setAttribute('data-sid', sid);
@@ -29188,6 +29191,7 @@ function loadMyRedemptions(){
       fetch(APPS_SCRIPT_URL+'?action=get_tourney_trigger&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
         var ver=(x&&x.ver)||''; if(base===null){ base=ver; return; }
         if(ver && ver!==base){ base=ver; var sid=ver.split('|').pop();
+          if(bkIsDay(sid) || String(ver).indexOf('|day|')>=0) return;   // ☀️ ignore any retired day-tournament trigger
           if(!(M&&M.playing) && !TL && !(el('tet-nightly-pop')&&el('tet-nightly-pop').style.display==='block')) showNightlyPrompt(sid);
         }
       }).catch(function(){});
