@@ -37498,37 +37498,33 @@ var PORTAL_BUILD='2026-08-25-A';
     return { pct:Math.max(0,Math.min(1,elapsed/12)), elapsed:elapsed,
              left:Math.max(0,12-elapsed), label: am?'8AM – 8PM':'8PM – 8AM' };
   }
+  /* Jethro (Sep 2026): the circular shift RING is retired. The shift progress is now a
+     HORIZONTAL rectangle bar pinned to the bottom-CENTER of the time card. */
   function ring(){
     var clock=document.getElementById('hero-clock'); if(!clock) return false;
-    var host=clock.parentElement; if(!host) return false;
+    var host=clock.closest('.hero-aside')||clock.parentElement; if(!host) return false;
     if(host.querySelector('.jmb-ring')) { update(); return true; }
     host.style.position=host.style.position||'relative';
     var box=document.createElement('div');
     box.className='jmb-ring';
-    box.style.cssText='display:flex;align-items:center;gap:10px;margin-top:10px';
+    box.style.cssText='width:100%;margin-top:11px;text-align:center;';
     box.innerHTML=
-      '<svg width="42" height="42" viewBox="0 0 42 42" style="flex:none">'+
-        '<circle cx="21" cy="21" r="18" fill="none" stroke="rgba(38,34,98,.12)" stroke-width="4"/>'+
-        '<circle id="jmb-ring-arc" cx="21" cy="21" r="18" fill="none" stroke="#f16623" stroke-width="4"'+
-        ' stroke-linecap="round" transform="rotate(-90 21 21)"'+
-        ' stroke-dasharray="113" stroke-dashoffset="113"'+
-        ' style="transition:stroke-dashoffset .8s cubic-bezier(.3,0,.2,1)"/>'+
-      '</svg>'+
-      '<div style="line-height:1.25">'+
-        '<div id="jmb-ring-t" style="font-size:12.5px;font-weight:800;color:#262262">—</div>'+
-        '<div id="jmb-ring-s" style="font-size:10px;font-weight:700;letter-spacing:.08em;'+
-        'text-transform:uppercase;color:#94a3b8">Shift window</div>'+
-      '</div>';
+      '<div id="jmb-ring-t" style="font-size:12.5px;font-weight:800;color:#262262;margin-bottom:6px;">—</div>'+
+      '<div style="position:relative;height:8px;border-radius:99px;background:rgba(38,34,98,.14);overflow:hidden;">'+
+        '<div id="jmb-ring-bar" style="position:absolute;left:0;top:0;bottom:0;width:0%;border-radius:99px;'+
+        'background:linear-gradient(90deg,#f97e33,#f16623);transition:width .8s cubic-bezier(.3,0,.2,1);"></div>'+
+      '</div>'+
+      '<div id="jmb-ring-s" style="font-size:10px;font-weight:700;letter-spacing:.08em;'+
+      'text-transform:uppercase;color:#94a3b8;margin-top:5px;">Shift window</div>';
     host.appendChild(box);
     update();
     setInterval(update,60000);
     return true;
   }
   function update(){
-    var arc=document.getElementById('jmb-ring-arc'); if(!arc) return;
-    var p=shiftProgress(), C=2*Math.PI*18;
-    arc.setAttribute('stroke-dasharray',C.toFixed(1));
-    arc.setAttribute('stroke-dashoffset',(C*(1-p.pct)).toFixed(1));
+    var bar=document.getElementById('jmb-ring-bar'); if(!bar) return;
+    var p=shiftProgress();
+    bar.style.width=(p.pct*100).toFixed(1)+'%';
     var t=document.getElementById('jmb-ring-t'), sEl=document.getElementById('jmb-ring-s');
     if(t) t.textContent=p.elapsed.toFixed(1)+'h in · '+p.left.toFixed(1)+'h left';
     if(sEl) sEl.textContent=p.label;
@@ -39152,10 +39148,17 @@ body.light #dashboard-hero .hero-weather{ position:absolute; inset:0; border-rad
           mask-image:linear-gradient(90deg,transparent 0%,rgba(0,0,0,.5) 24%,#000 56%); }
 .wx-on .hero-weather .wx-sky{ opacity:1; }
 .hero-weather .wx-fx{ position:absolute; inset:0; }
-/* ☀ SUN */
-.hero-weather .wx-sun{ position:absolute; top:9%; right:26%; width:120px; height:120px; border-radius:50%;
-  background:radial-gradient(circle at 50% 50%, #fff7e0 0%, #ffe08a 42%, rgba(255,199,84,.55) 62%, transparent 72%);
-  filter:drop-shadow(0 0 30px rgba(255,193,71,.6)); animation:wxSunPulse 5s ease-in-out infinite; opacity:0; transition:opacity 1s; }
+/* atmospheric horizon haze — sits under everything on daytime conditions for depth */
+.hero-weather .wx-haze{ position:absolute; left:0; right:0; bottom:0; height:46%; opacity:0; transition:opacity 1s;
+  background:linear-gradient(180deg, transparent, rgba(255,255,255,.28) 70%, rgba(255,255,255,.42)); pointer-events:none; }
+.wx-clear .wx-haze, .wx-partly .wx-haze, .wx-clouds .wx-haze{ opacity:1; }
+/* ☀ SUN — soft disk with a wide radiant bloom */
+.hero-weather .wx-sun{ position:absolute; top:8%; right:25%; width:132px; height:132px; border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, #fffdf4 0%, #fff2c4 26%, #ffdd85 44%, rgba(255,201,92,.42) 60%, rgba(255,186,71,.16) 74%, transparent 82%);
+  filter:drop-shadow(0 0 46px rgba(255,197,86,.75)) blur(.3px); animation:wxSunPulse 6s ease-in-out infinite; opacity:0; transition:opacity 1s; }
+.hero-weather .wx-bloom{ position:absolute; top:-6%; right:12%; width:340px; height:340px; border-radius:50%; opacity:0; transition:opacity 1.2s;
+  background:radial-gradient(circle, rgba(255,224,150,.45) 0%, rgba(255,212,120,.18) 34%, transparent 66%); pointer-events:none; }
+.wx-clear .wx-bloom, .wx-partly .wx-bloom{ opacity:1; }
 .hero-weather .wx-rays{ position:absolute; top:9%; right:26%; width:120px; height:120px; margin:0; opacity:0; transition:opacity 1s;
   background:conic-gradient(from 0deg, rgba(255,214,120,.0) 0deg, rgba(255,214,120,.34) 6deg, transparent 12deg,
     transparent 30deg, rgba(255,214,120,.34) 36deg, transparent 42deg, transparent 60deg, rgba(255,214,120,.30) 66deg, transparent 72deg,
@@ -39178,23 +39181,24 @@ body.light #dashboard-hero .hero-weather{ position:absolute; inset:0; border-rad
 .wx-night .wx-moon{ opacity:1; }
 .wx-night .wx-stars i{ opacity:.9; }
 @keyframes wxTwinkle{ 0%,100%{ opacity:.25; transform:scale(.7); } 50%{ opacity:1; transform:scale(1); } }
-/* ☁ CLOUDS */
-.hero-weather .wx-cloud{ position:absolute; border-radius:100px; background:linear-gradient(180deg,#ffffff,#e9eef5);
-  box-shadow:0 8px 20px rgba(80,90,110,.14); opacity:0; transition:opacity 1s; }
+/* ☁ CLOUDS — soft blurred masses with a lit top and shadowed underside */
+.hero-weather .wx-cloud{ position:absolute; border-radius:100px; background:linear-gradient(175deg,#ffffff 0%,#f4f7fb 52%,#dbe2ec 100%);
+  box-shadow:0 12px 26px rgba(70,80,100,.16), inset 0 -6px 12px rgba(120,132,152,.22), inset 0 5px 8px rgba(255,255,255,.7);
+  filter:blur(.4px); opacity:0; transition:opacity 1s; }
 .hero-weather .wx-cloud::before, .hero-weather .wx-cloud::after{ content:''; position:absolute; border-radius:50%;
-  background:inherit; }
-.hero-weather .wx-cloud::before{ width:56%; height:150%; left:14%; top:-64%; }
-.hero-weather .wx-cloud::after{ width:40%; height:120%; right:16%; top:-40%; }
+  background:inherit; box-shadow:inherit; }
+.hero-weather .wx-cloud::before{ width:58%; height:158%; left:12%; top:-66%; }
+.hero-weather .wx-cloud::after{ width:44%; height:126%; right:13%; top:-42%; }
 .wx-partly .wx-cloud, .wx-clouds .wx-cloud, .wx-rain .wx-cloud, .wx-storm .wx-cloud, .wx-fog .wx-cloud{ opacity:1; }
 .wx-clouds .wx-cloud, .wx-rain .wx-cloud, .wx-storm .wx-cloud{ background:linear-gradient(180deg,#f3f5f9,#d6dce6); }
 .wx-storm .wx-cloud{ background:linear-gradient(180deg,#c9cfda,#9aa3b4); }
 @keyframes wxDrift{ from{ transform:translateX(0); } to{ transform:translateX(38px); } }
-/* 🌧 RAIN — falls across the whole card but thin + soft so text stays legible */
-.hero-weather .wx-rain-l i{ position:absolute; top:-14%; width:1.6px; height:16px; border-radius:2px;
-  background:linear-gradient(180deg, rgba(150,180,220,0), rgba(120,155,200,.7)); animation:wxFall linear infinite; }
-.hero-weather .wx-ripple i{ position:absolute; bottom:8%; width:12px; height:4px; border:1.4px solid rgba(120,155,200,.5);
+/* 🌧 RAIN — slanted, depth-layered streaks (near drops longer/faster/brighter) */
+.hero-weather .wx-rain-l i{ position:absolute; top:-16%; width:1.5px; height:18px; border-radius:2px;
+  background:linear-gradient(180deg, rgba(160,190,225,0), rgba(120,155,200,.75)); animation:wxFall linear infinite; }
+.hero-weather .wx-ripple i{ position:absolute; bottom:7%; width:13px; height:4px; border:1.4px solid rgba(120,155,200,.5);
   border-radius:50%; opacity:0; animation:wxRip 1.6s ease-out infinite; }
-@keyframes wxFall{ from{ transform:translateY(0); } to{ transform:translateY(150px); } }
+@keyframes wxFall{ from{ transform:translate(0,0); } to{ transform:translate(-14px,155px); } }
 @keyframes wxRip{ 0%{ opacity:.7; transform:scale(.4); } 100%{ opacity:0; transform:scale(1.6); } }
 /* ⛈ LIGHTNING */
 .hero-weather .wx-flash{ position:absolute; inset:0; background:radial-gradient(circle at 70% 20%, rgba(255,255,255,.85), transparent 55%);
@@ -39216,9 +39220,8 @@ body.light #dashboard-hero .hero-weather{ position:absolute; inset:0; border-rad
 <script>
 (function(){
   'use strict';
-  /* ── FIXED LOCATION — the whole team is in one area. Default: Metro Manila.
-     Change these two numbers to your exact city if you like. ── */
-  var WX_LAT=14.5995, WX_LON=120.9842;
+  /* ── FIXED LOCATION — the whole team is in one area: Siniloan, Laguna. ── */
+  var WX_LAT=14.4228, WX_LON=121.4453;
   var API='https://api.open-meteo.com/v1/forecast?latitude='+WX_LAT+'&longitude='+WX_LON+
           '&current=temperature_2m,weather_code,is_day&timezone=Asia%2FManila';
   var CLASSES=['wx-clear','wx-partly','wx-clouds','wx-rain','wx-storm','wx-fog','wx-night'];
@@ -39230,6 +39233,7 @@ body.light #dashboard-hero .hero-weather{ position:absolute; inset:0; border-rad
     if(w) return w;
     w=document.createElement('div'); w.className='hero-weather';
     w.innerHTML='<div class="wx-sky"></div><div class="wx-fx">'+
+      '<div class="wx-haze"></div><div class="wx-bloom"></div>'+
       '<div class="wx-rays"></div><div class="wx-sun"></div>'+
       '<div class="wx-moon"></div><div class="wx-stars"></div>'+
       '<div class="wx-fog-l"></div><div class="wx-rain-l"></div><div class="wx-ripple"></div>'+
@@ -39245,34 +39249,52 @@ body.light #dashboard-hero .hero-weather{ position:absolute; inset:0; border-rad
     });
     /* stars */
     var stars=w.querySelector('.wx-stars');
-    for(var i=0;i<26;i++){ var s=document.createElement('i');
-      s.style.top=(4+Math.random()*54)+'%'; s.style.right=(4+Math.random()*54)+'%';
+    for(var i=0;i<38;i++){ var s=document.createElement('i');
+      var sz=(1.2+Math.random()*2.4).toFixed(1);
+      s.style.width=sz+'px'; s.style.height=sz+'px';
+      s.style.top=(4+Math.random()*58)+'%'; s.style.right=(3+Math.random()*58)+'%';
+      s.style.animationDuration=(2.6+Math.random()*2.6).toFixed(1)+'s';
       s.style.animationDelay=(Math.random()*3.5).toFixed(1)+'s'; stars.appendChild(s); }
-    /* rain drops */
+    /* rain drops — three depth bands: far (short/slow/faint) → near (long/fast/bright) */
     var rl=w.querySelector('.wx-rain-l');
-    for(var r=0;r<46;r++){ var d=document.createElement('i');
-      d.style.left=(Math.random()*100)+'%'; d.style.animationDuration=(0.5+Math.random()*0.5).toFixed(2)+'s';
-      d.style.animationDelay=(Math.random()*1.2).toFixed(2)+'s'; d.style.opacity=(0.4+Math.random()*0.5).toFixed(2);
+    for(var r=0;r<60;r++){ var d=document.createElement('i');
+      var depth=Math.random();                       // 0 far … 1 near
+      d.style.left=(Math.random()*105-2)+'%';
+      d.style.height=(10+depth*16).toFixed(0)+'px';
+      d.style.width=(1+depth*1.1).toFixed(1)+'px';
+      d.style.animationDuration=(0.75-depth*0.35).toFixed(2)+'s';
+      d.style.animationDelay=(Math.random()*1.4).toFixed(2)+'s';
+      d.style.opacity=(0.28+depth*0.55).toFixed(2);
       rl.appendChild(d); }
     var rip=w.querySelector('.wx-ripple');
     for(var p=0;p<7;p++){ var rp=document.createElement('i');
       rp.style.left=(6+Math.random()*88)+'%'; rp.style.animationDelay=(Math.random()*1.6).toFixed(2)+'s'; rip.appendChild(rp); }
     return w;
   }
+  /* Multi-stop atmospheric skies — a warm haze band sits near the horizon under a deeper
+     blue zenith, the way a real sky reads. Clear day gets a golden-hour wash when it's
+     early/late so dawn and dusk actually look like dawn and dusk. */
+  function phtHour(){ try{ return parseInt(new Date().toLocaleString('en-US',{timeZone:'Asia/Manila',hour:'2-digit',hour12:false}),10); }catch(e){ return new Date().getHours(); } }
+  function clearSky(){
+    var h=phtHour();
+    if(h>=5 && h<8)  return 'linear-gradient(180deg,#3b5c8f 0%,#7f9ec9 30%,#f2b57e 74%,#ffd9a6 100%)';   // dawn
+    if(h>=16 && h<19) return 'linear-gradient(180deg,#2f5a94 0%,#8aa6cf 28%,#f0a866 72%,#ffcf94 100%)';  // dusk
+    return 'linear-gradient(180deg,#2f6fb0 0%,#5f9bd6 32%,#a7cdec 66%,#e4f2fb 100%)';                    // midday
+  }
   var SKY={
-    'wx-clear':'linear-gradient(180deg,#8ec5f0 0%,#bfe0f5 45%,#eaf5fb 100%)',
-    'wx-partly':'linear-gradient(180deg,#9ecbe8 0%,#cfe6f4 50%,#eef6fb 100%)',
-    'wx-clouds':'linear-gradient(180deg,#b8c2cf 0%,#cdd6e0 55%,#e6ebf1 100%)',
-    'wx-rain':'linear-gradient(180deg,#8f9dad 0%,#a9b6c4 55%,#c6cfda 100%)',
-    'wx-storm':'linear-gradient(180deg,#5a6474 0%,#7b8698 55%,#9aa4b5 100%)',
-    'wx-fog':'linear-gradient(180deg,#c3c9d2 0%,#d3d8df 55%,#e7eaee 100%)',
-    'wx-night':'linear-gradient(180deg,#101a33 0%,#26314f 55%,#47506b 100%)',
-    'wx-night-cloud':'linear-gradient(180deg,#1c2438 0%,#333c53 55%,#525a70 100%)'
+    'wx-clear':'',   // filled dynamically by clearSky()
+    'wx-partly':'linear-gradient(180deg,#4d84bd 0%,#84b0da 34%,#c2dcf0 70%,#eef6fb 100%)',
+    'wx-clouds':'linear-gradient(180deg,#8f9daf 0%,#b0bccb 45%,#d0d8e2 78%,#e8ecf1 100%)',
+    'wx-rain':'linear-gradient(180deg,#5f6b7b 0%,#828e9e 42%,#a7b2c0 78%,#c3ccd8 100%)',
+    'wx-storm':'linear-gradient(180deg,#333b49 0%,#4f5867 40%,#727c8d 78%,#909aac 100%)',
+    'wx-fog':'linear-gradient(180deg,#aeb5bf 0%,#c4cad2 45%,#d8dce2 78%,#eceef1 100%)',
+    'wx-night':'linear-gradient(180deg,#060b1c 0%,#101c3a 42%,#22315a 78%,#3a4a72 100%)',
+    'wx-night-cloud':'linear-gradient(180deg,#0f1526 0%,#1d2740 45%,#333f5c 80%,#4a566f 100%)'
   };
   function condFrom(code, isDay){
     if(!isDay){                                      // night
-      if(code>=51) return {c:'wx-rain', sky:SKY['wx-night-cloud'], label:'Rain', icon:'🌧'};
       if(code>=95) return {c:'wx-storm', sky:SKY['wx-night-cloud'], label:'Storm', icon:'⛈'};
+      if(code>=51) return {c:'wx-rain', sky:SKY['wx-night-cloud'], label:'Rain', icon:'🌧'};
       if(code===2||code===3) return {c:'wx-clouds', sky:SKY['wx-night-cloud'], label:'Cloudy', icon:'☁'};
       return {c:'wx-night', sky:SKY['wx-night'], label:'Clear night', icon:'🌙'};
     }
@@ -39282,7 +39304,7 @@ body.light #dashboard-hero .hero-weather{ position:absolute; inset:0; border-rad
     if(code===3) return {c:'wx-clouds', sky:SKY['wx-clouds'], label:'Overcast', icon:'☁'};
     if(code===2) return {c:'wx-partly', sky:SKY['wx-partly'], label:'Partly cloudy', icon:'⛅'};
     if(code===1) return {c:'wx-partly', sky:SKY['wx-partly'], label:'Mainly clear', icon:'🌤'};
-    return {c:'wx-clear', sky:SKY['wx-clear'], label:'Sunny', icon:'☀'};
+    return {c:'wx-clear', sky:clearSky(), label:'Sunny', icon:'☀'};
   }
   function apply(cond, temp){
     var hero=heroEl(); if(!hero) return;
