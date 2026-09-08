@@ -1488,8 +1488,8 @@ body{background-attachment:initial !important}
         <input class="inp" id="dev-tag" placeholder="Asset tag / serial (optional)" style="width:220px;">
         <button class="bsm" onclick="saveDevice()" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;">+ Add laptop</button>
       </div>
-      <div class="tw"><table><thead><tr><th>Laptop</th><th>Tag / serial</th><th>Status</th><th></th></tr></thead>
-        <tbody id="dev-body"><tr><td colspan="4" class="es">Loading…</td></tr></tbody></table></div>
+      <div class="tw"><table><thead><tr><th>Laptop</th><th>Tag / serial</th><th>In use now</th><th>Status</th><th></th></tr></thead>
+        <tbody id="dev-body"><tr><td colspan="5" class="es">Loading…</td></tr></tbody></table></div>
 
       <div class="toolbar" style="margin-top:1.8rem;">
         <div class="tl"><span style="font-size:15px;font-weight:700;color:var(--t1);">Login device log</span>
@@ -2804,12 +2804,15 @@ async function loadDevices(){
   try{
     var r=await fetch(API+'?action=device_inventory&pass='+encodeURIComponent(PASS||admPass())+'&_='+Date.now());
     var d=await r.json(); var list=(d&&d.assets)||[];
-    if(!list.length){ body.innerHTML='<tr><td colspan="4" class="es">No laptops yet — add your first above. 💻</td></tr>'; return; }
+    if(!list.length){ body.innerHTML='<tr><td colspan="5" class="es">No laptops yet — add your first above. 💻</td></tr>'; return; }
     body.innerHTML=list.map(function(x){
       var retired=String(x.status).toLowerCase()==='retired';
+      var use=x.in_use ? ('<span style="color:#f59e0b;">🔴 '+escAdmin(x.in_use_name||'in use')+'</span> <button class="bsm" onclick="releaseDevice(\''+escAdmin(x.id)+'\')" style="color:var(--t2);padding:1px 7px;">free</button>')
+                       : '<span style="color:#16a34a;">🟢 available</span>';
       return '<tr'+(retired?' style="opacity:.5;"':'')+'>'+
         '<td><b>'+escAdmin(x.label)+'</b>'+(x.assigned_to?(' <span style="color:var(--t3);font-size:11px;">· '+escAdmin(x.assigned_to)+'</span>'):'')+'</td>'+
         '<td style="color:var(--t2);">'+escAdmin(x.tag||'—')+'</td>'+
+        '<td>'+(retired?'—':use)+'</td>'+
         '<td>'+(retired?'<span style="color:#f87171;">retired</span>':'<span style="color:#16a34a;">active</span>')+'</td>'+
         '<td style="text-align:right;"><button class="bsm" onclick="retireDevice(\''+escAdmin(x.id)+'\','+(retired?'1':'0')+')" style="color:'+(retired?'#16a34a':'#ea580c')+';border-color:rgba(234,88,12,.4);">'+(retired?'Reactivate':'Retire')+'</button></td>'+
       '</tr>';
@@ -2833,6 +2836,11 @@ async function retireDevice(id, isRetired){
     var r=await fetch(API+'?action=device_retire&id='+encodeURIComponent(id)+(isRetired?'&reactivate=1':'')+'&pass='+encodeURIComponent(PASS||admPass())+'&_='+Date.now());
     var d=await r.json(); if(d&&d.ok) loadDevices(); else toast('Failed: '+((d&&d.error)||'error'));
   }catch(e){ toast('Network error.'); }
+}
+async function releaseDevice(id){
+  if(!confirm('Free this laptop back into the pool? (Use when someone left without logging out.)')) return;
+  try{ var r=await fetch(API+'?action=device_release&device_id='+encodeURIComponent(id)+'&pass='+encodeURIComponent(PASS||admPass())+'&_='+Date.now());
+    var d=await r.json(); if(d&&d.ok) loadDevices(); else toast('Failed: '+((d&&d.error)||'error')); }catch(e){ toast('Network error.'); }
 }
 async function loadDeviceLog(){
   var body=document.getElementById('devlog-body'); if(!body) return;

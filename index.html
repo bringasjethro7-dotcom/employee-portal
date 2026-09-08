@@ -7132,6 +7132,9 @@ function renderDashboard(data) {
 function doLogout() {
   try { stopSessionGuard(); } catch(e) {}
   try { empLiveStop(); } catch(e) {}
+  // Free the laptop back into the pool so the next VA can claim it.
+  try{ var _ed=JSON.parse(sessionStorage.getItem('emp_data')||'{}'); var _id=_ed.employee_id||_ed.id;
+    if(_id) fetch(APPS_SCRIPT_URL+'?action=device_release&employee_id='+encodeURIComponent(_id)+'&_='+Date.now()); }catch(_rl){}
   sessionStorage.removeItem('emp_data');
   document.getElementById('dashboard-screen').style.display = 'none';
   document.getElementById('login-screen').style.display    = 'grid';
@@ -39165,41 +39168,72 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
   <div class="dp-body">
     <label for="dp-select">Select your laptop</label>
     <select id="dp-select"><option value="">Loading laptops…</option></select>
-    <div class="dp-hint">Pick the exact JMB laptop in front of you, or “My personal laptop” if it’s your own.</div>
+    <div class="dp-hint" id="dp-note">Checking availability…</div>
+    <div class="dp-hint" style="margin-top:4px;">🟢 available · 🔴 in use by someone else. Pick the exact laptop in front of you, or “My personal laptop.”</div>
     <button class="dp-go" id="dp-go">Continue</button>
   </div>
 </div></div>
 <script>
+window._dpPoll=null;
 window.pickDeviceGate=function(data){
   return new Promise(function(resolve){
     var ov=document.getElementById('devpick'), sel=document.getElementById('dp-select'), go=document.getElementById('dp-go');
     if(!ov||!sel||!go){ resolve(); return; }
     var eid=(data&&(data.employee_id||data.id))||'', enm=(data&&data.full_name)||eid;
+    var eidL=String(eid).toLowerCase();
     go.classList.remove('ready'); go.textContent='Continue';
     sel.innerHTML='<option value="">Loading laptops…</option>';
     ov.classList.add('on');
-    fetch(APPS_SCRIPT_URL+'?action=device_list&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
-      var list=(d&&d.devices)||[];
+    var note=document.getElementById('dp-note');
+    // Render the picker from a fresh list — occupied laptops are shown but DISABLED.
+    function render(list){
+      var prev=sel.value;
       var h='<option value="">— Choose your laptop —</option>';
-      list.forEach(function(x){ h+='<option value="jmb|'+encodeURIComponent(x.id)+'|'+encodeURIComponent(x.label)+'">'+
-        (x.label)+(x.tag?(' ('+x.tag+')'):'')+'</option>'; });
+      var freeCount=0;
+      list.forEach(function(x){
+        var mine=x.in_use_by && String(x.in_use_by).toLowerCase()===eidL;
+        var taken=x.in_use && !mine;
+        if(!taken) freeCount++;
+        var lbl=(x.label)+(x.tag?(' · '+x.tag):'');
+        if(taken) lbl='🔴 '+lbl+' — in use'+(x.in_use_name?(' by '+x.in_use_name):'');
+        else if(mine) lbl='🟢 '+lbl+' — yours';
+        else lbl='🟢 '+lbl+' — available';
+        h+='<option value="jmb|'+encodeURIComponent(x.id)+'|'+encodeURIComponent(x.label)+'"'+(taken?' disabled':'')+'>'+lbl+'</option>';
+      });
       h+='<option value="personal||My personal laptop">💻 My personal laptop</option>';
       sel.innerHTML=h;
-    }).catch(function(){ sel.innerHTML='<option value="">— Choose your laptop —</option><option value="personal||My personal laptop">💻 My personal laptop</option>'; });
+      // keep the VA's selection if it's still selectable
+      if(prev){ var opt=sel.querySelector('option[value="'+prev.replace(/"/g,'')+'"]');
+        if(opt && !opt.disabled){ sel.value=prev; } else { go.classList.remove('ready'); } }
+      if(note) note.textContent=freeCount+' of '+list.length+' laptops available · updates live';
+    }
+    function load(){
+      return fetch(APPS_SCRIPT_URL+'?action=device_list&_='+Date.now()).then(function(r){return r.json();})
+        .then(function(d){ render((d&&d.devices)||[]); })
+        .catch(function(){ if(!sel.options.length) sel.innerHTML='<option value="">— Choose your laptop —</option><option value="personal||My personal laptop">💻 My personal laptop</option>'; });
+    }
+    load();
+    if(window._dpPoll) clearInterval(window._dpPoll);
+    window._dpPoll=setInterval(load, 5000);          // LIVE: refresh availability every 5s while open
     sel.onchange=function(){ go.classList.toggle('ready', !!sel.value); };
     go.onclick=function(){
       if(!sel.value) return;
       var parts=sel.value.split('|'); var kind=parts[0]||'jmb';
       var did=decodeURIComponent(parts[1]||''), label=decodeURIComponent(parts[2]||'');
-      go.textContent='Saving…'; go.classList.remove('ready');
-      var url=APPS_SCRIPT_URL+'?action=device_log&employee_id='+encodeURIComponent(eid)+
+      go.textContent='Claiming…'; go.classList.remove('ready');
+      var url=APPS_SCRIPT_URL+'?action=device_claim&employee_id='+encodeURIComponent(eid)+
         '&full_name='+encodeURIComponent(enm)+'&kind='+encodeURIComponent(kind)+
         '&device_id='+encodeURIComponent(did)+'&device_label='+encodeURIComponent(label)+
         '&ua='+encodeURIComponent((navigator.userAgent||'').slice(0,200))+'&_='+Date.now();
-      var done=function(){ ov.classList.remove('on'); resolve(); };
+      var done=function(){ if(window._dpPoll){ clearInterval(window._dpPoll); window._dpPoll=null; } ov.classList.remove('on'); resolve(); };
       fetch(url).then(function(r){return r.json();}).then(function(d){
-        if(d&&d.ok){ done(); } else { go.textContent='Try again'; go.classList.add('ready'); }
-      }).catch(function(){ /* don't trap the VA out if the network hiccups — proceed */ done(); });
+        if(d&&d.ok){ done(); }
+        else if(d&&d.error==='TAKEN'){
+          if(note) note.textContent='⚠ Just taken by '+(d.by||'someone else')+' — pick another laptop.';
+          go.textContent='Continue'; sel.value=''; load();
+        }
+        else { go.textContent='Try again'; go.classList.add('ready'); }
+      }).catch(function(){ done(); });   // network hiccup → don't trap the VA out
     };
   });
 };
