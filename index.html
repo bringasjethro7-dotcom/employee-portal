@@ -7321,11 +7321,14 @@ function renderNotifs(){
   var box=document.getElementById('notif-list'); if(!box) return;
   if(!_notifs.length){ box.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-3);font-size:13px;">No notifications yet.</div>'; return; }
   box.innerHTML=_notifs.map(function(n){ var _nic={payslip:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><circle cx="16" cy="14" r="1.4"/></svg>',client_paid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',payout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v9H4v-9"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>'}; var ic=_nic[n.type]||'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
-    return '<div style="display:flex;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);'+(n.read?'':'background:rgba(96,165,250,.06);')+'">'+
+    /* QA-review notifications are clickable — they open the in-portal findings viewer. */
+    var _isQa=(n.type==='qa' && String(n.link||n.url||'').indexOf('qa-findings')>=0) || (n.type==='qa' && /QA review ready/i.test(String(n.title||'')));
+    var _clk=_isQa?' onclick="try{document.getElementById(\'notif-panel\').style.display=\'none\';}catch(e){} if(window.openQaFindings)openQaFindings();"':'';
+    return '<div'+_clk+' style="display:flex;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);'+(_isQa?'cursor:pointer;':'')+(n.read?'':'background:rgba(96,165,250,.06);')+'">'+
       '<div style="width:20px;height:20px;color:var(--orange-1);flex-shrink:0;margin-top:1px;">'+ic+'</div>'+
       '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;color:var(--text-1);">'+escapeHtml(n.title)+(n.read?'':' <span style="width:7px;height:7px;background:#60a5fa;border-radius:50%;display:inline-block;vertical-align:middle;margin-left:3px;"></span>')+'</div>'+
       '<div style="font-size:12.5px;color:var(--text-2);margin-top:2px;line-height:1.45;white-space:pre-wrap;">'+escapeHtml(n.body)+'</div>'+
-      '<div style="font-size:10.5px;color:var(--text-3);margin-top:4px;">'+escapeHtml(fmtNotifTime(n.created_at))+'</div></div></div>';
+      '<div style="font-size:10.5px;color:var(--text-3);margin-top:4px;">'+escapeHtml(fmtNotifTime(n.created_at))+(_isQa?' · <span style="color:var(--orange-1);font-weight:700;">Tap to review →</span>':'')+'</div></div></div>';
   }).join('');
   try{ renderOverviewActivity(); }catch(e){}
 }
@@ -39141,6 +39144,109 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
       setTimeout(function(){ if(!seen()) show(); }, 3600);
     }
   }, 700);
+})();
+</script>
+
+<!-- ══════════ 🔎 MY QA FINDINGS (portal-only; screenshots never leave in email) ══════════
+     Opened from the "Week N QA review ready" bell notification (#qa-findings). Shows the
+     signed-in VA their findings + the screenshots behind each, and lets them tick + reason +
+     submit disputes in one go. -->
+<style id="qaf-css">
+#qaf-ov{ position:fixed; inset:0; z-index:9550; display:none; align-items:center; justify-content:center;
+  background:rgba(10,14,22,.6); backdrop-filter:blur(4px); padding:20px; }
+#qaf-ov.on{ display:flex; }
+#qaf-card{ width:min(680px,96vw); max-height:92vh; overflow:auto; background:#fff; border-radius:18px;
+  box-shadow:0 40px 100px rgba(0,0,0,.5); }
+#qaf-head{ position:sticky; top:0; background:linear-gradient(135deg,#0f172a,#1e293b); color:#fff; padding:16px 20px; border-radius:18px 18px 0 0; display:flex; align-items:center; gap:10px; }
+#qaf-head b{ font-size:16px; } #qaf-head small{ display:block; font-size:12px; opacity:.8; }
+#qaf-x{ margin-left:auto; background:rgba(255,255,255,.15); border:none; color:#fff; width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:15px; }
+#qaf-body{ padding:18px 20px 22px; color:#0f172a; }
+.qaf-item{ border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; margin-bottom:14px; }
+.qaf-item .cr{ font-weight:700; font-size:14px; }
+.qaf-item .mt{ font-size:12.5px; color:#64748b; margin-top:3px; }
+.qaf-item .nt{ font-size:12.5px; color:#334155; margin-top:8px; }
+.qaf-shots{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin-top:10px; }
+.qaf-shots a{ display:block; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; background:#f8fafc; }
+.qaf-shots img{ width:100%; height:120px; object-fit:cover; display:block; }
+.qaf-tick{ display:flex; gap:10px; align-items:flex-start; margin-top:10px; cursor:pointer; }
+.qaf-tick input{ width:18px; height:18px; margin-top:2px; }
+.qaf-reason{ display:none; width:100%; margin-top:9px; padding:10px; border:1px solid #cbd5e1; border-radius:9px; font:14px inherit; box-sizing:border-box; }
+.qaf-done{ font-size:12px; font-weight:800; color:#16a34a; }
+#qaf-submit{ background:#0f172a; color:#fff; border:none; font:700 15px inherit; padding:13px 26px; border-radius:10px; cursor:pointer; }
+#qaf-msg{ color:#dc2626; font-size:13px; margin:6px 0; }
+</style>
+<div id="qaf-ov"><div id="qaf-card">
+  <div id="qaf-head"><span style="font-size:20px;">🔎</span><div><b>Your QA findings</b><small id="qaf-sub">Loading…</small></div><button id="qaf-x" onclick="closeQaFindings()">✕</button></div>
+  <div id="qaf-body"><div style="text-align:center;color:#64748b;padding:24px;">Loading your findings…</div></div>
+</div></div>
+<script>
+(function(){
+  function emp(){ try{ return JSON.parse(sessionStorage.getItem('emp_data')||'{}'); }catch(e){ return {}; } }
+  function eid(){ var e=emp(); return String(e.employee_id||e.id||''); }
+  var DATA=null;
+  window.openQaFindings=function(){
+    var ov=document.getElementById('qaf-ov'); if(!ov) return; ov.classList.add('on');
+    var body=document.getElementById('qaf-body'), sub=document.getElementById('qaf-sub');
+    body.innerHTML='<div style="text-align:center;color:#64748b;padding:24px;">Loading your findings…</div>';
+    fetch(APPS_SCRIPT_URL+'?action=qa2_my_findings&employee_id='+encodeURIComponent(eid())+'&_='+Date.now())
+      .then(function(r){return r.json();}).then(function(d){
+        DATA=d;
+        if(!d||d.error){ body.innerHTML='<div style="color:#dc2626;padding:20px;">Could not load your findings. Try again shortly.</div>'; return; }
+        if(!d.has){ sub.textContent='All clear'; body.innerHTML='<div style="text-align:center;padding:28px;color:#16a34a;font-weight:700;">Nothing was flagged in your latest review. Nice work! 🎉</div>'; return; }
+        sub.textContent='Week '+d.week+' · '+d.count+' finding'+(d.count!==1?'s':'')+' · reviewed by a colleague';
+        var esc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); };
+        var OPEN=!!d.dispute_open;
+        var h='';
+        if(OPEN){
+          var mins=Math.max(0,Math.round(((d.deadline_ms||0)-Date.now())/60000));
+          var left=mins>=60?(Math.floor(mins/60)+'h '+(mins%60)+'m'):(mins+'m');
+          h+='<div style="background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:700;margin:0 0 12px;">⏳ You can dispute for '+left+' more — the window closes 24 hours after this review was sent.</div>';
+        } else {
+          h+='<div style="background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:700;margin:0 0 12px;">The 24-hour dispute window has closed. You can still see your findings below, but they can no longer be disputed.</div>';
+        }
+        h+='<p style="font-size:13px;color:#475569;margin:0 0 14px;">Review each finding and its screenshots.'+(OPEN?' Tick any you think are wrong, add your reason, then submit — it goes to the admin, not the reviewer.':'')+'</p>';
+        (d.findings||[]).forEach(function(f,ix){
+          h+='<div class="qaf-item">'
+            +'<div class="cr">'+esc(f.criterion)+'</div>'
+            +'<div class="mt">'+esc(f.task)+' · '+esc(f.account||'account')+(f.day?(' · '+esc(f.day)):'')+'</div>'
+            +(f.note?('<div class="nt">Reviewer note: '+esc(f.note)+'</div>'):'');
+          if((f.shots||[]).length){ h+='<div class="qaf-shots">';
+            f.shots.forEach(function(u){ h+='<a href="'+esc(u)+'" target="_blank" rel="noopener"><img loading="lazy" src="'+esc(u)+'"></a>'; });
+            h+='</div>'; }
+          if(f.disputed){ h+='<div class="qaf-done" style="margin-top:10px;">✓ You already disputed this'+(f.dispute_status&&f.dispute_status!=='open'?(' — '+esc(f.dispute_status)):' — with the admin')+'</div>'; }
+          else if(OPEN){ h+='<label class="qaf-tick"><input type="checkbox" class="qafc" data-ix="'+ix+'"><span style="font-size:13px;font-weight:700;color:#334155;">I want to dispute this</span></label>'
+            +'<textarea class="qaf-reason" data-ix="'+ix+'" rows="3" placeholder="Why is this wrong? Point to what the screenshots show."></textarea>'; }
+          h+='</div>';
+        });
+        if(OPEN) h+='<div id="qaf-msg"></div><button id="qaf-submit" onclick="submitQaFindings()">Submit disputes</button>';
+        body.innerHTML=h;
+        body.querySelectorAll('.qafc').forEach(function(c){ c.addEventListener('change',function(){
+          var ta=body.querySelector('.qaf-reason[data-ix="'+c.dataset.ix+'"]'); if(ta) ta.style.display=c.checked?'block':'none'; }); });
+      }).catch(function(){ body.innerHTML='<div style="color:#dc2626;padding:20px;">Network error — try again.</div>'; });
+  };
+  window.closeQaFindings=function(){ var ov=document.getElementById('qaf-ov'); if(ov) ov.classList.remove('on');
+    if(location.hash==='#qa-findings'){ try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){} } };
+  window.submitQaFindings=function(){
+    var body=document.getElementById('qaf-body'), msg=document.getElementById('qaf-msg'); if(!DATA||!DATA.has) return;
+    var disputes=[];
+    body.querySelectorAll('.qafc:checked').forEach(function(c){
+      var ta=body.querySelector('.qaf-reason[data-ix="'+c.dataset.ix+'"]'); var reason=(ta&&ta.value||'').trim();
+      var f=(DATA.findings||[])[parseInt(c.dataset.ix,10)];
+      if(f) disputes.push({ unit_id:f.unit_id, reason:reason, _has:!!reason }); });
+    if(!disputes.length){ msg.textContent='Tick at least one finding to dispute.'; return; }
+    if(disputes.some(function(x){ return !x._has; })){ msg.textContent='Add a reason for each finding you ticked.'; return; }
+    msg.style.color='#64748b'; msg.textContent='Sending…';
+    var btn=document.getElementById('qaf-submit'); if(btn) btn.disabled=true;
+    fetch(APPS_SCRIPT_URL,{ method:'POST', body:JSON.stringify({ action:'qa2_dispute_mine', employee_id:eid(), month:DATA.month, week:DATA.week, disputes:disputes.map(function(x){ return {unit_id:x.unit_id, reason:x.reason}; }) }) })
+      .then(function(r){return r.json();}).then(function(d){
+        if(d&&d.ok){ msg.style.color='#16a34a'; msg.textContent='✓ '+d.saved+' dispute'+(d.saved!==1?'s':'')+' sent. The admin will review.'; setTimeout(openQaFindings, 1400); }
+        else { msg.style.color='#dc2626'; msg.textContent='Could not submit: '+((d&&d.error)||'error'); if(btn) btn.disabled=false; }
+      }).catch(function(){ msg.style.color='#dc2626'; msg.textContent='Network error — try again.'; if(btn) btn.disabled=false; });
+  };
+  /* open automatically when arriving via the notification link */
+  function maybeOpen(){ if(location.hash==='#qa-findings' && sessionStorage.getItem('emp_data')) setTimeout(window.openQaFindings, 400); }
+  window.addEventListener('hashchange', maybeOpen);
+  if(document.readyState!=='loading') maybeOpen(); else document.addEventListener('DOMContentLoaded', maybeOpen);
 })();
 </script>
 
