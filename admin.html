@@ -781,6 +781,9 @@ body{background-attachment:initial !important}
       <button class="tab" id="t-expected" onclick="goTab('expected')" title="Expected Days">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
       </button>
+      <button class="tab" id="t-devices" onclick="goTab('devices')" title="Laptops">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+      </button>
     </div>
 
     <!-- COMPANY SALES (OTP-gated) -->
@@ -1472,6 +1475,33 @@ body{background-attachment:initial !important}
           <tbody id="ed-body"><tr><td class="es">Pick a month to load the calendar.</td></tr></tbody>
         </table>
       </div>
+    </div>
+
+    <!-- 💻 LAPTOPS & DEVICE LOG -->
+    <div id="p-devices" style="display:none;">
+      <div class="toolbar">
+        <div class="tl"><span style="font-size:15px;font-weight:700;color:var(--t1);">💻 Laptops under management</span></div>
+        <button class="bsm" onclick="loadDevices()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Reload</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px;">
+        <input class="inp" id="dev-label" placeholder="Laptop name (e.g. JMB Laptop 01 — Lenovo)" style="min-width:280px;flex:1;">
+        <input class="inp" id="dev-tag" placeholder="Asset tag / serial (optional)" style="width:220px;">
+        <button class="bsm" onclick="saveDevice()" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;">+ Add laptop</button>
+      </div>
+      <div class="tw"><table><thead><tr><th>Laptop</th><th>Tag / serial</th><th>Status</th><th></th></tr></thead>
+        <tbody id="dev-body"><tr><td colspan="4" class="es">Loading…</td></tr></tbody></table></div>
+
+      <div class="toolbar" style="margin-top:1.8rem;">
+        <div class="tl"><span style="font-size:15px;font-weight:700;color:var(--t1);">Login device log</span>
+          <span style="font-size:12px;color:var(--t3);margin-left:6px;">who signed in on which laptop</span></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input class="inp" type="date" id="devlog-date" style="width:160px;" onchange="loadDeviceLog()">
+          <button class="bsm" onclick="document.getElementById('devlog-date').value='';loadDeviceLog();" style="color:var(--t2);">All dates</button>
+          <button class="bsm" onclick="loadDeviceLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Reload</button>
+        </div>
+      </div>
+      <div class="tw"><table><thead><tr><th>When (PHT)</th><th>Contractor</th><th>Laptop</th><th>Type</th></tr></thead>
+        <tbody id="devlog-body"><tr><td colspan="4" class="es">Loading…</td></tr></tbody></table></div>
     </div>
   </div>
 </div>
@@ -2741,7 +2771,7 @@ async function voidDemerit(id){
   try{ var r=await fetch(API+'?action=void_demerit&id='+encodeURIComponent(id)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) loadDemerits(); else alert('Could not void.'); }catch(e){ alert('Network error.'); }
 }
 function goTab(name){
-  ['dash','live','wallboard','emp','att','leave','chat','coe','scorecard','qa','worklog','projects','payslips','sales','demerits','expected'].forEach(function(n){
+  ['dash','live','wallboard','emp','att','leave','chat','coe','scorecard','qa','worklog','projects','payslips','sales','demerits','expected','devices'].forEach(function(n){
     var t=document.getElementById('t-'+n), p=document.getElementById('p-'+n);
     if(t) t.classList.toggle('active',n===name);
     if(p) p.style.display=n===name?'block':'none';
@@ -2764,7 +2794,61 @@ function goTab(name){
   if(name==='demerits') loadDemerits();
   if(name==='qa') loadQaGrid();
   if(name==='expected') initExpected();
+  if(name==='devices'){ loadDevices(); loadDeviceLog(); }
   syncAdminNav(name);
+}
+/* ── 💻 LAPTOPS + ASSET INVENTORY + login device log ── */
+async function loadDevices(){
+  var body=document.getElementById('dev-body'); if(!body) return;
+  body.innerHTML='<tr><td colspan="4" class="es">Loading…</td></tr>';
+  try{
+    var r=await fetch(API+'?action=device_inventory&pass='+encodeURIComponent(PASS||admPass())+'&_='+Date.now());
+    var d=await r.json(); var list=(d&&d.assets)||[];
+    if(!list.length){ body.innerHTML='<tr><td colspan="4" class="es">No laptops yet — add your first above. 💻</td></tr>'; return; }
+    body.innerHTML=list.map(function(x){
+      var retired=String(x.status).toLowerCase()==='retired';
+      return '<tr'+(retired?' style="opacity:.5;"':'')+'>'+
+        '<td><b>'+escAdmin(x.label)+'</b>'+(x.assigned_to?(' <span style="color:var(--t3);font-size:11px;">· '+escAdmin(x.assigned_to)+'</span>'):'')+'</td>'+
+        '<td style="color:var(--t2);">'+escAdmin(x.tag||'—')+'</td>'+
+        '<td>'+(retired?'<span style="color:#f87171;">retired</span>':'<span style="color:#16a34a;">active</span>')+'</td>'+
+        '<td style="text-align:right;"><button class="bsm" onclick="retireDevice(\''+escAdmin(x.id)+'\','+(retired?'1':'0')+')" style="color:'+(retired?'#16a34a':'#ea580c')+';border-color:rgba(234,88,12,.4);">'+(retired?'Reactivate':'Retire')+'</button></td>'+
+      '</tr>';
+    }).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="4" class="es">Could not load the inventory.</td></tr>'; }
+}
+async function saveDevice(){
+  var label=(document.getElementById('dev-label').value||'').trim();
+  var tag=(document.getElementById('dev-tag').value||'').trim();
+  if(!label){ toast('Enter a laptop name first.'); return; }
+  try{
+    var r=await fetch(API+'?action=device_save&category=laptop&label='+encodeURIComponent(label)+'&tag='+encodeURIComponent(tag)+'&pass='+encodeURIComponent(PASS||admPass())+'&_='+Date.now());
+    var d=await r.json();
+    if(d&&d.ok){ document.getElementById('dev-label').value=''; document.getElementById('dev-tag').value=''; toast('Laptop added.'); loadDevices(); }
+    else toast('Failed: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Network error.'); }
+}
+async function retireDevice(id, isRetired){
+  if(!isRetired && !confirm('Retire this laptop? It will no longer appear in the login picker (the log stays).')) return;
+  try{
+    var r=await fetch(API+'?action=device_retire&id='+encodeURIComponent(id)+(isRetired?'&reactivate=1':'')+'&pass='+encodeURIComponent(PASS||admPass())+'&_='+Date.now());
+    var d=await r.json(); if(d&&d.ok) loadDevices(); else toast('Failed: '+((d&&d.error)||'error'));
+  }catch(e){ toast('Network error.'); }
+}
+async function loadDeviceLog(){
+  var body=document.getElementById('devlog-body'); if(!body) return;
+  body.innerHTML='<tr><td colspan="4" class="es">Loading…</td></tr>';
+  var dt=(document.getElementById('devlog-date')||{}).value||'';
+  try{
+    var r=await fetch(API+'?action=device_report&date='+encodeURIComponent(dt)+'&pass='+encodeURIComponent(PASS||admPass())+'&_='+Date.now());
+    var d=await r.json(); var list=(d&&d.logs)||[];
+    if(!list.length){ body.innerHTML='<tr><td colspan="4" class="es">No logins recorded'+(dt?(' for '+dt):'')+'.</td></tr>'; return; }
+    body.innerHTML=list.map(function(x){
+      return '<tr><td style="color:var(--t2);white-space:nowrap;">'+escAdmin(x.logged_at)+'</td>'+
+        '<td><b>'+escAdmin(x.full_name||x.employee_id)+'</b> <span style="color:var(--t3);font-size:11px;">'+escAdmin(x.employee_id)+'</span></td>'+
+        '<td>'+escAdmin(x.device_label||x.device_id)+'</td>'+
+        '<td>'+(String(x.kind)==='personal'?'<span style="color:#a855f7;">personal</span>':'<span style="color:var(--o3);">JMB</span>')+'</td></tr>';
+    }).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="4" class="es">Could not load the device log.</td></tr>'; }
 }
 
 // ════════════ OFFICE LOGIN — control only ════════════
@@ -2945,7 +3029,7 @@ async function fixDiscrepancy(id,date){
 // ── GROUPED NAVIGATION (top-level groups + sub-tabs) ──
 var ADMIN_NAV = [
   { id:'dashboard', label:'Dashboard', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>', tabs:[{name:'dash',label:'Overview'},{name:'live',label:'Live & Hours'},{name:'wallboard',label:'Office Codes'}] },
-  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Contractors'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'qa',label:'QA'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'}] },
+  { id:'people', label:'People', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', tabs:[{name:'emp',label:'Contractors'},{name:'att',label:'Attendance'},{name:'scorecard',label:'Scorecard'},{name:'qa',label:'QA'},{name:'demerits',label:'Demerits'},{name:'expected',label:'Expected Days'},{name:'devices',label:'Laptops & Inventory'}] },
   { id:'requests', label:'Requests', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>', tabs:[{name:'leave',label:'Leave'},{name:'coe',label:'COE'}] },
   { id:'work', label:'Work', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>', tabs:[{name:'worklog',label:'Time Log'},{name:'projects',label:'Projects'}] },
   { id:'payslips', label:'Payslips', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>', tabs:[{name:'payslips',label:'Payslips'}] },
