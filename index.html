@@ -38894,6 +38894,11 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
   ];
   var ST={ mode:'idle', kind:'', tool:'' };
   var TOOLS=['Portal','Reddit Tool','ALTR Tool','Ember Tool','IG Reels Tool','Design/Shopify','John X','QA Reviewer','Tetris','Messages/Chat','Wallboard','Other'];
+  /* Identity comes from the logged-in session — the chat module's eid()/ename() are NOT in
+     this scope, which is why requests were failing with NO_EMP. */
+  function _emp(){ try{ return JSON.parse(sessionStorage.getItem('emp_data')||'{}'); }catch(e){ return {}; } }
+  function spEid(){ var e=_emp(); return String(e.employee_id||e.id||''); }
+  function spName(){ var e=_emp(); return String(e.full_name||e.employee_id||e.id||''); }
   function box(){ return document.getElementById('sp-msgs'); }
   function scrollDn(){ var b=box(); if(b) b.scrollTop=b.scrollHeight; }
   function bot(t,delay){ setTimeout(function(){ var d=document.createElement('div'); d.className='sp-m sp-bot'; d.innerHTML=t; box().appendChild(d); scrollDn(); }, delay||220); }
@@ -38941,7 +38946,7 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
   async function myRequests(){
     bot('Fetching your requests…');
     try{
-      var r=await fetch(APPS_SCRIPT_URL+'?action=toolreq_mine&employee_id='+encodeURIComponent((typeof eid==='function'&&eid())||'')+'&_='+Date.now());
+      var r=await fetch(APPS_SCRIPT_URL+'?action=toolreq_mine&employee_id='+encodeURIComponent(spEid())+'&_='+Date.now());
       var d=await r.json();
       var list=(d&&d.requests)||[];
       if(!list.length){ bot('No requests yet. File one any time — the admin builds from this queue. 🌱'); }
@@ -38958,8 +38963,8 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
   async function submitReq(text){
     bot('Sending to the admin…');
     try{
-      var r=await fetch(APPS_SCRIPT_URL+'?action=toolreq_submit&employee_id='+encodeURIComponent((typeof eid==='function'&&eid())||'')+
-        '&full_name='+encodeURIComponent((typeof ename==='function'&&ename())||'')+
+      var r=await fetch(APPS_SCRIPT_URL+'?action=toolreq_submit&employee_id='+encodeURIComponent(spEid())+
+        '&full_name='+encodeURIComponent(spName())+
         '&kind='+encodeURIComponent(ST.kind)+'&tool='+encodeURIComponent(ST.tool)+'&text='+encodeURIComponent(text)+'&_='+Date.now());
       var d=await r.json();
       if(d&&d.ok) bot('✅ Filed! The admin reviews the queue and you\'ll get a 🔔 notification when it\'s <b>Planned</b>, <b>Done</b> or needs more info. Salamat! 🌱');
@@ -38993,7 +38998,7 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
     var opening=!pn.classList.contains('open');
     pn.classList.toggle('open');
     if(opening && !box().children.length){
-      var nm=(typeof ename==='function'&&ename())?String(ename()).split(',').pop().trim().split(' ')[0]:'';
+      var nm=spName()?String(spName()).split(',').pop().trim().split(' ')[0]:'';
       bot('Hi'+(nm?(' '+nm):'')+'! I\'m <b>Sprout</b> 🌱 — your portal assistant. I answer questions instantly, take <b>tool update requests</b> and <b>bug reports</b>, and send them straight to the admin\'s build queue. What do you need?',100);
       menu(600);
     }
