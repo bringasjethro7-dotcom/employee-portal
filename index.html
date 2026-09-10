@@ -18694,7 +18694,14 @@ function loadMyRedemptions(){
       }
     }).catch(function(){});
   }
-  setInterval(checkGameTrigger, 7000);                                  // was 20s — too slow for a live game
+  /* ADAPTIVE POLL (Sep 2026 — fetch-load fix): 25 VAs polling every 7s (even on hidden tabs)
+     was ~3-4 req/s of constant Apps Script load, starving every other tool's execution slots.
+     Now: 12s when the tab is visible, 30s when it's in the background. A live game is still
+     picked up within seconds when someone is actually looking at the portal. */
+  (function _gtLoop(){
+    var wait = document.hidden ? 30000 : 12000;
+    setTimeout(function(){ try{ checkGameTrigger(); }catch(e){} _gtLoop(); }, wait);
+  })();
   document.addEventListener('visibilitychange', function(){ if(!document.hidden) checkGameTrigger(); });
   window.addEventListener('focus', checkGameTrigger);                   // returning to the tab checks immediately
 })();
