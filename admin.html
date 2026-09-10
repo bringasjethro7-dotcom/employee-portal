@@ -3803,15 +3803,19 @@ async function loadPayslipsAdmin(){
   var empSel=document.getElementById('pay-emp-filter');
   body.innerHTML='<tr><td colspan="7" class="es">Loading…</td></tr>';
   try{
-    var res=await jGet(API+'?action=get_all_employees');
-    var d=await res.json();
+    /* PARALLEL + cacheable (Sep 2026 fetch-load fix): these three used to run one-after-another
+       and two of them (&_=Date.now()) busted the cache, so a congested backend meant 45s+ and a
+       stuck "Loading…". Fire them together and let jGet cache the heavy funding call. */
+    var _r=await Promise.all([
+      jGet(API+'?action=get_all_employees').then(function(r){return r.json();}).catch(function(){return {};}),
+      jGet(API+'?action=payslip_funding').then(function(r){return r.json();}).catch(function(){return {};}),
+      jGet(API+'?action=get_banks').then(function(r){return r.json();}).catch(function(){return {};})
+    ]);
+    var d=_r[0]||{}, fd=_r[1]||{}, bkd=_r[2]||{};
     payEmps=d.employees||[];
-    // Funding: each contractor's main project + which (period → project) invoices are paid.
-    var fund={main_project:{},paid:{}};
-    try{ var fr=await jGet(API+'?action=payslip_funding&_='+Date.now()); var fd=await fr.json(); if(fd&&fd.ok) fund=fd; }catch(_e){}
+    var fund=(fd&&fd.ok)?fd:{main_project:{},paid:{}};
     window._payFund=fund;
-    var payBanks={};
-    try{ var bkr=await jGet(API+'?action=get_banks&_='+Date.now()); var bkd=await bkr.json(); payBanks=(bkd&&bkd.banks)||{}; }catch(_b){}
+    var payBanks=(bkd&&bkd.banks)||{};
     var mpOf=function(id, period){ var mb=(fund.main_by_period||{})[period||'']; return (mb&&mb[id])||fund.main_project[id]||''; };
     var isFunded=function(period,proj){ return !!(proj && fund.paid[period||''] && fund.paid[period||''][String(proj).toLowerCase()]); };
     if(empSel && empSel.options.length<=1){
