@@ -3435,15 +3435,24 @@
   .dashboard-hero .hero-role { font-size: 14px !important; }
   .hero-portrait { display: none; }
   .hero-portrait.has-img {
-    display: block; position: absolute; top: 0; right: 0; bottom: 0; width: 40%; max-width: 560px;
+    display: block; position: absolute; top: 0; right: 0; bottom: 0; width: 44%; max-width: 580px;
     pointer-events: none; z-index: 0; overflow: hidden;
-    /* fade the photo's left edge into the card so it reads as one banner */
-    -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.55) 16%, #000 42%);
-            mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.55) 16%, #000 42%);
+    /* longer, softer feather so the photo dissolves into the banner (no hard rectangular edge) */
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.35) 20%, rgba(0,0,0,.8) 40%, #000 58%);
+            mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.35) 20%, rgba(0,0,0,.8) 40%, #000 58%);
   }
   .hero-portrait.has-img img {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: cover; object-position: center 12%; display: block;
+  }
+  /* a tint scrim: darkens the photo's left + bottom toward the sky so the studio backdrop stops
+     clashing with the weather hero, and a soft warm rim-light along the seam gives depth. */
+  .hero-portrait.has-img::after{
+    content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
+    background:
+      linear-gradient(90deg, rgba(12,18,32,.72) 0%, rgba(12,18,32,.30) 24%, rgba(12,18,32,0) 48%),
+      linear-gradient(180deg, transparent 60%, rgba(12,18,32,.45) 100%),
+      radial-gradient(140% 90% at 30% 40%, rgba(255,150,80,.14), transparent 46%);
   }
   .dashboard-hero > *:not(.hero-portrait) { position: relative; z-index: 1; }
   @media (min-width: 900px) { .dashboard-hero { padding-right: 36% !important; } }
@@ -38858,6 +38867,135 @@ body.jmb-lite #overview-content.d3-live > .card::before{ animation:none; }
   if(document.readyState!=='loading') bind(); else document.addEventListener('DOMContentLoaded', bind);
 })();
 </script>
+
+<!-- ═══ GRAPHICS PASS — QA gradient gauge · refined sidebar · display type ═══ -->
+<style id="jmb-graphics">
+/* ── QA SCORE as a gradient radial gauge ── */
+.qa-gauge{ position:relative !important; width:116px; height:116px; display:flex !important;
+  align-items:center; justify-content:center; flex-direction:column; flex:0 0 auto; }
+.qa-gauge .qa-gauge-svg{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.qa-gauge .qa-gauge-arc{ transition:stroke-dashoffset 1.1s cubic-bezier(.2,1,.3,1);
+  filter:drop-shadow(0 2px 6px rgba(124,92,255,.35)); }
+.qa-gauge #myqa-avg{ position:relative; z-index:1; font-size:32px !important; line-height:1;
+  font-family:'Sora','Inter',sans-serif !important; font-weight:800 !important; color:#6d4bf0 !important; }
+.qa-gauge > span:last-child{ position:relative; z-index:1; font-size:10px !important; color:var(--text-3) !important;
+  letter-spacing:.02em; margin-top:2px; }
+/* ── DISPLAY TYPE — big numbers get the Sora display face, tightened ── */
+#kpi-row .kpi-v, #points-bal, #stat-grid .stat-value, .hero-clock, #myprod-inline .pr-qph{
+  font-family:'Sora','Inter',sans-serif !important; letter-spacing:-.015em; }
+/* ── REFINED SIDEBAR (light mode, wide screens) ── */
+@media(min-width:1000px){
+  body.light .tabs .tab-btn{ transition:background .18s ease, color .18s ease, box-shadow .18s ease !important; position:relative; }
+  body.light .tabs .tab-btn:hover:not(.active){ background:#f5f7fb !important; color:#c2410c !important; }
+  body.light .tabs .tab-btn.active{
+    background:linear-gradient(100deg,#fff2e9 0%,#ffe6d4 100%) !important; color:#b23c07 !important; font-weight:700 !important;
+    box-shadow:inset 3px 0 0 #ff6b1a, 0 6px 16px -8px rgba(255,107,26,.55) !important; }
+  body.light .tabs .tab-btn.active svg{ color:#ff6b1a !important; transform:scale(1.04); }
+  body.light .tabs .tab-btn svg{ transition:transform .18s ease; }
+}
+</style>
+<script>
+(function(){
+  'use strict';
+  var NS='http://www.w3.org/2000/svg', C=2*Math.PI*42;   // r=42 circumference
+  function buildQaGauge(){
+    var avg=document.getElementById('myqa-avg'); if(!avg) return;
+    var block=avg.parentNode; if(!block) return;
+    var val=parseFloat(String(avg.textContent||'').replace(/[^\d.]/g,''));
+    if(!block.querySelector('.qa-gauge-svg')){
+      block.classList.add('qa-gauge');
+      var svg=document.createElementNS(NS,'svg');
+      svg.setAttribute('class','qa-gauge-svg'); svg.setAttribute('viewBox','0 0 100 100');
+      svg.innerHTML='<defs><linearGradient id="qaGaugeG" x1="0" y1="0" x2="1" y2="1">'+
+        '<stop offset="0" stop-color="#ff8a3d"/><stop offset=".55" stop-color="#ff5f8f"/><stop offset="1" stop-color="#7c5cff"/></linearGradient></defs>'+
+        '<circle cx="50" cy="50" r="42" fill="none" stroke="rgba(124,92,255,.14)" stroke-width="9"/>'+
+        '<circle class="qa-gauge-arc" cx="50" cy="50" r="42" fill="none" stroke="url(#qaGaugeG)" stroke-width="9" '+
+        'stroke-linecap="round" transform="rotate(-90 50 50)" stroke-dasharray="'+C.toFixed(1)+'" stroke-dashoffset="'+C.toFixed(1)+'"/>';
+      block.insertBefore(svg, block.firstChild);
+    }
+    var arc=block.querySelector('.qa-gauge-arc');
+    if(arc){ var pct=isFinite(val)?Math.max(0,Math.min(100,val)):0;
+      requestAnimationFrame(function(){ arc.style.strokeDashoffset=(C*(1-pct/100)).toFixed(1); }); }
+  }
+  function watch(){
+    var avg=document.getElementById('myqa-avg'); if(!avg) return; buildQaGauge();
+    if(avg.__qaObs) return; avg.__qaObs=1;
+    try{ new MutationObserver(buildQaGauge).observe(avg,{childList:true,characterData:true,subtree:true}); }catch(e){}
+  }
+  try{ if(typeof window.renderOverview==='function' && !window.renderOverview.__gfx){
+    var _ro=window.renderOverview;
+    window.renderOverview=function(){ var r=_ro.apply(this,arguments); try{ watch(); setTimeout(watch,1600); }catch(e){} return r; };
+    window.renderOverview.__gfx=true;
+  } }catch(e){}
+  if(document.readyState!=='loading') watch(); else document.addEventListener('DOMContentLoaded', watch);
+})();
+</script>
+
+<!-- ═══ DASHBOARD REBUILD — KPI stat row · live activity ticker · two-column layout ═══ -->
+<style id="jmb-dash-new">
+/* ── KPI STAT ROW — vibrant gradient tiles (values already wired via renderKPIs / renderCutoffHours) ── */
+#kpi-row{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:0 0 1rem; }
+@media(max-width:760px){ #kpi-row{ grid-template-columns:repeat(2,1fr); } }
+#kpi-row .kpi{ position:relative; overflow:hidden; border:none !important; border-radius:16px; padding:15px 16px 14px; }
+#kpi-row .kpi:nth-child(1){ background:linear-gradient(140deg,#ff9a4d,#e83d00) !important; }
+#kpi-row .kpi:nth-child(2){ background:linear-gradient(140deg,#3ecf7d,#12a150) !important; }
+#kpi-row .kpi:nth-child(3){ background:linear-gradient(140deg,#9a86ff,#6d4bf0) !important; }
+#kpi-row .kpi:nth-child(4){ background:linear-gradient(140deg,#ffba4a,#f5990b) !important; }
+#kpi-row .kpi::after{ content:""; position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(120% 90% at 100% 0, rgba(255,255,255,.30), transparent 55%); }
+#kpi-row .kpi-l{ color:rgba(255,255,255,.9) !important; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; }
+#kpi-row .kpi-v{ color:#fff !important; font-size:25px; font-weight:800; font-family:'Sora','Inter',sans-serif; margin-top:1px; }
+#kpi-row .kpi-ic{ background:rgba(255,255,255,.24) !important; color:#fff !important; box-shadow:none !important; }
+#kpi-row .kpi-ic svg{ stroke:#fff !important; }
+/* ── TWO-COLUMN LAYOUT on wide screens — a main feed + a sidebar ── */
+@media(min-width:1080px){
+  #overview-content{ display:grid !important; grid-template-columns:1fr 340px; column-gap:18px; align-items:start; grid-auto-flow:row dense; }
+  #overview-content > #mytools-strip,
+  #overview-content > #kpi-row,
+  #overview-content > .section-eyebrow,
+  #overview-content > .overview-layout,
+  #overview-content > #points-card{ grid-column:1 / -1; }
+  #overview-content > #myqa-card,
+  #overview-content > #myprod-card{ grid-column:1; }
+  #overview-content > #activity-card{ grid-column:2; grid-row:span 2; }
+}
+</style>
+<script>
+(function(){
+  'use strict';
+  function enhance(){
+    var kr=document.getElementById('kpi-row'); if(kr && kr.style.display==='none') kr.style.display='';   // reveal the KPI tiles
+  }
+  try{ if(typeof window.renderOverview==='function' && !window.renderOverview.__dnew){
+    var _ro=window.renderOverview;
+    window.renderOverview=function(){ var r=_ro.apply(this,arguments); try{ enhance(); setTimeout(enhance,1600); }catch(e){} return r; };
+    window.renderOverview.__dnew=true;
+  } }catch(e){}
+})();
+</script>
+
+<!-- ═══ DASHBOARD IDENTITY — color-coded cards, glowing label dots, accent bars (a fresh, organised look) ═══ -->
+<style id="jmb-dash-identity">
+/* each Overview card gets its own accent colour + a left bar, so the dashboard reads as a system.
+   --ac drives the left bar, the glowing label dot, and a faint corner wash. */
+body.light #overview-content > #mytools-strip{ --ac:255,107,26; }
+body.light #overview-content > #myqa-card{ --ac:124,92,255; }
+body.light #overview-content > #myprod-card{ --ac:47,111,176; }
+body.light #overview-content > #activity-card{ --ac:18,161,80; }
+body.light #overview-content > #points-card{ --ac:245,166,35; }
+body.light #overview-content > .card[id]{
+  border-left:3px solid rgba(var(--ac,255,107,26),.85);
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(var(--ac,255,107,26),.07), transparent 42%),
+    linear-gradient(168deg,#ffffff 0%,#f4f7fc 100%); }
+/* the little uppercase eyebrow label gets a glowing dot in the card's colour */
+body.light #overview-content > .card[id] > div > p[style*="uppercase"]::before,
+body.light #overview-content > .card[id] > p[style*="uppercase"]::before{
+  content:""; display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:8px; vertical-align:middle;
+  background:rgb(var(--ac,255,107,26)); box-shadow:0 0 9px rgba(var(--ac,255,107,26),.8); }
+/* the big number in each card picks up a hint of the accent for cohesion */
+body.light #myqa-card #myqa-avg{ color:#6d4bf0 !important; }
+</style>
 
 <!-- ═══ DESIGN-SYSTEM PASS 4 — TRACKER screen polish (scoped to #tab-clockify) ═══ -->
 <style id="jmb-ds-trk">
