@@ -18677,29 +18677,31 @@ function loadMyRedemptions(){
     if(!d||!f) return;
     f.style.display=(getComputedStyle(d).display!=='none')?'inline-flex':'none';
   }, 1200);
+  function _applyGameTrigger(ver){
+    ver=ver||''; var parts=String(ver).split('|'); var kind=parts[1]||'', gid=parts[2]||'';
+    if(trigBase===null){ trigBase=ver;
+      if(kind==='bobo' && gid && gid!==lastBoboId){ lastBoboId=gid; if(window.boboAlarm) window.boboAlarm(); }
+      return; }
+    if(ver && ver!==trigBase){ trigBase=ver;
+      if(kind==='bobo'){ if(gid!==lastBoboId){ lastBoboId=gid; if(window.boboAlarm) window.boboAlarm(); } return; }
+      if(kind==='boboclear'){ lastBoboId=null; if(window.boboForceClose) window.boboForceClose(); return; }
+      if(!document.getElementById('jul4-alarm') && !document.getElementById('jul4-modal').classList.contains('on')) jul4Alarm();
+    }
+  }
+  /* ── ONE COMBINED POLL for game + tournament triggers (Sep 2026 fetch-load fix) ──
+     Was two separate loops (game every 7s, tourney every 25s), ×25 VAs = the biggest source of
+     Apps Script congestion. Now a single get_triggers call, adaptive: 20s visible / 45s hidden.
+     A game/tournament alarm still lands within ~20s for anyone actually looking at the portal. */
   function checkGameTrigger(){
     var d=document.getElementById('dashboard-screen');
-    if(!d || getComputedStyle(d).display==='none') return;   // must be logged in; but DON'T skip on hidden tab
-    fetch(APPS_SCRIPT_URL+'?action=get_game_trigger&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
-      var ver=(x&&x.ver)||''; var parts=String(ver).split('|'); var kind=parts[1]||'', gid=parts[2]||'';
-      /* First read after load: if a BOBO game is ALREADY live (e.g. the VA reloaded or arrived
-         late), open it right away so they can still join the lobby — don't wait for the next edge. */
-      if(trigBase===null){ trigBase=ver;
-        if(kind==='bobo' && gid && gid!==lastBoboId){ lastBoboId=gid; if(window.boboAlarm) window.boboAlarm(); }
-        return; }
-      if(ver && ver!==trigBase){ trigBase=ver;
-        if(kind==='bobo'){ if(gid!==lastBoboId){ lastBoboId=gid; if(window.boboAlarm) window.boboAlarm(); } return; }
-        if(kind==='boboclear'){ lastBoboId=null; if(window.boboForceClose) window.boboForceClose(); return; }
-        if(!document.getElementById('jul4-alarm') && !document.getElementById('jul4-modal').classList.contains('on')) jul4Alarm();
-      }
+    if(!d || getComputedStyle(d).display==='none') return;   // only when signed in
+    fetch(APPS_SCRIPT_URL+'?action=get_triggers&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
+      _applyGameTrigger((x&&x.game)||'');
+      try{ if(window._handleTourneyTrigger) window._handleTourneyTrigger((x&&x.tourney)||''); }catch(_t){}
     }).catch(function(){});
   }
-  /* ADAPTIVE POLL (Sep 2026 — fetch-load fix): 25 VAs polling every 7s (even on hidden tabs)
-     was ~3-4 req/s of constant Apps Script load, starving every other tool's execution slots.
-     Now: 12s when the tab is visible, 30s when it's in the background. A live game is still
-     picked up within seconds when someone is actually looking at the portal. */
   (function _gtLoop(){
-    var wait = document.hidden ? 30000 : 12000;
+    var wait = document.hidden ? 45000 : 20000;
     setTimeout(function(){ try{ checkGameTrigger(); }catch(e){} _gtLoop(); }, wait);
   })();
   document.addEventListener('visibilitychange', function(){ if(!document.hidden) checkGameTrigger(); });
@@ -29201,18 +29203,17 @@ function loadMyRedemptions(){
   };
   window.tetNightlyDismiss=window.tetNightlyDecline;   // legacy name
   function tourneyDeclined(sid){ return !!_tourneyDeclined[sid]; }
-  (function(){ var base=null;
-    setInterval(function(){
-      if(document.hidden || typeof APPS_SCRIPT_URL==='undefined') return;
-      fetch(APPS_SCRIPT_URL+'?action=get_tourney_trigger&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
-        var ver=(x&&x.ver)||''; if(base===null){ base=ver; return; }
-        if(ver && ver!==base){ base=ver; var sid=ver.split('|').pop();
-          if(bkIsDay(sid) || String(ver).indexOf('|day|')>=0) return;   // ☀️ ignore any retired day-tournament trigger
-          if(!(M&&M.playing) && !TL && !(el('tet-nightly-pop')&&el('tet-nightly-pop').style.display==='block')) showNightlyPrompt(sid);
-        }
-      }).catch(function(){});
-    }, 25000);
-  })();
+  /* Handler only — the polling is now done ONCE by the combined trigger loop (see get_triggers),
+     which calls this with the latest tourney version string. No own fetch anymore. */
+  var _tourneyBase=null;
+  window._handleTourneyTrigger=function(ver){
+    ver=ver||'';
+    if(_tourneyBase===null){ _tourneyBase=ver; return; }
+    if(ver && ver!==_tourneyBase){ _tourneyBase=ver; var sid=ver.split('|').pop();
+      if(bkIsDay(sid) || String(ver).indexOf('|day|')>=0) return;   // ☀️ retired day tournaments ignored
+      if(!(M&&M.playing) && !TL && !(el('tet-nightly-pop')&&el('tet-nightly-pop').style.display==='block')) showNightlyPrompt(sid);
+    }
+  };
 
   // ── Nightly scheduler + tournament FAB ──
   // Start time (PHT): 10:00 PM on Saturday & Sunday, 11:00 PM Monday–Friday.
@@ -38837,14 +38838,35 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
 <style id="sprout-css">
 /* Bottom-RIGHT — the bottom-left corner belongs to the sidebar's logout button (plus the
    seasonal/tournament FABs), and Sprout was sitting on top of it. */
-#sprout-fab{ position:fixed; right:18px; bottom:18px; z-index:9400; width:54px; height:54px; border-radius:50%;
-  background:linear-gradient(135deg,#16a34a,#4ade80); border:none; cursor:pointer; font-size:26px;
-  box-shadow:0 10px 26px -8px rgba(22,163,74,.8), inset 0 1px 0 rgba(255,255,255,.4);
-  transition:transform .15s ease; }
-#sprout-fab:hover{ transform:scale(1.08); }
-#sprout-fab .sp-ping{ position:absolute; inset:-4px; border-radius:50%; border:2px solid rgba(74,222,128,.7);
-  animation:spPing 2.6s ease-out infinite; pointer-events:none; }
-@keyframes spPing{ 0%{ transform:scale(.9); opacity:.9;} 70%,100%{ transform:scale(1.35); opacity:0;} }
+/* ── SIRI-STYLE GLOWING ORB (Sprout FAB) ── */
+#sprout-fab{ position:fixed; right:18px; bottom:18px; z-index:9400; width:64px; height:64px; border-radius:50%;
+  border:none; cursor:pointer; padding:0; background:#0b1020; overflow:hidden; isolation:isolate;
+  box-shadow:0 10px 30px -6px rgba(255,120,40,.6), 0 0 0 1px rgba(255,255,255,.08) inset;
+  transition:transform .18s ease; }
+/* attention state — a red-dot + faster brighter breathing when Sprout has an unread reply */
+#sprout-fab.sp-alert{ box-shadow:0 10px 34px -4px rgba(255,120,40,.9), 0 0 0 1px rgba(255,255,255,.12) inset; }
+#sprout-fab.sp-alert::before{ animation-duration:2.4s; }
+#sprout-fab .sp-dot{ position:absolute; top:2px; right:2px; width:14px; height:14px; border-radius:50%;
+  background:#ff4d6d; border:2px solid #0b1020; z-index:2; display:none; animation:spDot 1.1s ease-in-out infinite; }
+#sprout-fab.sp-alert .sp-dot{ display:block; }
+@keyframes spDot{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.25);} }
+#sprout-fab:hover{ transform:scale(1.09); }
+#sprout-fab:active{ transform:scale(.96); }
+/* the swirling coloured plasma — two counter-rotating conic gradients, blurred into a blob */
+#sprout-fab::before{ content:""; position:absolute; inset:-30%; border-radius:50%;
+  background:conic-gradient(from 0deg, #ff8a3d, #ffb547, #ff5f8f, #c05bff, #ff7a2e, #ff8a3d);
+  filter:blur(6px) saturate(170%); animation:spSpin 4.2s linear infinite; }
+#sprout-fab::after{ content:""; position:absolute; inset:8%; border-radius:50%;
+  background:radial-gradient(circle at 34% 30%, rgba(255,255,255,.92), rgba(255,240,225,.18) 32%, transparent 55%),
+             conic-gradient(from 180deg, #ff9a3d, #ff5fa0, #ffcf5a, #ff9a3d);
+  filter:blur(3px) saturate(160%); mix-blend-mode:screen; animation:spSpin2 3.1s linear infinite; }
+@keyframes spSpin{ to{ transform:rotate(360deg);} }
+@keyframes spSpin2{ to{ transform:rotate(-360deg);} }
+/* soft breathing glow ring */
+#sprout-fab .sp-ping{ position:absolute; inset:-5px; border-radius:50%; pointer-events:none; z-index:-1;
+  background:radial-gradient(circle, rgba(255,138,61,.55), transparent 70%); animation:spPing 2.8s ease-in-out infinite; }
+@keyframes spPing{ 0%,100%{ transform:scale(.92); opacity:.5;} 50%{ transform:scale(1.25); opacity:.95;} }
+@media(prefers-reduced-motion:reduce){ #sprout-fab::before,#sprout-fab::after,#sprout-fab .sp-ping{ animation:none; } }
 #sprout-panel{ display:none; position:fixed; right:18px; bottom:84px; z-index:9401; width:min(360px,calc(100vw - 36px));
   height:min(520px,calc(100vh - 120px)); border-radius:18px; overflow:hidden; flex-direction:column;
   background:#fdfcf9; border:1px solid #e2e0d8; box-shadow:0 30px 80px rgba(20,30,20,.35); }
@@ -38872,7 +38894,7 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
 .sp-st-new{ background:#fef3c7; color:#92400e; } .sp-st-planned{ background:#dbeafe; color:#1e40af; }
 .sp-st-done{ background:#dcfce7; color:#166534; } .sp-st-declined{ background:#fee2e2; color:#991b1b; }
 </style>
-<button id="sprout-fab" onclick="sproutToggle()" title="Sprout — Portal Assistant"><span class="sp-ping"></span>🌱</button>
+<button id="sprout-fab" onclick="sproutToggle()" title="Sprout — Portal Assistant" aria-label="Open Sprout assistant"><span class="sp-ping"></span><span class="sp-dot"></span></button>
 <div id="sprout-panel">
   <div class="sp-head"><span style="font-size:22px;">🌱</span>
     <div><b>Sprout</b><small>Portal Assistant · instant answers &amp; tool requests</small></div>
@@ -38911,7 +38933,9 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
   function spName(){ var e=_emp(); return String(e.full_name||e.employee_id||e.id||''); }
   function box(){ return document.getElementById('sp-msgs'); }
   function scrollDn(){ var b=box(); if(b) b.scrollTop=b.scrollHeight; }
-  function bot(t,delay){ setTimeout(function(){ var d=document.createElement('div'); d.className='sp-m sp-bot'; d.innerHTML=t; box().appendChild(d); scrollDn(); }, delay||220); }
+  function spAlert(on){ var f=document.getElementById('sprout-fab'); if(f) f.classList.toggle('sp-alert', !!on); }
+  function bot(t,delay){ setTimeout(function(){ var d=document.createElement('div'); d.className='sp-m sp-bot'; d.innerHTML=t; box().appendChild(d); scrollDn();
+    var pn=document.getElementById('sprout-panel'); if(pn && !pn.classList.contains('open')) spAlert(true); }, delay||220); }
   function user(t){ var d=document.createElement('div'); d.className='sp-m sp-user'; d.textContent=t; box().appendChild(d); scrollDn(); }
   function chips(list,delay){ setTimeout(function(){
     /* only ONE active chip group at a time — stale groups from earlier turns confused the flow */
@@ -39007,6 +39031,7 @@ body.jmb-lite #tab-attendance .att-sum-card:hover{ transform:none; }
     var pn=document.getElementById('sprout-panel');
     var opening=!pn.classList.contains('open');
     pn.classList.toggle('open');
+    if(opening) spAlert(false);
     if(opening && !box().children.length){
       var nm=spName()?String(spName()).split(',').pop().trim().split(' ')[0]:'';
       bot('Hi'+(nm?(' '+nm):'')+'! I\'m <b>Sprout</b> 🌱 — your portal assistant. I answer questions instantly, take <b>tool update requests</b> and <b>bug reports</b>, and send them straight to the admin\'s build queue. What do you need?',100);
