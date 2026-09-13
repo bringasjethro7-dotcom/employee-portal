@@ -39635,7 +39635,7 @@ window.pickDeviceGate=function(data){
         else lbl='🟢 '+lbl+' — available';
         h+='<option value="jmb|'+encodeURIComponent(x.id)+'|'+encodeURIComponent(x.label)+'"'+(taken?' disabled':'')+'>'+lbl+'</option>';
       });
-      h+='<option value="personal||My personal laptop">💻 My personal laptop</option>';
+      h+='<option value="personal||My personal laptop">💻 My own personal laptop — always available</option>';
       sel.innerHTML=h;
       // keep the VA's selection if it's still selectable
       if(prev){ var opt=sel.querySelector('option[value="'+prev.replace(/"/g,'')+'"]');
@@ -39661,6 +39661,10 @@ window.pickDeviceGate=function(data){
         '&device_id='+encodeURIComponent(did)+'&device_label='+encodeURIComponent(label)+
         '&ua='+encodeURIComponent((navigator.userAgent||'').slice(0,200))+'&_='+Date.now();
       var done=function(){ if(window._dpPoll){ clearInterval(window._dpPoll); window._dpPoll=null; } ov.classList.remove('on'); resolve(); };
+      // PERSONAL laptops are the VA's own — never pooled, never exclusive. Any number of VAs can
+      // pick "My personal laptop" at once. Log it in the background and let them straight in; a
+      // personal pick must NEVER block sign-in, even if the backend is momentarily unavailable.
+      if(kind==='personal'){ try{ fetch(url).catch(function(){}); }catch(_e){} done(); return; }
       fetch(url).then(function(r){return r.json();}).then(function(d){
         if(d&&d.ok){ done(); }
         else if(d&&d.error==='TAKEN'){
