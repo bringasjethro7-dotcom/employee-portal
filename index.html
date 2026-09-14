@@ -6189,6 +6189,25 @@ async function doLogin() {
   btn.disabled = true;
   err.style.display = 'none';
 
+  // Login auto-retry: the backend can be throttled at shift change (many VAs at once), so a single
+  // slow/failed call must not lock someone out. Each attempt has a 22s cap and we retry a few times
+  // with backoff before giving up. This is the fix for "everyone struggling to log in".
+  async function loginFetch(url, tries){
+    tries = tries || 4;
+    for (var a = 0; a < tries; a++) {
+      try {
+        var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var tm  = ctl ? setTimeout(function(){ try{ ctl.abort(); }catch(_e){} }, 22000) : null;
+        var r   = await fetch(url, ctl ? { signal: ctl.signal } : undefined);
+        if (tm) clearTimeout(tm);
+        return await r.json();
+      } catch (e) {
+        if (a === tries - 1) throw e;
+        try { btn.textContent = 'Server busy — retrying…'; } catch(_b){}
+        await new Promise(function(res){ setTimeout(res, 1500 * (a + 1)); });
+      }
+    }
+  }
   try {
     const otp = ((document.getElementById('office-otp')||{}).value || '').trim();
     const q = `id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&device=${encodeURIComponent(_devId())}&otp=${encodeURIComponent(otp)}`;
@@ -6198,8 +6217,7 @@ async function doLogin() {
     // The FAST auth returns just the employee record (one sheet read) — enough to render the
     // entire dashboard shell instantly. Card loaders pull their slices from _bootPromise.
     _boot = { at: 0, data: null };
-    const res  = await fetch(`${APPS_SCRIPT_URL}?action=auth&${q}`);
-    const raw  = await res.json();
+    const raw  = await loginFetch(`${APPS_SCRIPT_URL}?action=auth&${q}`, 4);
 
     // New backend → { employee, ... }. Old backend (no `auth` action) → plain employee. Both work.
     let data;
@@ -7142,7 +7160,8 @@ function renderDashboard(data) {
 function doLogout() {
   try { stopSessionGuard(); } catch(e) {}
   try { empLiveStop(); } catch(e) {}
-  // Free the laptop back into the pool so the next VA can claim it.
+  // Free the laptop back into the pool so the next VA can claim it — instantly via presence + logged.
+  try{ if(window._devChan){ try{ window._devChan.untrack(); }catch(_u){} try{ window._devChan.unsubscribe(); }catch(_s){} window._devChan=null; } window._devHold=null; }catch(_pr){}
   try{ var _ed=JSON.parse(sessionStorage.getItem('emp_data')||'{}'); var _id=_ed.employee_id||_ed.id;
     if(_id) fetch(APPS_SCRIPT_URL+'?action=device_release&employee_id='+encodeURIComponent(_id)+'&_='+Date.now()); }catch(_rl){}
   sessionStorage.removeItem('emp_data');
@@ -36775,7 +36794,7 @@ async function loadMyToolShortcuts(){
     strip.style.display='';
   }catch(e){ _mtDone=false; }
 }
-setInterval(function(){ if(!document.hidden) loadMyToolShortcuts(); }, 4000);
+var _mtIv=setInterval(function(){ if(_mtDone){ clearInterval(_mtIv); return; } if(!document.hidden) loadMyToolShortcuts(); }, 8000);   // stops once loaded (was spinning every 4s forever)
 </script>
 
 
@@ -39653,37 +39672,56 @@ window.pickDeviceGate=function(data){
         if(opt && !opt.disabled){ sel.value=prev; } else { go.classList.remove('ready'); } }
       if(note) note.textContent=freeCount+' of '+list.length+' laptops available · updates live';
     }
+    /* ── REAL-TIME AVAILABILITY via Supabase presence ──
+       Every logged-in VA who holds a JMB laptop "tracks" it on a shared presence channel. The
+       picker reads that channel, so a laptop shows taken the instant someone claims it and free
+       the instant they log out / close the portal — no 8-32s Apps Script lag. Fully guarded: if
+       Supabase isn't ready, we fall back to the Apps Script list + poll and login still works. */
+    var rawList=[], liveHold={}, hasSynced=false, chan=null;
+    function collectPresence(st){ var m={}; try{ Object.keys(st||{}).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p&&p.device_id) m[String(p.device_id)]={id:String(p.holder_id||''),name:String(p.holder_name||'')}; }); }); }catch(e){} return m; }
+    function draw(){
+      var list = rawList;
+      if(hasSynced){ list = rawList.map(function(x){ var hld=liveHold[String(x.id)]; return Object.assign({}, x, { in_use: !!hld, in_use_by: hld?hld.id:'', in_use_name: hld?hld.name:'' }); }); }
+      render(list);
+    }
+    try{
+      if(window.supaClient && !window._devChan){
+        chan = window.supaClient.channel('jmb-laptops', { config:{ presence:{ key: (eidL||('anon-'+Math.random().toString(36).slice(2))) } } });
+        chan.on('presence', { event:'sync' }, function(){ try{ liveHold=collectPresence(chan.presenceState()); hasSynced=true; draw(); }catch(e){} });
+        chan.subscribe(function(stt){ try{ if(stt==='SUBSCRIBED' && window._devHold) chan.track(window._devHold); }catch(e){} });
+        window._devChan=chan;
+      } else if(window._devChan){ chan=window._devChan;
+        chan.on('presence', { event:'sync' }, function(){ try{ liveHold=collectPresence(chan.presenceState()); hasSynced=true; draw(); }catch(e){} });
+        try{ liveHold=collectPresence(chan.presenceState()); hasSynced=true; }catch(e){}
+      }
+    }catch(e){ chan=null; }
     function load(){
       return fetch(APPS_SCRIPT_URL+'?action=device_list&_='+Date.now()).then(function(r){return r.json();})
-        .then(function(d){ render((d&&d.devices)||[]); })
+        .then(function(d){ rawList=(d&&d.devices)||[]; draw(); })
         .catch(function(){ if(!sel.options.length) sel.innerHTML='<option value="">— Choose your laptop —</option><option value="personal||My personal laptop">💻 My personal laptop</option>'; });
     }
     load();
     if(window._dpPoll) clearInterval(window._dpPoll);
-    window._dpPoll=setInterval(load, 5000);          // LIVE: refresh availability every 5s while open
+    window._dpPoll=setInterval(load, 8000);          // roster refresh; availability itself is live via presence
     sel.onchange=function(){ go.classList.toggle('ready', !!sel.value); };
     go.onclick=function(){
       if(!sel.value) return;
       var parts=sel.value.split('|'); var kind=parts[0]||'jmb';
       var did=decodeURIComponent(parts[1]||''), label=decodeURIComponent(parts[2]||'');
-      go.textContent='Claiming…'; go.classList.remove('ready');
-      var url=APPS_SCRIPT_URL+'?action=device_claim&employee_id='+encodeURIComponent(eid)+
-        '&full_name='+encodeURIComponent(enm)+'&kind='+encodeURIComponent(kind)+
-        '&device_id='+encodeURIComponent(did)+'&device_label='+encodeURIComponent(label)+
-        '&ua='+encodeURIComponent((navigator.userAgent||'').slice(0,200))+'&_='+Date.now();
       var done=function(){ if(window._dpPoll){ clearInterval(window._dpPoll); window._dpPoll=null; } ov.classList.remove('on'); resolve(); };
-      // PERSONAL laptops are the VA's own — never pooled, never exclusive. Any number of VAs can
-      // pick "My personal laptop" at once. Log it in the background and let them straight in; a
-      // personal pick must NEVER block sign-in, even if the backend is momentarily unavailable.
-      if(kind==='personal'){ try{ fetch(url).catch(function(){}); }catch(_e){} done(); return; }
-      fetch(url).then(function(r){return r.json();}).then(function(d){
-        if(d&&d.ok){ done(); }
-        else if(d&&d.error==='TAKEN'){
-          if(note) note.textContent='⚠ Just taken by '+(d.by||'someone else')+' — pick another laptop.';
-          go.textContent='Continue'; sel.value=''; load();
-        }
-        else { go.textContent='Try again'; go.classList.add('ready'); }
-      }).catch(function(){ done(); });   // network hiccup → don't trap the VA out
+      // PERSONAL laptops are the VA's own — never pooled. Log in the background, straight in.
+      if(kind==='personal'){ var pu=APPS_SCRIPT_URL+'?action=device_claim&employee_id='+encodeURIComponent(eid)+'&full_name='+encodeURIComponent(enm)+'&kind=personal&device_id=&device_label='+encodeURIComponent(label)+'&_='+Date.now(); try{ fetch(pu).catch(function(){}); }catch(_e){} done(); return; }
+      // Live conflict check — if presence already shows it held by someone else, block instantly.
+      if(hasSynced && liveHold[did] && liveHold[did].id!==eidL){ if(note) note.textContent='⚠ Just taken by '+(liveHold[did].name||'someone else')+' — pick another laptop.'; sel.value=''; go.classList.remove('ready'); draw(); return; }
+      go.textContent='Claiming…'; go.classList.remove('ready');
+      // OPTIMISTIC + REAL-TIME: publish the hold on presence (everyone sees it now), record to the
+      // Apps Script log in the background, and let the VA straight in — no waiting on the backend.
+      window._devHold={ device_id:did, holder_id:eidL, holder_name:enm, label:label, epoch:Date.now() };
+      try{ if(chan) chan.track(window._devHold); }catch(e){}
+      try{ fetch(APPS_SCRIPT_URL+'?action=device_claim&employee_id='+encodeURIComponent(eid)+
+        '&full_name='+encodeURIComponent(enm)+'&kind=jmb&device_id='+encodeURIComponent(did)+'&device_label='+encodeURIComponent(label)+
+        '&ua='+encodeURIComponent((navigator.userAgent||'').slice(0,200))+'&_='+Date.now()).catch(function(){}); }catch(e){}
+      done();
     };
   });
 };
