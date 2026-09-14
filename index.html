@@ -4975,6 +4975,55 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
         </div>
         <div class="card" id="myprod-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My productivity — last cutoff (final)</p><span style="font-size:11px;color:var(--text-3);">quantity per hour vs team · results appear after each cutoff closes</span></div><div id="myprod-inline"></div></div>
         <div class="card" id="activity-card" style="padding:1rem 1.15rem;margin-bottom:1rem;"><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"><p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">Recent activity</p><span style="font-size:11px;color:var(--text-3);">latest updates</span></div><div id="activity-list"></div></div>
+        <!-- 🎟️ YEAR-END RAFFLE — VAs register the ticket numbers they hold -->
+        <div class="card" id="raffle-card" style="padding:1rem 1.15rem;margin-bottom:1rem;background:linear-gradient(135deg,rgba(255,107,26,.10),transparent);border:1px solid rgba(255,107,26,.28);">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:5px;">
+            <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">🎟️ Year-End Raffle — register your tickets</p>
+            <span style="font-size:11px;color:var(--text-3);" id="raffle-count"></span>
+          </div>
+          <p style="font-size:12px;color:var(--text-2);margin:0 0 8px;">Type the ticket number(s) you're holding (separate with commas or spaces). This records that they're yours — resigned VAs' tickets aren't valid.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input id="raffle-input" placeholder="e.g. A0123, A0124, A0125" style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:10px;padding:9px 12px;font-size:13px;background:var(--bg-2,#f5f6f8);color:var(--text-1);" onkeydown="if(event.key==='Enter')raffleRegisterGo()">
+            <button onclick="raffleRegisterGo()" style="background:linear-gradient(135deg,#ff6b1a,#e83d00);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-weight:800;cursor:pointer;">Register</button>
+          </div>
+          <div id="raffle-msg" style="font-size:12px;margin-top:8px;"></div>
+          <div id="raffle-mine" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;"></div>
+        </div>
+        <script>
+        (function(){
+          function rEmp(){ try{ var e=JSON.parse(sessionStorage.getItem('emp_data')||'{}'); return { id:e.employee_id||e.id||'', name:e.full_name||e.employee_id||'' }; }catch(_e){ return {id:'',name:''}; } }
+          function chip(t, st){ var col=st==='active'?'#16a34a':(st==='invalid'?'#dc2626':(st==='void'?'#9ca3af':'#f59e0b'));
+            return '<span style="font-size:11px;font-weight:800;border:1px solid '+col+';color:'+col+';border-radius:20px;padding:2px 9px;">🎟️ '+t+(st&&st!=='active'?(' · '+st):'')+'</span>'; }
+          window.raffleLoadMine=function(){
+            var e=rEmp(); if(!e.id) return;
+            fetch(APPS_SCRIPT_URL+'?action=raffle_mine&employee_id='+encodeURIComponent(e.id)+'&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+              var box=document.getElementById('raffle-mine'), cnt=document.getElementById('raffle-count'); if(!box) return;
+              var list=(d&&d.tickets)||[]; var valid=list.filter(function(x){return String(x.status).toLowerCase()==='active';}).length;
+              if(cnt) cnt.textContent=list.length?(valid+' valid'+(list.length>valid?(' · '+(list.length-valid)+' flagged'):'')):'none registered yet';
+              box.innerHTML=list.map(function(x){ return chip(x.ticket_no, String(x.status).toLowerCase()); }).join('');
+            }).catch(function(){});
+          };
+          window.raffleRegisterGo=function(){
+            var e=rEmp(); if(!e.id) return;
+            var inp=document.getElementById('raffle-input'), msg=document.getElementById('raffle-msg');
+            var v=(inp.value||'').trim(); if(!v) return;
+            msg.style.color='var(--text-3)'; msg.textContent='Registering…';
+            fetch(APPS_SCRIPT_URL+'?action=raffle_register&employee_id='+encodeURIComponent(e.id)+'&full_name='+encodeURIComponent(e.name)+'&tickets='+encodeURIComponent(v)+'&_='+Date.now())
+              .then(function(r){return r.json();}).then(function(d){
+                if(!d||d.error){ msg.style.color='#dc2626'; msg.textContent='Could not register ('+((d&&d.error)||'error')+').'; return; }
+                inp.value=''; var parts=[];
+                if(d.added&&d.added.length) parts.push('✅ '+d.added.length+' registered');
+                if(d.mine&&d.mine.length) parts.push(d.mine.length+' already yours');
+                if(d.conflict&&d.conflict.length) parts.push('⚠ '+d.conflict.length+' already held by someone else');
+                if(d.flagged&&d.flagged.length) parts.push('🚫 '+d.flagged.length+' belonged to a resigned VA — ask admin');
+                msg.style.color=((d.conflict&&d.conflict.length)||(d.flagged&&d.flagged.length))?'#b45309':'#16a34a';
+                msg.textContent=parts.join(' · ')||'Nothing new to add.';
+                raffleLoadMine();
+              }).catch(function(){ msg.style.color='#dc2626'; msg.textContent='No connection — try again.'; });
+          };
+          try{ if(typeof window.renderOverview==='function' && !window.renderOverview.__raffle){ var _ro=window.renderOverview; window.renderOverview=function(){ var r=_ro.apply(this,arguments); try{ raffleLoadMine(); }catch(_e){} return r; }; window.renderOverview.__raffle=true; } }catch(_e){}
+        })();
+        </script>
         <div class="overview-layout" style="display:none;">
           <!-- LEFT: stat cards (full width — ID card removed) -->
           <div class="overview-left">
