@@ -2413,26 +2413,44 @@ function _dashItem(btn){ return (btn&&btn.closest)?btn.closest('.dash-item'):nul
 function _dashDim(it){ if(it){ it.style.opacity='.4'; it.style.pointerEvents='none'; } }
 function _dashUndim(it){ if(it){ it.style.opacity=''; it.style.pointerEvents=''; } }
 function _dashResync(){ setTimeout(function(){ if(typeof loadDashboard==='function') loadDashboard({silent:true}); }, 1200); }
+/* Resilient sender for one-click WRITES (approve/reject/resolve). The backend can be slow/throttled
+   (8-32s at peak), so a single fetch with no timeout throws a false "failed" even when the write
+   actually landed. This caps each try at 25s and retries a couple of times on network/timeout —
+   NOT on a real error response — so approvals stop showing phantom errors. */
+function jSend(path, tries){
+  tries = tries || 2;
+  var url = API + path + (String(path).indexOf('_=')<0 ? ('&_='+Date.now()) : '');
+  return new Promise(function(resolve, reject){
+    (function go(n){
+      var ctl = (typeof AbortController!=='undefined') ? new AbortController() : null;
+      var tm  = ctl ? setTimeout(function(){ try{ ctl.abort(); }catch(_e){} }, 25000) : null;
+      fetch(url, ctl ? { signal: ctl.signal } : undefined)
+        .then(function(r){ return r.json(); })
+        .then(function(d){ if(tm) clearTimeout(tm); resolve(d); })
+        .catch(function(e){ if(tm) clearTimeout(tm); if(n>0){ setTimeout(function(){ go(n-1); }, 1800); } else reject(e); });
+    })(tries);
+  });
+}
 function dashAct(btn, url, okMsg){
   var it=_dashItem(btn); _dashDim(it);
-  fetch(API+url+'&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+  jSend(url).then(function(d){
     if(d && (d.success||d.ok)){ jBust(); if(it) it.remove(); if(okMsg&&typeof toast==='function') toast(okMsg); _dashResync(); }
     else { _dashUndim(it); if(typeof toast==='function') toast('Action failed: '+((d&&d.error)||'unknown')); }
-  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Action failed — check connection.'); });
+  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Server busy — it may still have gone through. Tap Refresh to check.'); });
 }
 function dashRedeem(btn, id, action){
   var it=_dashItem(btn); _dashDim(it);
-  fetch(API+'?action=redeem_resolve&id='+encodeURIComponent(id)+'&decision='+action+'&by=Admin&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+  jSend('?action=redeem_resolve&id='+encodeURIComponent(id)+'&decision='+action+'&by=Admin').then(function(d){
     if(d && d.ok){ jBust(); if(it) it.remove(); if(typeof toast==='function') toast('Redemption '+(action==='approve'?'approved — points deducted.':'rejected.')); _dashResync(); }
     else { _dashUndim(it); if(typeof toast==='function') toast('Could not '+action+((d&&d.error)?(': '+d.error):'.')); }
-  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Network error.'); });
+  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Server busy — it may still have gone through. Tap Refresh to check.'); });
 }
 function dashLeadDem(btn, id, empId, action){
   var it=_dashItem(btn); _dashDim(it);
-  fetch(API+'?action=lead_demerit_resolve&id='+encodeURIComponent(id)+'&action='+action+'&employee_id='+empId+'&by=Admin&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+  jSend('?action=lead_demerit_resolve&id='+encodeURIComponent(id)+'&action='+action+'&employee_id='+empId+'&by=Admin').then(function(d){
     if(d && d.ok){ jBust(); if(it) it.remove(); if(typeof toast==='function') toast('Demerit '+(action==='approve'?'approved — it now counts and the VA was notified.':'rejected — discarded.')); _dashResync(); }
     else { _dashUndim(it); if(typeof toast==='function') toast('Could not '+action+((d&&d.error)?(': '+d.error):'.')); }
-  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Network error.'); });
+  }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Server busy — it may still have gone through. Tap Refresh to check.'); });
 }
 
 /* ════════ DEMERITS ════════ */
@@ -2552,14 +2570,14 @@ async function demResolveDispute(id,status){
   /* No "are you sure" confirm on approve — one click, row grays out and collapses. */
   var _ds='[data-disp="'+id+'"]';
   _optiPending(_ds);
-  try{ var r=await fetch(API+'?action=resolve_demerit_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note)+'&_='+Date.now()); var d=await r.json();
+  try{ var d=await jSend('?action=resolve_demerit_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note));
     if(d&&d.ok){ if(typeof toast==='function') toast('Dispute '+status+'.');
       _optiRows(_ds).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(245,158,11"]')||document); });
       _optiRemove(_ds); _optiTick('dc-demdisp');
       jBust();
       setTimeout(function(){ try{ demQuietSync(); }catch(_d){} }, 800);   // standings only — dispute list untouched
     } else { _optiRestore(_ds); if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error')); }
-  }catch(e){ _optiRestore(_ds); if(typeof toast==='function') toast('Failed (network).'); }
+  }catch(e){ _optiRestore(_ds); if(typeof toast==='function') toast('Server busy — it may have gone through. Refresh to check.'); }
 }
 // Scan attendance + worklog and auto-log new demerits. silent=true skips the toast/button spinner.
 async function autoScanDemerits(days, silent){
@@ -2610,11 +2628,10 @@ async function qaApprove(emp, week){
   var cl=(document.getElementById('qaap-cl-'+emp+'-'+week)||{}).checked?1:0;
   if(!confirm('Approve '+emp+' week '+week+(cl?' WITH the client-findings −10%':'')+'?\n\nThe final score lands on the scorecard and the VA is emailed the result.')) return;
   try{
-    var r=await fetch(API+'?action=qa_approve&employee_id='+encodeURIComponent(emp)+'&month='+encodeURIComponent(month)+'&week='+week+'&client='+cl+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
-    var d=await r.json();
+    var d=await jSend('?action=qa_approve&employee_id='+encodeURIComponent(emp)+'&month='+encodeURIComponent(month)+'&week='+week+'&client='+cl+'&pass='+encodeURIComponent(admPass()));
     if(d&&d.ok){ toast('Approved — final '+d.final+(cl?' (client −10%)':'')+' · VA emailed.'); loadQaApprovals(); loadQaGrid(); }
     else toast('Not approved: '+((d&&(d.message||d.error))||'error'));
-  }catch(e){ toast('Connection error.'); }
+  }catch(e){ toast('Server busy — it may have gone through. Refresh to confirm before re-approving.'); }
 }
 async function loadQaGrid(){
   var month=_qaMonthVal(); var box=document.getElementById('qa-body'); if(!box) return;
@@ -2666,9 +2683,9 @@ async function loadQaDisputes(){
 }
 async function qaResolveDispute(id,status){
   var note=''; if(status==='rejected'){ note=prompt('Optional note to the contractor (reason for rejecting):')||''; }
-  try{ var r=await fetch(API+'?action=resolve_qa_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note)+'&_='+Date.now()); var d=await r.json();
+  try{ var d=await jSend('?action=resolve_qa_dispute&id='+encodeURIComponent(id)+'&status='+status+'&by=Admin&note='+encodeURIComponent(note));
     if(d&&d.ok){ var msg=(status==='approved')?(d.penalty?('Upheld — reviewer docked '+d.penalty.pct+'% for week '+d.penalty.week+'.'):'Upheld (no reviewer on record to dock).'):'Dispute rejected.'; if(typeof toast==='function') toast(msg); jBust(); loadQaDisputes(); } else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error'));
-  }catch(e){ if(typeof toast==='function') toast('Failed (network).'); }
+  }catch(e){ if(typeof toast==='function') toast('Server busy — it may have gone through. Refresh to check.'); }
 }
 async function qaSave(inp){
   var emp=inp.getAttribute('data-emp'), week=inp.getAttribute('data-week'), month=_qaMonthVal(), score=inp.value;
