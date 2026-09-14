@@ -5041,7 +5041,14 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
               tick(); _rdTimer=setInterval(tick,1000);
             }).catch(function(){});
           };
-          try{ if(typeof window.renderOverview==='function' && !window.renderOverview.__raffle){ var _ro=window.renderOverview; window.renderOverview=function(){ var r=_ro.apply(this,arguments); try{ raffleLoadMine(); raffleStatusStart(); }catch(_e){} return r; }; window.renderOverview.__raffle=true; } }catch(_e){}
+          /* This inline script runs BEFORE renderOverview is defined (it's later in the file), so we
+             defer the hook until the DOM is ready — otherwise the countdown never auto-loads. */
+          function _raffleHook(){
+            try{ if(typeof window.renderOverview==='function' && !window.renderOverview.__raffle){ var _ro=window.renderOverview; window.renderOverview=function(){ var r=_ro.apply(this,arguments); try{ raffleLoadMine(); raffleStatusStart(); }catch(_e){} return r; }; window.renderOverview.__raffle=true; } }catch(_e){}
+            try{ if(document.body && document.body.classList.contains('app-authed')){ raffleLoadMine(); raffleStatusStart(); } }catch(_e){}
+          }
+          if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', _raffleHook); } else { setTimeout(_raffleHook,0); }
+          setTimeout(_raffleHook, 1800);   // fallback in case the dashboard rendered before the hook attached
         })();
         </script>
         <div class="overview-layout" style="display:none;">
