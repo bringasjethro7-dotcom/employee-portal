@@ -4981,6 +4981,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:0;">🎟️ Year-End Raffle — register your tickets</p>
             <span style="font-size:11px;color:var(--text-3);" id="raffle-count"></span>
           </div>
+          <div id="raffle-deadline" style="display:none;font-size:12px;font-weight:800;border-radius:10px;padding:8px 11px;margin:0 0 9px;"></div>
           <p style="font-size:12px;color:var(--text-2);margin:0 0 8px;">Type the ticket number(s) you're holding (separate with commas or spaces). This records that they're yours — resigned VAs' tickets aren't valid.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <input id="raffle-input" placeholder="e.g. A0123, A0124, A0125" style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:10px;padding:9px 12px;font-size:13px;background:var(--bg-2,#f5f6f8);color:var(--text-1);" onkeydown="if(event.key==='Enter')raffleRegisterGo()">
@@ -5010,6 +5011,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             msg.style.color='var(--text-3)'; msg.textContent='Registering…';
             fetch(APPS_SCRIPT_URL+'?action=raffle_register&employee_id='+encodeURIComponent(e.id)+'&full_name='+encodeURIComponent(e.name)+'&tickets='+encodeURIComponent(v)+'&_='+Date.now())
               .then(function(r){return r.json();}).then(function(d){
+                if(d&&d.error==='CLOSED'){ msg.style.color='#dc2626'; msg.textContent='Registration is closed — the deadline has passed.'; try{ raffleStatusStart(); }catch(_e){} return; }
                 if(!d||d.error){ msg.style.color='#dc2626'; msg.textContent='Could not register ('+((d&&d.error)||'error')+').'; return; }
                 inp.value=''; var parts=[];
                 if(d.added&&d.added.length) parts.push('✅ '+d.added.length+' registered');
@@ -5021,7 +5023,25 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
                 raffleLoadMine();
               }).catch(function(){ msg.style.color='#dc2626'; msg.textContent='No connection — try again.'; });
           };
-          try{ if(typeof window.renderOverview==='function' && !window.renderOverview.__raffle){ var _ro=window.renderOverview; window.renderOverview=function(){ var r=_ro.apply(this,arguments); try{ raffleLoadMine(); }catch(_e){} return r; }; window.renderOverview.__raffle=true; } }catch(_e){}
+          var _rdTimer=null;
+          window.raffleStatusStart=function(){
+            fetch(APPS_SCRIPT_URL+'?action=raffle_status&_='+Date.now()).then(function(r){return r.json();}).then(function(s){
+              var dl=(s&&s.deadline)||0; var ban=document.getElementById('raffle-deadline'); var inp=document.getElementById('raffle-input'); var btn=document.querySelector('#raffle-card button');
+              if(_rdTimer){ clearInterval(_rdTimer); _rdTimer=null; }
+              if(!dl){ if(ban) ban.style.display='none'; if(inp) inp.disabled=false; if(btn) btn.disabled=false; return; }
+              function tick(){
+                var ms=dl-Date.now();
+                if(ms<=0){ if(ban){ ban.style.display=''; ban.style.background='#fee2e2'; ban.style.color='#991b1b'; ban.innerHTML='🔒 Registration closed — tickets not registered in time are no longer valid.'; }
+                  if(inp){ inp.disabled=true; inp.placeholder='Registration closed'; } if(btn) btn.disabled=true;
+                  if(_rdTimer){ clearInterval(_rdTimer); _rdTimer=null; } return; }
+                var h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000), sec=Math.floor((ms%60000)/1000);
+                if(ban){ ban.style.display=''; ban.style.background='rgba(245,158,11,.13)'; ban.style.color='#b45309';
+                  ban.innerHTML='⏳ <b>Register before the deadline</b> — '+h+'h '+m+'m '+sec+'s left. After that, unregistered tickets won’t be valid.'; }
+              }
+              tick(); _rdTimer=setInterval(tick,1000);
+            }).catch(function(){});
+          };
+          try{ if(typeof window.renderOverview==='function' && !window.renderOverview.__raffle){ var _ro=window.renderOverview; window.renderOverview=function(){ var r=_ro.apply(this,arguments); try{ raffleLoadMine(); raffleStatusStart(); }catch(_e){} return r; }; window.renderOverview.__raffle=true; } }catch(_e){}
         })();
         </script>
         <div class="overview-layout" style="display:none;">
