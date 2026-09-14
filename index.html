@@ -5024,19 +5024,38 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
               }).catch(function(){ msg.style.color='#dc2626'; msg.textContent='No connection — try again.'; });
           };
           var _rdTimer=null;
+          function _raffleFloat(){
+            if(!document.getElementById('raffle-float-css')){ var st=document.createElement('style'); st.id='raffle-float-css';
+              st.textContent='@keyframes raffleBeat{0%,100%{transform:translateX(-50%) scale(1);box-shadow:0 8px 26px -6px rgba(232,61,0,.55)}50%{transform:translateX(-50%) scale(1.06);box-shadow:0 14px 40px -4px rgba(232,61,0,.9)}}'+
+                '#raffle-float{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:9500;display:none;align-items:center;gap:9px;cursor:pointer;'+
+                'background:linear-gradient(135deg,#ff7a2e,#e83d00);color:#fff;border-radius:100px;padding:11px 18px;font:800 13px Inter,system-ui,sans-serif;'+
+                'animation:raffleBeat 1.05s ease-in-out infinite;max-width:calc(100vw - 28px);white-space:nowrap;}'+
+                '#raffle-float .rf-x{margin-left:3px;opacity:.85;font-weight:900;padding:0 3px;}'+
+                '@media(prefers-reduced-motion:reduce){#raffle-float{animation:none}}';
+              document.head.appendChild(st); }
+            var fl=document.getElementById('raffle-float');
+            if(!fl){ fl=document.createElement('div'); fl.id='raffle-float';
+              fl.onclick=function(ev){ if(ev&&ev.target&&ev.target.className==='rf-x'){ fl.style.display='none'; return; }
+                var c=document.getElementById('raffle-card'); if(c){ c.scrollIntoView({behavior:'smooth',block:'center'}); var i=document.getElementById('raffle-input'); if(i) setTimeout(function(){try{i.focus();}catch(_e){}},450); } };
+              document.body.appendChild(fl); }
+            return fl;
+          }
           window.raffleStatusStart=function(){
             fetch(APPS_SCRIPT_URL+'?action=raffle_status&_='+Date.now()).then(function(r){return r.json();}).then(function(s){
               var dl=(s&&s.deadline)||0; var ban=document.getElementById('raffle-deadline'); var inp=document.getElementById('raffle-input'); var btn=document.querySelector('#raffle-card button');
+              var fl=_raffleFloat();
               if(_rdTimer){ clearInterval(_rdTimer); _rdTimer=null; }
-              if(!dl){ if(ban) ban.style.display='none'; if(inp) inp.disabled=false; if(btn) btn.disabled=false; return; }
+              if(!dl){ if(ban) ban.style.display='none'; if(inp) inp.disabled=false; if(btn) btn.disabled=false; if(fl) fl.style.display='none'; return; }
               function tick(){
                 var ms=dl-Date.now();
                 if(ms<=0){ if(ban){ ban.style.display=''; ban.style.background='#fee2e2'; ban.style.color='#991b1b'; ban.innerHTML='🔒 Registration closed — tickets not registered in time are no longer valid.'; }
-                  if(inp){ inp.disabled=true; inp.placeholder='Registration closed'; } if(btn) btn.disabled=true;
+                  if(inp){ inp.disabled=true; inp.placeholder='Registration closed'; } if(btn) btn.disabled=true; if(fl) fl.style.display='none';
                   if(_rdTimer){ clearInterval(_rdTimer); _rdTimer=null; } return; }
                 var h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000), sec=Math.floor((ms%60000)/1000);
+                var left=h+'h '+m+'m '+sec+'s';
                 if(ban){ ban.style.display=''; ban.style.background='rgba(245,158,11,.13)'; ban.style.color='#b45309';
-                  ban.innerHTML='⏳ <b>Register before the deadline</b> — '+h+'h '+m+'m '+sec+'s left. After that, unregistered tickets won’t be valid.'; }
+                  ban.innerHTML='⏳ <b>Register before the deadline</b> — '+left+' left. After that, unregistered tickets won’t be valid.'; }
+                if(fl){ fl.style.display='inline-flex'; fl.innerHTML='🎟️ <span><b>Register your raffle tickets</b> · '+left+' left</span> <span class="rf-x" title="Hide">✕</span>'; }
               }
               tick(); _rdTimer=setInterval(tick,1000);
             }).catch(function(){});
