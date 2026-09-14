@@ -39428,8 +39428,19 @@ body:not(.app-authed) #sprout-panel{ display:none !important; }
     }
     var a=kbAnswer(t);
     if(a){ bot(a); chips([['👍 That helped',function(){ bot('Anything else? ✨'); menu(400); }],
-                          ['🙁 Still not fixed',function(){ oraFixTips(); }]],700); }
-    else { bot('Let me help you sort it out. Here are the quick fixes that solve most issues:'); oraFixTips(); }
+                          ['🙁 Still not fixed',function(){ oraFixTips(); }]],700); return; }
+    var low=t.toLowerCase().trim();
+    // greetings / small talk → be friendly, show the menu (don't dump troubleshooting)
+    if(/^(hi+|hello+|hey+|yo|hiya|sup|good\s?(morning|afternoon|evening|day)|kumusta|kamusta|musta|hi ora|hello ora)\b/.test(low) || low.length<3){
+      var nm=spName()?String(spName()).split(',').pop().trim().split(' ')[0]:'';
+      bot('Hi'+(nm?(' '+nm):'')+'! 👋 What can I help you with?'); menu(500); return;
+    }
+    if(/(thank|salamat|thanks|ty|maraming)\b/.test(low)){ bot('You’re welcome! 😊 Anything else?'); menu(500); return; }
+    // an actual problem → offer the quick fixes
+    var isProblem=(ST.mode==='help') || /(not\s?work|isn.?t\s?work|doesn.?t\s?work|won.?t|can.?t|cannot|error|broke|bug|stuck|issue|fail|slow|stopped|not loading|blank|frozen|freeze|lag|crash|glitch|problem|help)/.test(low);
+    if(isProblem){ bot('Let me help you sort it out — here are the quick fixes that solve most issues:'); oraFixTips(); return; }
+    // anything else → don't guess, show what Ora can do
+    bot('I’m not totally sure I caught that. Here’s what I can help with — or tell me what’s not working. ✨'); menu(600);
   };
   /* Ora resolves bugs & help in real-time — nothing here goes to the admin queue.
      Only "Request a tool update" (a feature change) is filed for the admin to build. */
