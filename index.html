@@ -39239,7 +39239,7 @@ body:not(.app-authed) #sprout-panel{ display:none !important; }
   function resetST(){ ST.mode='idle'; ST.kind=''; ST.tool=''; idleClear(); }
   function menu(delay){ resetST(); chips([
       ['🛠 Request a tool update', function(){ ST.mode='pick-tool'; ST.kind='request'; bot('Great — which tool is this about?'); toolChips(); idleArm(); }],
-      ['🐞 Report a bug', function(){ ST.mode='pick-tool'; ST.kind='bug'; bot('Sorry about that! Which tool is misbehaving?'); toolChips(); idleArm(); }],
+      ['🐞 Something’s not working', function(){ ST.mode='help'; bot('Oh no — tell me what’s not working (which tool, and what happens) and I’ll help you fix it right now. ✨'); }],
       ['❓ Help / troubleshoot', function(){ ST.mode='help'; bot('Ask away — logins, hours, appeals, payslips, Tetris, anything portal. I answer instantly. ✨'); }],
       ['📨 My requests', function(){ myRequests(); }]
     ], delay);
@@ -39314,11 +39314,22 @@ body:not(.app-authed) #sprout-panel{ display:none !important; }
     }
     var a=kbAnswer(t);
     if(a){ bot(a); chips([['👍 That helped',function(){ bot('Anything else? ✨'); menu(400); }],
-                          ['🙁 Still stuck — tell the admin',function(){ ST.kind='help'; ST.tool='Portal'; submitReq('HELP ESCALATION: '+t); }]],700); }
-    else { bot('I don\'t have a ready answer for that one. Want me to pass it to the admin?');
-           chips([['📨 Yes, send it',function(){ ST.kind='help'; ST.tool='Portal'; submitReq('QUESTION: '+t); }],
-                  ['↩️ Back to menu',function(){ menu(200); }]],600); }
+                          ['🙁 Still not fixed',function(){ oraFixTips(); }]],700); }
+    else { bot('Let me help you sort it out. Here are the quick fixes that solve most issues:'); oraFixTips(); }
   };
+  /* Ora resolves bugs & help in real-time — nothing here goes to the admin queue.
+     Only "Request a tool update" (a feature change) is filed for the admin to build. */
+  function oraFixTips(){
+    bot('🔧 <b>Quick fixes</b> (these clear ~90% of issues):<br>'+
+        '1) <b>Hard-refresh</b> — press <b>Ctrl+Shift+R</b> (⌘+Shift+R on Mac).<br>'+
+        '2) Check your <b>internet</b>, then reopen the portal.<br>'+
+        '3) <b>Log out and back in.</b><br>'+
+        '4) <b>Time tracker / hours look off?</b> Don’t worry — your time is saved on the <b>server</b>, not the page. It reappears after a refresh; nothing is lost.<br><br>'+
+        'If it <i>still</i> won’t work after all that, message your <b>team lead</b> directly so they can check your account.', 200);
+    chips([['✅ Fixed it — thanks',function(){ bot('Nice! Anything else? ✨'); menu(400); }],
+           ['🛠 It needs a tool change',function(){ ST.mode='pick-tool'; ST.kind='request'; bot('Got it — if the tool itself needs updating, I’ll file that for the build queue. Which tool?'); toolChips(); idleArm(); }],
+           ['↩️ Back to menu',function(){ menu(200); }]],900);
+  }
   window.sproutToggle=function(){
     var pn=document.getElementById('sprout-panel');
     var opening=!pn.classList.contains('open');
@@ -39326,7 +39337,7 @@ body:not(.app-authed) #sprout-panel{ display:none !important; }
     if(opening) spAlert(false);
     if(opening && !box().children.length){
       var nm=spName()?String(spName()).split(',').pop().trim().split(' ')[0]:'';
-      bot('Hi'+(nm?(' '+nm):'')+'! I\'m <b>Ora</b> ✨ — your portal assistant. I answer questions instantly, take <b>tool update requests</b> and <b>bug reports</b>, and send them straight to the admin\'s build queue. What do you need?',100);
+      bot('Hi'+(nm?(' '+nm):'')+'! I\'m <b>Ora</b> ✨ — your portal assistant. I <b>fix issues and answer questions instantly</b>, right here. If a tool genuinely needs a change, I\'ll file a <b>tool-update request</b> for the build queue. What do you need?',100);
       menu(600);
     }
   };
