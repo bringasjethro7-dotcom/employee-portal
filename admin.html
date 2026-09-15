@@ -1662,6 +1662,10 @@ async function verifyAdminPass(p){
   catch(e){ return false; }
 }
 const API  = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec";
+/* Year-end raffle uses its OWN dedicated backend (raffle-apps-script.gs). Paste its /exec URL
+   below; until then it falls back to the shared script (no downtime). Note: on the dedicated
+   backend you must set ADMIN_PASS once (RUN_SetAdminPass) for these admin actions to authorize. */
+window.RAFFLE_API = "";  // ← paste the dedicated raffle /exec URL here after deploying raffle-apps-script.gs
 
 // ── Shared READ helper: timeout + 1 retry + in-flight dedupe + short TTL cache ──
 // Use for GET reads only. Resolves a Response, so callers keep using .json()/.text().
@@ -9465,7 +9469,7 @@ body{
 function raffleAdminOpen(){ document.getElementById('raffle-ov').style.display='flex'; raffleAdminLoad(); }
 async function raffleAdminLoad(){
   var body=document.getElementById('raffle-adm-body'); if(!body) return; body.innerHTML='<div class="es">Loading…</div>';
-  var d; try{ d=await (await fetch(API+'?action=raffle_list&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json(); }catch(e){ body.innerHTML='<div class="es">Could not load (server busy) — Refresh.</div>'; return; }
+  var d; try{ d=await (await fetch((window.RAFFLE_API||API)+'?action=raffle_list&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json(); }catch(e){ body.innerHTML='<div class="es">Could not load (server busy) — Refresh.</div>'; return; }
   if(!d||!d.ok){ body.innerHTML='<div class="es">'+((d&&d.error==='UNAUTHORIZED')?'Wrong admin password.':'Could not load.')+'</div>'; return; }
   var rows=d.rows||[], totals=(d.totals||[]).sort(function(a,b){return b.valid-a.valid;});
   var invalid=rows.filter(function(r){return r.status!=='active';}).length;
@@ -9478,7 +9482,7 @@ async function raffleAdminLoad(){
         ? '<button class="bsm" style="color:#16a34a;border-color:rgba(34,197,94,.4);" onclick="raffleTransfer(\''+escAdmin(r.ticket_no)+'\')">Transfer →</button> <button class="bsm" style="color:#9ca3af;" onclick="raffleSet(\''+escAdmin(r.ticket_no)+'\',\'void\')">Void</button>'
         : '<button class="bsm" style="color:#dc2626;border-color:rgba(220,38,38,.35);" onclick="raffleSet(\''+escAdmin(r.ticket_no)+'\',\'void\')">Void</button>';
       return '<tr><td style="padding:5px 9px;border-top:1px solid var(--border);font-weight:700;">'+escAdmin(r.ticket_no)+'</td><td style="padding:5px 9px;border-top:1px solid var(--border);">'+escAdmin(r.full_name||r.employee_id)+'</td><td style="padding:5px 9px;border-top:1px solid var(--border);color:'+col+';font-weight:800;text-transform:capitalize;">'+r.status+'</td><td style="padding:5px 9px;border-top:1px solid var(--border);white-space:nowrap;">'+acts+'</td></tr>'; }).join('')+'</table></div>';
-  var st={}; try{ st=await (await fetch(API+'?action=raffle_status&_='+Date.now())).json(); }catch(e){}
+  var st={}; try{ st=await (await fetch((window.RAFFLE_API||API)+'?action=raffle_status&_='+Date.now())).json(); }catch(e){}
   var dl=(st&&st.deadline)||0, open=(!dl)||(Date.now()<dl), when=dl?new Date(dl).toLocaleString():'—';
   var ctrl='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card2,#f7f8fc);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:10px;">'+
       '<span style="font-size:12.5px;">Self-registration: <b style="color:'+(open?'#16a34a':'#dc2626')+';">'+(open?'OPEN':'CLOSED')+'</b>'+(dl?(' · ends '+escAdmin(when)):' · no deadline set')+'</span>'+
@@ -9486,6 +9490,7 @@ async function raffleAdminLoad(){
       '<button class="bsm" onclick="raffleOpenWindow(24)">▶ Open 24h window</button>'+
       '<button class="bsm" onclick="raffleOpenWindow(48)">48h</button>'+
       '<button class="bsm" style="color:#dc2626;" onclick="raffleCloseWindow()">Close now</button>'+
+      '<button class="bsm" style="color:#7c3aed;border-color:rgba(124,58,237,.4);" onclick="raffleDedup()">🧹 Clean duplicates</button>'+
     '</div>'+
     '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px;">'+
       '<b style="font-size:12.5px;">🎁 Award tickets →</b>'+
@@ -9496,25 +9501,32 @@ async function raffleAdminLoad(){
     '</div>';
   body.innerHTML=ctrl+'<p style="font-size:12px;color:var(--t2);margin:0 0 10px;">Resigned VAs\' tickets show <b style="color:#dc2626;">invalid</b> automatically. Transfer a valid one to an active VA, or void it.</p>'+totHtml+listHtml;
 }
+async function raffleDedup(){
+  if(!confirm('Remove duplicate rows where the SAME ticket is registered more than once by the SAME VA?\n\nThe earliest registration is kept; exact duplicates are deleted. Tickets held by two different people are left untouched for you to review.')) return;
+  try{ var d=await (await fetch((window.RAFFLE_API||API)+'?action=raffle_dedup&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json();
+    if(d&&d.ok){ if(typeof toast==='function') toast(d.removed?('Removed '+d.removed+' duplicate'+(d.removed>1?'s':'')+'.'):'No duplicates found.'); raffleAdminLoad(); }
+    else if(typeof toast==='function') toast('Failed: '+((d&&d.error==='UNAUTHORIZED')?'wrong admin password':((d&&d.error)||'error'))); }
+  catch(e){ if(typeof toast==='function') toast('Server busy — try again.'); }
+}
 async function raffleOpenWindow(hrs){
-  try{ var d=await (await fetch(API+'?action=raffle_open&hours='+hrs+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json();
+  try{ var d=await (await fetch((window.RAFFLE_API||API)+'?action=raffle_open&hours='+hrs+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json();
     if(d&&d.ok){ if(typeof toast==='function') toast(hrs+'h registration window opened.'); raffleAdminLoad(); }
     else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error')); }catch(e){ if(typeof toast==='function') toast('Server busy — try again.'); }
 }
 async function raffleCloseWindow(){
   if(!confirm('Close registration now?\nAny ticket not registered becomes invalid.')) return;
-  try{ var d=await (await fetch(API+'?action=raffle_open&close=1&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json();
+  try{ var d=await (await fetch((window.RAFFLE_API||API)+'?action=raffle_open&close=1&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json();
     if(d&&d.ok){ if(typeof toast==='function') toast('Registration closed.'); raffleAdminLoad(); } }catch(e){}
 }
 async function raffleAwardGo(){
   var id=(document.getElementById('raffle-aw-id').value||'').trim(), nm=(document.getElementById('raffle-aw-name').value||'').trim(), tk=(document.getElementById('raffle-aw-tk').value||'').trim();
   if(!id||!tk){ if(typeof toast==='function') toast('Enter the VA ID and ticket number(s).'); return; }
-  try{ var d=await (await fetch(API+'?action=raffle_award&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(nm||id)+'&tickets='+encodeURIComponent(tk)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json();
+  try{ var d=await (await fetch((window.RAFFLE_API||API)+'?action=raffle_award&employee_id='+encodeURIComponent(id)+'&full_name='+encodeURIComponent(nm||id)+'&tickets='+encodeURIComponent(tk)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now())).json();
     if(d&&d.ok){ var msg=[]; if(d.added&&d.added.length)msg.push(d.added.length+' awarded'); if(d.conflict&&d.conflict.length)msg.push(d.conflict.length+' already held'); if(d.mine&&d.mine.length)msg.push(d.mine.length+' already theirs'); if(typeof toast==='function') toast(msg.join(' · ')||'Nothing new.'); raffleAdminLoad(); }
     else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error')); }catch(e){ if(typeof toast==='function') toast('Server busy — try again.'); }
 }
 async function raffleSet(ticket, op, extra){
-  try{ var q=API+'?action=raffle_set&ticket_no='+encodeURIComponent(ticket)+'&op='+op+'&pass='+encodeURIComponent(admPass())+(extra||'')+'&_='+Date.now();
+  try{ var q=(window.RAFFLE_API||API)+'?action=raffle_set&ticket_no='+encodeURIComponent(ticket)+'&op='+op+'&pass='+encodeURIComponent(admPass())+(extra||'')+'&_='+Date.now();
     var d=await (await fetch(q)).json();
     if(d&&d.ok){ if(typeof toast==='function') toast('Ticket '+ticket+' '+(op==='transfer'?'transferred':op+'ed')+'.'); raffleAdminLoad(); }
     else if(typeof toast==='function') toast('Failed: '+((d&&d.error)||'error'));

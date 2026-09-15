@@ -4997,7 +4997,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             return '<span style="font-size:11px;font-weight:800;border:1px solid '+col+';color:'+col+';border-radius:20px;padding:2px 9px;">🎟️ '+t+(st&&st!=='active'?(' · '+st):'')+'</span>'; }
           window.raffleLoadMine=function(){
             var e=rEmp(); if(!e.id) return;
-            fetch(APPS_SCRIPT_URL+'?action=raffle_mine&employee_id='+encodeURIComponent(e.id)+'&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+            fetch((window.RAFFLE_API||APPS_SCRIPT_URL)+'?action=raffle_mine&employee_id='+encodeURIComponent(e.id)+'&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
               var box=document.getElementById('raffle-mine'), cnt=document.getElementById('raffle-count'); if(!box) return;
               var list=(d&&d.tickets)||[]; var valid=list.filter(function(x){return String(x.status).toLowerCase()==='active';}).length;
               if(cnt) cnt.textContent=list.length?(valid+' valid'+(list.length>valid?(' · '+(list.length-valid)+' flagged'):'')):'none registered yet';
@@ -5009,7 +5009,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             var inp=document.getElementById('raffle-input'), msg=document.getElementById('raffle-msg');
             var v=(inp.value||'').trim(); if(!v) return;
             msg.style.color='var(--text-3)'; msg.textContent='Registering…';
-            fetch(APPS_SCRIPT_URL+'?action=raffle_register&employee_id='+encodeURIComponent(e.id)+'&full_name='+encodeURIComponent(e.name)+'&tickets='+encodeURIComponent(v)+'&_='+Date.now())
+            fetch((window.RAFFLE_API||APPS_SCRIPT_URL)+'?action=raffle_register&employee_id='+encodeURIComponent(e.id)+'&full_name='+encodeURIComponent(e.name)+'&tickets='+encodeURIComponent(v)+'&_='+Date.now())
               .then(function(r){return r.json();}).then(function(d){
                 if(d&&d.error==='CLOSED'){ msg.style.color='#dc2626'; msg.textContent='Registration is closed — the deadline has passed.'; try{ raffleStatusStart(); }catch(_e){} return; }
                 if(!d||d.error){ msg.style.color='#dc2626'; msg.textContent='Could not register ('+((d&&d.error)||'error')+').'; return; }
@@ -5041,7 +5041,7 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
             return fl;
           }
           window.raffleStatusStart=function(){
-            fetch(APPS_SCRIPT_URL+'?action=raffle_status&_='+Date.now()).then(function(r){return r.json();}).then(function(s){
+            fetch((window.RAFFLE_API||APPS_SCRIPT_URL)+'?action=raffle_status&_='+Date.now()).then(function(r){return r.json();}).then(function(s){
               var dl=(s&&s.deadline)||0; var ban=document.getElementById('raffle-deadline'); var inp=document.getElementById('raffle-input'); var btn=document.querySelector('#raffle-card button');
               var fl=_raffleFloat();
               if(_rdTimer){ clearInterval(_rdTimer); _rdTimer=null; }
@@ -5989,6 +5989,10 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
 // CONFIG — update these two values
 // ─────────────────────────────────────────────
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec";
+/* Year-end raffle runs on its OWN dedicated backend (raffle-apps-script.gs) so ticket
+   registration never gets knocked out by the shared script's concurrency limit. Paste the
+   dedicated /exec URL below; until then it falls back to the shared script (no downtime). */
+window.RAFFLE_API = "";  // ← paste the dedicated raffle /exec URL here after deploying raffle-apps-script.gs
 
 // ── Shared READ helper: timeout + 1 retry + in-flight dedupe + short TTL cache ──
 // Reads only (resolves a Response so callers keep using .json()). Writes stay on fetch().
