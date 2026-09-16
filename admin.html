@@ -1654,6 +1654,28 @@ const API  = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJ
    an identical request is already in flight, and (b) capped at a small concurrency. Writes
    (POST — approvals, saves) and non-API calls pass straight through untouched, so approving an
    appeal is never delayed. No response caching here, so nothing can go stale. */
+/* Dedicated ADMIN READ lane. Paste the /exec URL of a second deployment of portal-apps-script.gs
+   (deploy as its own web app, DO NOT run any setup/RUN_ functions so it installs no triggers, and
+   set its ADMIN_PASS Script Property). The governor below transparently routes ONLY the verified
+   PURE-READ actions to it — writes and any read that mutates WorkLog stay on the shared script — so
+   the admin console's heavy reads stop queueing 19s behind the whole team. Empty = falls back to
+   the shared script (no downtime). */
+window.ADMIN_READ_API = "";
+/* Allowlist: every action here was verified to ONLY read the sheet (no setValue/appendRow/setSetting/
+   no wlOpen_ format-write). Anything not listed (writes, get_appeals/admin_bootstrap/get_active_tracker/
+   team_hours_total/scorecards — which touch WorkLog — and sales-token reads) stays on the shared lane. */
+window.ADMIN_READ_SAFE = {
+  get_all_employees:1, get_worklog:1, get_expected_days:1, get_leave_requests:1, get_coe_requests:1,
+  get_pin_resets:1, approved_leaves:1, get_banks:1, get_notif_templates:1, get_tracker_projects:1,
+  get_client_pauses:1, list_project_outputs:1, po_va_progress:1, po_progress_all:1, get_demerits:1,
+  lead_demerit_list:1, get_all_demerit_disputes:1, get_all_qa_disputes:1, get_all_qa_weekly:1,
+  qa_approvals:1, list_innovations:1, get_finalized:1, early_bird:1, get_assessment_open:1,
+  qa_review_open_get:1, cf_roster:1, list_pending_invoices:1, invoice_history:1, fx_rate:1,
+  get_fx_margins:1, office_otp_status:1, device_inventory:1, device_report:1, toolreq_list:1,
+  presence_flags:1, pipeline_get:1, awards_get:1, trivia_leaderboard:1
+  /* verify_admin intentionally stays on the shared lane: it's the console's auth gate, so a
+     mis-set ADMIN_PASS on the read backend can never lock you out of the console itself. */
+};
 (function(){
   if (window.__apiGov) return; window.__apiGov = true;
   var _f = window.fetch.bind(window);
@@ -1661,6 +1683,15 @@ const API  = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJ
   function isApi(u){ return typeof u === 'string' && u.indexOf('script.google.com/macros') >= 0; }
   function isGet(o){ return !o || !o.method || String(o.method).toUpperCase() === 'GET'; }
   function key(u){ return String(u).replace(/([?&])_=\d+/, '$1'); }   // ignore the cache-buster so real dupes match
+  function actionOf(u){ var m = /[?&]action=([a-zA-Z_]+)/.exec(u); return m ? m[1] : ''; }
+  function route(u){   // send verified pure-reads to the dedicated admin read lane, if configured
+    try{
+      if (window.ADMIN_READ_API && window.ADMIN_READ_SAFE[actionOf(u)]) {
+        var qi = u.indexOf('?'); if (qi >= 0) return window.ADMIN_READ_API + u.slice(qi);
+      }
+    }catch(_e){}
+    return u;
+  }
   function drain(){
     while (active < MAX && q.length){
       var j = q.shift(); active++;
@@ -1671,6 +1702,7 @@ const API  = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJ
   window.fetch = function(u, o){
     try{
       if (!isApi(u) || !isGet(o)) return _f(u, o);
+      u = route(u);                                   // ← may swap base to the dedicated read lane
       var k = key(u);
       if (inflight[k]) return inflight[k].then(function(r){ return r.clone(); });   // share one in-flight request
       var p = new Promise(function(res, rej){ q.push({ u:u, o:o, k:k, res:res, rej:rej }); drain(); });
