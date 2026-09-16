@@ -5892,6 +5892,12 @@ body.light .glass,body.light [class*="glass"]{background:#ffffff !important;back
 // CONFIG — update these two values
 // ─────────────────────────────────────────────
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec";
+/* Sign-in runs on its OWN dedicated backend (login-apps-script.gs) so auth never gets stuck
+   behind the whole portal's traffic at shift change ("Server busy — retrying"). Paste the
+   dedicated /exec URL below; until then it falls back to the shared script (no downtime).
+   Only auth / check_session / office_otp_request move here — bootstrap stays on the shared
+   script (it runs in parallel and the dashboard loads from auth alone). */
+window.LOGIN_API = "https://script.google.com/macros/s/AKfycbx4oekhuDA4wTo1uIE8Zb1PsI9oOnQx7yW_uWcZ9e_jtLFwFS0b64e749iN3sx5VC6ziQ/exec";  // dedicated login backend (login-apps-script.gs)
 
 // ── Shared READ helper: timeout + 1 retry + in-flight dedupe + short TTL cache ──
 // Reads only (resolves a Response so callers keep using .json()). Writes stay on fetch().
@@ -6208,7 +6214,7 @@ async function doLogin() {
     // The FAST auth returns just the employee record (one sheet read) — enough to render the
     // entire dashboard shell instantly. Card loaders pull their slices from _bootPromise.
     _boot = { at: 0, data: null };
-    const raw  = await loginFetch(`${APPS_SCRIPT_URL}?action=auth&${q}`, 4);
+    const raw  = await loginFetch(`${window.LOGIN_API||APPS_SCRIPT_URL}?action=auth&${q}`, 4);
 
     // New backend → { employee, ... }. Old backend (no `auth` action) → plain employee. Both work.
     let data;
@@ -6265,7 +6271,7 @@ function requestOfficeCode(){
   function setHint(msg, bad){ if(hint){ hint.style.color = bad ? '#c0392b' : 'var(--text-2)'; hint.innerHTML = msg; } }
   if (!id || !pin){ setHint('Enter your Contractor ID and PIN first.', true); return; }
   if (btn){ btn.disabled = true; btn.textContent = 'Requesting…'; }
-  fetch(`${APPS_SCRIPT_URL}?action=office_otp_request&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&_=${Date.now()}`)
+  fetch(`${window.LOGIN_API||APPS_SCRIPT_URL}?action=office_otp_request&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&_=${Date.now()}`)
     .then(function(r){ return r.json(); })
     .then(function(d){
       if (btn){ btn.disabled = false; btn.textContent = 'Request office code'; }
@@ -6301,7 +6307,7 @@ function checkSessionValid(){
   if (!d) return;
   var emp; try { emp = JSON.parse(d); } catch(e){ return; }
   var id = emp && emp.employee_id; if (!id) return;
-  fetch(APPS_SCRIPT_URL + '?action=check_session&employee_id=' + encodeURIComponent(id) + '&device=' + encodeURIComponent(_devId()) + '&_=' + Date.now())
+  fetch((window.LOGIN_API||APPS_SCRIPT_URL) + '?action=check_session&employee_id=' + encodeURIComponent(id) + '&device=' + encodeURIComponent(_devId()) + '&_=' + Date.now())
     .then(function(r){ return r.json(); })
     .then(function(res){
       if (res && res.ok && res.valid === false) {
@@ -9789,38 +9795,25 @@ function submitEOD() {
   document.querySelectorAll('#eod-list [data-eid]').forEach(function(el){
     items.push({ entry_id: decodeURIComponent(el.getAttribute('data-eid')) });
   });
-  var btns = document.querySelectorAll('#eod-receipt .wl-vol-actions button');
-  var sub  = document.querySelector('#eod-receipt .wl-vol-submit');
-  btns.forEach(function(b){ b.disabled = true; });
-  if (sub) sub.textContent = 'Submitting…';
-  var settled = false;
-  function reenable(msg){ if (settled) return; settled = true; clearTimeout(_eodWatchdog); btns.forEach(function(b){ b.disabled = false; }); if (sub) sub.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> End day &amp; submit'; if (msg) showToast(msg); }
-  // Watchdog: if the request hangs (Apps Script cold start / flaky network) never leave the
-  // button stuck — re-enable it after 20s so the user can retry.
-  var _eodWatchdog = setTimeout(function(){ reenable('Submit is taking too long — tap End day again.'); }, 20000);
-  function clockOutAndClose() {
-    settled = true; clearTimeout(_eodWatchdog);
-    logTime('time_out');                 // record the clock-out
-    closeEodReceipt();
-    showToast('Day ended — work logs submitted. ✅');
-    setTimeout(function(){ loadTodayEntries(); loadTrackerHistory(); }, 1000);
+  /* OPTIMISTIC EOD (Sep 2026): the day ends IMMEDIATELY. Clocking out is the write that matters
+     for hours, and it's already resilient (localStorage + attConfirmed). Flipping each entry's
+     status to "recorded" is cosmetic — the tools already counted the outputs — so it must NOT
+     block the VA behind a congested write at shift change (the "can't do EOD" complaint). We
+     clock out, close, and flip the statuses quietly in the background with retries. */
+  logTime('time_out');                 // record the clock-out (the important, hours-critical write)
+  closeEodReceipt();
+  showToast('Day ended — work logs submitted. ✅');
+  setTimeout(function(){ try{ loadTodayEntries(); loadTrackerHistory(); }catch(_e){} }, 1000);
+  if (items.length) {
+    var qs = encodeURIComponent(JSON.stringify(items));
+    var url = APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(attEmpId) + '&pending=false&items=' + qs;
+    (function attempt(n){
+      fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+        if (d && (d.success || d.ok)) return;                                     // statuses flipped — done
+        if (n < 8) setTimeout(function(){ attempt(n+1); }, Math.min(8000, 1200*n)); // keep retrying quietly under load
+      }).catch(function(){ if (n < 8) setTimeout(function(){ attempt(n+1); }, Math.min(8000, 1200*n)); });
+    })(1);
   }
-  if (!items.length) { clockOutAndClose(); return; }   // only idle / nothing to volume
-  var qs = encodeURIComponent(JSON.stringify(items));
-  var url = APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(attEmpId) + '&pending=false&items=' + qs;
-  (function attempt(n){
-    if (settled) return;
-    fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
-      if (settled) return;
-      if (d && (d.success || d.ok)) { clockOutAndClose(); }
-      else if (d && (d.error === 'BUSY' || d.error === 'LOCKED') && n < 5) { setTimeout(function(){ attempt(n+1); }, 600*n); }
-      else { reenable('Could not submit yet — tap End day again.'); }
-    }).catch(function(){
-      if (settled) return;
-      if (n < 5) { setTimeout(function(){ attempt(n+1); }, 700*n); }
-      else { reenable('Network error — not submitted. Tap End day again.'); }
-    });
-  })(1);
 }
 
 /* ══════════ 📚 SOP REFRESHER GATE (Aug 2026, his rule) ══════════
