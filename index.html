@@ -11120,10 +11120,12 @@ function _clearActiveMarker() { try { localStorage.removeItem(_trkKey()); } catc
 function sbBeat(entryId){
   try{
     if (!entryId) return;
-    fetch(SUPA_URL + '/rest/v1/tracker_beat?on_conflict=entry_id', {
+    // Append-only: one plain INSERT per beat (anon can insert, reads nothing). The backend
+    // trigger keeps only the newest per entry and prunes the rest.
+    fetch(SUPA_URL + '/rest/v1/tracker_beat', {
       method: 'POST', keepalive: true,
-      headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify([{ entry_id: String(entryId), employee_id: String(attEmpId || '') }])
+      headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ entry_id: String(entryId), employee_id: String(attEmpId || '') })
     }).then(function(r){ if (!r.ok) _trkPost('tracker_heartbeat', { entry_id: entryId }); })
       .catch(function(){ _trkPost('tracker_heartbeat', { entry_id: entryId }); });
   }catch(e){ try{ _trkPost('tracker_heartbeat', { entry_id: entryId }); }catch(_){} }
