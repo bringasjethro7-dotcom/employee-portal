@@ -4546,7 +4546,8 @@ async function resolveAppeal(entryId, decision){
   var _sel='[data-ap="'+entryId+'"]';
   _optiPending(_sel);
   try{
-    var r=await fetch(API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+'&_='+Date.now());
+    var _rw=(_apCache[entryId]&&_apCache[entryId].row)?('&row='+encodeURIComponent(_apCache[entryId].row)):'';   // lets the backend skip the 10k-row scan
+    var r=await fetch(API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+_rw+'&_='+Date.now());
     var d=await r.json();
     if(d&&d.ok){
       _optiRows(_sel).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(245,158,11"]')||document); });
@@ -4580,7 +4581,8 @@ async function approveWithDemerit(entryId){
   var note=prompt('Optional note / context:', '')||'';
   try{
     // 1) Approve the appeal first.
-    var r1=await fetch(API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision=approve&_='+Date.now());
+    var _rw=(x&&x.row)?('&row='+encodeURIComponent(x.row)):'';   // pass the known row so the backend skips the full scan
+    var r1=await fetch(API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision=approve'+_rw+'&_='+Date.now());
     var d1=await r1.json();
     if(!(d1&&d1.ok)){ alert('Could not approve the appeal — no demerit was added.'); return; }
     // 2) Log the manual demerit for the same person + date.
