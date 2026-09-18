@@ -11111,16 +11111,33 @@ function _saveActiveMarker() {
   } catch(e) {}
 }
 function _clearActiveMarker() { try { localStorage.removeItem(_trkKey()); } catch(e) {} }
+/* PHASE 2 — the keep-alive beat writes straight to Supabase (tracker_beat) instead of hitting
+   Apps Script every minute. This is the single biggest write-volume path (one execution per
+   active VA per minute); moving it off the shared script is what relieves the congestion. A
+   once-a-minute Apps Script trigger copies these beats into the Sheet's last_beat column, so the
+   auto-close sweep and live display keep working. If Supabase is unreachable we fall back to the
+   old Apps Script heartbeat so a beat is never lost. */
+function sbBeat(entryId){
+  try{
+    if (!entryId) return;
+    fetch(SUPA_URL + '/rest/v1/tracker_beat?on_conflict=entry_id', {
+      method: 'POST', keepalive: true,
+      headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ entry_id: String(entryId), employee_id: String(attEmpId || '') }])
+    }).then(function(r){ if (!r.ok) _trkPost('tracker_heartbeat', { entry_id: entryId }); })
+      .catch(function(){ _trkPost('tracker_heartbeat', { entry_id: entryId }); });
+  }catch(e){ try{ _trkPost('tracker_heartbeat', { entry_id: entryId }); }catch(_){} }
+}
 function startHeartbeat() {
   stopHeartbeat();
-  if (trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });   // beat immediately so a fresh restore isn't swept
+  if (trkRunning && trkOwns) sbBeat(trkRunning.entry_id);   // beat immediately so a fresh restore isn't swept
   trkHeartbeatTick = setInterval(function(){
-    if (trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });
+    if (trkRunning && trkOwns) sbBeat(trkRunning.entry_id);
   }, 60000);
 }
 function stopHeartbeat() { if (trkHeartbeatTick) { clearInterval(trkHeartbeatTick); trkHeartbeatTick = null; } }
 document.addEventListener('visibilitychange', function(){
-  if (!document.hidden && trkRunning && trkOwns) _trkPost('tracker_heartbeat', { entry_id: trkRunning.entry_id });
+  if (!document.hidden && trkRunning && trkOwns) sbBeat(trkRunning.entry_id);
 });
 /* Last-gasp beat (timer-theft fix): stamp last_beat as the page unloads — forced
    refresh, tab close, navigation. sendBeacon survives teardown; fetch doesn't.
