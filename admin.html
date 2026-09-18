@@ -4205,9 +4205,13 @@ async function qrMgrBulk(input){
 // ── WORK LOG (consolidated Clockify time) ──
 var wlEmps = [];
 var wlRows = [];
-async function wlSetStatus(row, status){
+async function wlSetStatus(rowOrId, status){
   try{
-    await fetch(API + '?action=set_worklog_status&row=' + encodeURIComponent(row) + '&status=' + encodeURIComponent(status));
+    // Sheet-served rows pass a numeric _row; Supabase-served rows pass entry_id (a string).
+    // Send whichever we have — the backend resolves the row from either.
+    var s=String(rowOrId==null?'':rowOrId);
+    var param = /^\d+$/.test(s) ? ('row=' + encodeURIComponent(s)) : ('entry_id=' + encodeURIComponent(s));
+    await fetch(API + '?action=set_worklog_status&' + param + '&status=' + encodeURIComponent(status));
     loadWorkLog();
   }catch(e){ if(typeof toast==='function') toast('Could not update status.'); }
 }
@@ -4756,15 +4760,17 @@ async function loadWorkLog(){
     tbody.innerHTML = rows.map(function(w){
       var hrs = parseFloat(w.hours)||0;
       var st = (w.status||'recorded');
+      // Supabase rows carry entry_id (approve by id); sheet rows carry _row (approve by row).
+      var wlKey = w.entry_id ? ("'"+String(w.entry_id).replace(/'/g,"\\'")+"'") : w._row;
       var statusCell;
       if(st==='pending'){
         pendingCount++;
         statusCell = '<div style="color:#f59e0b;font-weight:600;margin-bottom:4px;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Pending</div>'+
-          '<button onclick="wlSetStatus('+w._row+",'recorded')\" style=\"background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;\">Approve</button> "+
-          '<button onclick="wlSetStatus('+w._row+",'rejected')\" style=\"background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);color:#ef4444;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;\">Reject</button>";
+          '<button onclick="wlSetStatus('+wlKey+",'recorded')\" style=\"background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;\">Approve</button> "+
+          '<button onclick="wlSetStatus('+wlKey+",'rejected')\" style=\"background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);color:#ef4444;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;\">Reject</button>";
       } else if(st==='rejected'){
         statusCell = '<span style="color:var(--red);"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>Rejected</span> '+
-          '<button onclick="wlSetStatus('+w._row+",'recorded')\" style=\"background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;margin-left:4px;\">Approve</button>";
+          '<button onclick="wlSetStatus('+wlKey+",'recorded')\" style=\"background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:#4ade80;padding:2px 8px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;margin-left:4px;\">Approve</button>";
       } else if(st==='running'){
         statusCell = '<span style="color:#3b82f6;font-weight:700;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Running now</span>';
       } else if(st==='paused'){
