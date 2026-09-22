@@ -8404,7 +8404,7 @@ async function assessFinish(){
   var score = Math.round(_asState.quizPct);              // quiz is the whole assessment score
   document.getElementById('assess-content').innerHTML =
     '<h2 style="margin:0 0 10px;font-size:20px;color:var(--text-1);">Assessment complete ✅</h2>'+
-    '<div style="text-align:center;margin:6px 0 16px;"><div style="font-size:46px;font-weight:800;color:#a855f7;line-height:1;">'+score+'</div><div style="font-size:12px;color:var(--text-3);">/ 100 · counts as 15% of your scorecard</div></div>'+
+    '<div style="text-align:center;margin:6px 0 16px;"><div style="font-size:46px;font-weight:800;color:#a855f7;line-height:1;">'+score+'</div><div style="font-size:12px;color:var(--text-3);">/ 100 · counts as 10% of your scorecard</div></div>'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;text-align:center;">'+
       '<div style="background:var(--card2,#eef0f4);border:1px solid var(--border);border-radius:10px;padding:10px;"><div style="font-size:18px;font-weight:700;color:var(--text-1);">'+_asState.quizPct+'%</div><div style="font-size:11px;color:var(--text-3);">Quiz score</div></div>'+
       '<div style="background:var(--card2,#eef0f4);border:1px solid var(--border);border-radius:10px;padding:10px;"><div style="font-size:18px;font-weight:700;color:var(--text-1);">'+Math.round(_asState.quizPct/100*ASSESS_TOTAL_ITEMS)+' / '+ASSESS_TOTAL_ITEMS+'</div><div style="font-size:11px;color:var(--text-3);">Correct answers</div></div>'+
@@ -8437,7 +8437,9 @@ async function assessFinish(){
 
 // Tell the employee how complete the overall actually is. A score built from 30% of the weights
 // is a provisional read, not a verdict — and the blank cards are what's still missing.
-var SC_WEIGHTS = { productivity:20, quality:20, attendance:20, assessment:15, team_sales:5, demerit:10, csat:10 };
+/* Sep 2026 model (mirrors the backend): Results replaces CSAT at 10%, funded by Assessment
+   15→10 and CSAT 5→0; Productivity 20→25 and Attendance 20→15. Sum = 100. */
+var SC_WEIGHTS = { productivity:25, quality:20, attendance:15, assessment:10, team_sales:5, demerit:10, innovation:5, results:10 };
 function setScCoverage(sc, liveAtt, liveDem) {
   var el = document.getElementById('sc-coverage'); if (!el) return;
   var has = function(v){ return v !== null && v !== undefined && v !== ''; };
@@ -8448,11 +8450,13 @@ function setScCoverage(sc, liveAtt, liveDem) {
     assessment:   sc.assessment,
     team_sales:   sc.team_sales,
     demerit:      has(liveDem) ? liveDem : sc.demerit_score,
-    csat:         sc.csat
+    innovation:   sc.innovation,
+    results:      sc.results
   };
   var covered = 0, missing = [];
   var LABEL = { productivity:'Productivity', quality:'QA', attendance:'Attendance',
-                assessment:'Assessment', team_sales:'Team Sales', demerit:'Demerit', csat:'Client Feedback' };
+                assessment:'Assessment', team_sales:'Team Sales', demerit:'Demerit',
+                innovation:'Innovation', results:'Results' };
   Object.keys(SC_WEIGHTS).forEach(function(k){
     if (has(vals[k])) covered += SC_WEIGHTS[k];
     else missing.push(LABEL[k]);
