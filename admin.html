@@ -2437,7 +2437,9 @@ async function loadDashboard(opts){
     leave.forEach(function(r){ items.push({chip:'Leave',cls:'chip-leave',name:r.full_name||r.employee_id,detail:({vacation:'Vacation',sick:'Sick',emergency:'Emergency'}[r.type]||r.type)+' · '+fmtLeaveDate(r.start||r.start_date)+' → '+fmtLeaveDate(r.end||r.end_date),
       actions:'<button class="bsm edit" onclick="dashAct(this,\'?action=update_leave_status&row='+r._row+'&status=approved\',\'Leave approved\')">Approve</button><button class="bsm danger" onclick="dashAct(this,\'?action=update_leave_status&row='+r._row+'&status=rejected\',\'Leave rejected\')">Reject</button>'}); });
     coe.forEach(function(r){ items.push({chip:'COE',cls:'chip-coe',name:r.full_name||r.employee_id,detail:r.purpose||'Certificate of Employment',
-      actions:'<button class="bsm edit" onclick="dashAct(this,\'?action=update_coe_status&row='+r._row+'&status=approved\',\'COE approved\')">Approve</button><button class="bsm danger" onclick="dashAct(this,\'?action=update_coe_status&row='+r._row+'&status=rejected\',\'COE rejected\')">Reject</button>'}); });
+      /* Approving from the dashboard opens the same client prompt as the COE tab — a certificate
+         must never be issued without someone naming the client. Reject stays a one-tap action. */
+      actions:'<button class="bsm edit" onclick="coeAskClient(this,'+r._row+',&quot;'+escAdmin(r.employee_id||'')+'&quot;,&quot;'+escAdmin((r.full_name||'').replace(/"/g,''))+'&quot;)">Approve</button><button class="bsm danger" onclick="dashAct(this,\'?action=update_coe_status&row='+r._row+'&status=rejected\',\'COE rejected\')">Reject</button>'}); });
     redeem.forEach(function(r){ items.push({chip:'<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><rect x=\"3\" y=\"8\" width=\"18\" height=\"13\" rx=\"1\"/><path d=\"M3 12h18M12 8v13\"/></svg> Redeem',cls:'chip-coe',name:r.full_name||r.employee_id,detail:(r.points||0)+' pts (₱'+(((r.points||0)/3).toFixed(2))+') · '+(r.type||'')+(r.detail?(' · '+r.detail):''),
       actions:'<button class="bsm edit" onclick="dashRedeem(this,\''+r.id+'\',\'approve\')">Approve</button><button class="bsm danger" onclick="dashRedeem(this,\''+r.id+'\',\'reject\')">Reject</button>'}); });
     demq.forEach(function(r){ items.push({chip:'<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M12 3 2 20h20z\"/><path d=\"M12 10v5M12 18h.01\"/></svg> Demerit',cls:'chip-leave',name:r.full_name||r.employee_id,detail:(r.infraction||'')+' · '+(r.points||0)+' pt'+((r.points==1)?'':'s')+' · by '+(r.by||'lead')+(r.note?(' · “'+r.note+'”'):''),
@@ -5762,7 +5764,7 @@ function loadCOE() {
           : '<span style="color:var(--o3);font-weight:600;font-size:11px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Pending</span>';
         var date = r.submitted ? new Date(r.submitted).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
         var actions = sl === 'pending'
-          ? '<button onclick="approveCOE(this,' + r._row + ',&quot;approved&quot;)" style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;margin-right:6px;">Approve</button>' +
+          ? '<button onclick="approveCOE(this,' + r._row + ',&quot;approved&quot;,&quot;' + escAdmin(r.employee_id||'') + '&quot;,&quot;' + escAdmin((r.full_name||'').replace(/"/g,'')) + '&quot;)" style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;margin-right:6px;">Approve</button>' +
             '<button onclick="approveCOE(this,' + r._row + ',&quot;rejected&quot;)" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;">Reject</button>'
           : '—';
         return '<tr>' +
@@ -5779,8 +5781,51 @@ function loadCOE() {
     });
 }
 
-function approveCOE(btn, row, status) {
-  if (!confirm(status === 'approved' ? 'Approve this COE request?' : 'Reject this COE request?')) return;
+/* Approving a COE asks for the CLIENT first. Contractors move between clients, so the name on
+   the certificate is a decision the approver makes now — not something read from a stale field.
+   Rejection needs none of this and goes straight through. */
+function approveCOE(btn, row, status, empId, fullName) {
+  if (status === 'approved') { coeAskClient(btn, row, empId, fullName); return; }
+  if (!confirm('Reject this COE request?')) return;
+  _coeSend(btn, row, status, '', '');
+}
+function coeAskClient(btn, row, empId, fullName){
+  var prior = (window._coeLastClient || '');
+  var ov = document.getElementById('coe-client-ov');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'coe-client-ov';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:18px;';
+    document.body.appendChild(ov); }
+  ov.innerHTML =
+    '<div style="background:var(--card,#fff);border-radius:14px;max-width:460px;width:100%;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);overflow:hidden;">'+
+      '<div style="padding:15px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:800;color:var(--t1);">Issue Certificate of Employment</div>'+
+      '<div style="padding:16px 18px;">'+
+        '<div style="font-size:12.5px;color:var(--t2);margin-bottom:12px;">For <b>'+escAdmin(fullName||empId||'this contractor')+'</b>'+(empId?(' · '+escAdmin(empId)):'')+'</div>'+
+        '<label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;">Client company <span style="color:#dc2626;">*</span></label>'+
+        '<input id="coe-client-in" class="sinp" style="width:100%;" placeholder="e.g. ALTR Media" value="'+escAdmin(prior)+'" />'+
+        '<p style="font-size:10.5px;color:var(--t3);margin:5px 0 12px;">Printed on the certificate as the client this contractor serves. Enter the client for <b>this</b> request — reassignments mean the last one may be out of date.</p>'+
+        '<label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;">Client address <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>'+
+        '<input id="coe-addr-in" class="sinp" style="width:100%;" placeholder="leave blank to use the standard placeholder address" />'+
+        '<p style="font-size:10.5px;color:#b45309;margin:5px 0 0;">If you leave this blank the certificate prints a generic US address chosen automatically — fine for a formality, not for anything anyone verifies.</p>'+
+      '</div>'+
+      '<div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">'+
+        '<button class="bsm" onclick="document.getElementById(\'coe-client-ov\').remove()">Cancel</button>'+
+        '<button class="bsm" id="coe-go" style="color:#16a34a;border-color:rgba(34,197,94,.4);font-weight:700;">Approve &amp; email</button>'+
+      '</div>'+
+    '</div>';
+  var go = document.getElementById('coe-go');
+  var fire = function(){
+    var c = (document.getElementById('coe-client-in')||{value:''}).value.trim();
+    var a = (document.getElementById('coe-addr-in')||{value:''}).value.trim();
+    if (!c) { toast('Enter the client company name first.'); var el=document.getElementById('coe-client-in'); if(el) el.focus(); return; }
+    window._coeLastClient = c;                 // convenience for a run of approvals on one client
+    ov.remove();
+    _coeSend(btn, row, 'approved', c, a);
+  };
+  if (go) go.onclick = fire;
+  var inp = document.getElementById('coe-client-in');
+  if (inp) { inp.focus(); inp.onkeydown = function(ev){ if(ev.key==='Enter') fire(); }; }
+}
+function _coeSend(btn, row, status, client, addr) {
   var tr = (btn && btn.closest) ? btn.closest('tr') : null;
   var cell = tr ? tr.lastElementChild : null;
   var prev = cell ? cell.innerHTML : null;
@@ -5788,11 +5833,12 @@ function approveCOE(btn, row, status) {
   if (cell) cell.innerHTML = status === 'approved'
     ? '<span style="color:#4ade80;font-weight:600;font-size:11px;"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><polyline points=\"20 6 9 17 4 12\"/></svg> Approved</span>'
     : '<span style="color:#f87171;font-weight:600;font-size:11px;"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M18 6 6 18M6 6l12 12\"/></svg> Rejected</span>';
-  fetch(API + '?action=update_coe_status&row=' + row + '&status=' + status + '&_=' + Date.now())
+  fetch(API + '?action=update_coe_status&row=' + row + '&status=' + status +
+        '&client=' + encodeURIComponent(client||'') + '&client_address=' + encodeURIComponent(addr||'') + '&_=' + Date.now())
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.success) {
-        toast(status === 'approved' ? 'COE approved — contractor notified by email' : 'COE rejected — contractor notified');
+        toast(status === 'approved' ? ('COE approved for ' + (client||'the client') + ' — emailed to the contractor') : 'COE rejected — contractor notified');
       } else {
         if (cell && prev != null) cell.innerHTML = prev;
         toast('Error: ' + (d.error || 'Unknown'));
