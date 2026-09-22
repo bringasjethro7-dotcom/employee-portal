@@ -1202,11 +1202,11 @@ body{background-attachment:initial !important}
           <div class="m2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
             <div>
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Contractor</label>
-              <select class="sinp" id="sc-form-emp" style="width:100%;"></select>
+              <select class="sinp" id="sc-form-emp" style="width:100%;" onchange="scShowCurrentAssessment()"></select>
             </div>
             <div>
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Month</label>
-              <input type="month" id="sc-form-month" class="sinp" style="width:100%;" />
+              <input type="month" id="sc-form-month" class="sinp" style="width:100%;" onchange="scShowCurrentAssessment()" />
             </div>
           </div>
           <div class="m2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -1230,7 +1230,7 @@ body{background-attachment:initial !important}
                    pre-Aug months this box used to serve are settled. Manage it from QA Review →
                    Results. -->
               <input type="number" id="sc-form-csat" class="sinp" min="0" max="100" step="1" placeholder="auto — from QA Review" style="width:100%;" disabled title="Computed from their weekly reviewing. See QA Review → Results." />
-              <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">Override only — normally set by the client's rating link (10% weight)</p>
+              <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">Read-only · from QA Review → Results. <b>0% from Sep 2026</b> — this slot was replaced by Results.</p>
             </div>
             <div>
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z"/></svg> Innovation (0–100)</label>
@@ -1238,6 +1238,20 @@ body{background-attachment:initial !important}
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin:10px 0 4px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none"><path d="M3 17l5-5 4 4 8-8"/><path d="M14 8h6v6"/></svg> Results (0–100) · from Sep 2026 · 10%</label>
               <input type="number" id="sc-form-results" class="sinp" min="0" max="100" step="1" placeholder="per-SOP outcomes from Account Center" style="width:100%;" />
               <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">1 idea/month required · <a href="#" onclick="openInnoRubric();return false;" style="color:var(--o3);">grading rubric</a> · 5% weight · blank = no idea (0)</p>
+            </div>
+          </div>
+          <div class="m2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Assessment (0–100) · 10%</label>
+              <input type="number" id="sc-form-assess" class="sinp" min="0" max="100" step="0.01" placeholder="blank = use the monthly quiz score" style="width:100%;" />
+              <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">Normally automatic from the monthly quiz. Type a number only to <b>override</b> it — a VA cut off by the timer, a make-up form, or a hand-set grade. Blank leaves the quiz score in charge.</p>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">September 2026 weighting</label>
+              <div style="border:1px solid var(--border);border-radius:9px;padding:9px 11px;font-size:11px;color:var(--t2);line-height:1.75;">
+                Productivity <b>25%</b> · QA <b>20%</b> · Attendance <b>15%</b> · Assessment <b>10%</b> · Results <b>10%</b> · Conduct <b>10%</b> · Team Sales <b>5%</b> · Innovation <b>5%</b>
+              </div>
+              <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">Changed for Sep: Productivity 20→25, Attendance 20→15, Assessment 15→10, Reviewer Grade 5→0, Results new at 10. Unrated criteria are excluded and the rest re-weight.</p>
             </div>
           </div>
           <div style="display:flex;gap:8px;">
@@ -2474,7 +2488,7 @@ function dashRedeem(btn, id, action){
 }
 function dashLeadDem(btn, id, empId, action){
   var it=_dashItem(btn); _dashDim(it);
-  jSend('?action=lead_demerit_resolve&id='+encodeURIComponent(id)+'&action='+action+'&employee_id='+empId+'&by=Admin').then(function(d){
+  jSend('?action=lead_demerit_resolve&id='+encodeURIComponent(id)+'&decision='+action+'&employee_id='+empId+'&by=Admin').then(function(d){
     if(d && d.ok){ jBust(); if(it) it.remove(); if(typeof toast==='function') toast('Demerit '+(action==='approve'?'approved — it now counts and the VA was notified.':'rejected — discarded.')); _dashResync(); }
     else { _dashUndim(it); if(typeof toast==='function') toast('Could not '+action+((d&&d.error)?(': '+d.error):'.')); }
   }).catch(function(){ _dashUndim(it); if(typeof toast==='function') toast('Server busy — it may still have gone through. Tap Refresh to check.'); });
@@ -2733,37 +2747,118 @@ async function runDemeritScan(){
 /* ⏳ PENDING DEMERITS PANEL — the approval queue, visible where you actually work (Demerits
    tab), with per-row Approve/Reject and BULK buttons for a flooded run. Handles hundreds of
    rows without breaking a sweat: renders the first 60, summarises the rest. */
+var DEM_PEND_ROWS = [];          // everything currently pending, so "select all" means all of it
+var DEM_PEND_CAP  = 250;         // rows drawn with a tick box; the rest are still selectable in bulk
+/* ⏳ PENDING DEMERITS PANEL — the approval queue, with tick boxes and ONE button for the whole
+   selection. The old flow fired one locked request per row, which is what produced "server busy"
+   on a big auto-scan; this sends the selection in chunks of 60 through a single bulk endpoint. */
 async function loadDemPending(){
   var host=document.getElementById('dm-pending'); if(!host) return;
   try{
     var r=await fetch(API+'?action=lead_demerit_list&_='+Date.now()); var d=await r.json();
     var rows=(d&&d.requests)||[];
+    DEM_PEND_ROWS=rows;
     if(!rows.length){ host.innerHTML=''; return; }
     var nAuto=rows.filter(function(x){return x.source==='auto';}).length;
+    var shown=rows.slice(0,DEM_PEND_CAP);
     host.innerHTML='<div style="border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.05);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'+
         '<b style="font-size:13px;color:#b45309;">⏳ '+rows.length+' pending demerit'+(rows.length>1?'s':'')+' awaiting approval'+(nAuto?(' · '+nAuto+' auto-detected'):'')+'</b>'+
         '<span style="font-size:11px;color:var(--t3);">nothing counts or notifies until approved</span>'+
-        (nAuto?'<button class="bsm" style="margin-left:auto;color:#f87171;border-color:rgba(248,113,113,.4);" onclick="demBulkReject()"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><path d=\"M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/></svg> Reject ALL auto ('+nAuto+')</button>':'')+
       '</div>'+
-      rows.slice(0,60).map(function(x){
+      /* selection bar */
+      '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:8px 10px;margin-bottom:8px;border:1px solid var(--border);border-radius:9px;background:var(--card2);">'+
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;"><input type="checkbox" id="dm-pick-all" onchange="demPickAll(this.checked)"> Select all on screen</label>'+
+        '<button class="bsm" onclick="demPickSource(\'auto\')" style="font-size:11px;">Select auto only</button>'+
+        '<button class="bsm" onclick="demPickAll(false)" style="font-size:11px;">Clear</button>'+
+        '<span id="dm-pick-count" style="font-size:12px;color:var(--t3);margin-left:4px;">0 selected</span>'+
+        '<span style="margin-left:auto;display:flex;gap:6px;">'+
+          '<button class="bsm" id="dm-bulk-ok" onclick="demBulkSelected(\'approve\')" style="color:#16a34a;border-color:rgba(34,197,94,.4);font-weight:700;">✓ Approve selected</button>'+
+          '<button class="bsm" id="dm-bulk-no" onclick="demBulkSelected(\'reject\')" style="color:#f87171;border-color:rgba(248,113,113,.4);font-weight:700;">✕ Reject selected</button>'+
+        '</span>'+
+      '</div>'+
+      '<div id="dm-bulk-prog" style="display:none;font-size:12px;color:#b45309;padding:4px 0 8px;"></div>'+
+      shown.map(function(x){
         return '<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid rgba(15,23,42,.06);font-size:12.5px;">'+
+          '<input type="checkbox" class="dm-pick" value="'+escAdmin(x.id)+'" data-source="'+escAdmin(x.source||'')+'" onchange="demPickCount()">'+
           '<b>'+escAdmin(x.full_name||x.employee_id)+'</b>'+
           '<span style="color:var(--t2);">'+escAdmin(x.date)+' · '+escAdmin(x.infraction)+' · '+x.points+'pts</span>'+
           '<span style="font-size:9.5px;font-weight:700;color:'+(x.source==='auto'?'#34d399':'#60a5fa')+';">'+(x.source==='auto'?'AUTO':'LEAD')+'</span>'+
           '<span style="margin-left:auto;display:flex;gap:6px;">'+
-            '<button class="bsm" style="color:#16a34a;border-color:rgba(34,197,94,.4);" onclick="demResolve(\''+escAdmin(x.id)+'\',\''+escAdmin(x.employee_id)+'\',\'approve\',this)"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><polyline points=\"20 6 9 17 4 12\"/></svg></button>'+
-            '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4);" onclick="demResolve(\''+escAdmin(x.id)+'\',\''+escAdmin(x.employee_id)+'\',\'reject\',this)"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M18 6 6 18M6 6l12 12\"/></svg></button>'+
+            '<button class="bsm" style="color:#16a34a;border-color:rgba(34,197,94,.4);" onclick="demResolve(\''+escAdmin(x.id)+'\',\''+escAdmin(x.employee_id)+'\',\'approve\',this)">Approve</button>'+
+            '<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4);" onclick="demResolve(\''+escAdmin(x.id)+'\',\''+escAdmin(x.employee_id)+'\',\'reject\',this)">Reject</button>'+
           '</span></div>';
       }).join('')+
-      (rows.length>60?('<div style="font-size:11px;color:var(--t3);padding-top:6px;">…and '+(rows.length-60)+' more — bulk-reject the junk, or approve in batches and refresh.</div>'):'')+
+      (rows.length>DEM_PEND_CAP?('<div style="font-size:11px;color:var(--t3);padding-top:6px;">…and '+(rows.length-DEM_PEND_CAP)+' more not drawn. <a href="#" onclick="demBulkAll(\'approve\');return false;" style="color:#16a34a;">approve ALL '+rows.length+'</a> · <a href="#" onclick="demBulkAll(\'reject\');return false;" style="color:#f87171;">reject ALL '+rows.length+'</a></div>'):'')+
     '</div>';
+    demPickCount();
   }catch(e){ host.innerHTML=''; }
+}
+function _demPicked(){ return Array.prototype.slice.call(document.querySelectorAll('.dm-pick:checked')).map(function(c){ return c.value; }); }
+function demPickCount(){
+  var n=_demPicked().length, el=document.getElementById('dm-pick-count');
+  if(el) el.textContent=n+' selected';
+  ['dm-bulk-ok','dm-bulk-no'].forEach(function(id){ var b=document.getElementById(id); if(b){ b.disabled=!n; b.style.opacity=n?'1':'.5'; } });
+}
+function demPickAll(on){
+  document.querySelectorAll('.dm-pick').forEach(function(c){ c.checked=!!on; });
+  var a=document.getElementById('dm-pick-all'); if(a) a.checked=!!on;
+  demPickCount();
+}
+function demPickSource(src){
+  document.querySelectorAll('.dm-pick').forEach(function(c){ c.checked=(c.getAttribute('data-source')===src); });
+  var a=document.getElementById('dm-pick-all'); if(a) a.checked=false;
+  demPickCount();
+}
+/* Send a list of ids in chunks through the bulk endpoint. Sequential on purpose: the server takes
+   the script lock once per chunk, so overlapping requests are exactly what we are avoiding. One
+   refresh at the very end instead of one per row. */
+async function _demBulkRun(ids, action){
+  var CHUNK=60, done=0, ok=0, rej=0, skipped=0, missing=0, failed=0;
+  var prog=document.getElementById('dm-bulk-prog');
+  var show=function(t){ if(prog){ prog.style.display='block'; prog.textContent=t; } };
+  ['dm-bulk-ok','dm-bulk-no'].forEach(function(id){ var b=document.getElementById(id); if(b) b.disabled=true; });
+  for(var i=0;i<ids.length;i+=CHUNK){
+    var part=ids.slice(i,i+CHUNK);
+    show((action==='approve'?'Approving':'Rejecting')+' '+(done+part.length)+' of '+ids.length+'…');
+    try{
+      var d=await jSend('?action=lead_demerit_bulk&ids='+encodeURIComponent(part.join(','))+'&decision='+action, 2);
+      if(d&&d.ok){ ok+=(d.approved||0); rej+=(d.rejected||0); skipped+=(d.skipped||0); missing+=(d.missing||0); }
+      else if(d&&d.error==='BUSY'){ failed+=part.length; show('Server was busy on one batch — pausing 3s…'); await new Promise(function(r){ setTimeout(r,3000); }); }
+      else { failed+=part.length; }
+    }catch(e){ failed+=part.length; }
+    done+=part.length;
+    if(i+CHUNK<ids.length) await new Promise(function(r){ setTimeout(r,400); });   // breathe between chunks
+  }
+  if(prog) prog.style.display='none';
+  var msg=(ok?(ok+' approved · '):'')+(rej?(rej+' rejected · '):'')+(skipped?(skipped+' already handled · '):'')+(missing?(missing+' not found · '):'');
+  msg=msg.replace(/ · $/,'') || 'Nothing changed';
+  if(failed) msg+=' — '+failed+' could not be sent, run it again for those';
+  if(typeof toast==='function') toast(msg+'.');
+  await loadDemPending();                 // ONE refresh
+  if(typeof loadDemerits==='function') loadDemerits();
+}
+async function demBulkSelected(action){
+  var ids=_demPicked();
+  if(!ids.length){ if(typeof toast==='function') toast('Tick some rows first.'); return; }
+  var verb=(action==='approve')?'APPROVE':'REJECT';
+  var tail=(action==='approve')
+    ? '\n\nThey start counting toward Conduct and each VA is notified.'
+    : '\n\nThey are discarded silently — nothing counts, nobody is notified.';
+  if(!confirm(verb+' '+ids.length+' selected demerit'+(ids.length>1?'s':'')+'?'+tail)) return;
+  await _demBulkRun(ids, action);
+}
+async function demBulkAll(action){
+  var ids=(DEM_PEND_ROWS||[]).map(function(x){ return x.id; }).filter(Boolean);
+  if(!ids.length) return;
+  var verb=(action==='approve')?'APPROVE':'REJECT';
+  if(!confirm(verb+' ALL '+ids.length+' pending demerits — including the ones not drawn on screen?')) return;
+  await _demBulkRun(ids, action);
 }
 async function demResolve(id, empId, action, btn){
   if(btn) btn.disabled=true;
   try{
-    var r=await fetch(API+'?action=lead_demerit_resolve&id='+encodeURIComponent(id)+'&action='+action+'&employee_id='+encodeURIComponent(empId)+'&by=Admin&_='+Date.now());
+    var r=await fetch(API+'?action=lead_demerit_resolve&id='+encodeURIComponent(id)+'&decision='+action+'&employee_id='+encodeURIComponent(empId)+'&by=Admin&_='+Date.now());
     var d=await r.json();
     if(d&&d.ok){ if(btn){ var row=btn.closest('div[style]'); } toast(action==='approve'?'Approved — counts now, VA notified.':'Rejected — discarded silently.'); loadDemPending(); loadDemerits(); }
     else { toast('Failed: '+((d&&d.error)||'error')); if(btn) btn.disabled=false; }
@@ -8013,6 +8108,25 @@ function openScorecardForm() {
   // Default month to current
   var now = new Date();
   document.getElementById('sc-form-month').value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  var a = document.getElementById('sc-form-assess'); if (a) a.value = '';   // never carry an override between VAs
+  scShowCurrentAssessment();
+}
+/* Show the score already on record for this VA/month, so a blank Assessment box is an informed
+   choice rather than a guess. Read-only — it only changes the placeholder text. */
+async function scShowCurrentAssessment(){
+  var box = document.getElementById('sc-form-assess'); if (!box) return;
+  var emp = (document.getElementById('sc-form-emp')||{value:''}).value;
+  var mo  = (document.getElementById('sc-form-month')||{value:''}).value;
+  if (!emp || !mo) { box.placeholder = 'blank = use the monthly quiz score'; return; }
+  box.placeholder = 'loading current score…';
+  try{
+    var r = await fetch(API + '?action=get_assessment&employee_id=' + encodeURIComponent(emp) +
+                        '&month=' + encodeURIComponent(mo) + '&viewer_id=' + encodeURIComponent(emp) + '&_=' + Date.now());
+    var d = await r.json();
+    box.placeholder = (d && d.found)
+      ? 'on record: ' + (d.assessment_score != null ? d.assessment_score : 'taken, score held') + ' — blank keeps it'
+      : 'no attempt on record — blank leaves this unrated';
+  }catch(e){ box.placeholder = 'blank = use the monthly quiz score'; }
 }
 
 
@@ -8030,6 +8144,7 @@ async function submitScorecard() {
   var vp = document.getElementById('sc-form-vp').value || '0';
   var inno = (document.getElementById('sc-form-inno')||{value:''}).value;
   var resv = (document.getElementById('sc-form-results')||{value:''}).value;
+  var assv = (document.getElementById('sc-form-assess')||{value:''}).value;
     var url = API + '?action=save_scorecard' +
       '&employee_id='      + encodeURIComponent(empId) +
       '&full_name='        + encodeURIComponent(fullName) +
@@ -8037,7 +8152,8 @@ async function submitScorecard() {
       '&note='             + encodeURIComponent(note||'') +
       '&violation_points=' + encodeURIComponent(vp) +
       '&innovation='       + encodeURIComponent(inno) +
-      '&results='          + encodeURIComponent(resv);
+      '&results='          + encodeURIComponent(resv) +
+      '&assessment='       + encodeURIComponent(assv);
     var res  = await fetch(url);
     var data = await res.json();
     if (data.success) {
