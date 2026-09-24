@@ -9637,14 +9637,27 @@ async function _sopAllowWork(){
 }
 function _sopShuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
 function _sopSample(){
-  var fam=(_asProjFam&&ASSESS_PROJ[_asProjFam])?_asProjFam:'';
+  /* Sept 2026: the per-project banks were retired with the SOP items, so this can no longer
+     assume ASSESS_PROJ has anything in it. It now draws from every bank that exists — the
+     project bank first if one is still configured, then policy and situational, then the core
+     grammar/maths — and reports honestly when the pool is empty instead of rendering a quiz
+     with no questions (which scored NaN, could never reach 90%, and left the tracker locked). */
+  var fam=(_asProjFam&&ASSESS_PROJ[_asProjFam]&&ASSESS_PROJ[_asProjFam].length)?_asProjFam:'';
   var pool=fam?ASSESS_PROJ[fam].slice():[];
-  var fill=ASSESS_CORE.filter(function(q){ return /General|Situational/i.test(String(q.cat||'')); }).slice();
-  _sopShuffle(pool); _sopShuffle(fill);
-  var N=20;   // ~20 questions per refresher (his spec); pass = 90% → 18/20
-  var qs=pool.slice(0,N);
-  for(var i=0; qs.length<N && i<fill.length; i++) qs.push(fill[i]);
-  return { fam:fam||'General', qs:qs.slice(0,N).map(function(q){
+  var extra=[]
+    .concat((typeof ASSESS_POLICY!=='undefined'&&ASSESS_POLICY)?ASSESS_POLICY:[])
+    .concat((typeof ASSESS_SCENARIO!=='undefined'&&ASSESS_SCENARIO)?ASSESS_SCENARIO:[]);
+  var fill=(ASSESS_CORE||[]).slice();
+  _sopShuffle(pool); _sopShuffle(extra); _sopShuffle(fill);
+  var N=20;   // ~20 questions per refresher (his spec); pass = 90% of whatever we could gather
+  var qs=[], seen={};
+  [pool, extra, fill].forEach(function(src){
+    for(var i=0;i<src.length && qs.length<N;i++){
+      var k=String(src[i]&&src[i].q||''); if(!k||seen[k]) continue; seen[k]=1; qs.push(src[i]);
+    }
+  });
+  if(!qs.length) return null;                 // no bank loaded — caller must NOT lock the tracker
+  return { fam:fam||'Policies & Conduct', qs:qs.slice(0,N).map(function(q){
     var idx=q.o.map(function(_,i){ return i; }); _sopShuffle(idx);
     return { q:q.q, o:idx.map(function(i){ return q.o[i]; }), a:idx.indexOf(q.a) };
   }) };
@@ -9652,7 +9665,18 @@ function _sopSample(){
 async function sopOpenQuiz(){
   if(_sopQuizOpen) return; _sopQuizOpen=true;
   try{ await _assessResolveFam(); }catch(e){}
-  _sopRender(_sopSample());
+  var pack=_sopSample();
+  if(!pack || !pack.qs || !pack.qs.length){
+    /* Fail-open: a missing question bank is our problem, not the VA's. Unlock the tracker for
+       today rather than stranding someone who is clocked in and cannot start work. */
+    _sopQuizOpen=false;
+    try{ localStorage.setItem(_sopKey(),'1'); }catch(e){}
+    if(typeof showToast==='function') showToast('Refresher unavailable right now — tracker unlocked so you can work. Admin has been flagged.');
+    try{ if(typeof updateButtons==='function') updateButtons(); }catch(_u){}
+    try{ if(typeof renderTimerButtons==='function') renderTimerButtons(); }catch(_r){}
+    return;
+  }
+  _sopRender(pack);
 }
 function _sopRender(pack){
   var old=document.getElementById('sop-quiz'); if(old) old.remove();
@@ -9683,6 +9707,7 @@ function _sopRender(pack){
       var sel=ov.querySelector('input[name="sopq'+qi+'"]:checked');
       if(sel){ answered++; if(parseInt(sel.value,10)===q.a) correct++; }
     });
+    if(!pack.qs.length){ ov.remove(); _sopQuizOpen=false; try{ localStorage.setItem(_sopKey(),'1'); }catch(e){} if(typeof showToast==='function') showToast('Refresher had no questions — tracker unlocked.'); return; }
     if(answered<pack.qs.length){ err.style.display='block'; err.textContent='Answer all '+pack.qs.length+' questions ('+(pack.qs.length-answered)+' left).'; return; }
     var pct=Math.round(correct/pack.qs.length*100);
     if(pct>=90){
