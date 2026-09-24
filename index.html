@@ -8175,7 +8175,7 @@ async function _assessResolveFam(){
     var d=await r.json(); var hrs={};
     ((d&&d.worklog)||[]).forEach(function(w){ var f=_assessFamOf(w.project); if(!f) return; hrs[f]=(hrs[f]||0)+(parseFloat(w.hours)||0); });
     var best='', bh=0; Object.keys(hrs).forEach(function(k){ if(hrs[k]>bh){ bh=hrs[k]; best=k; } });
-    if(best && ASSESS_PROJ[best]) _asProjFam=best;
+    if(best && ((typeof SOP_BANKS!=='undefined' && SOP_BANKS[best]) || ASSESS_PROJ[best])) _asProjFam=best;
   }catch(e){}
 }
 var ASSESS_PASSAGE = 'Two shifts, one standard. The night crew inherits the promises made in daylight, and the morning crew wakes up to keep them. Between handovers nothing is allowed to slip: every account checked, every screenshot filed, every problem raised before it grows. Excellence here is not a mood but a habit, practiced quietly, shift after shift, until clients stop worrying at all.';
@@ -9601,6 +9601,270 @@ function submitEOD() {
   }
 }
 
+/* ══════════ SOP QUESTION BANKS — for the Mon/Thu/Sat refresher ONLY ══════════
+   These are the per-project SOP + tool-usage banks. They are deliberately kept OUT of the
+   monthly assessment (Sept 2026 rule: no SOP items there) and are used only by the refresher
+   gate below, matched to the project the VA's tracked hours actually land on. Restored after
+   the September assessment rebuild emptied ASSESS_PROJ and left the refresher with no pool. */
+var SOP_BANKS = {
+ 'Reddit': [
+  { cat:'Project · Reddit', q:'In the account ladder, an account goes to Comment Farming until…', o:['It reaches 100 karma','It reaches 50 karma, checked up to a max of 7 days','The client approves it','7 days pass, no matter what'], a:1 },
+  { cat:'Project · Reddit', q:'The Creation phase lasts…', o:['4 days','1 day','7 days','2 days'], a:0 },
+  { cat:'Project · Reddit', q:'Warming lasts…', o:['2 days','1 day','Until 50 karma','4 days'], a:1 },
+  { cat:'Project · Reddit', q:'How many sessions count per account per day, whatever the phase?', o:['1','2','One per post','3'], a:1 },
+  { cat:'Project · Reddit', q:'The maximum screenshots for ONE session is…', o:['5','3','Unlimited','8'], a:0 },
+  { cat:'Project · Reddit', q:'On the Strong phase, one session includes how many posts?', o:['7','5','2','3'], a:1 },
+  { cat:'Project · Reddit', q:'Strong-phase DMs are capped at…', o:['No cap','8 per shift','4 per session','10 per day'], a:1 },
+  { cat:'Project · Reddit', q:'DM Replies are…', o:['Evidence saved for QA but NOT counted as output','Counted as +1 output each','Counted as half an output','Counted only on Strong'], a:0 },
+  { cat:'Project · Reddit', q:'Reddit Posting and Reddit Posting Vysor are…', o:['Two official tags scored separately','Interchangeable labels','Vysor is practice only','The same task, merged'], a:0 },
+  { cat:'Project · Reddit', q:'A session button unlocks only when…', o:['Your lead approves','The previous account is done','At least one screenshot is banked for that session','The timer allows it'], a:2 },
+  { cat:'Project · Reddit', q:'Every phase, every session, you must check…', o:['Karma only','The profile for removals/shadowban flags and the inbox for mod messages or warnings','Follower growth','Upvote ratio'], a:1 },
+  { cat:'Project · Reddit', q:'You spot a spam-filter flag on an account. Per the card you…', o:['Hit the Spam filter action on the card','Log the account out','Delete the flagged post and continue','Create a replacement'], a:0 },
+  { cat:'Project · Reddit', q:'An account banned MID-DAY…', o:['Loses the whole day\'s sessions','Keeps the sessions it already finished','Is deleted from the board','Counts double tomorrow'], a:1 },
+  { cat:'Project · Reddit', q:'A Recovery session is counted as…', o:['Reddit Posting','Account Creation','Nothing','Reddit Warmup'], a:3 },
+  { cat:'Project · Reddit', q:'Day 1 Posting includes how many posts per session?', o:['3','2','1','5'], a:2 },
+  { cat:'Project · Reddit', q:'Which phase order is correct?', o:['Creation → Comment Farming → Warming → Day 1 → NSFW','Creation → Warming → Comment Farming → NSFW → Day 1','Creation → NSFW → Warming → Day 1','Warming → Creation → NSFW → Day 1'], a:1 },
+  { cat:'Project · Reddit', q:'Rotation rules say never repeat back-to-back…', o:['Browsers','Sessions','Subreddits, captions, and photos','Accounts'], a:2 },
+  { cat:'Project · Reddit', q:'Account creation counts the moment…', o:['Midnight passes','The proof screenshot is saved and the DONE action runs','A username is typed','The account gets karma'], a:1 },
+  { cat:'Project · Reddit', q:'The per-VA progress bars reset…', o:['Per cutoff','8 AM and 8 PM, per shift','At midnight','Weekly'], a:1 },
+  { cat:'Project · Reddit', q:'A completed session’s chip can now be clicked to…', o:['Review the saved screenshots and replace a single wrong photo','Add bonus screenshots','Delete the session','Change the task name'], a:0 },
+  { cat:'Project · Reddit', q:'Replacing one screenshot in a saved session changes…', o:['The session status','The karma logic','Only that photo — everything else stays','The output count'], a:2 },
+  { cat:'Project · Reddit', q:'Early + DMs allows up to how many DMs per session?', o:['4','6','8','2'], a:0 },
+  { cat:'Project · Reddit', q:'Medium phase includes how many posts per session?', o:['5','2','4','3'], a:3 },
+  { cat:'Project · Reddit', q:'Proof screenshots upload…', o:['At shift end','In the background the moment they are captured','Via email','Only when you press Save'], a:1 },
+  { cat:'Project · Reddit', q:'Why are session screenshots the only usable evidence for QA?', o:['The tool has no history','Screenshots are cheaper','The accounts are private, so a reviewer cannot open the posts','The client demands it'], a:2 },
+  { cat:'Project · Reddit', q:'If your browser cannot screen-capture, the correct fallback is…', o:['Ask a teammate to capture','The 📎 button to attach an image file','A phone photo of your monitor sent in chat','Skip the proof'], a:1 },
+  { cat:'Project · Reddit', q:'The NSFW phase advances when…', o:['Karma doubles','7 days pass','5 posts are made','The client updates the account'], a:3 },
+  { cat:'Project · Reddit', q:'An unreadable or wrong screenshot in QA leads to…', o:['Instant demerit','The criterion it should prove being dropped rather than passed','The whole day voided','Automatic pass'], a:1 },
+  { cat:'Project · Reddit', q:'A covered account’s sessions belong to…', o:['Split between both','Whoever works it today — the cover','Nobody','The account’s owner'], a:1 },
+  { cat:'Project · Reddit', q:'Two sessions in one sitting is…', o:['Allowed on Sundays','Encouraged for speed','Required on Strong','Against the point — sessions are spread across the shift'], a:3 }
+ ],
+ 'ALTR Media': [
+  { cat:'Project · ALTR Media', q:'An ALTR account showing “logged_out” means…', o:['It posts automatically','It is banned forever','It was force-logged-out and is recoverable by re-login and verification','The VA quit'], a:2 },
+  { cat:'Project · ALTR Media', q:'A posting-board row for a day represents…', o:['One account’s posting for that day','One phone','One post','One VA'], a:0 },
+  { cat:'Project · ALTR Media', q:'The daily posting standard per account is…', o:['2 posts','10 posts','4 posts','1 post'], a:2 },
+  { cat:'Project · ALTR Media', q:'Suspended accounts are…', o:['Platform-removed from the posting pool','Recoverable by re-login','Hidden but posting','Merged into other accounts'], a:0 },
+  { cat:'Project · ALTR Media', q:'Sourcing and Posting are…', o:['Both counted as posting','The same task','Optional','Separate lanes with separate records'], a:3 },
+  { cat:'Project · ALTR Media', q:'Content Sourcing output counts…', o:['Only on weekdays','Per session','Per hour','Per item sourced and recorded'], a:3 },
+  { cat:'Project · ALTR Media', q:'Vysor IG Posting differs from regular posting because…', o:['It is client-side','It is unpaid','It runs through the Vysor phone-mirroring setup and is tagged separately','It has no proof'], a:2 },
+  { cat:'Project · ALTR Media', q:'A promotion’s reach is tracked…', o:['Per audio/campaign in the tool','Per VA','Per phone','Not tracked'], a:0 },
+  { cat:'Project · ALTR Media', q:'When a phone shows “disconnected”, the immediate effect is…', o:['Its accounts leave the board','Its accounts cannot be rotated for posting until reconnected','Nothing — posting continues','The computer reboots'], a:1 },
+  { cat:'Project · ALTR Media', q:'The tool’s phone records track phone, computer, serial, status and…', o:['Battery level','SIM number','Who updated it and when','Purchase date'], a:2 },
+  { cat:'Project · ALTR Media', q:'A day’s posting cell mark means…', o:['Nothing official','The account completed its posting for that day','The phone was on','The account was checked'], a:1 },
+  { cat:'Project · ALTR Media', q:'Trend tracking compares an audio’s count against…', o:['The whole year','Yesterday and the last 7 days','Only the launch day','Other clients'], a:1 },
+  { cat:'Project · ALTR Media', q:'QA investigations in ALTR are opened…', o:['Only at month end','By the client','Automatically each night','From the Investigate flow when something needs checking'], a:3 },
+  { cat:'Project · ALTR Media', q:'An account with zero posts for its assigned day shows up as…', o:['Deleted','A bonus tomorrow','A gap the board and QA can see','Merged'], a:2 },
+  { cat:'Project · ALTR Media', q:'The correct order to fix a logged_out account is…', o:['Suspend it','Replace it with a new account','Re-login, verify, and return it to rotation','Report it to PAGASA'], a:2 },
+  { cat:'Project · ALTR Media', q:'ALTR uses which structure for its devices?', o:['Tablets','Emulators only','Standalone phones','Phones grouped under computers'], a:3 },
+  { cat:'Project · ALTR Media', q:'The posting date on the board follows…', o:['UTC','US time','The JMB business day (8 AM Manila reset)','Each phone’s clock'], a:2 },
+  { cat:'Project · ALTR Media', q:'Who may mark a phone connected or disconnected?', o:['The client','The VA updating the board — stamped with their name','Only admin','The tool itself'], a:1 },
+  { cat:'Project · ALTR Media', q:'If today’s promotion is behind pace, the FIRST correct action is…', o:['Post double from fewer accounts as fast as possible','Reuse yesterday’s posts','Flag capacity to the lead and keep steady per-account limits — never overpost a single account','Pause the promotion'], a:2 },
+  { cat:'Project · ALTR Media', q:'Overposting one account to hit team volume risks…', o:['Platform flags and losing the account — pool discipline exists to protect accounts','Nothing if captions rotate','Better reach','Only a warning'], a:0 },
+  { cat:'Project · ALTR Media', q:'The board is grouped per VA by…', o:['Random assignment','Alphabet','Who works the accounts that day','Karma'], a:2 },
+  { cat:'Project · ALTR Media', q:'Account handles on child tabs are kept in sync by…', o:['The client','Manual retyping','A nightly cron','The align-handles repair that realigns them to the Accounts sheet'], a:3 },
+  { cat:'Project · ALTR Media', q:'An entry mistake on the board is fixed by…', o:['The board’s own edit/delete actions with your name stamped','Editing the sheet directly','Starting a new board','Deleting the account'], a:0 },
+  { cat:'Project · ALTR Media', q:'Daily history in ALTR exists so that…', o:['Captions rotate','Payroll is computed','Phones stay charged','Past days’ posting states stay auditable'], a:3 },
+  { cat:'Project · ALTR Media', q:'The status pipeline for an ALTR account is…', o:['active → suspended → active','active → logged_out or suspended, with logged_out recoverable','Any order','logged_out → suspended → active'], a:1 },
+  { cat:'Project · ALTR Media', q:'The team’s posting capacity is determined by…', o:['Client budget','The weather','Active accounts × per-account daily limit, bounded by connected phones','VA count only'], a:2 },
+  { cat:'Project · ALTR Media', q:'Sourced content must be recorded in the tool because…', o:['It looks professional','Sourcing is a counted output and QA checks it like posting','The client reads it','Storage is free'], a:1 },
+  { cat:'Project · ALTR Media', q:'A promotion is marked done when…', o:['Reach hits 1,000','The audio expires','The client says so and the tool’s status is updated','7 days pass'], a:2 },
+  { cat:'Project · ALTR Media', q:'Why is per-day, per-account tracking non-negotiable in ALTR?', o:['It reduces storage','Volume claims to the client are only defensible with a per-account trail','It doubles output','It speeds up phones'], a:1 },
+  { cat:'Project · ALTR Media', q:'The sourcing day resets…', o:['Never','Monthly','Every 6 hours','With the JMB business day'], a:3 }
+ ],
+ 'Project Arlo': [
+  { cat:'Project · Dream IRL', q:'The daily standard per ACTIVE account is…', o:['2 Stories','3 Reels','5 posts','1 Story · 1 Feed Post · 1 Trial Reel (Reel only at 1,000+)'], a:3 },
+  { cat:'Project · Dream IRL', q:'Trial Reels unlock at…', o:['Verification','500 followers','1,000 followers','2,000 followers'], a:2 },
+  { cat:'Project · Dream IRL', q:'The warm-up program lasts…', o:['14 days','30 days','7 days','10 days'], a:0 },
+  { cat:'Project · Dream IRL', q:'Marking a type “Not available” on the pills means…', o:['QA ignores the account','That content type is not expected for the account until toggled back','The day is skipped','The account is suspended'], a:1 },
+  { cat:'Project · Dream IRL', q:'“No Content Available (today)” does what?', o:['Flags the client','Skips the account today, counts it as checked on your bar, resets next shift','Removes the account','Counts +1 output'], a:1 },
+  { cat:'Project · Dream IRL', q:'An account “On Hold” is…', o:['Healthy — posting paused until the client approves, no penalty','Unhealthy','Banned','Deleted after 7 days'], a:0 },
+  { cat:'Project · Dream IRL', q:'“Reserved” means…', o:['Ready to post','Set aside for a specific purpose — not available for posting or assignment','Waiting for QA','New'], a:1 },
+  { cat:'Project · Dream IRL', q:'The Posting progress lane counts which accounts?', o:['All statuses','Active and warm-up','Active only — warm-ups have their own Warming lane','1K+ only'], a:2 },
+  { cat:'Project · Dream IRL', q:'A flagged account should…', o:['Keep posting carefully','Change its handle','Remove flagged content, REST, then check before resuming','Be deleted'], a:2 },
+  { cat:'Project · Dream IRL', q:'Every video must be…', o:['Spoofed, with viral music and AI captions','Under 15 seconds','Posted twice','Watermarked'], a:0 },
+  { cat:'Project · Dream IRL', q:'Warm-up Day 4–6 allows roughly…', o:['Full posting','50 follows','35–55 likes and a post','10–20 likes, 0–5 follows, 0–2 comments, PFP+name only, ≤1 story'], a:3 },
+  { cat:'Project · Dream IRL', q:'Warm-up Day 10–12 allows…', o:['Unlimited','35–55 likes, 10–18 follows, 1 post/reel, 2–3 stories, neutral link-in-bio','Only stories','Nothing yet'], a:1 },
+  { cat:'Project · Dream IRL', q:'Ticking Story/Feed/Reel counts output…', o:['Manually by admin','Weekly','Automatically per tick, proof-gated','At day end'], a:2 },
+  { cat:'Project · Dream IRL', q:'The per-VA bars reset…', o:['☀ 8 AM for morning VAs, 🌙 8 PM for night VAs','Midnight','Weekly','Per post'], a:0 },
+  { cat:'Project · Dream IRL', q:'An audit tag like “Human Verification” means…', o:['The account passed','QA approved it','It is a bot','The account is stuck at a verification wall and needs action'], a:3 },
+  { cat:'Project · Dream IRL', q:'“Posting on hold” in auditing tags marks…', o:['A dead account','A healthy account whose posting is paused','A duplicate','Missing proof'], a:1 },
+  { cat:'Project · Dream IRL', q:'Content Management (models) counts…', o:['Every status change','Unique models updated per shift — repeats don\'t add','Nothing','Hours only'], a:1 },
+  { cat:'Project · Dream IRL', q:'Fully posted today for an account means…', o:['Story only','Every AVAILABLE expected type is ticked (unavailable types drop out)','Logged in','Reel only'], a:1 },
+  { cat:'Project · Dream IRL', q:'A repurposed account’s content flag is…', o:['Tied to ticks','Independent of the Story/Feed/Reel completion state','Reset daily','QA-only'], a:1 },
+  { cat:'Project · Dream IRL', q:'Warm-up completion is marked by…', o:['Reaching 1K','The last tick of the day','the ✓ Warm-up day done action for that day’s plan','An admin'], a:2 },
+  { cat:'Project · Dream IRL', q:'Under-1K accounts show the Reel button as…', o:['Hidden','A story instead','Locked with “Unlocks at 1,000 followers”','Enabled anyway'], a:2 },
+  { cat:'Project · Dream IRL', q:'Hitting 1,000 followers is recorded via…', o:['Automatic detection','the 🎉 Hit 1,000 followers action, unlocking Trial Reels','A client email','Nothing'], a:1 },
+  { cat:'Project · Dream IRL', q:'The stats row’s “Fully posted today” fraction uses which denominator?', o:['Active accounts only','Warm-ups','All accounts','Phones'], a:0 },
+  { cat:'Project · Dream IRL', q:'Moma reels must be spaced…', o:['No spacing','1 hour apart','2 hours apart for mains; 10 minutes for trials','10 minutes apart'], a:2 },
+  { cat:'Project · Dream IRL', q:'On Moma, trial reels unlock…', o:['Anytime','Weekends','Before mains','Only after the main reels are posted, in order'], a:3 },
+  { cat:'Project · Dream IRL', q:'Moma end-of-shift cleanup includes…', o:['Rebooting phones','Just logging out','Camera roll cleared, Recently Deleted emptied, non-talking reels off the grid, EOD to Telegram','Nothing'], a:2 },
+  { cat:'Project · Dream IRL', q:'A niche mismatch on a Moma video means…', o:['Stop and message management before posting','Edit the video','Post it anyway','Post to another account'], a:0 },
+  { cat:'Project · Dream IRL', q:'The Moma carousel chip marks…', o:['Whether the account’s content plan includes carousels','A story type','A daily task','QA status'], a:0 },
+  { cat:'Project · Dream IRL', q:'Suspended Arlo accounts are…', o:['Warmed up again','Worked daily','Reported to the client for replacement per SOP','Deleted silently'], a:2 },
+  { cat:'Project · Dream IRL', q:'Why does the posting lane exclude warm-ups?', o:['Warm-ups are QA’s job','They post secretly','They have no phones','An account in warm-up isn’t posting yet — counting it inflates the denominator unfairly'], a:3 }
+ ],
+ 'Project John': [
+  { cat:'Project · Project John', q:'Days 1–3 are…', o:['QA days','Setup days worked as a checklist — one action completes the day','Rest days','Follow days'], a:1 },
+  { cat:'Project · Project John', q:'Day 4’s plan is…', o:['10 follows','Posting only','25 follows split 5 / 10 / 10','50 follows'], a:2 },
+  { cat:'Project · Project John', q:'Day 4 requires how many sessions?', o:['3','2','4','5'], a:0 },
+  { cat:'Project · Project John', q:'Day 5’s plan is…', o:['Stories','60 follows','30–45 follows, randomized, in 4–5 opens','25 follows'], a:2 },
+  { cat:'Project · Project John', q:'Day 6 onward, the daily target is…', o:['35–50 follows daily, randomized','25 follows','100 follows','30–45'], a:0 },
+  { cat:'Project · Project John', q:'From Day 5 on, a day requires how many sessions?', o:['4','2','5','3'], a:0 },
+  { cat:'Project · Project John', q:'Completing the final session of a day…', o:['Completes the day automatically — no extra screenshot','Only logs the session','Emails the client','Needs an extra button'], a:0 },
+  { cat:'Project · Project John', q:'A completed day counts…', o:['Follows as outputs','One output per session','ONE output — sessions carry evidence, not extra credit','Nothing'], a:2 },
+  { cat:'Project · Project John', q:'Sessions now persist across days until…', o:['Midnight','The account completes its required sessions — then they clear','Sunday','The lead resets them'], a:1 },
+  { cat:'Project · Project John', q:'An account that did only Session 1 yesterday opens today at…', o:['Session 1 again','Setup','Session 2','Day complete'], a:2 },
+  { cat:'Project · Project John', q:'Session marks must be done…', o:['Backwards','In any order','In order — a missed one can’t be skipped by doing the next','All at once'], a:2 },
+  { cat:'Project · Project John', q:'Each session requires…', o:['A note','A karma check','Client approval','Its own screenshot proof before it can be marked'], a:3 },
+  { cat:'Project · Project John', q:'Why randomize batch sizes and scroll times?', o:['The tool requires it','It’s faster','So every account looks human','For QA variety'], a:2 },
+  { cat:'Project · Project John', q:'A client error mid-day means…', o:['Switch accounts','Double the follows','Stop for the day','Smaller batches, per the plan note'], a:3 },
+  { cat:'Project · Project John', q:'Setup-day proof is…', o:['Not needed','A video','Five screenshots','A proof session (evidence only — the day itself is the one output)'], a:3 },
+  { cat:'Project · Project John', q:'The day plans live…', o:['In a PDF','On each account’s card, per its current day','In chat','In the client’s docs'], a:1 },
+  { cat:'Project · Project John', q:'Suspended John accounts…', o:['Auto-recover','Reset to Day 1','Keep earning','Leave the active pool; outputs already earned are kept'], a:3 },
+  { cat:'Project · Project John', q:'The “Day N” chip on a card shows…', o:['The VA’s tenure','QA cycle','Days since creation','The account’s current plan day'], a:3 },
+  { cat:'Project · Project John', q:'Who is the denominator for the John progress bar?', o:['Active accounts, grouped by who works them','Phones','All accounts ever','Suspended too'], a:0 },
+  { cat:'Project · Project John', q:'Reinstating a suspended account…', o:['Starts it at Day 1','Returns it at its recorded day','Is impossible','Needs client sign-off'], a:1 },
+  { cat:'Project · Project John', q:'An account with a wrong entry is…', o:['Left as is','Suspended','Renamed','Deleted via the card’s delete action (wrong entry)'], a:3 },
+  { cat:'Project · Project John', q:'Follow Day and Setup Day outputs are…', o:['Uncounted','The same task','Merged weekly','Separate counted tasks matching the phase'], a:3 },
+  { cat:'Project · Project John', q:'The worklog task names that match the tool are…', o:['Sessions and Days','Following and Account Setup','Posting and Warmup','Follows and Sets'], a:1 },
+  { cat:'Project · Project John', q:'Skipping a session’s screenshot and marking it anyway is…', o:['Allowed once daily','Impossible — the button stays locked without banked proof','Fine if you did the work','A demerit only'], a:1 },
+  { cat:'Project · Project John', q:'Three VAs now share the John tool. Assignment is by…', o:['Phone number','Random pick','First to click','The assignee dropdown on each card'], a:3 },
+  { cat:'Project · Project John', q:'The 5/10/10 split on Day 4 refers to…', o:['Comments','Likes','Minutes rested','Follows per open, across three opens'], a:3 },
+  { cat:'Project · Project John', q:'The biggest ban-risk mistake on follow days is…', o:['Using wifi','Slow scrolling','Following niche accounts','Dumping the whole target in one open instead of spreading opens'], a:3 },
+  { cat:'Project · Project John', q:'A day’s sessions were all logged before the auto-complete existed. The card shows…', o:['Nothing','A reset','A Day done button so the day can close without a redundant screenshot','An error'], a:2 },
+  { cat:'Project · Project John', q:'The one action that advances an account’s day is…', o:['A midnight cron','Any login','Completing the required sessions (or the setup checklist)','The client'], a:2 },
+  { cat:'Project · Project John', q:'If today’s marks were consumed by a completed day, tomorrow the account…', o:['Starts fresh at Session 1','Duplicates','Skips a day','Continues old sessions'], a:0 }
+ ],
+ 'Ember Management': [
+  { cat:'Project · Ember Management', q:'The Ember tool manages…', o:['Reddit posts','Snapchat account operations across VPS machines','IG reels','Shopify'], a:1 },
+  { cat:'Project · Ember Management', q:'Creating an account counts…', o:['+1 Account Setup','+2','+1 Account Creation','Nothing until Live'], a:2 },
+  { cat:'Project · Ember Management', q:'Taking an account Live counts…', o:['+1 VPS','+1 Account Setup','+1 Account Creation','Nothing'], a:1 },
+  { cat:'Project · Ember Management', q:'The account statuses are…', o:['new/old/dead','Stock · Setting up · Live · Needs fix','hot/cold','A/B/C'], a:1 },
+  { cat:'Project · Ember Management', q:'A banned or locked account…', o:['Blocks the VPS','Removes your credit','Counts double','Leaves the pool — your earned credit stays'], a:3 },
+  { cat:'Project · Ember Management', q:'The ops goal is to keep…', o:['Every VPS full and every Live account running, with Airtable in sync','One VPS full','Only stock accounts','Phones charged'], a:0 },
+  { cat:'Project · Ember Management', q:'VPS Monitoring proof is…', o:['Optional','Weekly','Screenshots showing the ~300 active accounts being monitored, logged daily','A text note'], a:2 },
+  { cat:'Project · Ember Management', q:'VPS Monitoring is scored as…', o:['A rate per hour','A capacity task — the steady daily count matters, not per-hour speed','Half credit','Not scored'], a:1 },
+  { cat:'Project · Ember Management', q:'Airtable’s role is…', o:['A backup chat','The synced record of account states the client sees','Storage of screenshots','Payroll'], a:1 },
+  { cat:'Project · Ember Management', q:'“Needs fix” means…', o:['The account has an issue to resolve before returning to Live','Delete it','Ban incoming','It is stock'], a:0 },
+  { cat:'Project · Ember Management', q:'Typed volumes in Ember are trusted because…', o:['The client types them','The tool pull was found unreliable, so approved typed logs drive the numbers','No reason','They are always higher'], a:1 },
+  { cat:'Project · Ember Management', q:'An account stuck at verification should be…', o:['Held in Setting up / Needs fix until resolved','Ignored','Marked Live anyway','Deleted'], a:0 },
+  { cat:'Project · Ember Management', q:'The correct pipeline for a new account is…', o:['Setup → Stock → Live','Stock → Setting up → Live','Any order','Live → Stock'], a:1 },
+  { cat:'Project · Ember Management', q:'Daily monitoring confirms Live accounts are…', o:['Actually running, not just listed','Logged out','Full of snaps','New'], a:0 },
+  { cat:'Project · Ember Management', q:'If several Live accounts die overnight, your FIRST action is…', o:['Restart the VPS','Create replacements silently','Wait a day','Update statuses, report the wave to your lead, then backfill from Stock'], a:3 },
+  { cat:'Project · Ember Management', q:'Stock accounts exist so that…', o:['Numbers look big','Losses can be backfilled immediately without creation delay','QA has samples','VPS stays busy'], a:1 },
+  { cat:'Project · Ember Management', q:'Proof for a creation is…', o:['The email used','The username in chat','A screenshot of the account actually made, saved through the proof panel','A voice note'], a:2 },
+  { cat:'Project · Ember Management', q:'Ember uses which proof mechanic?', o:['Email attachments','None','Video only','Same tray + panel as other tools — capture or attach, up to the cap'], a:3 },
+  { cat:'Project · Ember Management', q:'An account created but never set up counts…', o:['Nothing','Half of each','Both immediately','Creation only — Setup counts when it goes Live'], a:3 },
+  { cat:'Project · Ember Management', q:'The solo-scoring floor exists because…', o:['Everyone gets 50 free','The client asked','Rounding','Real but bursty solo work must never zero out on a rate formula'], a:3 },
+  { cat:'Project · Ember Management', q:'Who works Ember today?', o:['Admin','One dedicated VA — which is why capacity scoring matters','A rotating pool','Five VAs'], a:1 },
+  { cat:'Project · Ember Management', q:'Locked accounts differ from banned in that…', o:['They cost credit','They never return','No difference','They may be recoverable via verification; banned are gone'], a:3 },
+  { cat:'Project · Ember Management', q:'The 300-account figure refers to…', o:['A weekly quota','Stock size','The active accounts maintained and monitored daily','Total ever created'], a:2 },
+  { cat:'Project · Ember Management', q:'Missing a day of VPS monitoring shows up as…', o:['A gap in the daily volume trail the scorecard reads','Nothing','A client email','A bonus'], a:0 },
+  { cat:'Project · Ember Management', q:'The right response to a VPS machine going down is…', o:['Log out','Recreate all accounts','Report immediately, mark affected accounts, shift monitoring to the rest','Wait for it'], a:2 },
+  { cat:'Project · Ember Management', q:'Account Setup output requires…', o:['The account genuinely going Live','A screenshot only','Stock intake','Any status change'], a:0 },
+  { cat:'Project · Ember Management', q:'Ember’s board resets…', o:['It doesn’t — account states persist; only daily monitoring is per-day','Monthly','Per shift like posting boards','Never tracks time'], a:0 },
+  { cat:'Project · Ember Management', q:'Creating 5 accounts and setting 3 Live in one day counts…', o:['5 setups','5 creations + 3 setups','8 creations','3 of each'], a:1 },
+  { cat:'Project · Ember Management', q:'Why does the scorecard treat Ember’s tool pulls as untrusted?', o:['Cost','Snapchat blocks it','Admin preference','The tool is new and its pulled outputs were found inaccurate — approved logs are used instead'], a:3 },
+  { cat:'Project · Ember Management', q:'A wrong status set by mistake is fixed by…', o:['A new account','Deleting the account','Ignoring it','Setting the correct status — changes are stamped'], a:3 }
+ ],
+ 'NewFans': [
+  { cat:'Project · NewFans', q:'Content arrives from the client via…', o:['USB','Email','Content Snare','Drive links in chat'], a:2 },
+  { cat:'Project · NewFans', q:'The posting standard is…', o:['Videos only','Many photos per set','1 photo per set','Whole sets at once'], a:2 },
+  { cat:'Project · NewFans', q:'Posts are scheduled for…', o:['PM EST','Morning Manila time','Midnight UTC','Any time'], a:0 },
+  { cat:'Project · NewFans', q:'Captions must be…', o:['Unique and flirty per post','Blank','Hashtags only','Copied from the last post'], a:0 },
+  { cat:'Project · NewFans', q:'“Runway” means…', o:['Storage space','The posting queue length — scheduled content still ahead','The model’s popularity','Profit'], a:1 },
+  { cat:'Project · NewFans', q:'The board flags low runway so that…', o:['QA is alerted','Models are swapped','The client is asked for content BEFORE the queue hits zero','Posts stop'], a:2 },
+  { cat:'Project · NewFans', q:'A scheduled wallpost counts…', o:['Nothing','+1 at posting time','Weekly','+1 Wallpost Scheduled automatically'], a:3 },
+  { cat:'Project · NewFans', q:'Letting the runway hit zero is…', o:['The one outcome the whole workflow exists to prevent','Normal','A soft metric','The client’s fault'], a:0 },
+  { cat:'Project · NewFans', q:'Wallposting & PPV in the tracker matches which tool task?', o:['Reels','Deployment','Wallpost Scheduled','Sourcing'], a:2 },
+  { cat:'Project · NewFans', q:'NewFans Deployment differs from wallposting because…', o:['It is the same','It is client-side','It is unpaid','It is the setup/launch lane with its own steps, not daily scheduling'], a:3 },
+  { cat:'Project · NewFans', q:'Deployment output is counted…', o:['Per post','Per hour','Never','Sparsely — it is a low-volume setup lane, which is why solo scoring protects it'], a:3 },
+  { cat:'Project · NewFans', q:'Each model’s content is tracked…', o:['Per model, in from Content Snare through to scheduled','By month only','In chat','In one shared pile'], a:0 },
+  { cat:'Project · NewFans', q:'If a model’s content quality is unusable, you…', o:['Skip the model silently','Post it anyway','Flag it to the client through the agreed channel before the runway suffers','Edit it heavily unasked'], a:2 },
+  { cat:'Project · NewFans', q:'Duplicate captions across posts risk…', o:['Better reach','Faster posting','Platform spam detection and client complaints','Nothing'], a:2 },
+  { cat:'Project · NewFans', q:'The right time to ask the client for content is…', o:['When the board flags it low — days before zero','Never','Monthly','When runway hits zero'], a:0 },
+  { cat:'Project · NewFans', q:'Scheduling ahead matters most before…', o:['Paydays','Weekends and storm days — queued posts carry dark hours','Mondays','QA runs'], a:1 },
+  { cat:'Project · NewFans', q:'A set with 10 photos becomes…', o:['1 post','2 posts','10 single-photo posts spread across the schedule','A carousel'], a:2 },
+  { cat:'Project · NewFans', q:'Proof for scheduled posts is…', o:['A CSV','Screenshots via the proof flow, like every counted output','The client’s word','Unnecessary'], a:1 },
+  { cat:'Project · NewFans', q:'The CRM board completion snapshot records…', o:['Done/total progress per VA per day for the project','Outputs','Payroll','Captions'], a:0 },
+  { cat:'Project · NewFans', q:'A completed, screenshot-proofed CRM board now also…', o:['Counts as “tool updated” for the EOD check','Doubles output','Emails the client','Nothing extra'], a:0 },
+  { cat:'Project · NewFans', q:'PM EST scheduling exists because…', o:['QA hours','Cheaper hosting','That is the audience’s prime time','The team prefers it'], a:2 },
+  { cat:'Project · NewFans', q:'When Content Snare shows new files, your first step is…', o:['Download to personal drive','Schedule immediately','Rename them','Track them in on the board so the runway math stays true'], a:3 },
+  { cat:'Project · NewFans', q:'Client updates about content are triggered by…', o:['A calendar','The board’s low-runway flag','The client asking','Random checks'], a:1 },
+  { cat:'Project · NewFans', q:'A model with zero remaining content is…', o:['Merged','The definition of an empty runway — escalate, already late','Paused silently','Removed'], a:1 },
+  { cat:'Project · NewFans', q:'The deployment phases end with…', o:['Nothing formal','The model live and the daily scheduling loop running','Stock','A qa review'], a:1 },
+  { cat:'Project · NewFans', q:'Which is TRUE about output counting here?', o:['Manual tallies','Client counts it','Every scheduled post counts automatically through the tool','Weekly estimates'], a:2 },
+  { cat:'Project · NewFans', q:'Storm-prep for NewFans means…', o:['Queueing extra scheduled posts ahead so a dark evening posts itself','Manual posting','Nothing special','Pausing models'], a:0 },
+  { cat:'Project · NewFans', q:'Sets are tracked as they arrive so that…', o:['Clients pay faster','Content in vs content scheduled always reconciles','Captions rotate','Storage stays low'], a:1 },
+  { cat:'Project · NewFans', q:'The wallpost tick also warns when…', o:['QA is due','EST changes','Runway is low (≤2 sets left)','Captions repeat'], a:2 },
+  { cat:'Project · NewFans', q:'The board resets its per-shift progress…', o:['With the same 8 AM / 8 PM shift windows as other tools','Daily at noon','Never','Monthly'], a:0 }
+ ],
+ 'Torchlight': [
+  { cat:'Project · Torchlight', q:'The two workflow modes are…', o:['Draft and Publish','Import and Export','Design and QA','Photoshop (editing) and Shopify (listing)'], a:3 },
+  { cat:'Project · Torchlight', q:'Photoshop mode covers…', o:['Checkout','Pricing','Editing designs, mockups, exporting JPG/PNG, quality checks, Drive prep','Uploading products'], a:2 },
+  { cat:'Project · Torchlight', q:'Shopify mode covers…', o:['Design edits','Fonts','Uploading images, creating/editing listings, titles, descriptions, variants, review and publish','Mockups'], a:2 },
+  { cat:'Project · Torchlight', q:'Before publishing, the checklist verifies…', o:['The theme','Traffic','Only the price','Accurate title and description, required assets, correct design, naming conventions, image quality'], a:3 },
+  { cat:'Project · Torchlight', q:'Finding an issue mid-flow means…', o:['Delete the listing','Push through','Pause via “Issue found” and resume only when resolved — per SOP step 11','Skip QA'], a:2 },
+  { cat:'Project · Torchlight', q:'Photoshop and Shopify outputs are…', o:['One combined number','Hourly','Two separate counted tasks','Uncounted'], a:2 },
+  { cat:'Project · Torchlight', q:'Exported design files go to…', o:['Google Drive, prepared per naming convention','Email','Desktop','The client’s phone'], a:0 },
+  { cat:'Project · Torchlight', q:'File naming conventions exist because…', o:['Fonts break otherwise','Drive requires it','They look tidy','Assets must be findable and traceable across the pipeline'], a:3 },
+  { cat:'Project · Torchlight', q:'A listing missing its assets should be…', o:['Deleted','Published and fixed later','Held at “Waiting for Files” until complete','Published without images'], a:2 },
+  { cat:'Project · Torchlight', q:'Variants on a listing are…', o:['Optional decoration','QA-only','Part of the listing data the checklist verifies','Auto-generated'], a:2 },
+  { cat:'Project · Torchlight', q:'Image quality is checked…', o:['Never','By the client','Before publish, on the checklist','After publishing'], a:2 },
+  { cat:'Project · Torchlight', q:'The Photoshop/Shopify mode split exists to…', o:['Show only the steps relevant to the job at hand, saving 2–5 min per task','Merge lanes','Double screenshots','Halve output'], a:0 },
+  { cat:'Project · Torchlight', q:'Proof for design work is…', o:['The Drive link only','A verbal note','The PSD file','Screenshots through the proof flow like every output'], a:3 },
+  { cat:'Project · Torchlight', q:'Wrong design used on a product is caught by…', o:['Customers','The “Correct design used” checklist item before publish','Luck','Refunds'], a:1 },
+  { cat:'Project · Torchlight', q:'Publishing without review risks…', o:['Better SEO','Wrong titles/assets going live on the storefront — client-facing damage','Faster sales','Nothing'], a:1 },
+  { cat:'Project · Torchlight', q:'The task tracker names for this project are…', o:['Torch and Light','Design and Store','Photoshop and Shopify','Art and Sales'], a:2 },
+  { cat:'Project · Torchlight', q:'A resumed issue-pause continues…', o:['At publish','Tomorrow','From step 1','Where the flow left off'], a:3 },
+  { cat:'Project · Torchlight', q:'Mockups are made in…', o:['The client portal','Shopify','Canva only','Photoshop mode'], a:3 },
+  { cat:'Project · Torchlight', q:'The store’s single VA setup means…', o:['Double pay','Solo-task scoring applies — consistency and the floor protect real work','No proof','No QA'], a:1 },
+  { cat:'Project · Torchlight', q:'JPG vs PNG choice depends on…', o:['Shopify limits only','Random','The asset’s needs (transparency, size) per the SOP','Alphabetical order'], a:2 },
+  { cat:'Project · Torchlight', q:'Title accuracy matters because…', o:['SEO and the customer’s trust — the checklist gates it','Fonts','It is decorative','Length limits'], a:0 },
+  { cat:'Project · Torchlight', q:'The EOD for this project reports…', o:['Only sales','Nothing','Tasks worked with hours, like every project — plus tool outputs recorded','Screenshots only'], a:2 },
+  { cat:'Project · Torchlight', q:'Waiting for Files status signals…', o:['QA in progress','A finished listing','An error','The client owes assets before work can continue'], a:3 },
+  { cat:'Project · Torchlight', q:'Batch-editing designs and then batch-uploading is…', o:['Forbidden','QA-exempt','Double counted','A sensible flow the two modes support cleanly'], a:3 },
+  { cat:'Project · Torchlight', q:'Deleting a listing entry is for…', o:['Weekends','Any slow item','Price changes','Wrong entries only — with the stamped delete action'], a:3 },
+  { cat:'Project · Torchlight', q:'Quality disputes with the client are handled by…', o:['Refunds','Redoing everything silently','Professional flagging with alternatives, escalated to Operations if needed','Ignoring them'], a:2 },
+  { cat:'Project · Torchlight', q:'Publish rights belong to…', o:['Only the client','Anyone','The VA after the checklist passes — that is the accountability point','Admin'], a:2 },
+  { cat:'Project · Torchlight', q:'High-res sources are kept…', o:['Nowhere','In the organized Drive structure for reuse','On the desktop','In chat'], a:1 },
+  { cat:'Project · Torchlight', q:'The biggest hidden cost of skipping the checklist is…', o:['Nothing','Storage','Slower shifts','Rework and client-visible errors that outweigh the minutes saved'], a:3 },
+  { cat:'Project · Torchlight', q:'An urgent client change during editing is…', o:['Logged, confirmed, and versioned so the store and Drive stay in sync','Done immediately without note','Sent to QA first','Ignored until tomorrow'], a:0 }
+ ],
+ 'General': [
+  { cat:'Project · General', q:'The two monthly cutoffs are…', o:['Calendar weeks','1–10 and 11–30','1–15 and 16–end of month','5–20 and 21–4'], a:2 },
+  { cat:'Project · General', q:'The business day resets at…', o:['9:00 AM','Midnight','8:00 AM Manila','6:00 AM'], a:2 },
+  { cat:'Project · General', q:'No output counts without…', o:['Screenshot proof saved with the work','An EOD','A client note','A manager present'], a:0 },
+  { cat:'Project · General', q:'Shift progress bars reset at…', o:['Noon','Midnight','Weekly','8 AM and 8 PM'], a:3 },
+  { cat:'Project · General', q:'The EOD recap is visible to…', o:['Your buddy','Only you — the channel gets a confirmation stub','The whole team','All leads'], a:1 },
+  { cat:'Project · General', q:'Before your EOD sends, the portal checks…', o:['That tool-covered tasks have recorded outputs today','Your typing speed','Your attendance','Chat activity'], a:0 },
+  { cat:'Project · General', q:'Held monthly scores are revealed…', o:['Via email','Weekly','On request','At the monthly scorecard announcement, for everyone at once'], a:3 },
+  { cat:'Project · General', q:'The Reviewer Grade weighs…', o:['10%','5%','15%','20%'], a:1 },
+  { cat:'Project · General', q:'Reviewer grades are computed…', o:['Daily','Per cutoff','Weekly, like QA','Monthly'], a:2 },
+  { cat:'Project · General', q:'Innovation ideas per month:', o:['One per tool','Two','One, with title/area locked after submit','Unlimited'], a:2 },
+  { cat:'Project · General', q:'An innovation scored 90+ is…', o:['Implemented by the company','Emailed to clients','Archived','Paid in cash'], a:0 },
+  { cat:'Project · General', q:'Storm status messages go to your lead…', o:['Never','At shift start','4 hours before shift on storm days','Next day'], a:2 },
+  { cat:'Project · General', q:'A RED storm status means…', o:['Half shift','You cannot work — coverage activates; stay safe','Hurry','New task'], a:1 },
+  { cat:'Project · General', q:'Early-reported storm outages are…', o:['Absences','Leave days','Half credit','Excused — scores use workable days'], a:3 },
+  { cat:'Project · General', q:'JMB’s typhoon edge is…', o:['City offices','Highland ground, Starlink, generators','Remote staff','Insurance'], a:1 },
+  { cat:'Project · General', q:'Demerits exclude which infractions?', o:['Overwork','Conduct','Late and Absent — attendance already covers them','Missed EOD'], a:2 },
+  { cat:'Project · General', q:'Daily Trivia runs…', o:['Fridays','Mon · Wed · Fri · Sun at 2 PM and 2 AM','Weekends','Daily'], a:1 },
+  { cat:'Project · General', q:'Trivia and nightly Tetris top-3 both pay…', o:['Points vary daily','100/50/25','250/150/100','500/300/100'], a:2 },
+  { cat:'Project · General', q:'The Tetris Grand Final is…', o:['Month-end','Friday','Sunday, 1,200 points and the crown','Random'], a:2 },
+  { cat:'Project · General', q:'The assessment quiz-to-typing split is…', o:['50/50','90/10','75% / 25%','60/40'], a:2 },
+  { cat:'Project · General', q:'The typing target is…', o:['55 WPM','35 WPM','45 WPM','65 WPM'], a:0 },
+  { cat:'Project · General', q:'The Assessment weighs how much of the scorecard?', o:['10%','5%','20%','15%'], a:3 },
+  { cat:'Project · General', q:'Appeals for hours or results go through…', o:['Clients','Group chat','The portal’s appeal flow with evidence','DMs to admin'], a:2 },
+  { cat:'Project · General', q:'The proof panel accepts up to…', o:['3 images','1 image','20 images','8 images'], a:3 },
+  { cat:'Project · General', q:'Screenshots upload…', o:['In the background from the moment of capture','Manually','On save only','Nightly'], a:0 },
+  { cat:'Project · General', q:'Leave requests should be…', o:['In EODs','Same-day','Verbal','Requested in advance through the portal'], a:3 },
+  { cat:'Project · General', q:'JMB Points convert to cash on…', o:['The 5th and 20th, aligned with payroll','Never','Any day','Month-end'], a:0 },
+  { cat:'Project · General', q:'Night-shift lateness is measured against…', o:['8:00 PM','7:30 PM start with the grace window','Midnight','No standard'], a:1 },
+  { cat:'Project · General', q:'The portal’s quiz about features exists to…', o:['Rank VAs','Make sure every VA actually knows the systems they are scored on','Test typing','Fill time'], a:1 },
+  { cat:'Project · General', q:'When a tool and the tracker disagree, productivity trusts…', o:['Neither','The tool’s recorded outputs, with typed values only as fallback','The higher one','The typed number always'], a:1 }
+ ]
+};
+
 /* ══════════ 📚 SOP REFRESHER GATE (Aug 2026, his rule) ══════════
    Clients flagged VAs skipping SOP steps — so every MONDAY, THURSDAY and SATURDAY
    (business day), the first Time In is locked behind a ~20-question refresher on the
@@ -9637,27 +9901,24 @@ async function _sopAllowWork(){
 }
 function _sopShuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
 function _sopSample(){
-  /* Sept 2026: the per-project banks were retired with the SOP items, so this can no longer
-     assume ASSESS_PROJ has anything in it. It now draws from every bank that exists — the
-     project bank first if one is still configured, then policy and situational, then the core
-     grammar/maths — and reports honestly when the pool is empty instead of rendering a quiz
-     with no questions (which scored NaN, could never reach 90%, and left the tracker locked). */
-  var fam=(_asProjFam&&ASSESS_PROJ[_asProjFam]&&ASSESS_PROJ[_asProjFam].length)?_asProjFam:'';
-  var pool=fam?ASSESS_PROJ[fam].slice():[];
-  var extra=[]
-    .concat((typeof ASSESS_POLICY!=='undefined'&&ASSESS_POLICY)?ASSESS_POLICY:[])
-    .concat((typeof ASSESS_SCENARIO!=='undefined'&&ASSESS_SCENARIO)?ASSESS_SCENARIO:[]);
-  var fill=(ASSESS_CORE||[]).slice();
-  _sopShuffle(pool); _sopShuffle(extra); _sopShuffle(fill);
-  var N=20;   // ~20 questions per refresher (his spec); pass = 90% of whatever we could gather
+  /* SOP ONLY. The refresher tests the VA's own project SOP — never the policy/conduct bank that
+     the monthly assessment uses. Their project comes from where their tracked hours land; if
+     that cannot be resolved, we fall back to the General ops SOP bank, which still tests how we
+     work rather than what the handbook says. */
+  var B=(typeof SOP_BANKS!=='undefined'&&SOP_BANKS)?SOP_BANKS:{};
+  var fam=(_asProjFam&&B[_asProjFam]&&B[_asProjFam].length)?_asProjFam:'';
+  var pool=fam?B[fam].slice():[];
+  var gen=(B['General']&&B['General'].length)?B['General'].slice():[];
+  _sopShuffle(pool); _sopShuffle(gen);
+  var N=20;   // ~20 questions per refresher (his spec); pass = 90% → 18/20
   var qs=[], seen={};
-  [pool, extra, fill].forEach(function(src){
+  [pool, gen].forEach(function(src){
     for(var i=0;i<src.length && qs.length<N;i++){
       var k=String(src[i]&&src[i].q||''); if(!k||seen[k]) continue; seen[k]=1; qs.push(src[i]);
     }
   });
-  if(!qs.length) return null;                 // no bank loaded — caller must NOT lock the tracker
-  return { fam:fam||'Policies & Conduct', qs:qs.slice(0,N).map(function(q){
+  if(!qs.length) return null;                 // no SOP bank loaded — caller must NOT lock the tracker
+  return { fam:fam||'General SOP', qs:qs.slice(0,N).map(function(q){
     var idx=q.o.map(function(_,i){ return i; }); _sopShuffle(idx);
     return { q:q.q, o:idx.map(function(i){ return q.o[i]; }), a:idx.indexOf(q.a) };
   }) };
