@@ -340,6 +340,37 @@ td{padding:11px 12px;border-bottom:1px solid rgba(15,23,42,.05)}
 
 <script>
 var PORTAL_URL = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec";
+
+/* ══ APPS SCRIPT HICCUP GUARD ══
+   Google's web-app endpoint intermittently answers a perfectly good request with HTTP 404 and an
+   HTML error page instead of JSON. Every call on this page does `(await fetch(...)).json()`, so
+   that page arrived as "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON" — which reads
+   like the QA data is corrupt when nothing is wrong with it.
+   This wraps fetch for backend calls only: if the reply is HTML, it retries twice with a short
+   backoff (the endpoint usually answers correctly on the next try), and if it still will not,
+   it throws a sentence a human can act on instead of a parser error. */
+(function(){
+  var _fetch = window.fetch;
+  function isBackend(u){ return String(u||'').indexOf('script.google.com/macros/') >= 0; }
+  window.fetch = function(input, init){
+    var url = (typeof input === 'string') ? input : ((input && input.url) || '');
+    if (!isBackend(url)) return _fetch.apply(this, arguments);
+    var self = this, args = arguments;
+    return (async function(){
+      for (var i = 0; i < 3; i++) {
+        var resp;
+        try { resp = await _fetch.apply(self, args); }
+        catch(netErr){ if (i === 2) throw netErr; await new Promise(function(r){ setTimeout(r, 1200 * (i+1)); }); continue; }
+        var txt = '';
+        try { txt = await resp.clone().text(); } catch(_e){ return resp; }
+        if (txt.trim().charAt(0) !== '<') return resp;          // genuine JSON — pass it through untouched
+        if (i < 2) await new Promise(function(r){ setTimeout(r, 1200 * (i+1)); });
+      }
+      try { if (typeof toast === 'function') toast('QA backend is having a moment — try again shortly.'); } catch(_t){}
+      throw new Error('QA backend temporarily unavailable (Google returned an error page instead of data). Nothing is wrong with your review — please try again in a moment.');
+    })();
+  };
+})();
 /* Same admin password as the QA Computer — taken from there rather than set
    separately, so there is only ever one thing to change. */
 /* ── ADMIN SIGN-IN — verified SERVER-SIDE, no password in this file ──
@@ -495,6 +526,23 @@ async function loadAllDisputes(){
       h+='<div style="color:var(--t3);font-size:13.5px;padding:14px 0;">No disputes filed for <b>'+_monLabel(m)+'</b>.'
         +(pm?(' <span style="color:var(--t2)">Finalizing a previous cutoff?</span> <button class="btn sm" style="margin-left:4px;" onclick="switchDispMonth(\''+pm+'\')">View '+_monLabel(pm)+' instead</button>'):'')
         +'</div></div>'; p.innerHTML=h; return; }
+    /* ── GROUP BY FINDING — resolve a whole category (all VAs) in one click ── */
+    if(open.length){
+      var grp={};
+      open.forEach(function(d){ var k=String(d.criterion||''); (grp[k]=grp[k]||[]).push(d); });
+      var keys=Object.keys(grp).sort(function(a,b){ return grp[b].length-grp[a].length; });
+      h+='<div style="border:1px solid rgba(15,118,110,.35);border-radius:12px;padding:12px 14px;margin:6px 0 16px;background:rgba(15,118,110,.04);">'
+        +'<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#0f766e;font-weight:800;margin-bottom:8px;">Resolve a whole finding at once ('+keys.length+' finding'+(keys.length!==1?'s':'')+' disputed)</div>';
+      keys.forEach(function(k){
+        var n=grp[k].length;
+        h+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-top:1px solid rgba(15,118,110,.12);">'
+          +'<div style="flex:1;min-width:200px;font-size:13px;"><b>'+esc(k)+'</b> <span style="color:var(--t3);">· '+n+' open</span></div>'
+          +'<button class="btn g sm" onclick="resolveBulk(\''+encodeURIComponent(k)+'\',\'upheld\')">⇊ Uphold all '+n+'</button>'
+          +'<button class="btn sm" onclick="resolveBulk(\''+encodeURIComponent(k)+'\',\'rejected\')" style="color:#b91c1c;border-color:rgba(185,28,28,.4);">Reject all '+n+'</button>'
+          +'</div>';
+      });
+      h+='<div style="font-size:11px;color:var(--t3);margin-top:8px;">Upholding flips that finding to a pass for every VA who disputed it and rewrites their week scores. Below is the same list, case by case.</div></div>';
+    }
     rows.forEach(function(d){
       var st=d.status||'open', isOpen=st==='open';
       h+='<div style="border:1px solid '+(isOpen?'rgba(220,38,38,.35)':'var(--line)')+';border-radius:11px;padding:12px 14px;margin-bottom:9px;'+(isOpen?'background:rgba(220,38,38,.03);':'')+'">'
