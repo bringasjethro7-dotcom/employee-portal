@@ -1131,6 +1131,7 @@ body{background-attachment:initial !important}
         <div class="tl"><span style="font-size:14px;font-weight:600;color:var(--t1);">Weekly QA</span> <span style="font-size:12px;color:var(--t3);margin-left:6px;">4 scores/month · scorecard QA = the month's average · reviewer grades need your approval below</span></div>
         <div style="display:flex;gap:8px;align-items:center;">
           <label style="font-size:12px;color:var(--t3);">Month <input class="sinp" id="qa-month" type="month" style="width:150px;" onchange="loadQaGrid()"></label>
+          <button class="bsm" onclick="qaPublishPending()" id="qa-pub-btn" style="color:#34d399;border-color:rgba(52,211,153,.45);" title="Reads every completed blind-panel review for this month and writes any that are missing (or wrong) into the weekly QA scores. Safe to run repeatedly — it only touches rows that disagree.">↑ Publish reviewed scores</button>
           <button class="bsm" onclick="loadQaGrid()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
       </div>
@@ -1202,11 +1203,11 @@ body{background-attachment:initial !important}
           <div class="m2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
             <div>
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Contractor</label>
-              <select class="sinp" id="sc-form-emp" style="width:100%;" onchange="scShowCurrentAssessment()"></select>
+              <select class="sinp" id="sc-form-emp" style="width:100%;" onchange="scFormRefresh()"></select>
             </div>
             <div>
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Month</label>
-              <input type="month" id="sc-form-month" class="sinp" style="width:100%;" onchange="scShowCurrentAssessment()" />
+              <input type="month" id="sc-form-month" class="sinp" style="width:100%;" onchange="scFormRefresh()" />
             </div>
           </div>
           <div class="m2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -1245,6 +1246,14 @@ body{background-attachment:initial !important}
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Assessment (0–100) · 10%</label>
               <input type="number" id="sc-form-assess" class="sinp" min="0" max="100" step="0.01" placeholder="blank = use the monthly quiz score" style="width:100%;" />
               <p style="font-size:10px;color:var(--t3);margin:4px 0 0;">Normally automatic from the monthly quiz. Type a number only to <b>override</b> it — a VA cut off by the timer, a make-up form, or a hand-set grade. Blank leaves the quiz score in charge.</p>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">Productivity (0–100) · 25%</label>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input type="number" id="sc-form-prod" class="sinp" min="0" max="100" step="0.01" placeholder="blank = use the Productivity Hub score" style="flex:1;" />
+                <button type="button" class="bsm" id="sc-prod-clear" onclick="scClearProd()" title="Hand this month back to the Productivity Hub" style="color:var(--t3);white-space:nowrap;">Use tool</button>
+              </div>
+              <p style="font-size:10px;color:var(--t3);margin:4px 0 0;" id="sc-prod-hint">The Productivity Hub's cutoff score flows in automatically. Type a number only to <b>override</b> it — output the tool could not capture, work outside a tracked tool, or a cutoff you are setting by hand. An override counts as final, so the VA sees it straight away. <b>Use tool</b> clears it.</p>
             </div>
             <div>
               <label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;">September 2026 weighting</label>
@@ -1446,6 +1455,7 @@ body{background-attachment:initial !important}
         <div style="display:flex;gap:8px;align-items:center;">
           <select id="dm-filter" onchange="renderDemerits()" style="background:var(--card2);border:1px solid var(--border);border-radius:9px;color:var(--t1);font-family:inherit;font-size:13px;padding:8px 11px;cursor:pointer;"><option value="">Standings (all)</option></select>
           <button class="bsm" id="dm-scan-btn" onclick="runDemeritScan()" style="color:#34d399;border-color:rgba(52,211,153,.35);" title="Scan attendance + worklog and auto-log any new demerits"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg> Run auto-detect</button>
+          <button class="bsm" id="dm-reinst-btn" onclick="demReinstateRejected()" style="color:#fbbf24;border-color:rgba(251,191,36,.4);" title="Recover auto-detected demerits that were rejected by mistake (the old approve button silently rejected everything). Shows you the list before it changes anything.">↺ Recover wrongly-rejected</button>
           <button class="bsm" onclick="loadDemerits()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
       </div>
@@ -1792,7 +1802,8 @@ function _jText(url,tries,timeout,delay,pri){
    jBust() which clears the cache, so a saved change is still fetched fresh immediately; these longer
    TTLs only stop *passive* re-fetching while navigating, and stale-while-revalidate still refreshes
    in the background past half-TTL. Net effect: far fewer queued requests, snappier console. */
-var _jTTL={ get_all_employees:90000, admin_bootstrap:15000, get_tracker_projects:180000, get_banks:120000,
+var _jTTL={ get_running:20000, team_hours_total:600000, pipeline_get:300000,
+  get_all_employees:90000, admin_bootstrap:15000, get_tracker_projects:180000, get_banks:120000,
   get_notif_templates:180000, get_worklog:45000, get_attendance:45000, get_all_scorecards:45000,
   get_finalized:90000, get_leave_requests:30000, get_coe_requests:30000, redeem_list:30000,
   lead_demerit_list:30000, get_all_demerit_disputes:30000, get_appeals:30000, payslip_funding:45000,
@@ -1815,7 +1826,8 @@ var _jTO={ get_all_scorecards:120000, get_all_qa_weekly:90000, admin_bootstrap:9
      showed nothing at all rather than a slow number. */
   payslip_funding:90000, payroll_period:90000,
   get_worklog:60000, get_attendance:60000, po_progress_all:60000, list_innovations:45000,
-  get_finalized:45000, scorecard_anomalies:120000, early_bird:45000, sales_breakdown:60000 };
+  get_finalized:45000, scorecard_anomalies:120000, early_bird:45000, sales_breakdown:60000,
+  get_running:30000, team_hours_total:30000, pipeline_get:30000 };
 function jGet(url, ttl, timeout){
   var _act=(String(url).match(/[?&]action=([a-z_]+)/)||[])[1];
   if(ttl==null){ ttl=(_act&&_jTTL[_act]!=null)?_jTTL[_act]:1500; }
@@ -1845,7 +1857,9 @@ function jBust(){ _jCache={}; try{ sessionStorage.removeItem('_jSnap'); }catch(e
 (function(){
   function go(){
     try{
-      fetch(API+'?action=team_hours_total&_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+      /* AFX (Sep 24): raw fetch at 800ms competed with admin_bootstrap for a slot and was the
+         request Google 503'd. It is a vanity milestone bar — queue it, cache it 10 minutes. */
+      jGet(API+'?action=team_hours_total', 600000).then(function(r){return r.json();}).then(function(d){
         if(!d||!d.ok) return;
         var card=document.getElementById('adm-ms20k'); if(!card) return;
         card.style.display='block';
@@ -1859,7 +1873,7 @@ function jBust(){ _jCache={}; try{ sessionStorage.removeItem('_jSnap'); }catch(e
       }).catch(function(){});
     }catch(e){}
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',go); else setTimeout(go,800);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',function(){ setTimeout(go,6000); }); else setTimeout(go,6000);
 })();
 // Persist the hottest GET caches across reloads — the admin shell paints instantly on reopen,
 // then stale-while-revalidate refreshes in the background.
@@ -2241,13 +2255,15 @@ async function loadLive(){
   var f=document.getElementById('live-from'), t=document.getElementById('live-to');
   if(f && !f.value){ var now=new Date(); t.value=fmtYMD(now); f.value=fmtYMD(new Date(now.getTime()-6*86400000)); }
   fetchRunning();
-  if(_liveTimer) clearInterval(_liveTimer); _liveTimer=setInterval(function(){ if(document.hidden) return; fetchRunning(); }, 25000);
+  if(_liveTimer) clearInterval(_liveTimer); _liveTimer=setInterval(function(){ if(document.hidden) return; fetchRunning(); }, 45000);   // Sep 24: 25s → 45s — admin_bootstrap already carries `running`
   if(_liveTick) clearInterval(_liveTick);  _liveTick =setInterval(tickLive, 1000);
 }
 function stopLive(){ if(_liveTimer) clearInterval(_liveTimer); if(_liveTick) clearInterval(_liveTick); _liveTimer=_liveTick=null; }
 async function fetchRunning(){
   try{
-    var r=await fetch(API+'?action=get_running&_='+Date.now()); var d=await r.json();
+    /* AFX (Sep 24): was a RAW fetch, so it bypassed the 2-at-a-time queue and stole an
+       Apps Script execution slot from admin_bootstrap. Routed through jGet. */
+    var r=await jGet(API+'?action=get_running', 20000); var d=await r.json();
     _liveRunning=(d&&d.running)||[]; _liveBaseNow=Date.now(); renderLiveRunning();
     var u=document.getElementById('live-updated'); if(u) u.textContent='Updated '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' · auto-refreshes';
   }catch(e){ var box=document.getElementById('live-now'); if(box) box.innerHTML='<div class="es" style="grid-column:1/-1;color:#f87171;">Could not load live data.</div>'; }
@@ -2500,7 +2516,7 @@ function dashLeadDem(btn, id, empId, action){
 var DEM_CATALOG={
   'WFH Setup':[['Camera turned off during shift',0.30],['No sound / mic muted when called',0.30],['Away from camera frame (extended)',0.30],['Not joined the monitoring call',0.50],['Workspace not compliant (noise / background)',0.15]],
   'Attendance':[['Late',0.15],['No-call no-show',1.00],['Idle over 90 min in a shift',0.30],['Shift swap without notice',0.15]],
-  'Break':[['Short lunch (under 50 min)',0.30],['Over break (lunch over 70 min)',0.30],['No break — 6+ hrs without lunch',0.50],['Unauthorized break',0.30]],
+  'Break':[['Short lunch (under 30 min)',0.30],['Over break (lunch over 80 min)',0.30],['No break — 6+ hrs without lunch',0.50],['Unauthorized break',0.30]],
   'Time tracking':[['Super-early task (before 7:15 shift start)',0.15],['Forgot Time In/Out',0.15],['Idle auto-stop',0.15],['Untracked work / no volume',0.15],['Overwork — over 11 productive hrs (no approval)',0.30]],
   'Tool discipline':[['Tool not updated — hours with no tool output',0.30],['Backdated bulk entry — output ticked after shift',0.30],['EOD not sent',0.30],['Wrong project tagged',0.15],['Duplicate account entry',0.15]],
   'Quality':[['Missed peer review deadline',0.30],['Rushed review — well under the target time',0.30],['Falsified QA — audit passed without reviewing the work',0.75]],
@@ -2740,6 +2756,109 @@ async function qaSave(inp){
       inp.style.borderColor='rgba(52,211,153,.6)'; setTimeout(function(){ inp.style.borderColor=''; },800);
     } else if(typeof toast==='function') toast('QA save failed: '+((d&&d.error)||'error'));
   }catch(e){ if(typeof toast==='function') toast('QA save failed (network).'); }
+}
+/* ↑ PUBLISH REVIEWED SCORES — Sep 24, 2026.
+   The admin approval step is retired: a submitted blind-panel review IS the grade. New reviews
+   publish themselves on submit (qar2Submit_), but reviews completed BEFORE that change never
+   reached the scorecard, which is why Quality showed "—" for most of the team. This walks each
+   week's QA board, compares the reviewed score against what's actually in the weekly QA scores,
+   and writes only the rows that disagree. Idempotent — running it twice does nothing the
+   second time. Sequential with retries, because the Apps Script deployment is slot-starved. */
+async function qaPublishPending(){
+  var btn=document.getElementById('qa-pub-btn'), orig=btn?btn.innerHTML:'';
+  var month=_qaMonthVal();
+  if(!month){ if(typeof toast==='function') toast('Pick a month first.'); return; }
+  if(btn){ btn.disabled=true; btn.innerHTML='Checking\u2026'; }
+  try{
+    // What is already published?
+    var pub={};
+    try{ var wr=await jGet(API+'?action=get_all_qa_weekly&month='+encodeURIComponent(month), 0);
+         var wd=await wr.json(); pub=(wd&&wd.map)||{}; }catch(e){}
+
+    // What has actually been reviewed, week by week?
+    var todo=[];
+    for(var wk=1; wk<=4; wk++){
+      var rows=[];
+      try{ var br=await jGet(API+'?action=qa2_board&month='+encodeURIComponent(month)+'&week='+wk, 0);
+           var bd=await br.json(); rows=(bd&&bd.rows)||[]; }catch(e){ continue; }
+      rows.forEach(function(r){
+        var emp=String(r.employee_id||'').trim(); if(!emp) return;
+        if(r.score===null || r.score===undefined || r.score==='') return;   // not reviewed yet
+        var want=Math.round(Number(r.score)*100)/100;
+        var have=((pub[emp.toLowerCase()]||{})[String(wk)]);
+        have=(have===undefined||have===null||have==='')?null:Math.round(Number(have)*100)/100;
+        if(have===want) return;                                              // already correct
+        todo.push({ emp:emp, name:r.name||emp, week:wk, score:want, had:have });
+      });
+    }
+
+    if(!todo.length){ if(typeof toast==='function') toast('Nothing to publish \u2014 every reviewed score is already on the scorecard.');
+                      if(btn){ btn.disabled=false; btn.innerHTML=orig; } return; }
+
+    var changes=todo.filter(function(t){ return t.had!==null; });
+    var msg='Publish '+todo.length+' reviewed score'+(todo.length===1?'':'s')+' to the scorecard?\n\n'+
+      todo.slice(0,20).map(function(t){ return '  \u2022 '+t.name+'  wk'+t.week+'  '+(t.had===null?'\u2014':t.had)+' \u2192 '+t.score; }).join('\n')+
+      (todo.length>20?('\n  \u2026 and '+(todo.length-20)+' more'):'')+
+      (changes.length?('\n\n'+changes.length+' of these OVERWRITE an existing score.'):'');
+    if(!confirm(msg)){ if(btn){ btn.disabled=false; btn.innerHTML=orig; } return; }
+
+    var ok=0, fail=[];
+    for(var i=0;i<todo.length;i++){
+      var t=todo[i];
+      if(btn) btn.innerHTML='Publishing '+(i+1)+'/'+todo.length+'\u2026';
+      var wrote=false;
+      for(var att=1; att<=3 && !wrote; att++){
+        try{
+          var rr=await fetch(API+'?action=save_qa_weekly&employee_id='+encodeURIComponent(t.emp)+
+                 '&month='+encodeURIComponent(month)+'&week='+t.week+'&score='+t.score+
+                 '&by='+encodeURIComponent('Blind panel review \u00b7 published')+'&_='+Date.now());
+          var dd=await rr.json();
+          if(dd&&dd.ok) wrote=true;
+        }catch(e){}
+        if(!wrote) await new Promise(function(z){ setTimeout(z, 3000*att); });   // backoff \u2014 the server is congested
+      }
+      if(wrote) ok++; else fail.push(t.name+' wk'+t.week);
+      await new Promise(function(z){ setTimeout(z, 900); });                      // don't flood the queue
+    }
+    jBust();
+    try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); }catch(e){}
+    if(typeof toast==='function') toast('Published '+ok+' of '+todo.length+(fail.length?(' \u00b7 failed: '+fail.join(', ')):''));
+    if(fail.length) alert('These did not go through \u2014 run the button again:\n\n'+fail.join('\n'));
+    loadQaGrid();
+  } finally { if(btn){ btn.disabled=false; btn.innerHTML=orig; } }
+}
+/* ↺ RECOVER WRONGLY-REJECTED DEMERITS — Sep 24, 2026.
+   Until today the console sent the approve/reject choice as a SECOND `action=` on a URL that
+   already carried `action=lead_demerit_resolve`. Apps Script exposes only the first value of a
+   repeated key, so the backend read the router action, matched neither "approve" nor "reject",
+   and fell through to REJECT — everything the admin approved was discarded. Re-running the
+   scanner cannot bring those days back: it skips any date whose key is already in the ledger.
+   This flips the rejected rows back to active. Dry-run first, always. */
+async function demReinstateRejected(){
+  var btn=document.getElementById('dm-reinst-btn'), orig=btn?btn.innerHTML:'';
+  var month=prompt('Month to recover (yyyy-mm):', new Date().toISOString().slice(0,7)); if(!month) return;
+  var match=prompt('Which infraction? (text match, e.g. "No break")\n\nLeave exact — this is deliberately narrow so a recovery can never be broader than you intend.','No break');
+  if(!match) return;
+  if(btn){ btn.disabled=true; btn.innerHTML='Checking\u2026'; }
+  try{
+    var q='&month='+encodeURIComponent(month)+'&match='+encodeURIComponent(match);
+    var dry=await (await fetch(API+'?action=dem_reinstate'+q+'&_='+Date.now())).json();
+    if(!dry || dry.error){ alert('Could not check: '+((dry&&dry.error)||'server error')); return; }
+    if(!dry.would_reinstate){ alert('Nothing to recover — no rejected "'+match+'" demerits in '+month+'.'); return; }
+    var per={}; (dry.rows||[]).forEach(function(r){ (per[r.full_name]=per[r.full_name]||[]).push(r.date); });
+    var who=Object.keys(per).map(function(n){ return '  \u2022 '+n+' — '+per[n].length+' ('+per[n].join(', ')+')'; }).join('\n');
+    if(!confirm('Reinstate '+dry.would_reinstate+' demerit'+(dry.would_reinstate===1?'':'s')+
+                ' worth '+dry.points+' point'+(dry.points===1?'':'s')+' across '+Object.keys(per).length+' contractor'+(Object.keys(per).length===1?'':'s')+'?\n\n'+who+
+                '\n\nEach affected contractor gets ONE notification explaining the correction, and can dispute it.')) return;
+    if(btn) btn.innerHTML='Applying\u2026';
+    var res=await (await fetch(API+'?action=dem_reinstate'+q+'&apply=1&_='+Date.now())).json();
+    if(res && res.ok){
+      jBust();
+      alert('Reinstated '+res.reinstated+' demerit'+(res.reinstated===1?'':'s')+' ('+res.points+' pts) for '+res.employees+' contractor'+(res.employees===1?'':'s')+'.\n\nThe scorecard Demerit column will update on refresh.');
+      if(typeof loadPendingDemerits==='function') loadPendingDemerits();
+    } else alert('Failed: '+((res&&res.error)||'server error'));
+  }catch(e){ alert('Network error — it may have gone through. Re-run the check to see.'); }
+  finally{ if(btn){ btn.disabled=false; btn.innerHTML=orig; } }
 }
 async function runDemeritScan(){
   var b=document.getElementById('dm-scan-btn'); var orig=b?b.innerHTML:''; if(b){ b.disabled=true; b.innerHTML='Scanning…'; }
@@ -8155,7 +8274,9 @@ function openScorecardForm() {
   var now = new Date();
   document.getElementById('sc-form-month').value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
   var a = document.getElementById('sc-form-assess'); if (a) a.value = '';   // never carry an override between VAs
+  var pf = document.getElementById('sc-form-prod'); if (pf) { pf.value = ''; pf.dataset.clear=''; }
   scShowCurrentAssessment();
+  scShowCurrentProductivity();
 }
 /* Show the score already on record for this VA/month, so a blank Assessment box is an informed
    choice rather than a guess. Read-only — it only changes the placeholder text. */
@@ -8176,6 +8297,52 @@ async function scShowCurrentAssessment(){
 }
 
 
+/* Show BOTH numbers before the admin types: what the Productivity Hub measured, and whether an
+   override is already in force. A blank box should be an informed choice, not a guess. */
+/* Both prefills move together whenever the VA or the month changes — a stale "Hub score"
+   under a different contractor's name is worse than no hint at all. Also drops any pending
+   clear, which belonged to the previous selection. */
+function scFormRefresh(){
+  var pf=document.getElementById('sc-form-prod'); if(pf){ pf.value=''; pf.dataset.clear=''; }
+  scShowCurrentAssessment();
+  scShowCurrentProductivity();
+}
+async function scShowCurrentProductivity(){
+  var box = document.getElementById('sc-form-prod'); if (!box) return;
+  var hint = document.getElementById('sc-prod-hint');
+  var emp = (document.getElementById('sc-form-emp')||{value:''}).value;
+  var mo  = (document.getElementById('sc-form-month')||{value:''}).value;
+  if (!emp || !mo) { box.placeholder = 'blank = use the Productivity Hub score'; return; }
+  box.placeholder = 'loading current score\u2026';
+  try{
+    var r = await jGet(API + '?action=get_scorecard&employee_id=' + encodeURIComponent(emp) +
+                       '&month=' + encodeURIComponent(mo) + '&viewer_id=ADMIN', 0);
+    var d = await r.json();
+    var sc = (d && (d.scorecard || d)) || {};
+    var tool = (sc.prod_tool != null) ? sc.prod_tool : sc.productivity;
+    if (sc.prod_source === 'admin' && sc.prod_override != null){
+      box.value = sc.prod_override;                       // show the override so it can be edited
+      box.placeholder = 'overridden';
+      if (hint) hint.innerHTML = '<b style="color:#f59e0b;">Currently overridden at ' + sc.prod_override +
+        '</b> \u2014 the Productivity Hub measured <b>' + (tool != null ? tool : '\u2014') +
+        '</b>. Edit the number to change it, or press <b>Use tool</b> to hand it back.';
+    } else {
+      box.value = '';
+      box.placeholder = (tool != null) ? ('Hub score: ' + tool + ' \u2014 blank keeps it') : 'no tool score yet \u2014 blank leaves it unrated';
+      if (hint) hint.innerHTML = 'The Productivity Hub measured <b>' + (tool != null ? tool : '\u2014') +
+        '</b>' + (sc.prod_final ? ' (final)' : ' (live \u2014 still moving as the cutoff fills)') +
+        '. Type a number only to <b>override</b> it. An override counts as final, so the VA sees it straight away.';
+    }
+  }catch(e){ box.placeholder = 'blank = use the Productivity Hub score'; }
+}
+/* Explicit clear. A blank box means "not supplied, leave it alone", so returning a month to the
+   tool needs its own signal rather than an empty field. */
+function scClearProd(){
+  var box = document.getElementById('sc-form-prod'); if (!box) return;
+  box.value = ''; box.dataset.clear = '1';
+  var hint = document.getElementById('sc-prod-hint');
+  if (hint) hint.innerHTML = '<b style="color:#34d399;">Will hand this month back to the Productivity Hub on save.</b>';
+}
 async function submitScorecard() {
   var empId = document.getElementById('sc-form-emp').value;
   var month = document.getElementById('sc-form-month').value;
@@ -8191,6 +8358,9 @@ async function submitScorecard() {
   var inno = (document.getElementById('sc-form-inno')||{value:''}).value;
   var resv = (document.getElementById('sc-form-results')||{value:''}).value;
   var assv = (document.getElementById('sc-form-assess')||{value:''}).value;
+  var prodEl  = document.getElementById('sc-form-prod') || {value:'', dataset:{}};
+  var prodv   = prodEl.value;
+  var prodClr = (prodEl.dataset && prodEl.dataset.clear === '1') ? '1' : '';
     var url = API + '?action=save_scorecard' +
       '&employee_id='      + encodeURIComponent(empId) +
       '&full_name='        + encodeURIComponent(fullName) +
@@ -8199,7 +8369,9 @@ async function submitScorecard() {
       '&violation_points=' + encodeURIComponent(vp) +
       '&innovation='       + encodeURIComponent(inno) +
       '&results='          + encodeURIComponent(resv) +
-      '&assessment='       + encodeURIComponent(assv);
+      '&assessment='       + encodeURIComponent(assv) +
+      '&productivity_override=' + encodeURIComponent(prodv) +
+      '&clear_productivity='    + encodeURIComponent(prodClr);
     var res  = await fetch(url);
     var data = await res.json();
     if (data.success) {
@@ -8489,7 +8661,9 @@ function pipeCallBoot(){
     if(open){ return; }  // don't clobber unsaved edits; the open modal's PIPE is used directly
     var p=pass; try{ p=sessionStorage.getItem('adm_pass')||pass; }catch(e){}
     if(!p) return;
-    fetch(API+'?action=pipeline_get&pass='+encodeURIComponent(p)+'&_='+Date.now()).then(function(r){return r.json();}).then(function(d){ if(d&&d.clients instanceof Array) _callWatch=d.clients; }).catch(function(){});
+    /* AFX (Sep 24): raw fetch → jGet, so the watch-list refresh queues behind the board
+       instead of racing it. TTL matches its own 5-minute cadence. */
+    jGet(API+'?action=pipeline_get&pass='+encodeURIComponent(p), 300000).then(function(r){return r.json();}).then(function(d){ if(d&&d.clients instanceof Array) _callWatch=d.clients; }).catch(function(){});
   };
   refresh(); setInterval(refresh, 300000);        // refresh watch list every 5 min
   setInterval(pipeCallCheck, 60000);              // check every minute
