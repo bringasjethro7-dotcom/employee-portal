@@ -9356,13 +9356,33 @@ function _postAppeal(p, cb) {
   var base = APPS_SCRIPT_URL + '?action=worklog_appeal&employee_id=' + encodeURIComponent(attEmpId) +
     '&full_name=' + encodeURIComponent((trkEmpData && trkEmpData.full_name) || attEmpId);
   var qs = Object.keys(p).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(p[k] == null ? '' : p[k]); }).join('&');
-  fetch(base + '&' + qs + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
-    var ok = !!(d && d.ok);
-    // The server now refuses duplicate claims — tell the VA WHY instead of a generic failure,
-    // or they will just try again (which is exactly how the Aug 19 double-pays happened).
-    showToast(ok ? 'Appeal sent to admin for approval. ✅' : ((d && d.message) || 'Could not send appeal.'));
-    if (cb) cb(ok);
-  }).catch(function(){ showToast('Slow connection — do NOT resend. Check “My appeals” first: it may have gone through.'); if (cb) cb(false); });
+  // On the last day of a cutoff everyone files at once and the server's write lock
+  // queues up. A single attempt just showed "Could not send", so retry the RETRIABLE
+  // failures automatically (BUSY / server exception / dropped connection).
+  // Duplicate-claim refusals are NOT retried — those are deliberate.
+  var MAX = 4;
+  (function attempt(n){
+    var t = setTimeout(function(){ t = 0; }, 45000);
+    fetch(base + '&' + qs + '&try=' + n + '&_=' + Date.now())
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var ok = !!(d && d.ok);
+        if (ok) { showToast('Appeal sent to admin for approval. ✅'); if (cb) cb(true); return; }
+        var retriable = !!(d && (d.retry || d.error === 'BUSY' || d.error === 'EXCEPTION'));
+        if (retriable && n < MAX) {
+          showToast('Server busy — retrying (' + n + '/' + MAX + ')… do not close this window.');
+          setTimeout(function(){ attempt(n + 1); }, 1200 * n);
+          return;
+        }
+        showToast((d && d.message) || 'Could not send appeal. Please screenshot this and message your admin.');
+        if (cb) cb(false);
+      })
+      .catch(function(){
+        if (n < MAX) { setTimeout(function(){ attempt(n + 1); }, 1500 * n); return; }
+        showToast('Connection failed after several tries — do NOT resend. Check “My appeals” first: it may have gone through.');
+        if (cb) cb(false);
+      });
+  })(1);
 }
 // ── Appeal modal (replaces the old prompt chain) ──
 var _apMode = 'untracked', _apEntryId = '';
