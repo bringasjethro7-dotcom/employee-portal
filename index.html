@@ -34662,7 +34662,7 @@ body:not(.app-authed) #sprout-panel{ display:none !important; }
 <script>
 (function(){
   'use strict';
-  var KEY='aura_launch_seen_v1';
+  var KEY='aura_launch_seen_v2';   /* v2: v1 could be spent on a missing film (404) */
   function seen(){ try{ return localStorage.getItem(KEY)==='1'; }catch(e){ return true; } }
   function mark(){ try{ localStorage.setItem(KEY,'1'); }catch(e){} }
   function close(){
@@ -34671,6 +34671,13 @@ body:not(.app-authed) #sprout-panel{ display:none !important; }
     setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }, 460);
   }
   function show(replay){
+    if(document.getElementById('au-launch')) return;
+    /* only open (and only count it as seen) if the film is really on the server */
+    fetch('launch/aura-launch.html', { method:'HEAD', cache:'no-store' })
+      .then(function(r){ if(r && r.ok) openFilm(replay); })
+      .catch(function(){});
+  }
+  function openFilm(replay){
     if(document.getElementById('au-launch')) return;
     var ov=document.createElement('div'); ov.id='au-launch';
     ov.setAttribute('role','dialog'); ov.setAttribute('aria-label','JMB Portal Aura launch film');
@@ -38266,6 +38273,19 @@ html body.app-authed.au-light #dashboard-screen .tabs .header-logo .brand-subtit
   background:linear-gradient(90deg,#ff7a2f,#f43f5e 40%,#a855f7 80%) !important; -webkit-background-clip:text !important; background-clip:text !important;
   color:transparent !important; -webkit-text-fill-color:transparent !important; }
 @media (prefers-reduced-motion:reduce){ html body.app-authed #dashboard-screen .tabs .brand-logo-badge, html body.app-authed #dashboard-screen .tabs .brand-logo-badge::after{ animation:none !important; } }
+</style>
+<style id="au-name-flow">
+/* Hero name: the brand gradient flows slowly through the name (it was frozen mid-shine,
+   leaving the surname teal/purple). Same look in light and dark. */
+html body.app-authed #dashboard-hero .hero-name,
+html body.app-authed.au-light #dashboard-hero .hero-name{
+  background-image:linear-gradient(95deg,#ff6b1a 0%,#f43f5e 18%,#a855f7 36%,#6366f1 50%,#a855f7 64%,#f43f5e 82%,#ff6b1a 100%) !important;
+  background-size:200% 100% !important; background-repeat:repeat !important; background-position:0% 50%;
+  -webkit-background-clip:text !important; background-clip:text !important; color:transparent !important; -webkit-text-fill-color:transparent !important;
+  animation:auNameFlow 7s linear infinite !important;
+}
+@keyframes auNameFlow{ from{ background-position:0% 50%; } to{ background-position:200% 50%; } }
+@media (prefers-reduced-motion:reduce){ html body.app-authed #dashboard-hero .hero-name{ animation:none !important; } }
 </style>
 </body>
 </html>
