@@ -37965,6 +37965,12 @@ html body.app-authed:not(.au-light) #jam-card{ color:#f5f3ff; background:radial-
 #jam-dock.big{ width:372px; } #jam-dock.big .jd-vid{ width:372px; height:209px; }
 #jam-dock .jd-vid iframe, #jam-dock .jd-vid > div{ width:100% !important; height:100% !important; display:block; border:0; }
 html body.au-mini #jam-dock{ display:none !important; }
+#jam-dock{ position:fixed; }
+#jam-dock .jd-tap{ position:absolute; left:50%; top:calc(30px + 50%); transform:translate(-50%,-60%); z-index:2; display:none; height:40px; padding:0 18px; border:none; border-radius:999px;
+  font:inherit; font-size:13px; font-weight:800; color:#fff; cursor:pointer; background:linear-gradient(135deg,#ff7a2f,#f43f5e 50%,#a855f7); box-shadow:0 10px 24px -8px rgba(0,0,0,.6); }
+#jam-dock .jd-tap.on{ display:block; animation:jmTap 1.4s ease-in-out infinite; }
+@keyframes jmTap{ 0%,100%{ transform:translate(-50%,-60%) scale(1); } 50%{ transform:translate(-50%,-60%) scale(1.06); } }
+#jam-card .jm-err.busy{ color:#7c3aed; }
 @media (max-width:1100px){ #jam-dock{ left:16px; } }
 @media (max-width:980px){ #jam-card .jm-body{ grid-template-columns:1fr; } #jam-card .jm-player{ width:100%; max-width:420px; height:auto; aspect-ratio:16/9; } }
 </style>
@@ -38048,7 +38054,8 @@ var JAM = {
     d=document.createElement('div'); d.id='jam-dock';
     d.innerHTML='<div class="jd-bar"><span class="jd-eq"><i></i><i></i><i></i></span><b id="jd-title">JMB Jam</b>'+
       '<button type="button" title="Bigger / smaller" onclick="JAM.size()">⤢</button><button type="button" title="Leave the jam" onclick="JAM.join()">✕</button></div>'+
-      '<div class="jd-vid"><div id="jm-yt"></div></div>';
+      '<div class="jd-vid"><div id="jm-yt"></div></div>'+
+      '<button type="button" class="jd-tap" id="jd-tap" onclick="JAM.tapPlay()">▶ Tap to play</button>';
     document.body.appendChild(d); return d;
   },
   size: function(){ var d=document.getElementById('jam-dock'); if(!d) return; d.classList.toggle('big'); try{ localStorage.setItem('jam_big', d.classList.contains('big')?'1':'0'); }catch(e){} },
@@ -38066,6 +38073,16 @@ var JAM = {
           onError:function(ev){ self.ytError(ev && ev.data); }
         } });
     });
+  },
+  /* The browser can hold back autoplay; a click inside the page always releases it. */
+  tapPlay: function(){ var p=this.player; this._stuck=0; var b=document.getElementById('jd-tap'); if(b) b.classList.remove('on');
+    try{ p.unMute(); p.setVolume(this.vol()); }catch(e){} try{ var pos=this.pos(); if(Math.abs((p.getCurrentTime()||0)-pos)>2.2) p.seekTo(pos,true); p.playVideo(); }catch(e){} },
+  stuckCheck: function(){
+    var b=document.getElementById('jd-tap'); if(!b) return;
+    var s=this.st||{}, want=this.joined && this.ready && s.video_id && !s.paused, st=-1;
+    try{ st=this.player.getPlayerState(); }catch(e){}
+    if(want && st!==1 && st!==3){ this._stuck=(this._stuck||0)+1; } else this._stuck=0;
+    b.classList.toggle('on', this._stuck>=2);
   },
   sync: function(force){
     if(!this.joined || !this.player || !this.ready) return;
@@ -38100,7 +38117,7 @@ var JAM = {
   ytError: function(code){
     var msg='', self=this;
     if(code===153 || (location.protocol==='file:')) msg='YouTube can\u2019t play inside a page opened as a file. Open the portal from its web address (the Netlify link) and join again.';
-    else if(code===101 || code===150) msg='This song\u2019s owner doesn\u2019t allow it to play outside YouTube — skipping to the next one.';
+    else if(code===101 || code===150) msg='YouTube blocks this song outside YouTube (owner\u2019s choice) — skipping to the next one.';
     else if(code===100 || code===2) msg='That video is private, removed or the link is wrong — skipping.';
     else msg='YouTube couldn\u2019t play this one (error '+code+').';
     try{ showToast(msg); }catch(e){}
@@ -38140,8 +38157,44 @@ var JAM = {
                         : (q.length>=30 ? 'The queue is full (30 songs).' : 'Couldn\u2019t add it — try again in a moment.');
       });
     };
-    fetch('https://www.youtube.com/oembed?format=json&url='+encodeURIComponent('https://www.youtube.com/watch?v='+id))
-      .then(function(r){ return r.ok ? r.json() : null; }).then(function(d){ add(d&&d.title); }).catch(function(){ add(''); });
+    if(err){ err.textContent='Checking that YouTube lets this one play here…'; err.classList.add('busy'); }
+    var title='', oe=fetch('https://www.youtube.com/oembed?format=json&url='+encodeURIComponent('https://www.youtube.com/watch?v='+id))
+      .then(function(r){ if(r.status===401||r.status===403) return { blocked:150 }; if(r.status===404||r.status===400) return { blocked:100 }; return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+    oe.then(function(d){
+      if(d && d.blocked) return d.blocked;
+      title=(d&&d.title)||'';
+      return self.probe(id);                       // play it silently off-screen for a moment: the real test
+    }).then(function(code){
+      if(err){ err.textContent=''; err.classList.remove('busy'); }
+      if(code===101||code===150){ if(err) err.textContent='YouTube won\u2019t play this video here — its owner blocks it outside YouTube (common for official music videos) or it\u2019s unavailable. Try a lyric video or another upload of the same song.'; return; }
+      if(code===100||code===2||code===5){ if(err) err.textContent='That video is private, removed or the link is wrong. Try another link.'; return; }
+      add(title);
+    });
+  },
+  /* Silent off-screen test play. Resolves 'ok', or the YouTube error code (101/150 = owner blocks
+     embedding, 100 = removed/private, 2 = bad id). Gives up after 9 s and lets it through. */
+  probe: function(id){
+    var self=this;
+    return new Promise(function(done){
+      var fin=false, p=null, box=null;
+      var end=function(v){ if(fin) return; fin=true; try{ if(p) p.destroy(); }catch(e){} try{ if(box) box.remove(); }catch(e){} done(v); };
+      setTimeout(function(){ end('ok'); }, 9000);
+      self.ensureYT(function(){
+        if(fin) return;
+        box=document.createElement('div'); box.style.cssText='position:fixed;left:-10000px;top:0;width:220px;height:220px;opacity:0;pointer-events:none;';
+        var host=document.createElement('div'); host.id='jam-probe-'+Date.now(); box.appendChild(host); document.body.appendChild(box);
+        try{
+          p=new YT.Player(host.id, { width:'220', height:'220', videoId:id,
+            playerVars:(function(){ var v={ autoplay:0, controls:0, mute:1, playsinline:1 }; if(/^https?:$/.test(location.protocol)) v.origin=location.origin; return v; })(),
+            events:{
+              onReady:function(){ try{ p.mute(); p.playVideo(); }catch(e){} },
+              onStateChange:function(ev){ if(ev.data===1 || ev.data===3) end('ok'); },
+              onError:function(ev){ end(ev && ev.data); }
+            } });
+        }catch(e){ end('ok'); }
+      });
+    });
   },
   playNow: function(i){ var self=this; if(!this.isDJ()) return;
     this.mutate(function(x){ var q=(x.queue||[]).slice(), it=q.splice(i,1)[0]; if(!it) return null;
@@ -38176,7 +38229,7 @@ var JAM = {
       '<div class="jm-q"><div class="jm-qh"><span>Up next</span><span id="jm-qn"></span></div><div id="jm-queue"></div>'+
         '<div class="jm-add"><input id="jm-url" placeholder="Paste a YouTube link to request a song…" onkeydown="if(event.key===\'Enter\')JAM.request()"><button type="button" onclick="JAM.request()">Add</button></div>'+
         '<div class="jm-err" id="jm-err"></div>'+
-        '<div class="jm-note">Plays through YouTube’s own player — ads may play now and then. Use headphones. '+(this.isDJ()?'You are a DJ: you can pause, skip, play now and remove.':'DJs can skip and reorder; anyone can request.')+'</div></div></div>';
+        '<div class="jm-note">Plays through YouTube’s own player — ads may play now and then. Official music videos are often blocked outside YouTube; lyric videos usually work. Use headphones. '+(this.isDJ()?'You are a DJ: you can pause, skip, play now and remove.':'DJs can skip and reorder; anyone can request.')+'</div></div></div>';
     return w;
   },
   render: function(){
@@ -38230,7 +38283,7 @@ var JAM = {
       if(!self.dbChan && window.supaClient) self.subscribe();
       var vis = panel.classList.contains('active');
       if(!self.st || Date.now()-self.lastSync > (vis?15000:60000)){ self.lastSync=Date.now(); self.fetchState(); }
-      if(self.joined) self.sync(false);
+      if(self.joined){ self.sync(false); self.stuckCheck(); }
       if(vis) self.tickUI();
     }, 3000);
   }
