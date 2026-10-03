@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="aura-config.js"></script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Admin — JMB Virtuals Portal</title>
@@ -1135,6 +1136,7 @@ body{background-attachment:initial !important}
           <button class="bsm" onclick="loadQaGrid()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
       </div>
+      <div id="qad-box"></div>
       <div id="qa-approvals" style="margin:10px 0 14px;"></div>
       <div id="qa-disputes"></div>
       <div id="qa-body"><div class="es">Loading…</div></div>
@@ -1175,6 +1177,32 @@ body{background-attachment:initial !important}
         <button class="bsm" id="assess-open-toggle" onclick="toggleAssessmentOpen()" style="white-space:nowrap;">Toggle</button>
       </div>
 
+      <!-- ── CRITERIA WEIGHTING — editable, per month ──────────────────────────
+           Weights are a business decision, so they live in the backend config and
+           are edited here instead of in code. Saving recomputes the month. -->
+      <div class="card" style="padding:14px 16px;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="font-size:13px;color:var(--t1);">
+            <b>Criteria Weighting</b> <span id="scw-month" style="color:var(--t3);"></span>
+            <span id="scw-using" style="margin-left:6px;font-size:11px;padding:2px 7px;border-radius:999px;"></span>
+            <div style="font-size:11px;color:var(--t3);margin-top:3px;">
+              Type a percentage for each criterion. Blank components drop out and the rest
+              re-normalise, so the sum does not have to be exactly 100.
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="bsm" onclick="scwLoad()" title="Reload from the server">↻</button>
+            <button class="bsm" onclick="scwReset()" title="Back to the built-in defaults">Defaults</button>
+            <button class="bsm" id="scw-save" onclick="scwSave()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Save &amp; recompute</button>
+          </div>
+        </div>
+        <div id="scw-grid" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;"></div>
+        <div style="margin-top:10px;font-size:12px;color:var(--t3);">
+          Total: <b id="scw-sum" style="font-size:14px;">—</b>
+          <span id="scw-sum-note" style="margin-left:8px;"></span>
+        </div>
+        <div id="scw-msg" style="margin-top:8px;font-size:12px;display:none;"></div>
+      </div>
 
       <div class="tw">
         <table id="sc-table">
@@ -1308,6 +1336,9 @@ body{background-attachment:initial !important}
           <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
       </div>
+      <!-- 🍽 WORKING-LUNCH REQUESTS (auto-lunch, Oct 1 2026) — permission asked on the day,
+           not an hours appeal after the fact. Approving releases that VA's lunch hour. -->
+      <div id="lunchwork-panel"></div>
       <div id="appeals-panel"></div>
       <div class="tw">
         <table id="wl-table">
@@ -1601,6 +1632,33 @@ body{background-attachment:initial !important}
   </div>
 </div>
 
+<!-- ADJUST ROLE — neutral role / level / rate change (lateral move or step-down). No confetti, no congratulations. -->
+<div id="adjust-modal" style="display:none;position:fixed;inset:0;z-index:9600;align-items:center;justify-content:center;background:rgba(0,0,0,.62);backdrop-filter:blur(4px);padding:16px;overflow:auto;">
+  <div style="width:440px;max-width:100%;background:#ffffff;border:1px solid rgba(15,23,42,.12);border-radius:18px;padding:20px;box-shadow:0 30px 90px rgba(15,23,42,0.18);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+      <div style="font-size:16px;font-weight:800;color:var(--t1);">Adjust role</div>
+      <button class="bsm" onclick="closeAdjust()"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M18 6 6 18M6 6l12 12"/></svg> Close</button>
+    </div>
+    <div id="adjust-who" style="font-size:12.5px;color:var(--t3);margin-bottom:10px;"></div>
+    <div style="font-size:11.5px;line-height:1.5;color:var(--t2);background:rgba(15,23,42,.04);border:1px solid rgba(15,23,42,.08);border-radius:10px;padding:8px 10px;margin-bottom:12px;">For lateral moves and step-downs. Use only <b>after</b> the contractor has accepted in writing. No celebration screen; logged to the <b>RoleChanges</b> sheet. A rate change is dated: every cutoff that starts before the rate date keeps the old rate, even if generated later.</div>
+    <input type="hidden" id="adjust-eid">
+    <div class="fg" style="margin-bottom:10px;"><label class="lbl">New position</label><input class="inp" type="text" id="adjust-pos" placeholder="e.g. Senior Staff — blank to keep"></div>
+    <div class="fg" style="margin-bottom:10px;"><label class="lbl">New career level</label>
+      <select class="inp" id="adjust-cl"><option value="">Keep current</option><option value="CL7">CL7 · Director / Executive</option><option value="CL8">CL8 · Manager</option><option value="CL9">CL9 · Team Lead</option><option value="CL10">CL10 · Senior Staff / Senior Specialist</option><option value="CL11">CL11 · Staff / Specialist</option><option value="CL12">CL12 · Junior Staff</option><option value="CL13">CL13 · Trainee</option></select></div>
+    <div class="fg" style="margin-bottom:10px;"><label class="lbl">Role effective</label><input class="inp" type="date" id="adjust-eff"></div>
+    <div style="display:flex;gap:10px;">
+      <div class="fg" style="margin-bottom:10px;flex:1;"><label class="lbl">New rate (₱)</label><input class="inp" type="number" step="0.01" min="0" id="adjust-rate" placeholder="blank to keep"></div>
+      <div class="fg" style="margin-bottom:10px;flex:1;"><label class="lbl">Rate effective (cutoff start)</label><input class="inp" type="date" id="adjust-rate-eff"></div>
+    </div>
+    <div class="fg" style="margin-bottom:10px;"><label class="lbl">Note — shown to the contractor (optional)</label><input class="inp" type="text" id="adjust-note" placeholder="e.g. Per the Schedule A amendment you signed on Oct 8."></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--t2);margin-bottom:14px;cursor:pointer;"><input type="checkbox" id="adjust-notify" checked> Send a plain portal notification (no amounts shown)</label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="bsm" onclick="closeAdjust()">Cancel</button>
+      <button class="bsm" id="adjust-go" onclick="submitAdjust()" style="color:#fff;background:#334155;border-color:#334155;font-weight:700;">Save adjustment</button>
+    </div>
+  </div>
+</div>
+
 <!-- PAY MODAL — amount + bank QR for fast manual payslip payments -->
 <div id="pay-modal" style="display:none;position:fixed;inset:0;z-index:9600;align-items:center;justify-content:center;background:rgba(0,0,0,.68);backdrop-filter:blur(4px);padding:16px;">
   <div style="width:340px;max-width:100%;background:#ffffff;border:1px solid rgba(15,23,42,.12);border-radius:18px;padding:18px;box-shadow:0 30px 90px rgba(15,23,42,0.18);">
@@ -1667,7 +1725,7 @@ async function verifyAdminPass(p){
   try{ var r=await fetch(API+'?action=verify_admin&pass='+encodeURIComponent(p)+'&_='+Date.now()); var d=await r.json(); return !!(d&&d.ok); }
   catch(e){ return false; }
 }
-const API  = "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec";
+const API  = (window.__AURA__ && window.__AURA__.EXEC) || "https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec"; /* live: aura-config.js, with this as the fallback */
 
 /* ── GLOBAL API REQUEST GOVERNOR (Sep 2026) ──────────────────────────────────────────────
    Observed live in Chrome: on load the console fired EIGHT concurrent backend calls — with
@@ -1806,7 +1864,7 @@ var _jTTL={ get_running:20000, team_hours_total:600000, pipeline_get:300000,
   get_all_employees:90000, admin_bootstrap:15000, get_tracker_projects:180000, get_banks:120000,
   get_notif_templates:180000, get_worklog:45000, get_attendance:45000, get_all_scorecards:45000,
   get_finalized:90000, get_leave_requests:30000, get_coe_requests:30000, redeem_list:30000,
-  lead_demerit_list:30000, get_all_demerit_disputes:30000, get_appeals:30000, payslip_funding:45000,
+  lead_demerit_list:30000, get_all_demerit_disputes:30000, get_appeals:30000, lunch_work_list:20000, payslip_funding:45000,
   po_progress_all:30000, list_innovations:30000, get_all_qa_weekly:45000, get_all_qa_disputes:30000,
   get_finalized_prod:45000, sales_teams:45000, sales_breakdown:45000 };
 // Google sometimes answers with an HTML error page ("Sorry, cannot open the file…") instead of
@@ -2695,7 +2753,7 @@ async function qaApprove(emp, week){
 async function loadQaGrid(){
   var month=_qaMonthVal(); var box=document.getElementById('qa-body'); if(!box) return;
   box.innerHTML='<div class="es">Loading…</div>';
-  loadQaDisputes(); loadQaApprovals();
+  loadQaDisputes(); loadQaApprovals(); try{ loadQaDaily(); }catch(_qd){}
   if(!_demEmps().length){ try{ var er=await jGet(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
   var map={}; try{ var r=await fetch(API+'?action=get_all_qa_weekly&month='+encodeURIComponent(month)+'&_='+Date.now()); var d=await r.json(); map=(d&&d.map)||{}; }catch(e){}
   // Also pull reviewer grades still AWAITING your approval, so the blank weeks show a dimmed
@@ -3911,6 +3969,8 @@ async function pgPreview(){
   if(!from||!to){ alert('Pick a From and To date.'); return; }
   if(!payEmps||!payEmps.length){ try{ var r0=await jGet(API+'?action=get_all_employees'); var d0=await r0.json(); payEmps=d0.employees||[]; }catch(e){} }
   var box=document.getElementById('pg-preview'); box.innerHTML='<div class="es" style="padding:10px 0">Computing…</div>';
+  // Rate in force on the cutoff's first day (dated rates) — so a rate change never re-prices an older cutoff.
+  var _rOn={}; try{ var rq=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'rates_on',pass:admPass(),date:from})}); var rd=await rq.json(); if(rd&&rd.ok&&rd.rates) _rOn=rd.rates; }catch(_re){}
   document.getElementById('pg-save').style.display='none';
   try{
     // Per-employee prod/idle hour TOTALS, aggregated server-side (~132 tiny rows). The old
@@ -3943,7 +4003,7 @@ async function pgPreview(){
       var hours = (source==='attendance') ? (att.clocked - (incIdle?0:wl.idle)) : (wl.prod + (incIdle?wl.idle:0));
       hours=Math.max(0, Math.round(hours*100)/100); if(hours<=0) return;
       var shift = (att.night > att.morning) ? 'night' : 'morning';
-      var rate=parseFloat(e.rate)||0, hourly=rate/240, basic=hours*hourly;
+      var rate=(_rOn[id]!=null ? parseFloat(_rOn[id]) : parseFloat(e.rate))||0, hourly=rate/240, basic=hours*hourly;
       var nightD = shift==='night' ? basic*0.05 : 0;
       _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, incentive:0, gross:basic+nightD });
     });
@@ -4096,7 +4156,7 @@ async function loadPayslipsAdmin(){
         if(fStatus==='pending'&&paid) return;
         var _parts=(p.partials||[]).slice(); if(p.partial) _parts.push(p.partial);
         var _partSum=0; _parts.forEach(function(x){ _partSum+=parseFloat(x.amount)||0; });
-        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
+        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && isFunded(p.period,proj)),rate:p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
       });
     });
     // Ready-to-pay (invoice paid) pending first, then other pending, then paid — newest within
@@ -4733,6 +4793,74 @@ async function loadAppeals(){
       }).join('')+'</div>';
   }catch(e){ box.innerHTML=''; }
 }
+/* ══════════════════════════════════════════════════════════════════════════════
+   WORKING-LUNCH REQUESTS  (auto-lunch, Oct 1 2026)
+   ─────────────────────────────────────────────────────────────────────────────
+   Auto-lunch takes 12:00–13:00 (morning) / 00:00–01:00 (night) by itself. A VA who
+   genuinely has to work through it asks here — with a written reason — and only an
+   approval releases that hour. Deliberately separate from the appeals queue: an
+   appeal argues about time already gone, this is permission for time about to be
+   taken, and mixing them is how a "please let me work" ends up judged as a claim.
+
+   Approving AFTER the hour has already run also deletes that day's lunch block and
+   clears the attendance punch, so the hour is genuinely given back. The VA restarts
+   their own timer — nothing auto-resumes.
+   ══════════════════════════════════════════════════════════════════════════════ */
+var _lwCache = {};
+async function loadLunchWork(){
+  var box = document.getElementById('lunchwork-panel'); if(!box) return;
+  try{
+    var r = await jGet(API + '?action=lunch_work_list&_=' + Date.now()); var d = await r.json();
+    var rows = ((d && d.rows) || []).filter(function(x){ return String(x.status||'').toLowerCase() === 'pending'; });
+    if(!rows.length){ box.innerHTML = ''; return; }
+    box.innerHTML = '<div style="background:rgba(20,184,166,.10);border:1px solid rgba(20,184,166,.40);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'
+      + '<div data-opti-count style="font-weight:700;font-size:13px;color:#2dd4bf;margin-bottom:4px;">Working-lunch requests (' + rows.length + ')</div>'
+      + '<div style="font-size:11.5px;color:var(--t3);margin-bottom:8px;">Approving releases that day’s automatic lunch hour for this person only. Rejecting leaves the lunch in place.</div>'
+      + rows.map(function(x){
+          var key = x.employee_id + '|' + x.date;
+          _lwCache[key] = x;
+          return '<div data-lw="' + escAdmin(key) + '" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(15,23,42,.08);">'
+            + '<div style="flex:1;min-width:220px;"><b>' + escAdmin(x.full_name || x.employee_id) + '</b> · ' + escAdmin(x.date)
+            + ' <span style="color:var(--t3);font-size:11.5px;">(' + escAdmin(x.shift || '') + ' shift · sent ' + escAdmin(x.submitted || '') + ')</span>'
+            + '<br><span style="color:var(--t2);font-size:12.5px;">“' + escAdmin(x.reason || '') + '”</span></div>'
+            + '<button class="bsm" style="color:#16a34a;border-color:rgba(22,163,74,.4)" onclick="resolveLunchWork(\'' + escAdmin(x.employee_id) + '\',\'' + escAdmin(x.date) + '\',\'approved\')">Approve</button>'
+            + '<button class="bsm" style="color:#dc2626;border-color:rgba(220,38,38,.4)" onclick="resolveLunchWork(\'' + escAdmin(x.employee_id) + '\',\'' + escAdmin(x.date) + '\',\'rejected\')">Reject</button>'
+          + '</div>';
+        }).join('') + '</div>';
+  }catch(e){ box.innerHTML = ''; }
+}
+async function resolveLunchWork(empId, date, decision){
+  var note = '';
+  if(decision === 'rejected'){
+    note = prompt('Reason for declining (the VA sees this — optional but kinder):') || '';
+    if(note === null) return;
+  }
+  var _sel = '[data-lw="' + empId + '|' + date + '"]';
+  _optiPending(_sel);
+  try{
+    var r = await fetch(API + '?action=lunch_work_resolve&employee_id=' + encodeURIComponent(empId)
+      + '&date=' + encodeURIComponent(date) + '&status=' + encodeURIComponent(decision)
+      + '&by=' + encodeURIComponent((window.ADMIN_NAME || 'Admin'))
+      + '&note=' + encodeURIComponent(note.slice(0,600)) + '&_=' + Date.now());
+    var d = await r.json();
+    if(d && d.ok){
+      _optiRows(_sel).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(20,184,166"]') || document); });
+      _optiRemove(_sel);
+      if(typeof toast === 'function') toast(decision === 'approved'
+        ? ('Approved' + (d.released ? ' — lunch hour released.' : '.'))
+        : 'Declined — automatic lunch stands.');
+      jBust();
+      setTimeout(function(){ try{ loadWorkLog(); }catch(e){} }, 1200);
+    } else {
+      _optiRestore(_sel);
+      if(typeof toast === 'function') toast((d && d.message) || 'Could not save that decision.');
+    }
+  }catch(e){
+    _optiRestore(_sel);
+    if(typeof toast === 'function') toast('Network error — decision not saved.');
+  }
+}
+
 /* ── OPTIMISTIC ROWS ── Approving used to refetch FOUR heavy lists per click (appeals,
    dash appeals, worklog, demerits) — 5–20s of spinner and a full repaint for every single
    decision, which is why 10–15 requests took forever. Now: the row grays out while its ONE
@@ -4925,6 +5053,7 @@ async function markInvoicePaid(id, project, label){
 }
 async function loadWorkLog(){
   try{ loadAppeals(); }catch(e){}
+  try{ loadLunchWork(); }catch(e){}   // 🍽 working-lunch requests sit above the appeals queue
   var empSel = document.getElementById('wl-emp-filter');
   if(empSel && empSel.options.length <= 1){
     try{
@@ -5055,7 +5184,7 @@ function renderTable(){
     var purgeBtn=inactive
       ? '<button class="bsm danger" style="background:rgba(248,113,113,.14);" onclick="purgeEmp('+ri+')">Delete permanently</button>'
       : '';
-    var promoteBtn=inactive?'':'<button class="bsm" style="border-color:rgba(234,88,12,.4);color:#ea580c;" onclick="openPromote('+ri+')">★ Promote</button>';
+    var promoteBtn=inactive?'':'<button class="bsm" style="border-color:rgba(234,88,12,.4);color:#ea580c;" onclick="openPromote('+ri+')">★ Promote</button><button class="bsm" style="border-color:rgba(51,65,85,.35);color:#334155;" onclick="openAdjust('+ri+')">Adjust role</button>';
     return'<tr'+(inactive?' style="opacity:.55"':'')+'><td style="font-weight:500;color:var(--t1);">'+nameCell+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button>'+promoteBtn+toggleBtn+purgeBtn+'</div></td></tr>';
   }).join('');
 }
@@ -5115,6 +5244,53 @@ async function submitPromote(){
     } else if(d&&d.no_change){ alert('No changes were made — the new values match the current ones.'); }
     else { alert('Could not promote'+(d&&d.error?(': '+d.error):'.')); }
   }catch(e){ alert('Network error.'); }
+  finally{ btn.disabled=false; btn.textContent=_t; }
+}
+
+// ── ROLE ADJUSTMENT: neutral change (lateral / step-down) — no confetti, dated rate ──
+function _ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _nextCutoffStart(){ var t=new Date(); return t.getDate()<=15 ? _ymd(new Date(t.getFullYear(),t.getMonth(),16)) : _ymd(new Date(t.getFullYear(),t.getMonth()+1,1)); }
+function openAdjust(idx){
+  var e=emps[idx]; if(!e) return;
+  document.getElementById('adjust-eid').value=e.employee_id||'';
+  document.getElementById('adjust-who').innerHTML='<b style="color:var(--t1)">'+escAdmin(e.full_name||e.employee_id)+'</b> · '+escAdmin(e.employee_id||'')+
+    '<br>Current: '+escAdmin(e.position||'—')+' · '+escAdmin((e.career_level||e.cl||'—'))+' · '+(e.rate?('₱'+Number(e.rate).toLocaleString()):'—');
+  ['adjust-pos','adjust-rate','adjust-note'].forEach(function(k){ document.getElementById(k).value=''; });
+  document.getElementById('adjust-cl').value='';
+  document.getElementById('adjust-eff').value=_ymd(new Date());
+  document.getElementById('adjust-rate-eff').value=_nextCutoffStart();
+  document.getElementById('adjust-notify').checked=true;
+  document.getElementById('adjust-modal').style.display='flex';
+}
+function closeAdjust(){ document.getElementById('adjust-modal').style.display='none'; }
+async function submitAdjust(){
+  var eid=document.getElementById('adjust-eid').value; if(!eid) return;
+  var pos=document.getElementById('adjust-pos').value.trim();
+  var cl=document.getElementById('adjust-cl').value;
+  var eff=document.getElementById('adjust-eff').value;
+  var rate=document.getElementById('adjust-rate').value.trim();
+  var reff=document.getElementById('adjust-rate-eff').value;
+  var note=document.getElementById('adjust-note').value.trim();
+  var notify=document.getElementById('adjust-notify').checked;
+  if(!pos && !cl && !rate){ alert('Enter at least one change — position, career level, or rate.'); return; }
+  if(rate && !reff){ alert('Pick the date the new rate starts (the first day of a cutoff).'); return; }
+  if(rate && !/-(01|16)$/.test(reff) && !confirm('The rate date '+reff+' is not the 1st or 16th, so one cutoff will be priced entirely at whichever rate applies on its first day. Continue anyway?')) return;
+  var e=emps.filter(function(x){return String(x.employee_id)===String(eid);})[0]||{};
+  var sum=[]; if(pos) sum.push('Position → '+pos); if(cl) sum.push('Career level → '+cl); if(rate) sum.push('Rate changes from '+reff+' (cutoffs starting before that keep the old rate)');
+  if(!confirm('Adjust '+(e.full_name||eid)+'?\n\n• '+sum.join('\n• ')+'\n\nRole effective: '+eff+'\n'+(notify?'A plain notification will be sent (no amounts).':'No notification will be sent.')+'\n\nOnly do this after they have accepted in writing.')) return;
+  var btn=document.getElementById('adjust-go'); btn.disabled=true; var _t=btn.textContent; btn.textContent='Saving…';
+  try{
+    var r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'adjust_role',pass:admPass(),employee_id:eid,position:pos,career_level:cl,rate:rate,rate_effective:reff,effective_date:eff,note:note,notify:notify?'1':'0',by:'Admin'})});
+    var d=await r.json();
+    if(d&&d.ok){
+      if(typeof toast==='function') toast('Role adjusted for '+(d.full_name||eid)+(notify?' — contractor notified.':'.'));
+      if(e){ if(pos)e.position=pos; if(cl)e.career_level=cl; if(rate)e.rate=rate; try{persist();}catch(_p){} renderTable(); }
+      closeAdjust();
+      try{ jBust(); var rr=await jGet(API+'?action=get_all_employees&_='+Date.now(),0); var dd=await rr.json(); if(dd&&dd.employees){ emps=dd.employees; try{persist();}catch(_p2){} renderTable(); } }catch(_re){}
+    } else if(d&&d.no_change){ alert('No changes were made — the new values match the current ones.'); }
+    else if(d&&d.error==='UNAUTHORIZED'){ try{ sessionStorage.removeItem('adm_pass'); }catch(_s){} PASS=''; alert('Admin password was not accepted. Try again.'); }
+    else { alert('Could not save the adjustment'+(d&&d.error?(': '+(d.message||d.error)):'.')+'\n\nIf this says POST_ONLY or nothing at all, the backend needs the 2026-10-03a deployment.'); }
+  }catch(err){ alert('Network error.'); }
   finally{ btn.disabled=false; btn.textContent=_t; }
 }
 
@@ -5485,8 +5661,8 @@ function admIsChannel(){ return typeof adminCurrentChat === 'string' && adminCur
 function admChannelId(){ return admIsChannel() ? adminCurrentChat.slice(3) : null; }
 const ADMIN_ID   = 'ADMIN';
 const ADMIN_NAME = 'Admin (JMB Virtuals)';
-const SUPA_URL = 'https://rvyrnkjqxnijxydloujk.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2eXJua2pxeG5panh5ZGxvdWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NzAwODQsImV4cCI6MjA5NzE0NjA4NH0.SwkSkmbeWrhm5PZZDSZ1Z4hbjpQ0L2CRtuKQmpHshBE';
+const SUPA_URL = (window.__AURA__ && window.__AURA__.SUPA_URL) || 'https://rvyrnkjqxnijxydloujk.supabase.co';
+const SUPA_KEY = (window.__AURA__ && window.__AURA__.SUPA_KEY) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2eXJua2pxeG5panh5ZGxvdWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NzAwODQsImV4cCI6MjA5NzE0NjA4NH0.SwkSkmbeWrhm5PZZDSZ1Z4hbjpQ0L2CRtuKQmpHshBE';
 
 function initAdminChat() {
   if (adminSupaClient) { loadAdminMessages(); loadAdminContacts(); return; }
@@ -6029,6 +6205,115 @@ async function loadAdminScorecard(force) {
   await _scRenderRows(force);     // refresh in the background (force skips every cache layer)
   startScLive();             // keep the ranking live while this tab is open
   try{ updateFinalizeUI(month); }catch(_f){}   // show whether the selected month is finalized
+  try{ scwLoad(); }catch(_w){}                 // criteria weighting for this month
+}
+
+/* ── CRITERIA WEIGHTING ───────────────────────────────────────────────────────
+   Edits the weights the backend actually scores with. Percentages here, fractions
+   on the wire. The server re-validates and refuses a bad set, so a typo cannot
+   corrupt twenty people's rankings — but we still check before sending. */
+var SCW_LABELS = { productivity:'Productivity', quality:'Quality (QA)', attendance:'Attendance',
+  assessment:'Assessment', team_sales:'Team Sales', demerit:'Demerit',
+  innovation:'Innovation', results:'Results', csat:'CSAT' };
+var SCW_STATE = null;
+
+function scwMonth(){
+  var el = document.getElementById('sc-month-filter');
+  return (el && el.value) || new Date().toISOString().slice(0,7);
+}
+function scwMsg(text, bad){
+  var m = document.getElementById('scw-msg'); if(!m) return;
+  if(!text){ m.style.display='none'; m.textContent=''; return; }
+  m.style.display='block'; m.textContent = text;
+  m.style.color = bad ? '#f87171' : '#4ade80';
+}
+async function scwLoad(){
+  var mk = scwMonth();
+  var grid = document.getElementById('scw-grid'); if(!grid) return;
+  document.getElementById('scw-month').textContent = '· ' + mk;
+  grid.innerHTML = '<span style="font-size:12px;color:var(--t3);">Loading…</span>';
+  scwMsg('');
+  try{
+    var r = await fetch(API + '?action=get_sc_weights&month=' + encodeURIComponent(mk) + '&_=' + Date.now());
+    var d = await r.json();
+    if(!d || !d.ok) throw new Error((d && d.error) || 'load failed');
+    SCW_STATE = d;
+    var badge = document.getElementById('scw-using');
+    if(badge){
+      var custom = (d.using === 'saved');
+      badge.textContent = custom ? 'custom' : 'default';
+      badge.style.background = custom ? 'rgba(255,107,26,.16)' : 'rgba(148,163,184,.16)';
+      badge.style.color      = custom ? 'var(--o3)' : 'var(--t3)';
+    }
+    grid.innerHTML = (d.keys || []).map(function(k){
+      var pct = Math.round((Number(d.live[k]) || 0) * 10000) / 100;
+      return '<label style="display:flex;flex-direction:column;gap:4px;min-width:112px;">'
+        + '<span style="font-size:11px;color:var(--t3);">' + (SCW_LABELS[k] || k) + '</span>'
+        + '<span style="display:flex;align-items:center;gap:4px;">'
+        + '<input class="sinp scw-in" data-k="' + k + '" type="number" min="0" max="100" step="0.5" '
+        + 'value="' + pct + '" oninput="scwSum()" style="width:74px;text-align:right;">'
+        + '<span style="font-size:12px;color:var(--t3);">%</span></span></label>';
+    }).join('');
+    scwSum();
+  }catch(e){
+    grid.innerHTML = '<span style="font-size:12px;color:#f87171;">Could not load weighting — press ↻ to retry.</span>';
+  }
+}
+function scwRead(){
+  var out = {}, sum = 0, bad = false;
+  document.querySelectorAll('.scw-in').forEach(function(i){
+    var v = parseFloat(i.value);
+    if(!isFinite(v) || v < 0 || v > 100){ bad = true; v = 0; }
+    out[i.dataset.k] = Math.round(v * 100) / 10000;   // percent → fraction
+    sum += v;
+  });
+  return { w: out, sumPct: Math.round(sum * 100) / 100, bad: bad };
+}
+function scwSum(){
+  var s = scwRead();
+  var el = document.getElementById('scw-sum'), note = document.getElementById('scw-sum-note');
+  if(!el) return;
+  el.textContent = s.sumPct + '%';
+  var exact = Math.abs(s.sumPct - 100) < 0.01;
+  el.style.color = s.bad ? '#f87171' : (exact ? '#4ade80' : 'var(--o3)');
+  if(note) note.textContent = s.bad ? 'each value must be 0–100'
+    : (exact ? '' : 're-normalised when scoring, so this is fine — just make sure it is deliberate');
+}
+async function scwSave(){
+  var s = scwRead();
+  if(s.bad){ scwMsg('Every value must be a number between 0 and 100.', true); return; }
+  if(!(s.sumPct > 0)){ scwMsg('The weights cannot all be zero.', true); return; }
+  var mk = scwMonth();
+  if(!confirm('Save this weighting for ' + mk + ' and recompute every scorecard?\n\nTotal: ' + s.sumPct + '%')) return;
+  var btn = document.getElementById('scw-save');
+  if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
+  try{
+    var r = await fetch(API + '?action=set_sc_weights&month=' + encodeURIComponent(mk)
+      + '&weights=' + encodeURIComponent(JSON.stringify(s.w)) + '&_=' + Date.now());
+    var d = await r.json();
+    if(!d || d.error) throw new Error((d && (d.note || d.error)) || 'save failed');
+    scwMsg('Saved. Recomputing — the table below refreshes in a moment.');
+    try{ toast('Weighting saved for ' + mk); }catch(_t){}
+    await scwLoad();
+    /* force=1 so the new weights are actually applied rather than served from the snapshot */
+    try{ await _scRenderRows(true); }catch(_r){}
+  }catch(e){
+    scwMsg('Could not save: ' + (e.message || e), true);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Save & recompute'; }
+  }
+}
+async function scwReset(){
+  var mk = scwMonth();
+  if(!confirm('Drop the custom weighting for ' + mk + ' and go back to the built-in defaults?')) return;
+  try{
+    var r = await fetch(API + '?action=reset_sc_weights&month=' + encodeURIComponent(mk) + '&_=' + Date.now());
+    var d = await r.json();
+    if(!d || d.error) throw new Error((d && d.error) || 'reset failed');
+    scwMsg('Back to defaults. Recomputing…');
+    await scwLoad();
+    try{ await _scRenderRows(true); }catch(_r){}
+  }catch(e){ scwMsg('Could not reset: ' + (e.message || e), true); }
 }
 
 // Fetch → rank highest→lowest by final Overall → render. Reused by the live poller,
@@ -6748,7 +7033,7 @@ function _awEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){re
 function _awUID(){ return 'a'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
 function _awRosterLoad(cb){
   if(AW_ROSTER.length){ cb&&cb(); return; }
-  fetch('https://rvyrnkjqxnijxydloujk.supabase.co/storage/v1/object/public/feed/emp_dir.json?_='+Date.now(),{cache:'no-store'})
+  fetch(SUPA_URL+'/storage/v1/object/public/feed/emp_dir.json?_='+Date.now(),{cache:'no-store'})
     .then(function(r){return r.json();}).then(function(d){
       var arr=(d&&d.employees)||[]; AW_ROSTER=[];
       for(var i=0;i<arr.length;i++){ var e=arr[i]; AW_ROSTER.push({id:e.employee_id, name:e.full_name||e.employee_id, photo:e.photo||e.hero_photo||''}); }
@@ -8750,7 +9035,7 @@ async function openPresenceFlags(){
   ov.innerHTML='<div style="background:#12141c;border:1px solid rgba(255,255,255,.14);border-radius:18px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7);">'
     +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">'
     +'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ffb27a" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>'
-    +'<h2 style="font:800 19px Inter,sans-serif;color:#fff;margin:0;">Idle flags — missed presence checks</h2>'
+    +'<h2 style="font:800 19px Inter,sans-serif;color:#fff;margin:0;">Idle flags — missed checks &amp; held keys</h2>'
     +'<span style="flex:1"></span><button onclick="closePresenceFlags()" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:7px 12px;font:700 13px Inter;cursor:pointer;">Close</button></div>'
     +'<p style="color:rgba(255,255,255,.55);font:500 12.5px Inter;margin:0 0 14px;">Last 14 days. A miss means the VA didn’t confirm a random presence check, so the timer stopped and the idle time since their last confirmed activity was <b style="color:#ffb27a">not credited</b>.</p>'
     +'<div id="pflag-body" style="color:rgba(255,255,255,.6);font:600 13px Inter;text-align:center;padding:26px 0;">Loading…</div></div>';
@@ -8763,18 +9048,18 @@ async function openPresenceFlags(){
     var flags=d.flags||[];
     if(!flags.length){ body.innerHTML='<span style="color:#7ee0a8">No missed presence checks in the last 14 days. ✅</span>'; return; }
     // Per-employee summary
-    var byEmp={}; flags.forEach(function(f){ var k=f.employee_id||'?'; (byEmp[k]=byEmp[k]||{n:0,secs:0}); byEmp[k].n++; byEmp[k].secs+=(f.uncredited_secs||0); });
+    var byEmp={}; flags.forEach(function(f){ var k=f.employee_id||'?'; (byEmp[k]=byEmp[k]||{n:0,secs:0,held:0}); byEmp[k].n++; byEmp[k].secs+=(f.uncredited_secs||0); if(f.outcome==='held_key') byEmp[k].held++; });
     var mins=function(s){ var m=Math.round((s||0)/60); return m>=60?(Math.floor(m/60)+'h '+(m%60)+'m'):(m+'m'); };
     var sum=Object.keys(byEmp).sort(function(a,b){return byEmp[b].secs-byEmp[a].secs;}).map(function(k){
       return '<span style="display:inline-flex;gap:7px;align-items:center;background:rgba(255,120,60,.14);border:1px solid rgba(255,120,60,.4);color:#ffcaa6;border-radius:999px;padding:5px 11px;font:700 12.5px Inter;">'
-        +pipeEsc(k)+' · '+byEmp[k].n+'× · '+mins(byEmp[k].secs)+' uncredited</span>';
+        +pipeEsc(k)+' · '+byEmp[k].n+'× · '+mins(byEmp[k].secs)+' uncredited'+(byEmp[k].held?(' · <b style="color:#fca5a5">'+byEmp[k].held+'× held key</b>'):'')+'</span>';
     }).join(' ');
     var rows=flags.map(function(f){
       return '<tr style="border-top:1px solid rgba(255,255,255,.08)">'
         +'<td style="padding:8px 10px;color:rgba(255,255,255,.62);font:600 12px Inter;white-space:nowrap;">'+pipeEsc(f.ts)+'</td>'
         +'<td style="padding:8px 10px;color:#fff;font:700 12.5px Inter;">'+pipeEsc(f.employee_id)+'</td>'
         +'<td style="padding:8px 10px;color:rgba(255,255,255,.75);font:600 12px Inter;">'+pipeEsc(f.task||f.project||'—')+'</td>'
-        +'<td style="padding:8px 10px;color:#ffb27a;font:800 12.5px Inter;white-space:nowrap;text-align:right;">'+mins(f.uncredited_secs)+'</td></tr>';
+        +'<td style="padding:8px 10px;color:#ffb27a;font:800 12.5px Inter;white-space:nowrap;text-align:right;">'+(f.outcome==='held_key'?'<span title="A key auto-repeated for 30s+ while the timer ran — check the worklog for that stretch" style="color:#fca5a5">⚠ Held key</span>':mins(f.uncredited_secs))+'</td></tr>';
     }).join('');
     body.style.textAlign='left'; body.style.color='';
     body.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;">'+sum+'</div>'
@@ -9470,7 +9755,9 @@ body{
       b.onclick=fn; return b;
     };
     wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>','Clients',function(){ try{ openPipeline(); }catch(e){} }));
-    /* Idle flags button removed (Sept 2026) — presence checks retired; openPresenceFlags() kept for history */
+    /* Idle flags button back (Oct 3 2026): held-key flags from the anti-cheat guard land here */
+    wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>','Activity flags',function(){ try{ openPresenceFlags(); }catch(e){} }));
+    wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>','Activity graph',function(){ try{ openActivityGraph(); }catch(e){} }));
     wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>','QA review',function(){ try{ openQaGate(); }catch(e){} }));
     wrap.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg>','Refresh all users',function(){ try{ forceRefreshAll(); }catch(e){} }));
     rail.appendChild(wrap);
@@ -9564,5 +9851,267 @@ body{
 })();
 </script>
 
+
+<script id="qa-daily-admin">
+/* ══ DAILY QA — admin grid (policy from 5 Oct 2026) ════════════════════════════════
+   One row per VA, one column per day. A cell is open only on days the VA worked (has a
+   Time In); other days stay blank by policy. Type 0–10 and it saves on its own.
+   Each day's header has a "10" button: gives 10/10 to everyone who worked that day and
+   has no score yet — then you only adjust the exceptions. */
+var _qad = { month:'', map:{}, worked:{}, from:'', to:'' };
+function _qadToday(){ try{ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date()); }catch(e){ return new Date().toISOString().slice(0,10); } }
+function _qadCls(v){ if(v===''||v==null||isNaN(v)) return ''; v=Number(v); return v>=10?'q10':(v>=9?'q9':(v>=7?'q7':'qlow')); }
+function _qadAvgOf(days){ var v=[]; Object.keys(days||{}).forEach(function(k){ var x=days[k]&&days[k].score; if(x!==''&&x!=null&&!isNaN(x)) v.push(Number(x)); }); if(!v.length) return null; return Math.round(v.reduce(function(a,b){return a+b;},0)/v.length*100)/100; }
+function _qadDays(from,to){ var out=[], d=new Date(from+'T00:00:00Z'), e=new Date(to+'T00:00:00Z'); while(d<=e){ out.push(d.toISOString().slice(0,10)); d.setUTCDate(d.getUTCDate()+1); } return out; }
+async function loadQaDaily(){
+  var box=document.getElementById('qad-box'); if(!box) return;
+  var month=_qaMonthVal();
+  if(!month || month<'2026-10'){ box.innerHTML=''; return; }
+  box.innerHTML='<div class="es">Loading daily QA…</div>';
+  var d=null; try{ var r=await fetch(API+'?action=qa_daily_all&month='+encodeURIComponent(month)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now()); d=await r.json(); }catch(e){}
+  if(!d||!d.ok){ box.innerHTML='<div class="es">Could not load daily QA'+(d&&d.error?(' ('+escAdmin(d.error)+')'):'')+'. Is the backend on build 2026-10-03d?</div>'; return; }
+  if(!d.daily){ box.innerHTML=''; return; }
+  _qad={ month:month, map:d.map||{}, worked:d.worked||{}, from:d.from, to:d.to };
+  if(!_demEmps().length){ try{ var er=await jGet(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  qadRender();
+}
+function qadRender(){
+  var box=document.getElementById('qad-box'); if(!box) return;
+  var days=_qadDays(_qad.from,_qad.to), today=_qadToday();
+  var list=_demEmps().filter(function(e){return e.employee_id && String(e.status||'active').toLowerCase()!=='inactive';})
+    .sort(function(a,b){ return String(a.full_name||a.employee_id).localeCompare(String(b.full_name||b.employee_id)); });
+  var DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var head='<th class="qad-name">Contractor</th>'+days.map(function(dk){
+    var dt=new Date(dk+'T00:00:00Z'), fut=dk>today;
+    return '<th class="qad-dh'+(dk===today?' today':'')+'"><div>'+DOW[dt.getUTCDay()]+'</div><b>'+dt.getUTCDate()+'</b>'+
+      (fut?'':'<button type="button" class="qad-fill" title="Give 10/10 to everyone who worked this day and has no score yet" onclick="qadFillDay(\''+dk+'\')">10</button>')+'</th>'; }).join('')+
+    '<th class="qad-avg-h">Avg /10</th><th class="qad-avg-h">QA %</th>';
+  var body=list.map(function(e){
+    var eL=String(e.employee_id).toLowerCase(), sc=_qad.map[eL]||{}, wk=_qad.worked[eL]||[];
+    var cells=days.map(function(dk){
+      var has=sc[dk], worked=wk.indexOf(dk)>=0, fut=dk>today;
+      if(!worked && !has) return '<td class="qad-off'+(dk===today?' today':'')+'" title="'+(fut?'Not yet':'No Time In this day — not scored')+'">·</td>';
+      var v=has?has.score:'';
+      return '<td class="'+(dk===today?'today':'')+'"><input class="qad-in '+_qadCls(v)+'" type="number" min="0" max="10" step="0.5" value="'+v+'"'+
+        (has&&has.note?' title="'+escAdmin(has.note)+'"':'')+' data-emp="'+escAdmin(e.employee_id)+'" data-date="'+dk+'" onchange="qadSave(this)" placeholder="–"></td>';
+    }).join('');
+    var avg=_qadAvgOf(sc);
+    return '<tr><td class="qad-name">'+escAdmin(e.full_name||e.employee_id)+'<small>'+wk.length+' worked · '+Object.keys(sc).length+' scored</small></td>'+cells+
+      '<td class="qad-avg" id="qad-avg-'+escAdmin(e.employee_id)+'">'+(avg==null?'—':avg)+'</td><td class="qad-avg" id="qad-pct-'+escAdmin(e.employee_id)+'">'+(avg==null?'—':Math.round(avg*10*100)/100)+'</td></tr>';
+  }).join('');
+  box.innerHTML='<div class="qad-head"><div><b>Daily QA</b> <span>· from 5 Oct 2026 · one score out of 10 for every day a VA worked · the scorecard QA = average × 10</span></div>'+
+    '<span class="qad-legend"><i class="q10"></i>10 <i class="q9"></i>9–9.5 <i class="q7"></i>7–8.5 <i class="qlow"></i>below 7 · <b>·</b> no Time In</span></div>'+
+    '<div class="qad-wrap"><table class="qad-t"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>';
+}
+async function qadSave(el){
+  var emp=el.getAttribute('data-emp'), dk=el.getAttribute('data-date'), raw=String(el.value).trim();
+  if(raw!=='' && (isNaN(raw)||Number(raw)<0||Number(raw)>10)){ alert('Scores are 0 to 10.'); el.value=''; return; }
+  el.disabled=true; el.classList.add('saving');
+  try{
+    var r=await fetch(API+'?action=qa_daily_save&employee_id='+encodeURIComponent(emp)+'&date='+encodeURIComponent(dk)+'&score='+encodeURIComponent(raw)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
+    var d=await r.json();
+    if(!d||!d.ok) throw new Error((d&&(d.message||d.error))||'Save failed');
+    var eL=emp.toLowerCase(); _qad.map[eL]=_qad.map[eL]||{};
+    if(d.cleared) delete _qad.map[eL][dk]; else _qad.map[eL][dk]={ score:d.score, note:d.note||'' };
+    el.className='qad-in '+_qadCls(d.cleared?'':d.score);
+    var avg=_qadAvgOf(_qad.map[eL]); var a=document.getElementById('qad-avg-'+emp), p=document.getElementById('qad-pct-'+emp);
+    if(a) a.textContent=(avg==null?'—':avg); if(p) p.textContent=(avg==null?'—':Math.round(avg*10*100)/100);
+  }catch(e){ alert('Could not save: '+e.message); }
+  el.disabled=false; el.classList.remove('saving');
+}
+async function qadFillDay(dk){
+  var items=[];
+  Object.keys(_qad.worked).forEach(function(eL){
+    if((_qad.worked[eL]||[]).indexOf(dk)<0) return; if((_qad.map[eL]||{})[dk]) return;
+    var emp=(_demEmps().find(function(x){ return String(x.employee_id).toLowerCase()===eL; })||{}).employee_id||eL;
+    items.push({ employee_id:emp, date:dk, score:10 });
+  });
+  if(!items.length){ alert('Everyone who worked '+dk+' already has a score.'); return; }
+  if(!confirm('Give 10/10 to '+items.length+' VA'+(items.length>1?'s':'')+' who worked '+dk+' and have no score yet?\n\nYou can still change any of them afterwards.')) return;
+  try{
+    var r=await fetch(API+'?action=qa_daily_bulk&items='+encodeURIComponent(JSON.stringify(items))+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
+    var d=await r.json(); if(!d||!d.ok) throw new Error((d&&d.error)||'Save failed');
+    (d.saved||[]).forEach(function(s){ var eL=String(s.employee_id).toLowerCase(); (_qad.map[eL]=_qad.map[eL]||{})[s.date]={ score:s.score, note:'' }; });
+    qadRender();
+  }catch(e){ alert('Could not save: '+e.message); }
+}
+</script>
+<style id="qa-daily-admin-css">
+#qad-box{ margin:6px 0 18px; }
+#qad-box .qad-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; font-size:13px; color:var(--t1); }
+#qad-box .qad-head span{ color:var(--t3); font-size:12px; }
+#qad-box .qad-legend{ display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--t3); }
+#qad-box .qad-legend i{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-left:6px; }
+#qad-box .qad-wrap{ overflow:auto; border:1px solid var(--bd,rgba(127,127,150,.25)); border-radius:12px; max-height:70vh; }
+#qad-box .qad-t{ border-collapse:separate; border-spacing:0; font-size:12.5px; min-width:100%; }
+#qad-box .qad-t th, #qad-box .qad-t td{ padding:4px 3px; text-align:center; border-bottom:1px solid rgba(127,127,150,.14); white-space:nowrap; }
+#qad-box .qad-t thead th{ position:sticky; top:0; z-index:2; background:var(--bg2,var(--card,#14151c)); font-weight:600; color:var(--t3); font-size:10.5px; }
+#qad-box .qad-t thead th b{ display:block; font-size:13px; color:var(--t1); }
+#qad-box .qad-name{ position:sticky; left:0; z-index:1; background:var(--bg2,var(--card,#14151c)); text-align:left !important; padding:6px 10px !important; min-width:170px; color:var(--t1); font-weight:600; }
+#qad-box thead .qad-name{ z-index:3; }
+#qad-box .qad-name small{ display:block; font-weight:500; font-size:10.5px; color:var(--t3); }
+#qad-box .qad-dh.today, #qad-box td.today{ background:rgba(139,92,246,.08); }
+#qad-box .qad-fill{ margin-top:3px; font-size:10px; font-weight:800; padding:1px 6px; border-radius:999px; border:1px solid rgba(16,185,129,.45); background:transparent; color:#10b981; cursor:pointer; }
+#qad-box .qad-fill:hover{ background:rgba(16,185,129,.12); }
+#qad-box .qad-in{ width:44px; height:30px; text-align:center; font-weight:700; font-size:13px; border-radius:8px; border:1px solid rgba(127,127,150,.3); background:transparent; color:var(--t1); -moz-appearance:textfield; }
+#qad-box .qad-in::-webkit-outer-spin-button, #qad-box .qad-in::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+#qad-box .qad-in.q10, #qad-box .qad-legend .q10{ background:rgba(16,185,129,.16); border-color:rgba(16,185,129,.5); color:#059669; }
+#qad-box .qad-in.q9, #qad-box .qad-legend .q9{ background:rgba(20,184,166,.12); border-color:rgba(20,184,166,.45); color:#0d9488; }
+#qad-box .qad-in.q7, #qad-box .qad-legend .q7{ background:rgba(245,158,11,.14); border-color:rgba(245,158,11,.5); color:#d97706; }
+#qad-box .qad-in.qlow, #qad-box .qad-legend .qlow{ background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.45); color:#dc2626; }
+#qad-box .qad-in.saving{ opacity:.5; }
+#qad-box .qad-off{ color:var(--t3); opacity:.45; }
+#qad-box .qad-avg-h, #qad-box .qad-avg{ font-weight:800; color:var(--t1); padding:4px 10px !important; }
+</style>
+
+<script id="actg-admin-js">
+/* ── Activity graph renderer (shared by the portal and the admin console) ── */
+var ACTV = {
+  tz: 'Asia/Manila',
+  esc: function(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
+  cat: function(r){
+    var inp = ((r.keys||0)+(r.clicks||0)+(r.wheels||0))>0 || (r.moves||0)>=120;
+    if ((r.held_s||0) >= 20) return 'held';
+    if ((r.front_s||0) > 0 && inp) return 'work';
+    if ((r.sys_s||0) >= 20) return 'away';
+    if (!r.det && (r.front_s||0) < 30) return 'nosig';
+    return 'idle';
+  },
+  LBL: { work:'Typing / mouse in the portal', away:'Computer in use, portal in the background', held:'Key held down', idle:'No activity', nosig:'No signal (activity detection off)' },
+  hm: function(iso){ try{ return new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:this.tz}); }catch(e){ return ''; } },
+  sum: function(rows){ var o={ total:rows.length, work:0, away:0, held:0, idle:0, nosig:0 }; var self=this; rows.forEach(function(r){ o[self.cat(r)]++; }); return o; },
+  pct: function(n,t){ return t ? Math.round(n/t*100) : 0; },
+  chips: function(s){
+    var self=this;
+    return ['work','away','held','idle','nosig'].filter(function(k){ return k==='work' || s[k]; }).map(function(k){
+      return '<span class="av-chip c-'+k+'" title="'+self.LBL[k]+'"><i></i>'+self.LBL[k].split(',')[0].replace(' (activity detection off)','')+' · <b>'+s[k]+'m</b> <em>'+self.pct(s[k],s.total)+'%</em></span>'; }).join('');
+  },
+  bars: function(rows){
+    var self=this, html='', prev=null;
+    rows.forEach(function(r){
+      var t=new Date(r.minute).getTime();
+      if (prev!=null && t-prev>90000){ var gap=Math.min(14, Math.round((t-prev)/60000)); html+='<i class="av-gap" style="width:'+gap+'px" title="'+Math.round((t-prev)/60000)+' min not tracked"></i>'; }
+      prev=t;
+      var c=self.cat(r), h=14;
+      if (c==='work') h=30+Math.round(70*Math.min(1, ((r.keys||0)+(r.clicks||0)*2+(r.wheels||0)+(r.moves||0)/250)/40));
+      else if (c==='away') h=46; else if (c==='held') h=100;
+      var tip=self.hm(r.minute)+' — '+self.LBL[c]+' · keys '+(r.keys||0)+' · clicks '+(r.clicks||0)+' · scroll '+(r.wheels||0)+' · mouse '+(r.moves||0)+'px · in front '+(r.front_s||0)+'s'+((r.sys_s||0)?(' · elsewhere '+r.sys_s+'s'):'')+((r.held_s||0)?(' · held '+r.held_s+'s'):'');
+      html+='<i class="av-b c-'+c+'" style="height:'+h+'%" title="'+self.esc(tip)+'"></i>';
+    });
+    return '<div class="av-bars">'+html+'</div>';
+  },
+  groups: function(rows){
+    var map={}, order=[];
+    rows.forEach(function(r){ var k=r.entry_id||'—'; if(!map[k]){ map[k]={ id:k, project:r.project||'', task:r.task||'', rows:[] }; order.push(k); } map[k].rows.push(r); });
+    return order.map(function(k){ return map[k]; });
+  },
+  legend: function(){
+    var self=this; return '<div class="av-legend">'+['work','away','held','idle','nosig'].map(function(k){ return '<span><i class="c-'+k+'"></i>'+self.LBL[k]+'</span>'; }).join('')+'</div>';
+  }
+};
+
+/* ══ ACTIVITY GRAPH — admin viewer (Oct 3 2026) ══════════════════════════════════════
+   Pick a VA and a day → one graph per logged entry, minute by minute:
+     green = typing / mouse in the portal · blue = computer in use, portal in the background
+     red = a key held down · grey = nothing · light grey = no signal (detection off)
+   "Cut" removes minutes from that entry (logged in TimeCuts, the VA is notified with your reason). */
+function _avToday(){ try{ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila'}).format(new Date()); }catch(e){ return new Date().toISOString().slice(0,10); } }
+async function openActivityGraph(empId, date){
+  var old=document.getElementById('av-modal'); if(old) old.remove();
+  if(!_demEmps().length){ try{ var er=await jGet(API+'?action=get_all_employees'); var ed=await er.json(); if(ed&&ed.employees) emps=ed.employees; }catch(e){} }
+  var list=_demEmps().filter(function(e){ return e.employee_id && String(e.status||'active').toLowerCase()!=='inactive'; })
+    .sort(function(a,b){ return String(a.full_name||a.employee_id).localeCompare(String(b.full_name||b.employee_id)); });
+  var ov=document.createElement('div'); ov.id='av-modal';
+  ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
+  ov.innerHTML='<div class="av-box"><div class="av-top"><h2>Activity graph</h2>'+
+    '<select id="av-emp">'+list.map(function(e){ return '<option value="'+escAdmin(e.employee_id)+'"'+(empId&&String(empId).toLowerCase()===String(e.employee_id).toLowerCase()?' selected':'')+'>'+escAdmin(e.full_name||e.employee_id)+'</option>'; }).join('')+'</select>'+
+    '<input id="av-date" type="date" value="'+(date||_avToday())+'">'+
+    '<button class="av-go" onclick="avLoad()">Show</button><span style="flex:1"></span><button class="av-x" onclick="document.getElementById(\'av-modal\').remove()">Close</button></div>'+
+    '<p class="av-note">Counts only — never which keys or what was typed. Blue time can’t be verified on its own: check it against the tool outputs for that task before cutting.</p>'+
+    '<div id="av-body"><div class="av-empty">Pick a VA and a day.</div></div></div>';
+  document.body.appendChild(ov);
+  avLoad();
+}
+var _av={ rows:[], cuts:[], emp:'', date:'' };
+async function avLoad(){
+  var emp=document.getElementById('av-emp').value, date=document.getElementById('av-date').value, body=document.getElementById('av-body');
+  if(!emp||!date) return; body.innerHTML='<div class="av-empty">Loading…</div>';
+  try{
+    var r=await fetch(API+'?action=activity_get&employee_id='+encodeURIComponent(emp)+'&date='+encodeURIComponent(date)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
+    var d=await r.json();
+    if(!d||!d.ok){ body.innerHTML='<div class="av-empty" style="color:#f87171">Could not load'+(d&&d.error?(' ('+escAdmin(d.error)+')'):'')+'. Is the backend on build 2026-10-03e and the activity_log table created?</div>'; return; }
+    _av={ rows:d.rows||[], cuts:d.cuts||[], emp:emp, date:date }; avRender();
+  }catch(e){ body.innerHTML='<div class="av-empty" style="color:#f87171">Network error.</div>'; }
+}
+function avRender(){
+  var body=document.getElementById('av-body'); if(!body) return;
+  var rows=_av.rows;
+  if(!rows.length){ body.innerHTML='<div class="av-empty">No tracked minutes recorded for this day. (Recording starts once the new portal is live.)</div>'; return; }
+  var s=ACTV.sum(rows);
+  var html='<div class="av-sum"><b>'+s.total+' tracked min</b>'+ACTV.chips(s)+'</div>'+ACTV.legend();
+  ACTV.groups(rows).forEach(function(g){
+    var gs=ACTV.sum(g.rows), first=g.rows[0].minute, last=g.rows[g.rows.length-1].minute;
+    var cut=_av.cuts.filter(function(c){ return c.entry_id===g.id; });
+    var suggest=gs.held+gs.idle;
+    html+='<div class="av-grp"><div class="av-gh"><div><b>'+escAdmin(g.project)+(g.task?(' › '+escAdmin(g.task)):'')+'</b>'+
+      '<span>'+ACTV.hm(first)+' – '+ACTV.hm(last)+' · '+gs.total+' min · '+ACTV.pct(gs.work,gs.total)+'% hands-on'+(gs.away?(' · '+gs.away+'m elsewhere'):'')+(gs.held?(' · <em class="av-red">'+gs.held+'m held key</em>'):'')+(gs.idle?(' · '+gs.idle+'m idle'):'')+'</span></div>'+
+      (g.id&&g.id!=='—'?'<button class="av-cut" onclick="avCut(\''+escAdmin(g.id)+'\','+suggest+')">✂ Cut time</button>':'')+'</div>'+
+      ACTV.bars(g.rows)+
+      (cut.length?'<div class="av-cutlog">'+cut.map(function(c){ return '✂ '+c.minutes+' min cut ('+c.hours_before+'h → '+c.hours_after+'h) — '+escAdmin(c.reason); }).join('<br>')+'</div>':'')+
+    '</div>';
+  });
+  body.innerHTML=html;
+}
+async function avCut(entryId, suggest){
+  var m=prompt('How many minutes should be removed from this entry?\n\nSuggested: '+suggest+' (held-key + idle minutes). Blue "elsewhere" minutes are not included — check tool outputs first.', String(suggest||''));
+  if(m==null) return; m=parseInt(m,10); if(!(m>=1)){ alert('Enter a number of minutes.'); return; }
+  var why=prompt('Reason (the VA sees this):', 'No activity recorded while the timer ran');
+  if(why==null) return; if(String(why).trim().length<5){ alert('Give a short reason.'); return; }
+  if(!confirm('Remove '+m+' min from this entry?')) return;
+  try{
+    var r=await fetch(API+'?action=activity_cut&entry_id='+encodeURIComponent(entryId)+'&minutes='+m+'&reason='+encodeURIComponent(why)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now());
+    var d=await r.json();
+    if(!d||!d.ok){ alert('Not cut: '+((d&&(d.message||d.error))||'error')); return; }
+    _av.cuts.push({ entry_id:entryId, minutes:m, hours_before:d.hours_before, hours_after:d.hours_after, reason:why });
+    avRender();
+  }catch(e){ alert('Network error.'); }
+}
+
+</script>
+<style id="actg-admin-css">
+.av-bars{ display:flex; align-items:flex-end; gap:1px; height:54px; padding:4px 6px; border-radius:10px; overflow-x:auto; overflow-y:hidden;
+  background:rgba(127,127,150,.07); border:1px solid rgba(127,127,150,.14); }
+.av-b{ flex:0 0 3px; display:block; border-radius:2px 2px 0 0; min-height:4px; }
+.av-gap{ flex:none; display:block; height:2px; align-self:center; border-top:2px dotted rgba(127,127,150,.45); }
+.c-work{ background:#10b981; } .c-away{ background:#38bdf8; } .c-held{ background:#ef4444; }
+.c-idle{ background:rgba(127,127,150,.45); } .c-nosig{ background:rgba(127,127,150,.22); }
+.av-legend{ display:flex; flex-wrap:wrap; gap:6px 14px; font-size:11px; opacity:.85; margin:6px 0 2px; }
+.av-legend i{ display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+.av-chip{ display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:5px 10px; border-radius:999px; border:1px solid rgba(127,127,150,.22); }
+.av-chip i{ width:8px; height:8px; border-radius:2px; display:inline-block; }
+.av-chip.c-work, .av-chip.c-away, .av-chip.c-held, .av-chip.c-idle, .av-chip.c-nosig{ background:transparent; }
+.av-chip.c-work i{ background:#10b981; } .av-chip.c-away i{ background:#38bdf8; } .av-chip.c-held i{ background:#ef4444; }
+.av-chip.c-idle i{ background:rgba(127,127,150,.5); } .av-chip.c-nosig i{ background:rgba(127,127,150,.25); }
+.av-chip.c-held{ border-color:rgba(239,68,68,.45); color:#ef4444; }
+.av-chip em{ font-style:normal; opacity:.65; }
+#av-modal{ position:fixed; inset:0; z-index:9999; background:rgba(6,8,16,.62); display:flex; align-items:flex-start; justify-content:center; padding:4vh 16px; overflow:auto; }
+#av-modal .av-box{ width:min(1180px,100%); background:#12141c; color:#e9ebf3; border:1px solid rgba(255,255,255,.12); border-radius:18px; padding:18px 20px 22px; box-shadow:0 30px 80px -20px rgba(0,0,0,.7); font:500 13px Inter,sans-serif; }
+#av-modal .av-top{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+#av-modal h2{ font:800 19px Inter,sans-serif; margin:0 8px 0 0; color:#fff; }
+#av-modal select, #av-modal input{ background:#1b1e29; color:#fff; border:1px solid rgba(255,255,255,.16); border-radius:10px; padding:8px 10px; font:600 13px Inter,sans-serif; }
+#av-modal .av-go{ background:linear-gradient(135deg,#8b5cf6,#22d3ee); color:#fff; border:none; border-radius:10px; padding:9px 16px; font:800 13px Inter,sans-serif; cursor:pointer; }
+#av-modal .av-x{ background:rgba(255,255,255,.1); color:#fff; border:1px solid rgba(255,255,255,.2); border-radius:10px; padding:8px 12px; font:700 13px Inter; cursor:pointer; }
+#av-modal .av-note{ color:rgba(255,255,255,.55); font-size:12px; margin:8px 0 12px; }
+#av-modal .av-empty{ text-align:center; padding:30px 0; color:rgba(255,255,255,.6); }
+#av-modal .av-sum{ display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
+#av-modal .av-grp{ margin-top:14px; padding:12px 14px; border:1px solid rgba(255,255,255,.1); border-radius:14px; background:rgba(255,255,255,.03); }
+#av-modal .av-gh{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px; }
+#av-modal .av-gh b{ display:block; color:#fff; font-size:13.5px; }
+#av-modal .av-gh span{ font-size:12px; color:rgba(255,255,255,.6); }
+#av-modal .av-red{ color:#f87171; font-style:normal; font-weight:700; }
+#av-modal .av-cut{ flex:none; background:rgba(239,68,68,.12); color:#fca5a5; border:1px solid rgba(239,68,68,.45); border-radius:10px; padding:7px 12px; font:700 12px Inter; cursor:pointer; }
+#av-modal .av-cutlog{ margin-top:8px; font-size:12px; color:#fca5a5; }
+#av-modal .av-bars{ height:64px; }
+</style>
 </body>
 </html>
