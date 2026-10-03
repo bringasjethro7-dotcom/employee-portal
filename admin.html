@@ -10324,7 +10324,7 @@ html body.adm-aura #login .box{ border:1px solid rgba(255,255,255,.95) !importan
 .aa-inbox .dash-item{ display:flex !important; align-items:center; gap:14px; padding:14px 16px !important; margin-bottom:10px; animation:aaIn .4s cubic-bezier(.2,1.1,.3,1) both; animation-delay:calc(var(--i,0) * 30ms); }
 .aa-inbox .ib-ic{ flex:none; width:42px; height:42px; border-radius:13px; display:flex; align-items:center; justify-content:center; color:#fff; box-shadow:0 10px 18px -12px rgba(30,20,60,.7); }
 .aa-inbox .ib-ic svg{ width:19px; height:19px; }
-.aa-inbox .t-lunch .ib-ic{ background:linear-gradient(135deg,#2dd4bf,#0d9488); } .aa-inbox .t-hours .ib-ic{ background:linear-gradient(135deg,#ff8a3d,#f43f5e); }
+.aa-inbox .t-lunch .ib-ic{ background:linear-gradient(135deg,#2dd4bf,#0d9488); } .aa-inbox .t-rc .ib-ic{ background:linear-gradient(135deg,#ff7a2f,#f43f5e 55%,#a855f7); } .aa-inbox .t-hours .ib-ic{ background:linear-gradient(135deg,#ff8a3d,#f43f5e); }
 .aa-inbox .t-leave .ib-ic{ background:linear-gradient(135deg,#38bdf8,#6366f1); } .aa-inbox .t-coe .ib-ic{ background:linear-gradient(135deg,#a78bfa,#7c3aed); }
 .aa-inbox .t-dem .ib-ic{ background:linear-gradient(135deg,#fbbf24,#f97316); } .aa-inbox .t-pts .ib-ic{ background:linear-gradient(135deg,#fcd34d,#f59e0b 55%,#ea580c); }
 .aa-inbox .ib-tx{ flex:1; min-width:0; }
@@ -10616,7 +10616,12 @@ var ADMAURA = (function(){
   }
 
   /* ── approvals inbox ── */
-  var IB={ lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
+  /* Reddit Central coverage: VAs off today (approved leave / rest day) whose Reddit accounts still need
+     a stand-in or a client-approved hold. Read from Reddit Central's own backend; decided in the tool. */
+  var RC_API='https://script.google.com/macros/s/AKfycbwc0seQ11rMc_9GeAE34jVPYDDsFkMqNhpGCiW8D1qIFu9bZ_e6Aa3SHR8vt8Fq04g5mA/exec';
+  var RC_URL='https://internals.jmbvirtuals.com/reddit.html?tab=coverage';
+  var RC_BASE={ 'Reddit':'Altz', 'Reddit - Casey':'Casey', 'Reddit - MeG':'MeG' };
+  var IB={ rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
   function inboxLoad(force, quiet){
     if(force){ try{ jBust(); }catch(e){} }
     var boot=api('admin_bootstrap').then(function(b){ if(!b || !b.ok) throw new Error('boot'); return b; }).catch(function(){
@@ -10624,8 +10629,16 @@ var ADMAURA = (function(){
         .then(function(R){ return { leave:R[0], coe:R[1], redeem:R[2], lead_demerits:R[3], appeals:R[4], disputes:R[5] }; });
     });
     var lw=api('lunch_work_list').catch(function(){ return {}; });
-    return Promise.all([boot, lw]).then(function(R){
+    var rc=fetch(RC_API+'?action=rc_off_today&with_accounts=1&by=admin&_='+Date.now()).then(function(r){ return r.json(); }).catch(function(){ return {}; });
+    return Promise.all([boot, lw, rc]).then(function(R){
       var b=R[0]||{}, items=[];
+      (((R[2]||{}).off)||[]).forEach(function(o){
+        var acc=o.accounts||{}, open=0, parts=[];
+        Object.keys(acc).forEach(function(pj){ var a=acc[pj], op=Math.max(0,(a.total||0)-(a.covered||0)-(a.held||0)); open+=op; parts.push(E(RC_BASE[pj]||pj)+': '+a.total+(op?' (<b>'+op+' open</b>)':' ✓')); });
+        if(!open) return;
+        items.push({ t:'rc', name:o.name||o.employee_id, date:'', dt:'<b>'+E(o.type||'Off')+'</b> today · '+parts.join(' · ')+'<br>Their Reddit accounts need a stand-in — or a hold if the client approved.',
+          ac:'<button class="bsm edit" onclick="window.open(\''+RC_URL+'\',\'_blank\')">Decide in Reddit Central</button>' });
+      });
       var pend=function(r){ return String(r.status||'pending').toLowerCase()==='pending'; };
       (((R[1]||{}).rows)||[]).filter(pend).forEach(function(x){
         var key=x.employee_id+'|'+x.date; try{ _lwCache[key]=x; }catch(e){}
@@ -10687,12 +10700,12 @@ var ADMAURA = (function(){
     recount();
   }
   function recount(){
-    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 };
+    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 };
     var live=!!document.getElementById('aa-i-body') && S.cur==='inbox';
     if(live){ rows.forEach(function(r){ if(r.style.opacity==='0' || r.style.display==='none') return; var m=(r.className.match(/t-(\w+)/)||[])[1]; if(m){ c[m]++; c.all++; } }); }
-    if(!live || S.iff!=='all'){ c={ all:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ c[x.t]++; c.all++; }); }
+    if(!live || S.iff!=='all'){ c={ all:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ c[x.t]++; c.all++; }); }
     var ch=document.getElementById('aa-i-chips');
-    if(ch) ch.innerHTML=[['all','Everything'],['lunch','Working lunch'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
+    if(ch) ch.innerHTML=[['all','Everything'],['rc','Reddit coverage'],['lunch','Working lunch'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
       .filter(function(k){ return k[0]==='all' || c[k[0]]; })
       .map(function(k){ return '<button type="button" class="aa-chip'+(S.iff===k[0]?' on':'')+'" onclick="ADMAURA.iff(\''+k[0]+'\')">'+k[1]+' <i>'+c[k[0]]+'</i></button>'; }).join('');
     var n=document.getElementById('aa-hdr-n'); if(n){ n.textContent=c.all; n.classList.toggle('zero', !c.all); }

@@ -10623,7 +10623,7 @@ function dateIdleInfo(date) {
   }
   var idle = entries.filter(function(w){ return (typeof isIdleProject === 'function') && isIdleProject(w.project); });
   var idleMins = idle.reduce(function(s, w){ return s + entryMins(w); }, 0);
-  var lunches = idle.filter(function(w){ return String(w.category || '') === 'Lunch Break'; });
+  var lunches = idle.filter(function(w){ return /^lunch( break)?$/i.test(String(w.category || '')); });
   var lunchRange = '';
   if (lunches.length) {
     var starts = [], ends = [];
@@ -10838,6 +10838,9 @@ function loadCategories() {
   }
   var seen = {}; var cats = [];
   nativeProjects.forEach(function(p){ if (p.project === proj && p.category && !seen[p.category]) { seen[p.category] = true; cats.push(p.category); } });
+  /* AUTO_LUNCH_HIDE (Oct 4): with auto-lunch on, the portal files lunch itself — offering a
+     manual "Lunch Break" is what kept VAs tagging it by hand (and doubled lunch). */
+  try { if (window.AUL && AUL.enabled === true && proj === IDLE_PROJECT) cats = cats.filter(function(c){ return !/^lunch/i.test(c); }); } catch(e){}
   if (!cats.length) {
     // No categories defined for this project → skip straight to tasks
     catSel.innerHTML = '<option value="">No categories</option>'; catSel.disabled = true;
@@ -11036,7 +11039,8 @@ function renderTimeBar(entries) {
     else en = s + (parseFloat(e.active_secs) || 0) * 1000;
     if (isNaN(en) || en <= s) en = s + Math.max(60000, (parseFloat(e.active_secs) || 0) * 1000);
     var cat = isIdleProject(e.project) ? (e.category || 'No task') : 'Working';
-    if (TIME_CAT_COLORS[cat] === undefined) cat = 'Working';
+    if (cat === 'Lunch' || (isIdleProject(e.project) && /^lunch/i.test(e.task || ''))) cat = 'Lunch Break';   // the auto-lunch hour (older rows say "Lunch")
+    if (TIME_CAT_COLORS[cat] === undefined) cat = isIdleProject(e.project) ? 'No task' : 'Working';
     blocks.push({ s: s, e: en, cat: cat, live: (e.status === 'running'),
       label: (e.task || e.description || e.category || e.project || 'Working'),
       eid: (e.entry_id || ''),
@@ -11580,6 +11584,18 @@ function _trkPost(action, extra) {
       if (d && (d.success || d.ok)) return;                                  // confirmed saved
       if (d && d.error === 'BUSY' && n < 5) { setTimeout(function(){ attempt(n+1); }, 600*n); return; }
       if (d && d.error === 'LOCKED') showToast('That month is locked — timer changes aren’t allowed.');
+      /* The server refused a start/resume because of lunch. Never leave a timer ticking on
+         screen that the server did not accept — roll it back and let the lunch screen take over. */
+      if (d && (d.error === 'LUNCH' || d.error === 'AUTO_LUNCH') && (action === 'tracker_start' || action === 'tracker_resume')) {
+        showToast(d.message || 'You are on lunch — the timer starts again after it.');
+        try {
+          if (trkRunning && trkRunning.entry_id === params.entry_id) {
+            stopDisplayTick(); _clearActiveMarker(); trkSetRunning(null);
+            renderTimerButtons(); renderPausedList(); updateButtons(); refreshTimeBar();
+          }
+        } catch(e){}
+        try { if (window.AUL) { AUL._synced = 0; AUL.sync(true); } } catch(e){}
+      }
     }).catch(function(){
       if (n < 5) setTimeout(function(){ attempt(n+1); }, 700*n);
       else if (action !== 'tracker_heartbeat') showToast('Couldn’t save your timer change — check your connection and retry.');
@@ -12338,6 +12354,7 @@ async function startTimer() {
   var f = trkFormFields();
   // Require project, plus category/task wherever the project/category provides them
   if (!f.proj) { showToast('Select a Project before starting the timer.'); return; }
+  try { if (window.AUL && AUL.enabled === true && f.proj === IDLE_PROJECT && /^lunch/i.test(f.cat || '')) { showToast('Lunch is automatic now — 12:00–1:00. No need to tag it.'); return; } } catch(e){}
   var projHasCats = nativeProjects.some(function(p){ return p.project === f.proj && p.category; });
   if (projHasCats && !f.cat) { showToast('Select a Category before starting the timer.'); return; }
   var catHasTasks = nativeProjects.some(function(p){ return p.project === f.proj && (p.category||'') === (f.cat||'') && p.task; });
@@ -14728,6 +14745,7 @@ function renderOnlineStrip(online) {
   function avatarFor(id, name) {
     var photo = presencePhotos[id] || employeePhotos[id];
     if (id === 'ADMIN') return '<img src="' + ADMIN_LOGO + '" alt="" style="object-fit:contain;background:#eef0f4;padding:5px;" />';
+    if (!photo && _notes[id] && _notes[id].photo) photo = _notes[id].photo;   // offline: use the photo saved with their note
     if (photo) return '<img src="' + photo + '" alt="" />';
     var initials = String(name || id).split(' ').filter(function(w){ return /^[a-zA-Z]/.test(w); })
                      .map(function(w){ return w[0]; }).slice(0,2).join('').toUpperCase();
@@ -14751,25 +14769,38 @@ function renderOnlineStrip(online) {
             '<span class="ostrip-nm">Your note</span>' +
           '</button>';
 
-  // 2. Everyone with a live note (most recent first), 3. then the rest of the online crowd.
-  var withNotes = [], plain = [];
+  // 2. Online people with a live note (most recent first), 3. the rest of the online crowd,
+  // 4. LAST: people who are offline but left a note that hasn't expired. A night-shift VA's
+  //    note stays readable by the morning shift until its 24 hours are up — it just sits at
+  //    the very end of the strip, after everyone who is actually online.
+  var withNotes = [], plain = [], awayNotes = [];
+  var _onIds = {};
   (_lastOnline || []).forEach(function(emp) {
     if (emp.employee_id === chatEmpId) return;
+    _onIds[String(emp.employee_id).toUpperCase()] = 1;
     (noteIsLive(_notes[emp.employee_id]) ? withNotes : plain).push(emp);
   });
-  // people who left a note but aren't online right now still deserve to show
+  function _stripActive(id) {
+    // roster check that tolerates an ID stored in a different letter case on the note row
+    if (employeeDir[id]) return employeeDir[id].active !== false;
+    var up = String(id).toUpperCase();
+    for (var k in employeeDir) { if (String(k).toUpperCase() === up) return employeeDir[k].active !== false; }
+    return !_dirReady;
+  }
   Object.keys(_notes).forEach(function(id) {
-    if (id === chatEmpId) return;
+    if (String(id).toUpperCase() === String(chatEmpId).toUpperCase()) return;
     if (!noteIsLive(_notes[id])) return;
-    if (withNotes.some(function(e){ return e.employee_id === id; })) return;
-    if (!isActiveUser(id)) return;
-    withNotes.push({ employee_id: id, employee_name: _notes[id].employee_name || id, is_online: false });
+    if (_onIds[String(id).toUpperCase()]) return;          // online → already placed above
+    if (!_stripActive(id)) return;                         // removed from the roster
+    awayNotes.push({ employee_id: id, employee_name: _notes[id].employee_name || id, is_online: false, away: true });
   });
-  withNotes.sort(function(a, b) {
+  function _byNoteTime(a, b) {
     return new Date(_notes[b.employee_id].created_at) - new Date(_notes[a.employee_id].created_at);
-  });
+  }
+  withNotes.sort(_byNoteTime);
+  awayNotes.sort(_byNoteTime);
 
-  withNotes.concat(plain).forEach(function(emp) {
+  withNotes.concat(plain).concat(awayNotes).forEach(function(emp) {
     var id = emp.employee_id, name = emp.employee_name || id;
     var n  = _notes[id];
     var live = noteIsLive(n);
@@ -14778,7 +14809,7 @@ function renderOnlineStrip(online) {
       ? 'replyToNote(\'' + id + '\', \'' + safeName + '\')'
       : 'selectChat(\'' + id + '\', \'' + safeName + '\')';
 
-    html += '<button class="ostrip-item" type="button" data-emp="' + escapeHtml(id) + '" title="' + escapeHtml(name) + '" onclick="' + action + '">' +
+    html += '<button class="ostrip-item' + (emp.away ? ' away' : '') + '" type="button" data-emp="' + escapeHtml(id) + '" title="' + escapeHtml(name) + (emp.away ? ' · offline — note still up' : '') + '" onclick="' + action + '">' +
               (live ? '<span class="ostrip-note" title="' + escapeHtml(n.text) + '">' + escapeHtml(n.text) + '</span>' : '<span class="ostrip-note ghost"></span>') +
               '<span class="ostrip-av' + (emp.is_online ? ' on' : '') + '">' + avatarFor(id, name) +
                 (emp.is_online ? '<i class="ostrip-dot"></i>' : '') +
@@ -36372,6 +36403,13 @@ body.au-light #aul-veil .aul-fp, body.au-light #aul-veil .aul-fl{ color:#4b5068;
 </style>
 
 
+<style id="ostrip-away">
+/* Offline teammates whose note is still live: kept at the END of the strip, avatar dimmed,
+   note bubble fully readable. */
+.ostrip-item.away .ostrip-av{ opacity:.62; filter:grayscale(.5); }
+.ostrip-item.away .ostrip-nm{ opacity:.7; }
+.ostrip-item.away:hover .ostrip-av{ opacity:.9; filter:none; }
+</style>
 <style id="aura-msgrail">
 /* ══ MESSAGES RAIL — JMB-chat style (Oct 3 2026) ══════════════════════════════════
    On the desktop rail: who's online as swipeable circles (with their 24-hour notes),
