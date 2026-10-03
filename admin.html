@@ -10800,5 +10800,194 @@ var ADMAURA = (function(){
   };
 })();
 </script>
+<style id="appeal-tl-css">
+/* ══ HOUR APPEALS — the VA's whole day on one bar, the request laid over it (Oct 3 2026) ══ */
+.aptl{ margin-top:10px; padding:12px 14px 10px; border-radius:16px; background:#fbfaff; border:1px solid rgba(124,58,237,.14); }
+.aptl-h{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:#7a7f96; }
+.aptl-h .sp{ flex:1; }
+.aptl-lg{ display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; letter-spacing:.02em; text-transform:none; color:#6b7086; }
+.aptl-lg i{ width:12px; height:8px; border-radius:3px; display:inline-block; }
+.aptl-row{ display:grid; grid-template-columns:74px minmax(0,1fr); align-items:center; gap:10px; margin-top:8px; }
+.aptl-row .lb{ font-size:11px; font-weight:800; color:#4a4f66; text-align:right; }
+.aptl-trk{ position:relative; height:26px; border-radius:8px; background:repeating-linear-gradient(90deg, rgba(124,58,237,.05) 0 1px, transparent 1px calc(100% / var(--hrs,10))), #fff;
+  border:1px solid rgba(124,58,237,.12); overflow:hidden; }
+.aptl-b{ position:absolute; top:3px; bottom:3px; border-radius:5px; min-width:3px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.35); }
+.aptl-b.w{ background:linear-gradient(135deg,#34d399,#0d9488); }
+.aptl-b.i{ background:repeating-linear-gradient(135deg,#cbd5e1 0 4px,#e2e8f0 4px 8px); }
+.aptl-b.l{ background:repeating-linear-gradient(135deg,#fbbf24 0 4px,#fde68a 4px 8px); }
+.aptl-b.g{ top:2px; bottom:2px; background:rgba(244,63,94,.07); border:1.5px dashed rgba(225,29,72,.75); box-shadow:none; }
+.aptl-b.g span{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:9.5px; font-weight:800; color:#be123c; white-space:nowrap; }
+.aptl-b.me{ outline:2px solid #7c3aed; outline-offset:1px; }
+.aptl-b.rq{ background:linear-gradient(120deg,#a78bfa,#6366f1); }
+.aptl-b.rq.bad{ background:repeating-linear-gradient(135deg,#f43f5e 0 5px,#fb7185 5px 10px); }
+.aptl-b.rq span, .aptl-b.w span{ position:absolute; left:6px; top:50%; transform:translateY(-50%); font-size:10px; font-weight:800; color:#fff; white-space:nowrap; overflow:hidden; max-width:calc(100% - 8px); text-overflow:ellipsis; }
+.aptl-band{ position:absolute; top:0; bottom:0; background:rgba(124,58,237,.08); border-left:1.5px solid rgba(124,58,237,.55); border-right:1.5px solid rgba(124,58,237,.55); pointer-events:none; }
+.aptl-ax{ position:relative; height:16px; margin:4px 0 0 84px; }
+.aptl-ax span{ position:absolute; transform:translateX(-50%); font-size:10px; font-weight:700; color:#9a9db0; white-space:nowrap; }
+.aptl-v{ margin-top:8px; display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border-radius:12px; font-size:12.3px; font-weight:600; line-height:1.4; }
+.aptl-v b{ font-weight:800; }
+.aptl-v.ok{ background:rgba(16,185,129,.10); color:#047857; } .aptl-v.warn{ background:rgba(245,158,11,.12); color:#92400e; }
+.aptl-v.bad{ background:rgba(244,63,94,.10); color:#9f1239; } .aptl-v.info{ background:rgba(99,102,241,.08); color:#3730a3; }
+.aptl-v .ic{ flex:none; font-size:14px; line-height:1.2; }
+.aptl-none{ margin-top:8px; font-size:12px; color:#6b7086; }
+.aptl-sum{ margin-top:6px; font-size:12.5px; color:#4a4f66; }
+.aptl-sum b.w{ color:#047857; } .aptl-sum b.i{ color:#64748b; font-weight:700; }
+.aptl-list{ margin-top:8px; font-size:12px; color:#4a4f66; }
+.aptl-list summary{ cursor:pointer; font-weight:800; color:#7c3aed; list-style:none; }
+.aptl-list summary::-webkit-details-marker{ display:none; }
+.aptl-list summary::before{ content:'\25B8  '; } .aptl-list[open] summary::before{ content:'\25BE  '; }
+.aptl-list .r{ display:flex; gap:10px; padding:4px 0; border-bottom:1px dashed rgba(124,58,237,.12); }
+.aptl-list .r .t{ width:150px; flex:none; font-variant-numeric:tabular-nums; color:#6b7086; } .aptl-list .r .h{ width:52px; flex:none; font-weight:800; }
+.aptl-list .r.idle{ color:#94a3b8; } .aptl-list .r.me{ background:rgba(124,58,237,.06); }
+</style>
+<script id="appeal-tl-js">
+/* Hour appeal review: draws the VA's whole day — work (green), idle (grey), lunch (amber),
+   and the GAPS where nothing was tracked (red dashed) — then lays the requested window over it
+   so you can see at a glance whether the claim fills a gap or overlaps time already tracked.
+   Wraps the existing summary (_appealDayHtml) so every appeals list gets it automatically. */
+(function(){
+  'use strict';
+  var H=3600e3, M=60e3, GAP_MIN=10;
+  var orig=window._appealDayHtml;
+  function E(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+  /* timestamps: "2026-10-02 09:15:00" is Manila wall-clock; anything with a zone parses as-is */
+  function ts(s){
+    s=String(s||'').trim(); if(!s) return null;
+    var m=s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if(m) return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4]-8,+m[5],+(m[6]||0));
+    var t=Date.parse(s); return isNaN(t)?null:t;
+  }
+  function onDay(dk, hhmm){
+    var d=String(dk||'').match(/^(\d{4})-(\d{2})-(\d{2})/), m=String(hhmm||'').match(/^(\d{1,2}):(\d{2})/);
+    if(!d||!m) return null; return Date.UTC(+d[1],+d[2]-1,+d[3],+m[1]-8,+m[2]);
+  }
+  function clock(ms){ var d=new Date(ms+8*H), h=d.getUTCHours(), mm=d.getUTCMinutes(); return (h%12||12)+(mm?':'+(mm<10?'0':'')+mm:'')+(h<12?'a':'p'); }
+  function clockL(ms){ var d=new Date(ms+8*H), h=d.getUTCHours(), mm=d.getUTCMinutes(); return (h%12||12)+':'+(mm<10?'0':'')+mm+' '+(h<12?'AM':'PM'); }
+  function dur(min){ min=Math.round(min); var h=Math.floor(min/60), m=min%60; return h ? (h+'h'+(m?' '+m+'m':'')) : (m+'m'); }
+  function isIdle(e){ return String(e.project||'').toLowerCase().indexOf('idle')>=0; }
+  function isLunch(e){ var c=(String(e.category||'')+' '+String(e.task||'')).toLowerCase(); return isIdle(e) && /lunch|dinner|meal/.test(c); }
+  function overlap(a0,a1,b0,b1){ return Math.max(0, Math.min(a1,b1)-Math.max(a0,b0)); }
+
+  function timeline(x, sum, list){
+    var dk=String(x.date||'');
+    var blocks=(x.day_entries||[]).map(function(e){
+      var s=ts(e.start), t=ts(e.end);
+      if(s==null) return null;
+      if(t==null || t<=s){ var h=parseFloat(e.hours)||0; t=s+h*H; }
+      if(t<=s) return null;
+      return { s:s, e:t, k:isLunch(e)?'l':(isIdle(e)?'i':'w'), lab:(e.task||e.project||'Task'), proj:e.project||'', id:e.id||'', hours:e.hours };
+    }).filter(Boolean).sort(function(a,b){ return a.s-b.s; });
+
+    /* the appealed entry itself (time corrections / retags) */
+    var me=null; var es=ts(x.entry_start), ee=ts(x.entry_end);
+    if(es!=null){ me={ s:es, e:(ee!=null&&ee>es)?ee:es+(parseFloat(x.hours)||0)*H }; }
+    blocks.forEach(function(b){ if(x.entry_id && b.id===x.entry_id) b.me=true; });
+
+    /* requested window */
+    var rq=null;
+    if(x.claim_start && x.claim_end){
+      var rs=onDay(dk, x.claim_start), re=onDay(dk, x.claim_end);
+      if(rs!=null && re!=null){
+        if(re<=rs) re+=24*H;
+        /* night shift: a window that sits right after midnight belongs to the next calendar day */
+        if(blocks.length && re < blocks[0].s - 6*H){ rs+=24*H; re+=24*H; }
+        rq={ s:rs, e:re };
+      }
+    }
+    if(!blocks.length && !rq && !me) return '';
+
+    /* lunch: use the recorded lunch block; if none, assume the auto-lunch hour so it never reads as a gap */
+    var all=blocks.slice();
+    var hasLunch=blocks.some(function(b){ return b.k==='l'; });
+    var ref=blocks.length ? blocks[0].s : (rq ? rq.s : me.s);
+    if(!hasLunch){
+      var startH=new Date(ref+8*H).getUTCHours(), night=(startH>=17 || startH<4);
+      var ls=onDay(dk, night?'00:00':'12:00'); if(night) ls+=24*H;
+      all.push({ s:ls, e:ls+H, k:'l', lab:'Lunch (auto)', auto:true });
+      all.sort(function(a,b){ return a.s-b.s; });
+    }
+    /* axis */
+    var pts=[]; all.forEach(function(b){ if(b.auto && !hasLunch && blocks.length && (b.e<blocks[0].s || b.s>blocks[blocks.length-1].e)) return; pts.push(b.s,b.e); });
+    if(rq) pts.push(rq.s, rq.e); if(me) pts.push(me.s, me.e);
+    var lo=Math.min.apply(null,pts), hi=Math.max.apply(null,pts);
+    lo=Math.floor((lo-30*M)/H)*H; hi=Math.ceil((hi+30*M)/H)*H; if(hi-lo<4*H) hi=lo+4*H;
+    var span=hi-lo, hrs=Math.round(span/H);
+    var pct=function(t){ return ((t-lo)/span*100).toFixed(3)+'%'; };
+    var wid=function(a,b){ return Math.max(0.35,(b-a)/span*100).toFixed(3)+'%'; };
+
+    /* gaps between the first and last thing recorded (lunch counts as accounted for) */
+    var shown=all.filter(function(b){ return b.s<hi && b.e>lo; });
+    var gaps=[], cur=null;
+    shown.forEach(function(b){ if(cur!=null && b.s-cur>=GAP_MIN*M) gaps.push({ s:cur, e:b.s }); cur=(cur==null)?b.e:Math.max(cur,b.e); });
+
+    /* recorded row */
+    var rec='';
+    gaps.forEach(function(g){ var m=(g.e-g.s)/M; rec+='<div class="aptl-b g" style="left:'+pct(g.s)+';width:'+wid(g.s,g.e)+'" title="Nothing tracked '+clockL(g.s)+' – '+clockL(g.e)+' ('+dur(m)+')">'+((g.e-g.s)/span>0.07?'<span>gap '+dur(m)+'</span>':'')+'</div>'; });
+    shown.forEach(function(b){
+      var nm=b.k==='w' ? b.lab : (b.k==='l' ? (b.auto?'Lunch (auto)':'Lunch') : ('Idle'+(b.lab&&b.lab!=='Task'?' · '+b.lab:'')));
+      rec+='<div class="aptl-b '+b.k+(b.me?' me':'')+'" style="left:'+pct(b.s)+';width:'+wid(b.s,b.e)+'" title="'+E(nm)+' · '+clockL(b.s)+' – '+clockL(b.e)+(b.proj&&b.k==='w'?' · '+E(b.proj):'')+'">'+(b.k==='w' && (b.e-b.s)/span>0.12 ? '<span>'+E(b.lab)+'</span>' : '')+'</div>';
+    });
+    if(me && !blocks.some(function(b){ return b.me; })) rec+='<div class="aptl-b w me" style="left:'+pct(me.s)+';width:'+wid(me.s,me.e)+'" title="The entry being corrected"></div>';
+    var band=rq ? '<div class="aptl-band" style="left:'+pct(rq.s)+';width:'+wid(rq.s,rq.e)+'"></div>' : '';
+
+    /* verdict */
+    var v='', vk='info', ic='ℹ️';
+    var claimH=parseFloat(x.claim_hours); claimH=isNaN(claimH)?null:claimH;
+    var retag=String(x.appeal_type||'').toLowerCase()==='retag';
+    var gapMin=gaps.reduce(function(s,g){ return s+(g.e-g.s)/M; },0);
+    if(retag){ v='Retag only — the time stays the same; check the outlined block is the right one.'; }
+    else if(rq && !blocks.length){ vk='warn'; ic='\u26a0\ufe0f'; v='<b>Nothing was tracked at all on this day.</b> The request ('+clockL(rq.s)+' – '+clockL(rq.e)+') can\u2019t be checked against anything \u2014 verify with the VA before approving.'; }
+    else if(rq){
+      var reqMin=(rq.e-rq.s)/M, onWork=0, onIdle=0, onLunch=0;
+      shown.forEach(function(b){ var o=overlap(rq.s,rq.e,b.s,b.e)/M; if(!o) return; if(b.me) return; if(b.k==='w') onWork+=o; else if(b.k==='l') onLunch+=o; else onIdle+=o; });
+      var free=Math.max(0, reqMin-onWork-onIdle-onLunch);
+      if(onWork>=1){ vk='bad'; ic='⚠️'; v='<b>Overlaps tracked work: '+dur(onWork)+'</b> of the '+dur(reqMin)+' requested ('+clockL(rq.s)+' – '+clockL(rq.e)+') is already paid as work. Approving would count it twice.'+(free>=1?' Only '+dur(free)+' falls in untracked time.':''); }
+      else if(onLunch>=1){ vk='warn'; ic='🍽️'; v='<b>Includes '+dur(onLunch)+' of lunch.</b> '+(free>=1?dur(free)+' is in untracked time. ':'')+'Only approve the lunch part if a working-lunch was agreed.'; }
+      else if(onIdle>=1){ vk='warn'; ic='🟡'; v='<b>'+dur(onIdle)+' was logged as idle</b> — the VA says it was work. '+(free>=1?dur(free)+' is in untracked time.':'')+' Check the reason before approving.'; }
+      else { vk='ok'; ic='✅'; v='<b>Fills a gap.</b> The whole '+dur(reqMin)+' ('+clockL(rq.s)+' – '+clockL(rq.e)+') sits in time where nothing was tracked.'; }
+      if(claimH!=null && Math.abs(claimH*60-reqMin)>=10) v+=' <br>Note: the window is '+dur(reqMin)+' but the claim is '+claimH.toFixed(2)+'h.';
+    } else {
+      v='<b>No time window on this request</b> (filed before From/To was saved, or left blank).'+
+        (claimH!=null ? ' Claim: <b>'+claimH.toFixed(2)+'h</b>' : '')+
+        (blocks.length ? ' · untracked gaps this day: <b>'+(gapMin>=1?dur(gapMin):'none')+'</b>.' : '.')+
+        (claimH!=null && blocks.length && gapMin>=1 && claimH*60>gapMin+10 ? ' The claim is bigger than every gap combined — part of it would overlap tracked time.' : '');
+      if(claimH!=null && blocks.length && claimH*60>gapMin+10){ vk='warn'; ic='⚠️'; }
+    }
+
+    /* axis labels: every hour, or every 2 on long days */
+    var step=hrs>14?2:1, ax='';
+    for(var t=lo; t<=hi; t+=step*H) ax+='<span style="left:'+pct(t)+'">'+clock(t)+'</span>';
+    return '<div class="aptl">'+
+      '<div class="aptl-h">Day timeline · '+E(dk)+'<span class="sp"></span>'+
+        '<span class="aptl-lg"><i style="background:linear-gradient(135deg,#34d399,#0d9488)"></i>Work</span>'+
+        '<span class="aptl-lg"><i style="background:repeating-linear-gradient(135deg,#cbd5e1 0 3px,#e2e8f0 3px 6px)"></i>Idle</span>'+
+        '<span class="aptl-lg"><i style="background:repeating-linear-gradient(135deg,#fbbf24 0 3px,#fde68a 3px 6px)"></i>Lunch</span>'+
+        '<span class="aptl-lg"><i style="border:1.5px dashed #e11d48;background:rgba(244,63,94,.07)"></i>Gap</span>'+
+        '<span class="aptl-lg"><i style="background:linear-gradient(120deg,#a78bfa,#6366f1)"></i>Request</span></div>'+(sum||'')+
+      '<div class="aptl-row"><span class="lb">Recorded</span><div class="aptl-trk" style="--hrs:'+hrs+'">'+band+rec+'</div></div>'+
+      '<div class="aptl-row"><span class="lb">Request</span><div class="aptl-trk" style="--hrs:'+hrs+'">'+band+
+        (rq ? '<div class="aptl-b rq'+(vk==='bad'?' bad':'')+'" style="left:'+pct(rq.s)+';width:'+wid(rq.s,rq.e)+'" title="Requested '+clockL(rq.s)+' – '+clockL(rq.e)+'"><span>'+clock(rq.s)+'–'+clock(rq.e)+'</span></div>' : '')+
+      '</div></div>'+
+      '<div class="aptl-ax">'+ax+'</div>'+
+      '<div class="aptl-v '+vk+'"><span class="ic">'+ic+'</span><span>'+v+'</span></div>'+(list||'')+'</div>';
+  }
+  window._appealTimelineHtml=timeline;
+  window._appealDayHtml=function(x){
+    var day=x.day_entries||[];
+    if(!day.length && !(x.claim_start && x.claim_end) && !x.entry_start){ try{ return orig ? orig(x) : ''; }catch(e){ return ''; } }
+    var tot=Number(x.day_total)||0, prod=(x.day_productive!=null) ? Number(x.day_productive) : day.reduce(function(s,e){ return s+(isIdle(e)?0:(Number(e.hours)||0)); },0);
+    var idle=Math.max(0, tot-prod), cnt=(x.day_count!=null ? x.day_count : day.length);
+    var sum='<div class="aptl-sum">Tracked that day: <b class="w">'+prod.toFixed(2)+'h work</b>'+(idle>0.004?' \u00b7 <b class="i">'+idle.toFixed(2)+'h idle/lunch</b>':'')+' \u00b7 <b>'+tot.toFixed(2)+'h</b> total \u00b7 '+cnt+' entr'+(cnt===1?'y':'ies')+'</div>';
+    var rows=day.slice().sort(function(a,b){ return (ts(a.start)||0)-(ts(b.start)||0); }).map(function(e){
+      var s0=ts(e.start), e0=ts(e.end), idl=isIdle(e), mine=(x.entry_id && e.id===x.entry_id);
+      return '<div class="r'+(idl?' idle':'')+(mine?' me':'')+'"><span class="t">'+(s0!=null?clockL(s0):'\u2014')+' \u2013 '+(e0!=null?clockL(e0):'\u2014')+'</span><span class="h">'+(Number(e.hours)||0).toFixed(2)+'h</span><span>'+E(idl?('Idle'+(e.category?' \u00b7 '+e.category:'')):(e.task||e.project||'Task'))+(idl?'':' <span style="color:#9a9db0">\u00b7 '+E(e.project||'')+'</span>')+(mine?' <b style="color:#7c3aed">\u2190 this entry</b>':'')+'</span></div>';
+    }).join('');
+    var list=day.length ? '<details class="aptl-list"><summary>Show the '+cnt+' entr'+(cnt===1?'y':'ies')+'</summary>'+rows+'</details>' : '';
+    var tl=''; try{ tl=timeline(x, sum, list); }catch(e){ tl=''; }
+    if(!tl){ try{ return orig ? orig(x) : ''; }catch(e){ return ''; } }
+    return tl;
+  };
+})();
+</script>
 </body>
 </html>
