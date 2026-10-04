@@ -10627,7 +10627,16 @@ var ADMAURA = (function(){
   var RC_API='https://script.google.com/macros/s/AKfycbwc0seQ11rMc_9GeAE34jVPYDDsFkMqNhpGCiW8D1qIFu9bZ_e6Aa3SHR8vt8Fq04g5mA/exec';
   var RC_URL='https://internals.jmbvirtuals.com/reddit.html?tab=coverage';
   var RC_BASE={ 'Reddit':'Altz', 'Reddit - Casey':'Casey', 'Reddit - MeG':'MeG' };
-  var IB={ rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
+  /* Reddit Central deletion requests (Oct 5): a VA can't delete a recorded account — they ask, the owner
+     decides here or in the tool. Approve deletes it; Decline clears the request. */
+  window.rcDelDecide=function(id, dec, btn){
+    if(dec==='approve' && !confirm('Delete this Reddit account from Reddit Central? It stays in the history log.')) return;
+    if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+    fetch(RC_API+'?action=pa_del_decide&by=admin&id='+encodeURIComponent(id)+'&decision='+dec+'&_='+Date.now()).then(function(r){ return r.json(); })
+      .then(function(d){ if(!(d&&d.ok)){ alert('Could not save: '+((d&&d.error)||'unknown')); if(btn){ btn.disabled=false; btn.textContent=dec==='approve'?'Approve delete':'Decline'; } return; } inboxLoad(true); })
+      .catch(function(){ alert('Connection error — try again.'); if(btn) btn.disabled=false; });
+  };
+  var IB={ rcdel:{ l:'Reddit deletion', ic:'warn' }, rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
   function inboxLoad(force, quiet){
     if(force){ try{ jBust(); }catch(e){} }
     var boot=api('admin_bootstrap').then(function(b){ if(!b || !b.ok) throw new Error('boot'); return b; }).catch(function(){
@@ -10638,6 +10647,11 @@ var ADMAURA = (function(){
     var rc=fetch(RC_API+'?action=rc_off_today&with_accounts=1&by=admin&_='+Date.now()).then(function(r){ return r.json(); }).catch(function(){ return {}; });
     return Promise.all([boot, lw, rc]).then(function(R){
       var b=R[0]||{}, items=[];
+      (((R[2]||{}).delreqs)||[]).forEach(function(q){
+        items.push({ t:'rcdel', name:q.by_name||q.by, date:String(q.at||'').slice(0,10),
+          dt:'Wants to delete <b>'+E(q.handle)+'</b> · '+E(RC_BASE[q.project]||q.project)+(q.status?' · '+E(q.status):'')+(q.reason?'<br><q>'+E(q.reason)+'</q>':''),
+          ac:'<button class="bsm danger" onclick="rcDelDecide(\''+E(q.id)+'\',\'approve\',this)">Approve delete</button><button class="bsm edit" onclick="rcDelDecide(\''+E(q.id)+'\',\'decline\',this)">Decline</button>' });
+      });
       (((R[2]||{}).off)||[]).forEach(function(o){
         var acc=o.accounts||{}, open=0, parts=[];
         Object.keys(acc).forEach(function(pj){ var a=acc[pj], op=Math.max(0,(a.total||0)-(a.covered||0)-(a.held||0)); open+=op; parts.push(E(RC_BASE[pj]||pj)+': '+a.total+(op?' (<b>'+op+' open</b>)':' ✓')); });
@@ -10706,12 +10720,12 @@ var ADMAURA = (function(){
     recount();
   }
   function recount(){
-    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 };
+    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 };
     var live=!!document.getElementById('aa-i-body') && S.cur==='inbox';
     if(live){ rows.forEach(function(r){ if(r.style.opacity==='0' || r.style.display==='none') return; var m=(r.className.match(/t-(\w+)/)||[])[1]; if(m){ c[m]++; c.all++; } }); }
-    if(!live || S.iff!=='all'){ c={ all:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ c[x.t]++; c.all++; }); }
+    if(!live || S.iff!=='all'){ c={ all:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ c[x.t]++; c.all++; }); }
     var ch=document.getElementById('aa-i-chips');
-    if(ch) ch.innerHTML=[['all','Everything'],['rc','Reddit coverage'],['lunch','Working lunch'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
+    if(ch) ch.innerHTML=[['all','Everything'],['rcdel','Reddit deletions'],['rc','Reddit coverage'],['lunch','Working lunch'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
       .filter(function(k){ return k[0]==='all' || c[k[0]]; })
       .map(function(k){ return '<button type="button" class="aa-chip'+(S.iff===k[0]?' on':'')+'" onclick="ADMAURA.iff(\''+k[0]+'\')">'+k[1]+' <i>'+c[k[0]]+'</i></button>'; }).join('');
     var n=document.getElementById('aa-hdr-n'); if(n){ n.textContent=c.all; n.classList.toggle('zero', !c.all); }
