@@ -9045,9 +9045,9 @@ async function openPresenceFlags(){
   ov.innerHTML='<div style="background:#12141c;border:1px solid rgba(255,255,255,.14);border-radius:18px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7);">'
     +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">'
     +'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ffb27a" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>'
-    +'<h2 style="font:800 19px Inter,sans-serif;color:#fff;margin:0;">Idle flags — missed checks &amp; held keys</h2>'
+    +'<h2 style="font:800 19px Inter,sans-serif;color:#fff;margin:0;">Idle flags — missed checks, night checks &amp; held keys</h2>'
     +'<span style="flex:1"></span><button onclick="closePresenceFlags()" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:7px 12px;font:700 13px Inter;cursor:pointer;">Close</button></div>'
-    +'<p style="color:rgba(255,255,255,.55);font:500 12.5px Inter;margin:0 0 14px;">Last 14 days. A miss means the VA didn’t confirm a random presence check, so the timer stopped and the idle time since their last confirmed activity was <b style="color:#ffb27a">not credited</b>.</p>'
+    +'<p style="color:rgba(255,255,255,.55);font:500 12.5px Inter;margin:0 0 14px;">Last 14 days. A miss means the VA didn’t confirm a random presence check, so the timer stopped and the idle time since their last confirmed activity was <b style="color:#ffb27a">not credited</b>. 🌙 <b style="color:#a5b4fc">Night check missed</b> = the 3–7 AM typing word wasn’t typed in 15 s.</p>'
     +'<div id="pflag-body" style="color:rgba(255,255,255,.6);font:600 13px Inter;text-align:center;padding:26px 0;">Loading…</div></div>';
   document.body.appendChild(ov);
   try{
@@ -9056,20 +9056,20 @@ async function openPresenceFlags(){
     var body=document.getElementById('pflag-body'); if(!body) return;
     if(!d||!d.ok){ body.innerHTML='<span style="color:#f87171">Could not load'+(d&&d.error?(' ('+pipeEsc(d.error)+')'):'')+'.</span>'; return; }
     var flags=d.flags||[];
-    if(!flags.length){ body.innerHTML='<span style="color:#7ee0a8">No missed presence checks in the last 14 days. ✅</span>'; return; }
+    if(!flags.length){ body.innerHTML='<span style="color:#7ee0a8">No missed presence or night checks in the last 14 days. ✅</span>'; return; }
     // Per-employee summary
-    var byEmp={}; flags.forEach(function(f){ var k=f.employee_id||'?'; (byEmp[k]=byEmp[k]||{n:0,secs:0,held:0}); byEmp[k].n++; byEmp[k].secs+=(f.uncredited_secs||0); if(f.outcome==='held_key') byEmp[k].held++; });
+    var byEmp={}; flags.forEach(function(f){ var k=f.employee_id||'?'; (byEmp[k]=byEmp[k]||{n:0,secs:0,held:0,night:0}); byEmp[k].n++; byEmp[k].secs+=(f.uncredited_secs||0); if(f.outcome==='held_key') byEmp[k].held++; if(f.outcome==='night_missed') byEmp[k].night++; });
     var mins=function(s){ var m=Math.round((s||0)/60); return m>=60?(Math.floor(m/60)+'h '+(m%60)+'m'):(m+'m'); };
     var sum=Object.keys(byEmp).sort(function(a,b){return byEmp[b].secs-byEmp[a].secs;}).map(function(k){
       return '<span style="display:inline-flex;gap:7px;align-items:center;background:rgba(255,120,60,.14);border:1px solid rgba(255,120,60,.4);color:#ffcaa6;border-radius:999px;padding:5px 11px;font:700 12.5px Inter;">'
-        +pipeEsc(k)+' · '+byEmp[k].n+'× · '+mins(byEmp[k].secs)+' uncredited'+(byEmp[k].held?(' · <b style="color:#fca5a5">'+byEmp[k].held+'× held key</b>'):'')+'</span>';
+        +pipeEsc(k)+' · '+byEmp[k].n+'× · '+mins(byEmp[k].secs)+' uncredited'+(byEmp[k].held?(' · <b style="color:#fca5a5">'+byEmp[k].held+'× held key</b>'):'')+(byEmp[k].night?(' · <b style="color:#a5b4fc">'+byEmp[k].night+'× night check missed</b>'):'')+'</span>';
     }).join(' ');
     var rows=flags.map(function(f){
       return '<tr style="border-top:1px solid rgba(255,255,255,.08)">'
         +'<td style="padding:8px 10px;color:rgba(255,255,255,.62);font:600 12px Inter;white-space:nowrap;">'+pipeEsc(f.ts)+'</td>'
         +'<td style="padding:8px 10px;color:#fff;font:700 12.5px Inter;">'+pipeEsc(f.employee_id)+'</td>'
         +'<td style="padding:8px 10px;color:rgba(255,255,255,.75);font:600 12px Inter;">'+pipeEsc(f.task||f.project||'—')+'</td>'
-        +'<td style="padding:8px 10px;color:#ffb27a;font:800 12.5px Inter;white-space:nowrap;text-align:right;">'+(f.outcome==='held_key'?'<span title="A key auto-repeated for 30s+ while the timer ran — check the worklog for that stretch" style="color:#fca5a5">⚠ Held key</span>':mins(f.uncredited_secs))+'</td></tr>';
+        +'<td style="padding:8px 10px;color:#ffb27a;font:800 12.5px Inter;white-space:nowrap;text-align:right;">'+(f.outcome==='held_key'?'<span title="A key auto-repeated for 30s+ while the timer ran — check the worklog for that stretch" style="color:#fca5a5">⚠ Held key</span>':f.outcome==='night_missed'?'<span title="3–7 AM typing check not answered in 15 s — the timer was stopped at the moment the check appeared" style="color:#a5b4fc">🌙 Night check missed</span>':mins(f.uncredited_secs))+'</td></tr>';
     }).join('');
     body.style.textAlign='left'; body.style.color='';
     body.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;">'+sum+'</div>'
