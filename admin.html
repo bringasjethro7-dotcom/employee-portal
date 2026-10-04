@@ -6359,6 +6359,9 @@ function _scPaint(rows){
     }
   }catch(_mv){}
   var dash = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v).toFixed(0) : '—'; };
+  /* Project-tool source (Oct 2026): a small tag where Reddit Central fed the number, with the hours share. */
+  var xt = function(sc, k){ var x=sc&&sc.ext&&sc.ext.reddit; if(!x || x[k]===null || x[k]===undefined) return '';
+    return ' <sup title="Reddit Central '+parseFloat(x[k]).toFixed(1)+' · '+x.share+'% of this month\'s hours on Reddit'+(x.share<100?' (blended with the portal number)':'')+'" style="font-size:9px;font-weight:800;color:#ff4500;letter-spacing:.02em;cursor:help">RC</sup>'; };
   tbody.innerHTML = rows.map(function(sc, i) {
     var overall = (sc.overall!==''&&sc.overall!=null) ? parseFloat(sc.overall).toFixed(2) : '—';
     var dem = (sc.demerit_score!==''&&sc.demerit_score!=null&&!isNaN(parseFloat(sc.demerit_score))) ? parseFloat(sc.demerit_score).toFixed(0) : '—';
@@ -6375,13 +6378,13 @@ function _scPaint(rows){
     return '<tr>' +
       '<td>' + rk + mvH + '<strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
       '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
-      '<td><span style="color:#2563eb;font-weight:600;">' + dash(sc.productivity) + '</span></td>' +
-      '<td><span style="color:#0d9488;font-weight:600;">' + dash(sc.quality) + '</span></td>' +
+      '<td><span style="color:#2563eb;font-weight:600;">' + dash(sc.productivity) + '</span>' + xt(sc,'productivity') + '</td>' +
+      '<td><span style="color:#0d9488;font-weight:600;">' + dash(sc.quality) + '</span>' + xt(sc,'quality') + '</td>' +
       '<td><span style="color:#d97706;font-weight:600;">' + dash(sc.attendance) + '</span></td>' +
       '<td><span style="color:#9333ea;font-weight:600;">' + dash(sc.assessment) + '</span></td>' +
       '<td><span onclick="openSalesBreakdown(\''+_ce(sc.employee_id)+'\')" title="How is this Team Sales score computed?" style="color:#0891b2;font-weight:600;cursor:pointer;border-bottom:1px dashed rgba(8,145,178,.5);">' + dash(sc.team_sales) + '</span></td>' +
       '<td><span style="color:' + demCol + ';font-weight:600;">' + dem + '</span></td>' +
-      '<td><span style="color:#0ea5a4;font-weight:600;">' + dash(String(sc.month||'')>='2026-09' ? sc.results : sc.csat) + '</span></td>' +
+      '<td><span style="color:#0ea5a4;font-weight:600;">' + dash(String(sc.month||'')>='2026-09' ? sc.results : sc.csat) + '</span>' + xt(sc,'results') + '</td>' +
       '<td><span style="color:#a855f7;font-weight:600;">' + dash(sc.innovation) + '</span></td>' +
       '<td><strong style="color:var(--o3);">' + overall + '</strong>' + dvH + '</td>' +
     '</tr>';
@@ -8617,6 +8620,9 @@ async function scShowCurrentProductivity(){
       if (hint) hint.innerHTML = 'The Productivity Hub measured <b>' + (tool != null ? tool : '\u2014') +
         '</b>' + (sc.prod_final ? ' (final)' : ' (live \u2014 still moving as the cutoff fills)') +
         '. Type a number only to <b>override</b> it. An override counts as final, so the VA sees it straight away.';
+      var _rx = sc.ext && sc.ext.reddit;
+      if (hint && _rx && _rx.productivity != null) hint.innerHTML += '<br><b style="color:#ff4500;">Reddit Central: ' + _rx.productivity + '</b> on ' + _rx.share + '% of this month\'s hours' +
+        (_rx.share < 100 ? ' — blended with the Hub score' : '') + ' → counted as <b>' + (sc.productivity != null ? sc.productivity : '—') + '</b>.';
     }
   }catch(e){ box.placeholder = 'blank = use the Productivity Hub score'; }
 }
