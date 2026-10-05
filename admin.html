@@ -1891,6 +1891,7 @@ function jGet(url, ttl, timeout){
   if(ttl==null){ ttl=(_act&&_jTTL[_act]!=null)?_jTTL[_act]:1500; }
   var TO = timeout || (_act&&_jTO[_act]) || 45000;
   var key=_jKey(url), now=Date.now(), c=_jCache[key];
+  if(c && c.feed && (now-c.t)<90000) return Promise.resolve(new Response(c.txt));   // seeded from the admin snapshot feed (≤20 s old) — see adminFeed
   if(ttl>0 && c && (now-c.t)<ttl){
     // Serve from cache. Once it's past half its TTL, refresh in the BACKGROUND (P2 lane) so the
     // next read is instant AND fresh — never serves data older than the TTL (stale-while-revalidate).
@@ -1910,7 +1911,7 @@ function jGet(url, ttl, timeout){
     throw e;
   });
 }
-function jBust(){ _jCache={}; try{ sessionStorage.removeItem('_jSnap'); }catch(e){} }
+function jBust(){ _jCache={}; try{ sessionStorage.removeItem('_jSnap'); }catch(e){} try{ adminFeed.lastBust=Date.now(); }catch(_f){} }   // a write just happened: the snapshot must be newer than this before it is trusted again
 /* ROAD TO 20,000 HOURS — fill the dashboard milestone bar (one cheap cached endpoint). */
 (function(){
   function go(){
@@ -2007,9 +2008,60 @@ function togglePinView(id,btn){
   btn.setAttribute('aria-label',reveal?'Hide password':'Show password');
 }
 var _adminEntered=false;
+/* ═══ ADMIN SNAPSHOT FEED (Oct 5, 2026) — the fast path ═══
+   feedCron publishes admin/admin_live.json (private bucket) every minute while a console is open: the whole
+   bootstrap bundle + lunch list + pending invoices + open tool requests. We fetch it from the CDN every 20 s
+   through a signed URL (minted once, 12 h) and seed the jGet cache with it, flagged feed:true, so the
+   dashboard, Live team board, Inbox and the first open of most panels read a ~100 ms CDN answer instead of
+   queueing behind Apps Script. Writes still go to Apps Script and jBust() drops the seeds, so a change is
+   read fresh at once and the next snapshot carries it. If the snapshot is older than 3 min (cron down, bucket
+   missing) nothing is seeded and every panel simply uses its normal path. */
+var adminFeed={ url:'', exp:0, at:0, ok:0, fail:0, timer:null };
+function _afSeed(urlPart, obj){ try{ if(obj && !obj.error) _jCache[_jKey(API+'?action='+urlPart)]={ t:Date.now(), txt:JSON.stringify(obj), feed:true }; }catch(_e){} }
+async function adminFeedUrl(){
+  try{ var r=await jGet(API+'?action=admin_feed_url&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json();
+    if(d && d.ok && d.url){ adminFeed.url=d.url; adminFeed.exp=d.exp||0; try{ sessionStorage.setItem('adm_feed', JSON.stringify({ url:d.url, exp:d.exp })); }catch(_s){} return true; }
+    adminFeed.err=(d&&d.error)||'no url'; return false;
+  }catch(e){ adminFeed.err=String(e&&e.message||e); return false; }
+}
+async function adminFeedTick(){
+  if(document.hidden) return;
+  if(!adminFeed.url || Date.now()>adminFeed.exp-60000){ if(!(await adminFeedUrl())) return; }
+  try{
+    var ctl=window.AbortController?new AbortController():null; var to=setTimeout(function(){ try{ ctl&&ctl.abort(); }catch(_e){} }, 8000);
+    var r=await fetch(adminFeed.url, ctl?{ signal:ctl.signal, cache:'no-store' }:{ cache:'no-store' }); clearTimeout(to);
+    if(r.status===400 || r.status===403){ adminFeed.url=''; return; }   // signature expired/revoked → mint again next tick
+    var snap=await r.json(); var at=Date.parse(snap&&snap.at||'')||0;
+    if(!snap || !snap.ok || (Date.now()-at) > 3*60*1000){ adminFeed.stale=true; return; }   // too old to trust — leave the normal path alone
+    // zero-glitch rule: after a write (approve, resolve…) only a snapshot published AFTER it may seed, so an
+    // approved item can never pop back for a minute; after 3 min the rule lapses (clock skew safety).
+    if(adminFeed.lastBust && at < adminFeed.lastBust && (Date.now()-adminFeed.lastBust) < 3*60*1000) return;
+    adminFeed.stale=false; adminFeed.at=at; adminFeed.ok++;
+    var b=snap.boot||{};
+    _afSeed('admin_bootstrap', b);
+    _afSeed('get_all_employees', b.employees); _afSeed('get_running', snap.running||b.running);
+    _afSeed('get_tracker_projects', b.projects); _afSeed('get_appeals', b.appeals);
+    _afSeed('po_progress_all', b.progress); _afSeed('get_all_demerit_disputes&status=pending', b.disputes);
+    _afSeed('get_leave_requests', b.leave); _afSeed('get_coe_requests', b.coe);
+    _afSeed('redeem_list&status=pending', b.redeem); _afSeed('lead_demerit_list', b.lead_demerits);
+    _afSeed('lunch_work_list', snap.lunch); _afSeed('list_pending_invoices', snap.invoices);
+    _afSeed('toolreq_list&status=open&pass='+encodeURIComponent(admPass()), snap.toolreq);
+    try{ _afxPaintFeed(); }catch(_p){}
+  }catch(e){ adminFeed.fail++; }
+}
+function _afxPaintFeed(){ var el=document.getElementById('afx-feed'); if(!el){ el=document.createElement('span'); el.id='afx-feed'; el.style.cssText='position:fixed;left:10px;bottom:10px;z-index:9000;font:600 10.5px Inter,sans-serif;color:#047857;background:#ecfdf5;border:1px solid rgba(4,120,87,.25);border-radius:100px;padding:2px 8px;opacity:.85;pointer-events:none;'; document.body.appendChild(el); } var age=Math.round((Date.now()-adminFeed.at)/1000); el.textContent='⚡ live snapshot · '+age+'s'; el.style.display=adminFeed.at?'':'none'; }
+function adminFeedStart(){
+  try{ var c=JSON.parse(sessionStorage.getItem('adm_feed')||'null'); if(c && c.url && c.exp>Date.now()+60000){ adminFeed.url=c.url; adminFeed.exp=c.exp; } }catch(_e){}
+  adminFeedTick();
+  adminFeed.timer=setInterval(adminFeedTick, 20000);
+  // keep the backend publishing while this console is open (it stops 15 min after the last heartbeat)
+  setInterval(function(){ if(document.hidden) return; jGet(API+'?action=admin_watch&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 20000).catch(function(){}); }, 5*60*1000);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) adminFeedTick(); });
+}
 function enterAdmin(){
   if(_adminEntered) return;
   _adminEntered=true;
+  adminFeedStart();
   document.getElementById('login').style.display='none';
   document.getElementById('shell').style.display='block';
   buildAdminNav();
