@@ -13439,6 +13439,15 @@ function applyGamesPaused(on){
   }
   if(was!==on && on){ try{ showToast('Games and JMB Points are paused for now.'); }catch(e){} }
 }
+/* Redemption queue "full" (admin switch): the server refuses new requests; this just says so up front. */
+window.REDEEM_CLOSED=false;
+function applyRedeemClosed(on){
+  on=!!on; window.REDEEM_CLOSED=on;
+  var b=document.getElementById('rd-submit'), m=document.getElementById('rd-msg'), n=document.getElementById('rd-queue-note');
+  if(b){ b.disabled=on; b.style.opacity=on?'.55':''; b.style.cursor=on?'not-allowed':''; b.textContent=on?'Queue full — not accepting requests':'Request redemption'; }
+  if(on){ if(!n && b){ n=document.createElement('div'); n.id='rd-queue-note'; n.style.cssText='margin:8px 0 0;padding:9px 11px;border-radius:10px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);color:#b45309;font-size:12.5px;font-weight:700;text-align:center;'; n.textContent='The redemption queue is full right now — new requests are not being accepted for now. Your points stay with you.'; b.parentNode.insertBefore(n, b.nextSibling); } }
+  else if(n){ n.remove(); if(m && /queue is full/i.test(m.textContent)) m.textContent=''; }
+}
 function buildActivitiesTab(){
   try{
     var mc=document.querySelector("#dashboard-screen .main-content"); if(!mc||document.getElementById("tab-activities")) return;
@@ -18384,6 +18393,7 @@ function redeemItem(id){
   fetch(APPS_SCRIPT_URL+'?action=redeem_request&employee_id='+encodeURIComponent(emp)+'&full_name='+encodeURIComponent(_pName())+'&points='+r.cost+'&type=item&detail='+encodeURIComponent('Reward: '+r.name)+'&_='+Date.now())
     .then(function(res){return res.json();}).then(function(d){
       if(d&&d.ok){ if(msg){msg.style.color='#34d399';msg.textContent='✓ Requested '+r.name+' ('+r.cost.toLocaleString()+' pts) — pending admin approval.';} loadMyRedemptions(); loadPoints(); }
+      else if(d&&d.error==='QUEUE_FULL'){ if(msg){msg.style.color='#fbbf24';msg.textContent=d.note||'The redemption queue is full right now — new requests are not being accepted for now. Your points stay with you.';} applyRedeemClosed(true); }
       else if(d&&(d.error==='INSUFFICIENT'||d.error==='INSUFFICIENT_NOW')){ if(msg){msg.style.color='#f87171';msg.textContent='Not enough points.';} }
       else { if(msg){msg.style.color='#f87171';msg.textContent='Could not request — try again.';} }
     }).catch(function(){ if(msg){msg.style.color='#f87171';msg.textContent='Network error.';} });
@@ -18451,6 +18461,7 @@ function submitRedeem(){
     .then(function(r){return r.json();}).then(function(d){
       b.disabled=false; b.textContent='Request redemption';
       if(d&&d.ok){ msg.style.color='#34d399'; msg.textContent='✓ Requested '+pts+' pts ('+fmtPeso(ptsToPeso(pts))+') — pending admin approval.'; document.getElementById('rd-points').value=''; rdCalc(); loadMyRedemptions(); }
+      else if(d&&d.error==='QUEUE_FULL'){ msg.style.color='#fbbf24'; msg.textContent=d.note||'The redemption queue is full right now — new requests are not being accepted for now. Your points stay with you.'; applyRedeemClosed(true); }
       else if(d&&d.error==='MIN_1000'){ msg.style.color='#f87171'; msg.textContent='Minimum redemption is 1,000 points.'; }
       else if(d&&d.error==='CASH_WINDOW_CLOSED'){
         msg.style.color='#fbbf24';
@@ -19135,6 +19146,7 @@ function loadMyRedemptions(){
     if(!d || getComputedStyle(d).display==='none') return;   // only when signed in
     fetch(APPS_SCRIPT_URL+'?action=get_triggers&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
       try{ applyGamesPaused(!!(x&&x.paused)); }catch(_gp){}
+      try{ applyRedeemClosed(!!(x&&x.rq)); }catch(_rq){}
       _applyGameTrigger((x&&x.game)||'');
       try{ if(window._handleTourneyTrigger) window._handleTourneyTrigger((x&&x.tourney)||''); }catch(_t){}
     }).catch(function(){});

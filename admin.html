@@ -8876,7 +8876,10 @@ async function sendNotify(){
         <div style="font-size:15px;font-weight:800;color:var(--t1);margin-bottom:2px;">Games &amp; JMB Points <span id="gp-state" style="display:inline-block;margin-left:6px;border-radius:100px;padding:2px 9px;font-size:11px;font-weight:800;vertical-align:2px;background:#eef2f8;color:#475569;">…</span></div>
         <div style="font-size:12.5px;color:var(--t3);line-height:1.5;">Paused = no Daily Trivia session opens, the Sunday Tetris Grand Final does not open, and <b>no JMB Points are credited</b> by anything (redemptions still deduct). Casual Tetris play stays available, it never paid points.</div>
       </div>
-      <button id="gp-btn" class="blogout" onclick="gamesPauseToggle()" style="font-weight:700;">…</button>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button id="gp-btn" class="blogout" onclick="gamesPauseToggle()" style="font-weight:700;">…</button>
+        <button id="rq-btn" class="blogout" onclick="redeemQueueToggle()" style="font-weight:700;" title="Closed = VAs see “the redemption queue is full” and no new request is accepted; pending ones stay for you to approve or reject">…</button>
+      </div>
     </div>
 
     <div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
@@ -8925,13 +8928,17 @@ function _gpPaint(on){ var st=document.getElementById('gp-state'), b=document.ge
   st.textContent=on?'PAUSED':'ON'; st.style.background=on?'#fff1f2':'#ecfdf5'; st.style.color=on?'#be123c':'#047857';
   b.textContent=on?'▶ Resume games & points':'⏸ Pause games & points'; b.style.color=on?'#047857':'#be123c'; b.style.borderColor=on?'rgba(4,120,87,.4)':'rgba(190,18,60,.4)';
   if(c) c.style.background=on?'#fff7f8':''; }
-async function gamesPauseLoad(){ try{ var r=await fetch(API+'?action=games_pause_get&_='+Date.now()); var d=await r.json(); if(d&&d.ok) _gpPaint(!!d.paused); }catch(e){} }
+function _rqPaint(on){ var b=document.getElementById('rq-btn'); if(!b) return; b.textContent=on?'🟢 Open the redemption queue':'🚫 Close redemptions (queue full)'; b.style.color=on?'#047857':'#b45309'; b.style.borderColor=on?'rgba(4,120,87,.4)':'rgba(180,83,9,.4)'; b.dataset.on=on?'1':'0'; }
+async function gamesPauseLoad(){ try{ var r=await jGet(API+'?action=games_pause_get&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok){ _gpPaint(!!d.paused); _rqPaint(!!d.redeem_closed); } }catch(e){} }
+async function redeemQueueToggle(){ var b=document.getElementById('rq-btn'); var on=b&&b.dataset.on==='1';
+  if(!confirm(on?'Open the redemption queue again?\n\nVAs can submit new redemption requests.':'Close the redemption queue?\n\nNew requests are refused with “the redemption queue is full right now”. Pending requests stay in your list.')) return;
+  try{ var r=await jGet(API+'?action=games_pause_set&redeem='+(on?'0':'1')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok){ _rqPaint(!!d.redeem_closed); } else alert('Could not change it'+((d&&d.error)?(': '+d.error):'.')); }catch(e){ alert('Could not reach the backend — '+((e&&e.message)||'try again')+'.'); } }
 async function gamesPauseToggle(){ var st=document.getElementById('gp-state'); var on=st&&st.textContent==='PAUSED';
   if(!confirm(on?'Resume games & JMB Points?\n\nTrivia sessions and the Sunday Grand Final open again on schedule and points are credited again.':'Pause games & JMB Points?\n\nNo trivia session or Grand Final will open and no points will be credited until you resume.')) return;
-  try{ var r=await fetch(API+'?action=games_pause_set&on='+(on?'0':'1')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok){ _gpPaint(!!d.paused); } else alert('Could not change it'+((d&&d.error)?(': '+d.error):'.')); }catch(e){ alert('Network error.'); } }
+  try{ var r=await jGet(API+'?action=games_pause_set&on='+(on?'0':'1')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok){ _gpPaint(!!d.paused); } else alert('Could not change it'+((d&&d.error)?(': '+d.error):'.')); }catch(e){ alert('Could not reach the backend — '+((e&&e.message)||'try again')+'.'); } }
 function _n(v){ return (v<0?'−':'')+Math.abs(v).toLocaleString(); }
 async function pointsAudit(){ var o=document.getElementById('pa-out'); o.innerHTML='<div class="es" style="padding:12px;">Reading the ledger…</div>';
-  try{ var r=await fetch(API+'?action=points_audit&pass='+encodeURIComponent(admPass())+'&_='+Date.now()); var d=await r.json(); if(!d||!d.ok){ o.innerHTML='<div class="es" style="padding:12px;">'+((d&&d.error)||'Failed')+'</div>'; return; }
+  try{ var r=await jGet(API+'?action=points_audit&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 120000); var d=await r.json(); if(!d||!d.ok){ o.innerHTML='<div class="es" style="padding:12px;">'+((d&&d.error)||'Failed')+'</div>'; return; }
     var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
     var h='<div style="font-size:12.5px;color:var(--t2);margin-bottom:8px;"><b>'+d.rows.toLocaleString()+'</b> ledger rows · team total <b>'+_n(d.total)+'</b> JMB Points'+(d.paused?' · <span class="chip" style="background:#fff1f2;color:#be123c">PAUSED</span>':'')+' · <b style="color:'+(d.flagged?'#be123c':'#047857')+'">'+d.flagged+' flagged row'+(d.flagged===1?'':'s')+'</b></div>';
     h+='<div style="overflow:auto;max-height:280px;border:1px solid rgba(15,23,42,.08);border-radius:10px;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f6f7fb;position:sticky;top:0;"><th style="text-align:left;padding:6px 8px;">Person</th><th style="text-align:right;padding:6px 8px;">Balance</th><th style="text-align:right;padding:6px 8px;">Trivia</th><th style="text-align:right;padding:6px 8px;">Tournaments</th><th style="text-align:right;padding:6px 8px;">Tetris wins</th><th style="text-align:right;padding:6px 8px;">Redeemed</th><th style="text-align:right;padding:6px 8px;">Other</th><th style="text-align:right;padding:6px 8px;">Rows</th></tr></thead><tbody>'+
@@ -8941,13 +8948,13 @@ async function pointsAudit(){ var o=document.getElementById('pa-out'); o.innerHT
     else h+='<div style="font-size:12.5px;color:#047857;margin-top:10px;font-weight:700;">Nothing flagged — every row is a published prize amount and no award was credited twice.</div>';
     if(d.tetris_coins&&d.tetris_coins.length) h+='<div style="font-size:12.5px;font-weight:800;color:var(--t2);margin:14px 0 4px;">Tetris coins (not JMB Points)</div><div style="font-size:12px;color:var(--t3);margin-bottom:6px;">Earned from lines cleared + 10 per win in every game, spent on skins. A big number here is normal for a heavy player and is never cashed out.</div><div style="font-size:12px;color:var(--t2);">'+d.tetris_coins.map(function(c){ return '<b>'+E(c.employee_id)+'</b> '+_n(c.balance)+' <span style="color:var(--t3);">(earned '+_n(c.earned)+' · spent '+_n(c.spent)+')</span>'; }).join(' &nbsp;·&nbsp; ')+'</div>';
     o.innerHTML=h;
-  }catch(e){ o.innerHTML='<div class="es" style="padding:12px;">Network error.</div>'; } }
+  }catch(e){ o.innerHTML='<div class="es" style="padding:12px;">Could not read the ledger — '+((e&&e.message)||'network error')+'<br><span style="font-size:11.5px;">If this keeps happening the backend is busy; wait a minute and press Run audit again, or run <code>RUN_PointsAudit</code> in the Apps Script editor (the result is in the log).</span></div>'; } }
 async function pointsDedupe(forReal){ if(forReal && !confirm('Remove duplicate awards?\n\nFor every award credited more than once (same person, same session/rank), a negative correction row is added so the balance comes right. History is kept. Run the dry run first.')) return;
   var o=document.getElementById('pa-out'); o.innerHTML='<div class="es" style="padding:12px;">'+(forReal?'Fixing…':'Checking…')+'</div>';
-  try{ var r=await fetch(API+'?action=points_dedupe&for_real='+(forReal?'1':'0')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now()); var d=await r.json(); if(!d||!d.ok){ o.innerHTML='<div class="es" style="padding:12px;">'+((d&&d.error)||'Failed')+'</div>'; return; }
+  try{ var r=await jGet(API+'?action=points_dedupe&for_real='+(forReal?'1':'0')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 120000); var d=await r.json(); if(!d||!d.ok){ o.innerHTML='<div class="es" style="padding:12px;">'+((d&&d.error)||'Failed')+'</div>'; return; }
     o.innerHTML='<div style="font-size:13px;color:var(--t1);line-height:1.6;"><b>'+(d.dry_run?'Dry run':'Done')+'</b> — '+d.duplicates+' duplicate award'+(d.duplicates===1?'':'s')+' worth <b>'+_n(d.points_to_remove)+'</b> points'+(d.dry_run?' would be reversed.':' reversed ('+d.applied+' correction row'+(d.applied===1?'':'s')+').')+'</div>'+
       ((d.sample||[]).length?'<div style="font-size:12px;color:var(--t3);margin-top:6px;">'+d.sample.map(function(f){ return 'row '+f.row+' · '+f.employee_id+' · +'+f.delta+' · '+f.reason; }).join('<br>')+'</div>':'')+'<div style="margin-top:10px;"><button class="bsm" onclick="pointsAudit()">↻ Back to the audit</button></div>';
-  }catch(e){ o.innerHTML='<div class="es" style="padding:12px;">Network error.</div>'; } }
+  }catch(e){ o.innerHTML='<div class="es" style="padding:12px;">Could not reach the backend — '+((e&&e.message)||'network error')+'</div>'; } }
 function closeSettings(){ document.getElementById('settings-modal').style.display='none'; if(_gqTimer){ clearInterval(_gqTimer); _gqTimer=null; } }
 async function launchTrivia(){
   if(!confirm('Launch a Daily Trivia session on ALL signed-in portals right now (for testing)?\n\nEveryone gets the alarm countdown, then the 15-question game starts. Window is ~7 minutes.')) return;
@@ -9410,8 +9417,9 @@ async function loadTriviaBoard(){
   var box=document.getElementById('gq-results'); if(!box) return;
   box.innerHTML='<div class="es" style="padding:12px;">Loading…</div>';
   try{
-    var r=await fetch(API+'?action=trivia_leaderboard&_='+Date.now());
+    var r=await jGet(API+'?action=trivia_leaderboard&_='+Date.now(), 0, 45000);
     var d=await r.json();
+    if(d&&d.error){ box.innerHTML='<div class="es" style="padding:12px;">'+gqEsc(d.error)+'</div>'; return; }
     if(!d||!d.exists){ box.innerHTML='<div class="es" style="padding:12px;">No sessions yet. Launch one to test.</div>'; return; }
     var head='<div style="font-size:12px;color:var(--t3);margin-bottom:8px;">Session <b style="color:var(--t2);">'+gqEsc(d.session_id)+'</b> · '+(d.finalized?'<span style="color:#34d399;font-weight:700;">FINAL</span>':'<span style="color:#fbbf24;font-weight:700;">LIVE</span> · closes in ~'+Math.ceil((d.closes_in||0)/60)+'m')+' · '+(d.players||0)+' players</div>';
     var top='';
@@ -9424,7 +9432,7 @@ async function loadTriviaBoard(){
       return '<tr style="border-top:1px solid rgba(15,23,42,.09);"><td style="padding:6px 8px;">'+medal+'</td><td style="padding:6px 8px;">'+gqEsc(x.full_name)+'</td><td style="padding:6px 8px;font-weight:800;color:#34d399;">'+x.score+'/'+(x.total||15)+'</td><td style="padding:6px 8px;color:var(--t3);font-size:11px;">'+(x.time_ms?(Math.round(x.time_ms/1000)+'s'):'')+'</td></tr>';
     }).join('') || '<tr><td colspan="4" class="es" style="padding:10px;">No players yet.</td></tr>';
     box.innerHTML=head+top+'<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;color:var(--t3);font-size:11px;text-transform:uppercase;letter-spacing:.04em;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Player</th><th style="padding:6px 8px;">Score</th><th style="padding:6px 8px;">Time</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-  }catch(e){ box.innerHTML='<div class="es" style="padding:12px;color:#f87171;">Network error.</div>'; }
+  }catch(e){ box.innerHTML='<div class="es" style="padding:12px;color:#f87171;">Could not reach the backend — '+gqEsc((e&&e.message)||'network error')+'</div>'; }
 }
 async function loadRedemptions(){
   var box=document.getElementById('rd-admin'); if(!box) return;
