@@ -4895,8 +4895,12 @@ async function resolveAppeal(entryId, decision){
   _optiPending(_sel);
   try{
     var _rw=(_apCache[entryId]&&_apCache[entryId].row)?('&row='+encodeURIComponent(_apCache[entryId].row)):'';   // lets the backend skip the 10k-row scan
-    var r=await fetch(API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+_rw+'&_='+Date.now());
-    var d=await r.json();
+    var _url=API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+_rw;
+    var d=null;
+    for(var _try=1;_try<=3;_try++){   // a non-JSON reply (Apps Script error page / dropped connection) used to surface as a bare "Network error." — retry, then say what to do
+      try{ var r=await fetch(_url+'&_='+Date.now()); d=await r.json(); break; }
+      catch(_fe){ if(_try===3) throw _fe; await new Promise(function(res){ setTimeout(res, 1500*_try); }); }
+    }
     if(d&&d.ok){
       _optiRows(_sel).forEach(function(el){ _optiHeaderTick(el.closest('div[style*="rgba(245,158,11"]')||document); });
       _optiRemove(_sel); _optiTick('dc-appeals');
@@ -4907,7 +4911,7 @@ async function resolveAppeal(entryId, decision){
       jBust();
       setTimeout(function(){ try{ loadWorkLog(); }catch(_w){} }, 600);   // quiet background sync — the visible list never repaints
     } else { _optiRestore(_sel); alert((d&&(d.message||d.error)) ? ('Could not resolve: '+(d.message||d.error)) : 'Could not resolve the appeal.'); }
-  }catch(e){ _optiRestore(_sel); alert('Network error.'); }
+  }catch(e){ _optiRestore(_sel); alert('Could not reach the portal backend after 3 tries. Reload the inbox: if the appeal is gone, it went through; if it is still here, try again. If it keeps failing, check Apps Script → Executions for a red resolve_appeal row.'); }
 }
 // Cache of the current pending appeals, keyed by entry_id, so action buttons can read the
 // employee/date without escaping them into inline onclick handlers.
