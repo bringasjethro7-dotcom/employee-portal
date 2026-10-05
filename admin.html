@@ -6368,8 +6368,9 @@ function _scPaint(rows){
   }catch(_mv){}
   var dash = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v).toFixed(0) : '—'; };
   /* Project-tool source (Oct 2026): a small tag where Reddit Central fed the number, with the hours share. */
-  var xt = function(sc, k){ var x=sc&&sc.ext&&sc.ext.reddit; if(!x || x[k]===null || x[k]===undefined) return '';
-    return ' <sup title="Reddit Central '+parseFloat(x[k]).toFixed(1)+' · '+x.share+'% of this month\'s hours on Reddit'+(x.share<100?' (blended with the portal number)':'')+'" style="font-size:9px;font-weight:800;color:#ff4500;letter-spacing:.02em;cursor:help">RC</sup>'; };
+  var XT_SRC={ reddit:['Reddit Central','RC','#ff4500','Reddit'], altr:['ALTR Studio','AS','#8b5cf6','ALTR Media'] };   // project tools that feed the scorecard (Oct 2026)
+  var xt = function(sc, k){ if(!(sc&&sc.ext)) return ''; return Object.keys(XT_SRC).map(function(src){ var x=sc.ext[src]; if(!x || x[k]===null || x[k]===undefined) return ''; var m=XT_SRC[src];
+    return ' <sup title="'+m[0]+' '+parseFloat(x[k]).toFixed(1)+' · '+x.share+'% of this month\'s hours on '+m[3]+(x.share<100?' (blended with the portal number)':'')+'" style="font-size:9px;font-weight:800;color:'+m[2]+';letter-spacing:.02em;cursor:help">'+m[1]+'</sup>'; }).join(''); };
   tbody.innerHTML = rows.map(function(sc, i) {
     var overall = (sc.overall!==''&&sc.overall!=null) ? parseFloat(sc.overall).toFixed(2) : '—';
     var dem = (sc.demerit_score!==''&&sc.demerit_score!=null&&!isNaN(parseFloat(sc.demerit_score))) ? parseFloat(sc.demerit_score).toFixed(0) : '—';
@@ -8628,9 +8629,9 @@ async function scShowCurrentProductivity(){
       if (hint) hint.innerHTML = 'The Productivity Hub measured <b>' + (tool != null ? tool : '\u2014') +
         '</b>' + (sc.prod_final ? ' (final)' : ' (live \u2014 still moving as the cutoff fills)') +
         '. Type a number only to <b>override</b> it. An override counts as final, so the VA sees it straight away.';
-      var _rx = sc.ext && sc.ext.reddit;
-      if (hint && _rx && _rx.productivity != null) hint.innerHTML += '<br><b style="color:#ff4500;">Reddit Central: ' + _rx.productivity + '</b> on ' + _rx.share + '% of this month\'s hours' +
-        (_rx.share < 100 ? ' — blended with the Hub score' : '') + ' → counted as <b>' + (sc.productivity != null ? sc.productivity : '—') + '</b>.';
+      [['reddit','Reddit Central','#ff4500'],['altr','ALTR Studio','#8b5cf6']].forEach(function(S){ var _rx = sc.ext && sc.ext[S[0]];
+        if (hint && _rx && _rx.productivity != null) hint.innerHTML += '<br><b style="color:'+S[2]+';">'+S[1]+': ' + _rx.productivity + '</b> on ' + _rx.share + '% of this month\'s hours' +
+          (_rx.share < 100 ? ' — blended with the Hub score' : '') + ' → counted as <b>' + (sc.productivity != null ? sc.productivity : '—') + '</b>.'; });
     }
   }catch(e){ box.placeholder = 'blank = use the Productivity Hub score'; }
 }
@@ -8870,7 +8871,28 @@ async function sendNotify(){
       <button class="bsm" onclick="closeSettings()"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none;"><path d="M18 6 6 18M6 6l12 12"/></svg> Close</button>
     </div>
 
-    <div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:12px;">
+    <div id="gp-card" style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+      <div style="flex:1;min-width:240px;">
+        <div style="font-size:15px;font-weight:800;color:var(--t1);margin-bottom:2px;">Games &amp; JMB Points <span id="gp-state" style="display:inline-block;margin-left:6px;border-radius:100px;padding:2px 9px;font-size:11px;font-weight:800;vertical-align:2px;background:#eef2f8;color:#475569;">…</span></div>
+        <div style="font-size:12.5px;color:var(--t3);line-height:1.5;">Paused = no Daily Trivia session opens, the Sunday Tetris Grand Final does not open, and <b>no JMB Points are credited</b> by anything (redemptions still deduct). Casual Tetris play stays available, it never paid points.</div>
+      </div>
+      <button id="gp-btn" class="blogout" onclick="gamesPauseToggle()" style="font-weight:700;">…</button>
+    </div>
+
+    <div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div style="font-size:15px;font-weight:800;color:var(--t1);">Where the points came from</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="bsm" onclick="pointsAudit()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Run audit</button>
+          <button class="bsm" onclick="pointsDedupe(false)" title="Lists duplicate awards without changing anything">Duplicates — dry run</button>
+          <button class="bsm" onclick="pointsDedupe(true)" style="color:#be123c;border-color:rgba(190,18,60,.35);" title="Adds a negative correction row for every duplicate award">Remove duplicates</button>
+        </div>
+      </div>
+      <div style="font-size:12.5px;color:var(--t3);margin:4px 0 10px;line-height:1.5;">Every JMB Point ever credited, per person and per source, plus the rows that look wrong: bigger than any prize, not a prize amount, or the same award credited more than once.</div>
+      <div id="pa-out"><div class="es" style="padding:12px;">Press <b>Run audit</b>.</div></div>
+    </div>
+
+    <div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
       <div style="font-size:15px;font-weight:800;color:var(--t1);margin-bottom:2px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg> Daily Trivia</div>
       <div style="font-size:12.5px;color:var(--t3);margin-bottom:12px;line-height:1.5;">Runs automatically at <b>2:00 PM</b> &amp; <b>2:00 AM</b> PHT (after you run <code>setupTriviaTriggers</code> once in the Apps Script editor). 15 questions · 12s each · top 3 win 300/200/100 JMB Points. Use the button below to launch a test session right now.</div>
       <button class="blogout" onclick="launchTrivia()" style="border-color:rgba(52,211,153,.5);color:#34d399;font-weight:700;">▶ Launch a session now (test)</button>
@@ -8898,6 +8920,34 @@ async function sendNotify(){
 
 <script>
 var _gqTimer=null;
+function openGamesSettings(){ document.getElementById('settings-modal').style.display='flex'; gamesPauseLoad(); try{ loadTriviaBoard(); }catch(e){} try{ loadRedemptions(); }catch(e){} }
+function _gpPaint(on){ var st=document.getElementById('gp-state'), b=document.getElementById('gp-btn'), c=document.getElementById('gp-card'); if(!st||!b) return;
+  st.textContent=on?'PAUSED':'ON'; st.style.background=on?'#fff1f2':'#ecfdf5'; st.style.color=on?'#be123c':'#047857';
+  b.textContent=on?'▶ Resume games & points':'⏸ Pause games & points'; b.style.color=on?'#047857':'#be123c'; b.style.borderColor=on?'rgba(4,120,87,.4)':'rgba(190,18,60,.4)';
+  if(c) c.style.background=on?'#fff7f8':''; }
+async function gamesPauseLoad(){ try{ var r=await fetch(API+'?action=games_pause_get&_='+Date.now()); var d=await r.json(); if(d&&d.ok) _gpPaint(!!d.paused); }catch(e){} }
+async function gamesPauseToggle(){ var st=document.getElementById('gp-state'); var on=st&&st.textContent==='PAUSED';
+  if(!confirm(on?'Resume games & JMB Points?\n\nTrivia sessions and the Sunday Grand Final open again on schedule and points are credited again.':'Pause games & JMB Points?\n\nNo trivia session or Grand Final will open and no points will be credited until you resume.')) return;
+  try{ var r=await fetch(API+'?action=games_pause_set&on='+(on?'0':'1')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok){ _gpPaint(!!d.paused); } else alert('Could not change it'+((d&&d.error)?(': '+d.error):'.')); }catch(e){ alert('Network error.'); } }
+function _n(v){ return (v<0?'−':'')+Math.abs(v).toLocaleString(); }
+async function pointsAudit(){ var o=document.getElementById('pa-out'); o.innerHTML='<div class="es" style="padding:12px;">Reading the ledger…</div>';
+  try{ var r=await fetch(API+'?action=points_audit&pass='+encodeURIComponent(admPass())+'&_='+Date.now()); var d=await r.json(); if(!d||!d.ok){ o.innerHTML='<div class="es" style="padding:12px;">'+((d&&d.error)||'Failed')+'</div>'; return; }
+    var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+    var h='<div style="font-size:12.5px;color:var(--t2);margin-bottom:8px;"><b>'+d.rows.toLocaleString()+'</b> ledger rows · team total <b>'+_n(d.total)+'</b> JMB Points'+(d.paused?' · <span class="chip" style="background:#fff1f2;color:#be123c">PAUSED</span>':'')+' · <b style="color:'+(d.flagged?'#be123c':'#047857')+'">'+d.flagged+' flagged row'+(d.flagged===1?'':'s')+'</b></div>';
+    h+='<div style="overflow:auto;max-height:280px;border:1px solid rgba(15,23,42,.08);border-radius:10px;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f6f7fb;position:sticky;top:0;"><th style="text-align:left;padding:6px 8px;">Person</th><th style="text-align:right;padding:6px 8px;">Balance</th><th style="text-align:right;padding:6px 8px;">Trivia</th><th style="text-align:right;padding:6px 8px;">Tournaments</th><th style="text-align:right;padding:6px 8px;">Tetris wins</th><th style="text-align:right;padding:6px 8px;">Redeemed</th><th style="text-align:right;padding:6px 8px;">Other</th><th style="text-align:right;padding:6px 8px;">Rows</th></tr></thead><tbody>'+
+      (d.employees||[]).map(function(e){ var hot=e.balance>5000; return '<tr style="border-top:1px solid rgba(15,23,42,.06);'+(hot?'background:#fff7f8;':'')+'"><td style="padding:6px 8px;font-weight:700;">'+E(e.full_name)+' <span style="color:var(--t3);font-weight:500;">'+E(e.employee_id)+'</span></td><td style="padding:6px 8px;text-align:right;font-weight:800;color:'+(hot?'#be123c':'var(--t1)')+'">'+_n(e.balance)+'</td><td style="padding:6px 8px;text-align:right;">'+_n(e.trivia)+'</td><td style="padding:6px 8px;text-align:right;">'+_n(e.tourney)+'</td><td style="padding:6px 8px;text-align:right;">'+_n(e.tetris)+'</td><td style="padding:6px 8px;text-align:right;">'+_n(e.redeemed)+'</td><td style="padding:6px 8px;text-align:right;">'+_n(e.other)+'</td><td style="padding:6px 8px;text-align:right;color:var(--t3);">'+e.rows+'</td></tr>'; }).join('')+'</tbody></table></div>';
+    if(d.flags&&d.flags.length){ h+='<div style="font-size:12.5px;font-weight:800;color:#be123c;margin:12px 0 6px;">Flagged rows</div><div style="overflow:auto;max-height:260px;border:1px solid rgba(190,18,60,.2);border-radius:10px;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#fff1f2;position:sticky;top:0;"><th style="text-align:left;padding:6px 8px;">Row</th><th style="text-align:left;padding:6px 8px;">Person</th><th style="text-align:right;padding:6px 8px;">Delta</th><th style="text-align:left;padding:6px 8px;">Reason · ref</th><th style="text-align:left;padding:6px 8px;">When</th><th style="text-align:left;padding:6px 8px;">Why flagged</th></tr></thead><tbody>'+
+      d.flags.map(function(f){ return '<tr style="border-top:1px solid rgba(15,23,42,.06);"><td style="padding:5px 8px;color:var(--t3);">'+f.row+'</td><td style="padding:5px 8px;font-weight:700;">'+E(f.employee_id)+'</td><td style="padding:5px 8px;text-align:right;font-weight:800;">'+_n(f.delta)+'</td><td style="padding:5px 8px;">'+E(f.reason)+' <span style="color:var(--t3);">'+E(f.ref)+'</span></td><td style="padding:5px 8px;white-space:nowrap;color:var(--t3);">'+E(f.at)+'</td><td style="padding:5px 8px;color:#be123c;">'+E(f.why)+'</td></tr>'; }).join('')+'</tbody></table></div>'; }
+    else h+='<div style="font-size:12.5px;color:#047857;margin-top:10px;font-weight:700;">Nothing flagged — every row is a published prize amount and no award was credited twice.</div>';
+    if(d.tetris_coins&&d.tetris_coins.length) h+='<div style="font-size:12.5px;font-weight:800;color:var(--t2);margin:14px 0 4px;">Tetris coins (not JMB Points)</div><div style="font-size:12px;color:var(--t3);margin-bottom:6px;">Earned from lines cleared + 10 per win in every game, spent on skins. A big number here is normal for a heavy player and is never cashed out.</div><div style="font-size:12px;color:var(--t2);">'+d.tetris_coins.map(function(c){ return '<b>'+E(c.employee_id)+'</b> '+_n(c.balance)+' <span style="color:var(--t3);">(earned '+_n(c.earned)+' · spent '+_n(c.spent)+')</span>'; }).join(' &nbsp;·&nbsp; ')+'</div>';
+    o.innerHTML=h;
+  }catch(e){ o.innerHTML='<div class="es" style="padding:12px;">Network error.</div>'; } }
+async function pointsDedupe(forReal){ if(forReal && !confirm('Remove duplicate awards?\n\nFor every award credited more than once (same person, same session/rank), a negative correction row is added so the balance comes right. History is kept. Run the dry run first.')) return;
+  var o=document.getElementById('pa-out'); o.innerHTML='<div class="es" style="padding:12px;">'+(forReal?'Fixing…':'Checking…')+'</div>';
+  try{ var r=await fetch(API+'?action=points_dedupe&for_real='+(forReal?'1':'0')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now()); var d=await r.json(); if(!d||!d.ok){ o.innerHTML='<div class="es" style="padding:12px;">'+((d&&d.error)||'Failed')+'</div>'; return; }
+    o.innerHTML='<div style="font-size:13px;color:var(--t1);line-height:1.6;"><b>'+(d.dry_run?'Dry run':'Done')+'</b> — '+d.duplicates+' duplicate award'+(d.duplicates===1?'':'s')+' worth <b>'+_n(d.points_to_remove)+'</b> points'+(d.dry_run?' would be reversed.':' reversed ('+d.applied+' correction row'+(d.applied===1?'':'s')+').')+'</div>'+
+      ((d.sample||[]).length?'<div style="font-size:12px;color:var(--t3);margin-top:6px;">'+d.sample.map(function(f){ return 'row '+f.row+' · '+f.employee_id+' · +'+f.delta+' · '+f.reason; }).join('<br>')+'</div>':'')+'<div style="margin-top:10px;"><button class="bsm" onclick="pointsAudit()">↻ Back to the audit</button></div>';
+  }catch(e){ o.innerHTML='<div class="es" style="padding:12px;">Network error.</div>'; } }
 function closeSettings(){ document.getElementById('settings-modal').style.display='none'; if(_gqTimer){ clearInterval(_gqTimer); _gqTimer=null; } }
 async function launchTrivia(){
   if(!confirm('Launch a Daily Trivia session on ALL signed-in portals right now (for testing)?\n\nEveryone gets the alarm countdown, then the 15-question game starts. Window is ~7 minutes.')) return;
@@ -10509,6 +10559,7 @@ var ADMAURA = (function(){
         '<span class="aa-clock" id="aa-hdr-c"></span>'+
         '<button type="button" class="aa-btn" onclick="goTab(\'team\')">'+SV.team+'Live team</button>'+
         '<button type="button" class="aa-btn" onclick="goTab(\'inbox\')">'+SV.inbox+'Inbox <b class="n zero" id="aa-hdr-n">0</b></button>'+
+        '<button type="button" class="aa-btn" onclick="openGamesSettings()" title="Games & JMB Points: pause, audit, redemptions">🎮 Games &amp; Points</button>'+
         '<button type="button" class="aa-btn pri" onclick="ADMAURA.broadcast()">'+SV.mega+'Broadcast</button>';
       h.style.position=h.style.position||''; h.appendChild(x);
     }

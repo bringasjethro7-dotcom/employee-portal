@@ -13419,11 +13419,25 @@ function toggleRecentLog(){
   if(btn) btn.classList.toggle('open', !open);
 }
 function actCard(title,sub,btn,onclick,color,bg,ico){
-  return '<div class="card" style="padding:1.1rem 1.15rem;display:flex;flex-direction:column;">'+
+  var game=(title==='Daily Trivia'||title==='Tetris');
+  return '<div class="card"'+(game?' data-game="'+title.toLowerCase().replace(/\s+/g,'-')+'"':'')+' style="padding:1.1rem 1.15rem;display:flex;flex-direction:column;">'+
     '<div style="width:44px;height:44px;border-radius:12px;background:'+bg+';color:'+color+';display:flex;align-items:center;justify-content:center;margin-bottom:12px;"><span style="width:22px;height:22px;">'+ico+'</span></div>'+
     '<div style="font-size:15px;font-weight:800;color:var(--text-1);">'+title+'</div>'+
-    '<div style="font-size:12px;color:var(--text-3);margin:3px 0 14px;flex:1;">'+sub+'</div>'+
+    '<div data-sub style="font-size:12px;color:var(--text-3);margin:3px 0 14px;flex:1;">'+sub+'</div>'+
     '<button class="prod-open-btn" style="margin:0;justify-content:center;font-weight:700;" onclick="'+onclick+'">'+btn+'</button></div>';
+}
+/* Games & JMB Points pause (Oct 5, 2026): the backend's get_triggers carries paused:1 while the admin has
+   the switch off. The two game cards say so and their Play buttons stop; nothing else changes. */
+window.GAMES_PAUSED=false;
+function applyGamesPaused(on){
+  on=!!on; var was=window.GAMES_PAUSED; window.GAMES_PAUSED=on;
+  var cards=document.querySelectorAll('#tab-activities .card[data-game]');
+  for(var i=0;i<cards.length;i++){ var c=cards[i], sub=c.querySelector('[data-sub]'), btn=c.querySelector('button');
+    if(!sub||!btn) continue;
+    if(on){ if(!sub.dataset.orig) sub.dataset.orig=sub.innerHTML; sub.innerHTML='<b style="color:#be123c;">Paused for now.</b> No sessions and no JMB Points until further notice.'; btn.textContent='Paused'; btn.disabled=true; btn.style.opacity='.55'; btn.style.cursor='not-allowed'; }
+    else { if(sub.dataset.orig) sub.innerHTML=sub.dataset.orig; btn.textContent='Play now'; btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; }
+  }
+  if(was!==on && on){ try{ showToast('Games and JMB Points are paused for now.'); }catch(e){} }
 }
 function buildActivitiesTab(){
   try{
@@ -13453,6 +13467,8 @@ function buildActivitiesTab(){
   }catch(e){}
 }
 if(document.readyState!=="loading") buildActivitiesTab(); else document.addEventListener("DOMContentLoaded", buildActivitiesTab);
+/* the cards are built after the first trigger poll may have answered — re-apply the pause state once they exist */
+(function(){ var _b=buildActivitiesTab; buildActivitiesTab=function(){ _b(); try{ applyGamesPaused(window.GAMES_PAUSED); }catch(e){} }; })();
 function renderIDCard(data) {
   // ID card removed from overview — bail out safely if markup is absent
   if (!document.getElementById('id-name')) return;
@@ -18694,6 +18710,7 @@ function loadMyRedemptions(){
   }
 
   window.jul4Open=function(){
+    if(window.GAMES_PAUSED){ try{ showToast('Games and JMB Points are paused for now.'); }catch(e){} return; }
     gameToken++; clearTimers(); leaveChan();
     document.getElementById('jul4-modal').classList.add('on');
     setBody('<div class="tva-eyebrow">Trivia Arena</div><div class="tva-sub" style="margin-top:14px">Loading…</div>');
@@ -19117,6 +19134,7 @@ function loadMyRedemptions(){
     var d=document.getElementById('dashboard-screen');
     if(!d || getComputedStyle(d).display==='none') return;   // only when signed in
     fetch(APPS_SCRIPT_URL+'?action=get_triggers&_='+Date.now()).then(function(r){return r.json();}).then(function(x){
+      try{ applyGamesPaused(!!(x&&x.paused)); }catch(_gp){}
       _applyGameTrigger((x&&x.game)||'');
       try{ if(window._handleTourneyTrigger) window._handleTourneyTrigger((x&&x.tourney)||''); }catch(_t){}
     }).catch(function(){});
@@ -29574,6 +29592,7 @@ function loadMyRedemptions(){
   function ntLiveSid(p){ return ntIsDayLive(p) ? ('DT-'+p.date) : ('NT-'+p.date); }
   var _ntInvitedDate=null;
   window.tetTourneyFabClick=function(){
+    if(window.GAMES_PAUSED){ try{ showToast('Tournaments and JMB Points are paused for now.'); }catch(e){} return; }
     var p=phtNowParts();
     if(TB){ openOverlay(); return; }   // a bracket is already running — just re-open it
     var live=ntIsLive(p) || (TL&&TL.nightly) || (M&&M.nightly&&M.playing);
