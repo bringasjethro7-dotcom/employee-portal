@@ -4687,6 +4687,14 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
         </button>
       </div>
     </div>
+    <div class="field-group" id="wfh-code-group" style="display:none;">
+      <label class="field-label" for="wfh-code">Work-from-home code</label>
+      <div class="field-ico-wrap">
+        <span class="field-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 4v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-4z"/></svg></span>
+        <input class="field-input has-ico" type="text" id="wfh-code" inputmode="numeric" maxlength="6" placeholder="6-digit code from the admin" autocomplete="one-time-code" />
+      </div>
+      <div id="wfh-code-note" style="font-size:12px;color:#8a93a3;margin-top:6px;line-height:1.45;">This isn't the office network. Ask the admin for today's code, or sign in from the office.</div>
+    </div>
     <div style="margin-bottom:1rem;">
       <div id="hcaptcha-container"></div>
       <script>
@@ -6547,7 +6555,15 @@ async function doLogin() {
   try {
     /* AURA: no office code. `noffice=1` tells the backend this client is Aura, so the
        office-presence gate is skipped outright instead of answering OTP_REQUIRED. */
-    const q = `id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&device=${encodeURIComponent(_devId())}&noffice=1`;
+    /* NETWORK GATE (Oct 5, 2026): the portal's Netlify function tells the backend which public IP this
+       device is on, signed. On the office Starlink that is enough; elsewhere the backend asks for a
+       work-from-home code from the admin. If the function does not answer, the backend simply asks
+       for the code. */
+    var _net = await netWhoAmI();
+    var _wc  = (document.getElementById('wfh-code')||{}).value || '';
+    const q = `id=${encodeURIComponent(id)}&pin=${encodeURIComponent(pin)}&device=${encodeURIComponent(_devId())}&noffice=1`
+            + (_net && _net.ip ? `&net_ip=${encodeURIComponent(_net.ip)}&net_ts=${encodeURIComponent(_net.ts)}&net_sig=${encodeURIComponent(_net.sig||'')}` : '')
+            + (_wc.trim() ? `&wfh_code=${encodeURIComponent(_wc.trim())}` : '');
     // Fire the HEAVY card-data bootstrap in parallel — the shell must not wait on it.
     window._bootPromise = fetch(`${APPS_SCRIPT_URL}?action=bootstrap&${q}`)
       .then(function(r){ return r.json(); }).catch(function(){ return null; });
@@ -6570,6 +6586,8 @@ async function doLogin() {
         showError('This portal no longer uses an office code. If you keep seeing this, the backend needs redeploying — tell Jeth.');
       } else if (data.error === 'WFH_CHECKIN_REQUIRED') {
         wfhGateOpen(id, pin, data.min || 25);               // WFH gate — speed test + setup photo
+      } else if (data.error === 'NETWORK_CODE_REQUIRED' || data.error === 'NETWORK_CODE_INVALID') {
+        netCodeAsk(data);                                   // not the office network — code from the admin
       } else showError(
         data.error === 'DEACTIVATED'
           ? 'This account has been deactivated. Please contact your admin.'
@@ -6592,6 +6610,22 @@ async function doLogin() {
   }
 }
 
+/* ── 🌐 NETWORK GATE helpers ── */
+async function netWhoAmI(){
+  try{ var ctl=(typeof AbortController!=='undefined')?new AbortController():null; var t=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(_e){} },6000):null;
+    var r=await fetch('/.netlify/functions/net?_='+Date.now(), ctl?{ signal:ctl.signal, cache:'no-store' }:{ cache:'no-store' }); if(t) clearTimeout(t);
+    var d=await r.json(); return (d && d.ip) ? d : null; }catch(e){ return null; }
+}
+function netCodeAsk(d){
+  var g=document.getElementById('wfh-code-group'), f=document.getElementById('wfh-code'), n=document.getElementById('wfh-code-note');
+  if(g) g.style.display='';
+  var invalid = d && d.error==='NETWORK_CODE_INVALID';
+  if(n) n.textContent = invalid
+    ? 'That code is not valid any more (codes last until 8:00 AM the next day). Ask the admin for a new one.'
+    : ((d && d.ip) ? 'This network ('+d.ip+') is not the office. Enter the work-from-home code from the admin, or sign in from the office.' : 'This isn\'t the office network. Enter the work-from-home code from the admin, or sign in from the office.');
+  if(f){ if(invalid) f.value=''; setTimeout(function(){ try{ f.focus(); }catch(_e){} }, 50); }
+  showError(invalid ? 'Work-from-home code not valid.' : 'Work-from-home code needed.');
+}
 /* ── 🙂 SIGN-IN FACE ──────────────────────────────────────────────────────────
    Type JMB014 and your own face appears above the card. It is a plain image
    request against headshots/JMB0XX.{jpg,webp,png} — no backend, no account

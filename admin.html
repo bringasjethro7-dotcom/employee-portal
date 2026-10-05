@@ -8882,6 +8882,27 @@ async function sendNotify(){
       </div>
     </div>
 
+    <div id="on-card" style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div style="font-size:15px;font-weight:800;color:var(--t1);">Office network <span id="on-state" style="display:inline-block;margin-left:6px;border-radius:100px;padding:2px 9px;font-size:11px;font-weight:800;vertical-align:2px;background:#eef2f8;color:#475569;">…</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="bsm" onclick="officeNetLoad()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻</button>
+          <button id="on-gate" class="bsm" onclick="netGateToggle()">…</button>
+        </div>
+      </div>
+      <div style="font-size:12.5px;color:var(--t3);margin:4px 0 10px;line-height:1.5;">When the gate is on, the portal signs in only from the office Starlink (the public IPs below). Anyone on another network needs a <b>work-from-home code</b> you issue here — valid until 8:00 AM the next day. ADMIN is always exempt.</div>
+      <div id="on-body"><div class="es" style="padding:12px;">Loading…</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
+        <button class="bsm" onclick="officeNetMark()" title="Adds the public IP you are on right now to the office list">📍 Mark my network as the office</button>
+        <button class="bsm" onclick="beaconPair()" title="Makes a link to open on one office computer; it reports the office IP every 5 minutes">🔗 Pair a beacon</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;border-top:1px solid rgba(15,23,42,.08);padding-top:12px;">
+        <select id="wc-emp" style="background:#eef2f8;border:1px solid rgba(15,23,42,.13);border-radius:8px;color:#0f172a;padding:6px 8px;font-family:inherit;font-size:12.5px;min-width:220px;"><option value="">— person —</option></select>
+        <button class="bsm" onclick="wfhCodeIssue()" style="color:#047857;border-color:rgba(4,120,87,.4);font-weight:700;">Issue a work-from-home code</button>
+        <span id="wc-out" style="font-size:13px;font-weight:800;color:var(--t1);"></span>
+      </div>
+    </div>
+
     <div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
         <div style="font-size:15px;font-weight:800;color:var(--t1);">Where the points came from</div>
@@ -8923,7 +8944,45 @@ async function sendNotify(){
 
 <script>
 var _gqTimer=null;
-function openGamesSettings(){ document.getElementById('settings-modal').style.display='flex'; gamesPauseLoad(); try{ loadTriviaBoard(); }catch(e){} try{ loadRedemptions(); }catch(e){} }
+function openGamesSettings(){ document.getElementById('settings-modal').style.display='flex'; gamesPauseLoad(); try{ officeNetLoad(); }catch(e){} try{ loadTriviaBoard(); }catch(e){} try{ loadRedemptions(); }catch(e){} }
+/* ── Office network gate + work-from-home codes (Oct 5, 2026) ──
+   Signed-IP checks (beacon report, "mark my network") go to the LOGIN lane, which holds NET_SECRET;
+   the main script's Script Properties are full and take no new keys. */
+var LOGIN_API=(window.__AURA__&&window.__AURA__.LOGIN)||"https://script.google.com/macros/s/AKfycbx4oekhuDA4wTo1uIE8Zb1PsI9oOnQx7yW_uWcZ9e_jtLFwFS0b64e749iN3sx5VC6ziQ/exec";
+var _onEmpsLoaded=false, _onToken='';
+async function _onEmps(){ if(_onEmpsLoaded) return; try{ var r=await jGet(API+'?action=get_all_employees'); var d=await r.json(); var sel=document.getElementById('wc-emp'); if(!sel) return; (d.employees||[]).filter(function(e){ return e.employee_id && String(e.status||'active').toLowerCase().indexOf('active')>=0; }).sort(function(a,b){ return String(a.full_name||'').localeCompare(String(b.full_name||'')); }).forEach(function(e){ var o=document.createElement('option'); o.value=e.employee_id; o.textContent=(e.full_name||e.employee_id)+' · '+e.employee_id; sel.appendChild(o); }); _onEmpsLoaded=true; }catch(e){} }
+function _onAgo(ms){ if(!ms) return 'never'; var m=Math.round((Date.now()-ms)/60000); return m<1?'just now':(m<60?m+' min ago':(m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago')); }
+async function officeNetLoad(){ var b=document.getElementById('on-body'); _onEmps();
+  try{ var r=await jGet(API+'?action=office_net_status&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(!d||!d.ok){ b.innerHTML='<div class="es" style="padding:12px;">'+((d&&d.error)||'Failed')+'</div>'; return; }
+    var st=document.getElementById('on-state'), g=document.getElementById('on-gate');
+    st.textContent=d.gate_on?'GATE ON':'GATE OFF'; st.style.background=d.gate_on?'#ecfdf5':'#eef2f8'; st.style.color=d.gate_on?'#047857':'#475569';
+    g.textContent=d.gate_on?'Turn the gate off':'Turn the gate on'; g.dataset.on=d.gate_on?'1':'0'; g.style.color=d.gate_on?'#be123c':'#047857'; g.style.borderColor=d.gate_on?'rgba(190,18,60,.4)':'rgba(4,120,87,.4)';
+    var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+    var h=''; _onToken=d.beacon_token||'';
+    try{ var pr=await jGet(LOGIN_API+'?action=ping&_='+Date.now(), 0, 20000); var pd=await pr.json(); if(pd && pd.net_secret===false) h+='<div style="padding:9px 11px;border-radius:10px;background:#fff1f2;border:1px solid rgba(190,18,60,.3);color:#be123c;font-size:12.5px;font-weight:700;margin-bottom:10px;">NET_SECRET is not set in the login lane\'s Script Properties — signed IPs cannot be checked yet.</div>'; }catch(_pe){}
+    h+='<div style="font-size:12.5px;color:var(--t2);margin-bottom:6px;"><b>Office IPs</b> (seen in the last 7 days) · beacon: '+(d.beacon_paired?('paired · last report '+_onAgo(d.beacon_seen)):'<span style="color:#b45309;">not paired</span>')+'</div>';
+    h+=(d.ips&&d.ips.length)?'<div style="display:flex;flex-wrap:wrap;gap:6px;">'+d.ips.map(function(x){ return '<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(15,23,42,.12);border-radius:100px;padding:3px 10px;font-size:12px;background:#fff;"><b style="font-family:monospace;">'+E(x.ip)+'</b><span style="color:var(--t3);">'+E(x.how||'')+' · '+_onAgo(x.at)+'</span><a onclick="officeNetDel(\''+E(x.ip)+'\')" style="cursor:pointer;color:#be123c;font-weight:800;" title="Remove">×</a></span>'; }).join('')+'</div>':'<div style="font-size:12.5px;color:#b45309;font-weight:700;">No office IP known yet — press “Mark my network as the office” from the office, or pair the beacon.</div>';
+    h+='<div style="font-size:12.5px;color:var(--t2);margin:12px 0 6px;"><b>Work-from-home codes</b> active now</div>';
+    h+=(d.codes&&d.codes.length)?'<div style="overflow:auto;border:1px solid rgba(15,23,42,.08);border-radius:10px;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f6f7fb;"><th style="text-align:left;padding:6px 8px;">Person</th><th style="text-align:left;padding:6px 8px;">Code</th><th style="text-align:left;padding:6px 8px;">Valid until</th><th></th></tr></thead><tbody>'+d.codes.map(function(c){ return '<tr style="border-top:1px solid rgba(15,23,42,.06);"><td style="padding:6px 8px;font-weight:700;">'+E(c.name)+' <span style="color:var(--t3);font-weight:500;">'+E(c.employee_id)+'</span></td><td style="padding:6px 8px;font-family:monospace;font-size:14px;font-weight:800;letter-spacing:.08em;">'+E(c.code)+'</td><td style="padding:6px 8px;color:var(--t3);">'+E(c.exp_label)+'</td><td style="padding:6px 8px;text-align:right;"><button class="bsm" onclick="wfhCodeRevoke(\''+E(c.employee_id)+'\')" style="color:#be123c;border-color:rgba(190,18,60,.35);">Revoke</button></td></tr>'; }).join('')+'</tbody></table></div>':'<div style="font-size:12.5px;color:var(--t3);">None.</div>';
+    b.innerHTML=h;
+  }catch(e){ b.innerHTML='<div class="es" style="padding:12px;">Could not reach the backend — '+((e&&e.message)||'network error')+'</div>'; } }
+async function netGateToggle(){ var g=document.getElementById('on-gate'); var on=g&&g.dataset.on==='1';
+  if(!confirm(on?'Turn the network gate OFF?\n\nEveryone can sign in from anywhere again.':'Turn the network gate ON?\n\nFrom now on the portal signs in only from the office network; everyone else needs a work-from-home code from you. Make sure an office IP is listed first — otherwise the office itself will be asked for codes.')) return;
+  try{ var r=await jGet(API+'?action=net_gate_set&on='+(on?'0':'1')+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok) officeNetLoad(); else alert('Could not change it'+((d&&d.error)?(': '+d.error):'.')); }catch(e){ alert('Could not reach the backend.'); } }
+async function _myNet(){ try{ var ctl=new AbortController(); var t=setTimeout(function(){ ctl.abort(); },8000); var r=await fetch('/.netlify/functions/net?_='+Date.now(),{ signal:ctl.signal, cache:'no-store' }); clearTimeout(t); return await r.json(); }catch(e){ return null; } }
+async function officeNetMark(){ var n=await _myNet(); if(!n||!n.ip){ alert('Could not read your public IP — the Netlify function (/.netlify/functions/net) is not answering. Is it deployed?'); return; } if(!n.signed){ alert('The Netlify function has no NET_SECRET yet, so the IP cannot be trusted. Set it in Netlify first.'); return; }
+  if(!_onToken){ if(!confirm('No beacon is paired yet — pairing one is needed for marking (it is the key that lets an IP be registered). Pair now?')) return; var pr=await jGet(API+'?action=beacon_pair&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var pdd=await pr.json(); if(!(pdd&&pdd.ok)){ alert('Could not pair.'); return; } _onToken=pdd.token; }
+  if(!confirm('Mark '+n.ip+' as the office network?\n\nOnly do this from the office.')) return;
+  try{ var r=await jGet(LOGIN_API+'?action=office_net_beacon&how=admin&token='+encodeURIComponent(_onToken)+'&ip='+encodeURIComponent(n.ip)+'&ts='+n.ts+'&sig='+n.sig+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok) officeNetLoad(); else alert('Refused'+((d&&d.error)?(': '+d.error+(d.why?' ('+d.why+')':'')):'.')+(d&&d.error==='BAD_TOKEN'?' — pair a beacon again, then retry.':'')); }catch(e){ alert('Could not reach the login lane.'); } }
+async function officeNetDel(ip){ if(!confirm('Remove '+ip+' from the office list?')) return; try{ var r=await jGet(API+'?action=office_net_del&ip='+encodeURIComponent(ip)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok) officeNetLoad(); }catch(e){} }
+async function beaconPair(){ if(!confirm('Make a beacon link?\n\nOpen it on ONE office computer and leave the tab open; it reports the office IP every 5 minutes. Making a new link unpairs the old one.')) return;
+  try{ var r=await jGet(API+'?action=beacon_pair&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(!(d&&d.ok)){ alert('Failed'+((d&&d.error)?(': '+d.error):'.')); return; }
+    var link=location.origin+'/office-beacon.html#'+d.token; try{ await navigator.clipboard.writeText(link); }catch(e){}
+    prompt('Beacon link (copied) — open it on the office computer:', link); officeNetLoad(); }catch(e){ alert('Could not reach the backend.'); } }
+async function wfhCodeIssue(){ var sel=document.getElementById('wc-emp'), out=document.getElementById('wc-out'); var id=sel&&sel.value; if(!id){ alert('Pick the person first.'); return; }
+  out.textContent='…';
+  try{ var r=await jGet(API+'?action=wfh_code_issue&employee_id='+encodeURIComponent(id)+'&by=admin&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok){ out.innerHTML='<span style="font-family:monospace;font-size:18px;letter-spacing:.12em;">'+d.code+'</span> <span style="color:var(--t3);font-weight:600;font-size:12px;">for '+d.employee_id+' · until '+d.exp_label+'</span>'; try{ await navigator.clipboard.writeText(d.code); }catch(e){} officeNetLoad(); } else out.textContent=(d&&d.error)||'Failed'; }catch(e){ out.textContent='Could not reach the backend.'; } }
+async function wfhCodeRevoke(id){ if(!confirm('Revoke '+id+'\'s code?')) return; try{ var r=await jGet(API+'?action=wfh_code_revoke&employee_id='+encodeURIComponent(id)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok) officeNetLoad(); }catch(e){} }
 function _gpPaint(on){ var st=document.getElementById('gp-state'), b=document.getElementById('gp-btn'), c=document.getElementById('gp-card'); if(!st||!b) return;
   st.textContent=on?'PAUSED':'ON'; st.style.background=on?'#fff1f2':'#ecfdf5'; st.style.color=on?'#be123c':'#047857';
   b.textContent=on?'▶ Resume games & points':'⏸ Pause games & points'; b.style.color=on?'#047857':'#be123c'; b.style.borderColor=on?'rgba(4,120,87,.4)':'rgba(190,18,60,.4)';
