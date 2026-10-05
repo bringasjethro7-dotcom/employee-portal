@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="JMB Admin">
+<meta name="theme-color" content="#ff6b1a">
+<link rel="manifest" href="admin.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-v2.png">
+<link rel="icon" href="icons/icon-192-v2.png">
+<title>JMB Admin</title>
+<script src="aura-config.js"></script>
+<style>
+/* ═══ JMB Admin — the phone console (Oct 6, 2026) ═══
+   Light, thumb-first, reads the admin snapshot from the CDN (same fast path as the desktop console) and
+   writes through the same backend actions. Installs to the Home Screen as "JMB Admin". */
+:root{ --bg:#f6f7fb; --card:#fff; --ink:#0f172a; --ink2:#475569; --ink3:#8a93a3; --line:rgba(15,23,42,.09); --o:#ff6b1a; --o2:#ffe6d6; --ok:#047857; --okbg:#ecfdf5; --bad:#be123c; --badbg:#fff1f2; --amb:#b45309; --ambbg:#fffbeb; --vio:#6d28d9; --viobg:#f3e8ff; --r:16px; --sat:env(safe-area-inset-top); --sab:env(safe-area-inset-bottom); }
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,Inter,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+#login .box{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:26px 22px;box-shadow:0 30px 70px -40px rgba(15,23,42,.35)}
+#login h1{font-size:22px;margin:0 0 4px} #login p{margin:0 0 18px;color:var(--ink3);font-size:13px}
+.inp{width:100%;border:1px solid var(--line);border-radius:12px;padding:13px 14px;font-size:16px;background:#fbfbfd;outline:none}
+.inp:focus{border-color:var(--o);box-shadow:0 0 0 3px rgba(255,107,26,.15)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:12px;padding:12px 16px;font-weight:800;font-size:14px;background:#eef2f8;color:var(--ink)}
+.btn.pri{background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;box-shadow:0 10px 24px -12px rgba(255,107,26,.8)}
+.btn.ok{background:var(--okbg);color:var(--ok)} .btn.bad{background:var(--badbg);color:var(--bad)} .btn.amb{background:var(--ambbg);color:var(--amb)}
+.btn.w{width:100%} .btn.sm{padding:9px 12px;font-size:13px;border-radius:10px} .btn:disabled{opacity:.5}
+.err{color:var(--bad);font-size:13px;margin-top:10px;display:none}
+.chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2);margin:12px 0 16px}
+#app{display:none;padding-bottom:calc(82px + var(--sab))}
+header{position:sticky;top:0;z-index:20;background:rgba(246,247,251,.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:calc(10px + var(--sat)) 16px 10px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+header h2{font-size:19px;margin:0;flex:1}
+.pill{display:inline-flex;align-items:center;gap:5px;border-radius:100px;padding:3px 9px;font-size:11px;font-weight:800;background:#eef2f8;color:var(--ink2)}
+.pill.ok{background:var(--okbg);color:var(--ok)} .pill.bad{background:var(--badbg);color:var(--bad)} .pill.amb{background:var(--ambbg);color:var(--amb)} .pill.vio{background:var(--viobg);color:var(--vio)} .pill.o{background:var(--o2);color:#c2410c}
+main{padding:14px 14px 0}
+.view{display:none} .view.on{display:block}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 10px;text-align:center}
+.kpi b{display:block;font-size:24px;line-height:1} .kpi span{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
+.sec{display:flex;align-items:center;gap:8px;margin:16px 2px 8px} .sec b{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink2)} .sec span{color:var(--ink3);font-size:12px} .sec hr{flex:1;border:none;height:1px;background:var(--line)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:10px;box-shadow:0 10px 30px -26px rgba(15,23,42,.4)}
+.card.gone{opacity:.35;pointer-events:none;transition:opacity .25s}
+.who{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.av{width:38px;height:38px;border-radius:50%;object-fit:cover;background:linear-gradient(135deg,#ff6b1a,#8b5cf6);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex:none}
+.who .n{font-weight:800;font-size:15px;line-height:1.15} .who .s{font-size:12px;color:var(--ink3)}
+.body{font-size:14px;color:var(--ink2);white-space:pre-wrap;word-break:break-word;margin:6px 0 10px}
+.meta{font-size:12px;color:var(--ink3);margin-bottom:10px}
+.acts{display:flex;gap:8px} .acts .btn{flex:1}
+.empty{color:var(--ink3);text-align:center;padding:26px 10px;font-size:14px}
+.live{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:8px}
+.live .dot{width:10px;height:10px;border-radius:50%;flex:none} .live .n{font-weight:800;font-size:14px} .live .s{font-size:12px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live .t{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:800;font-size:14px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chips button{border:1px solid var(--line);background:var(--card);border-radius:100px;padding:6px 12px;font-size:12.5px;font-weight:700;color:var(--ink2)} .chips button.sel{background:var(--ink);color:#fff;border-color:var(--ink)}
+.fld{margin-bottom:12px} .fld label{display:block;font-size:12px;font-weight:800;color:var(--ink2);margin-bottom:5px}
+textarea.inp{min-height:90px;resize:vertical}
+.code{font:800 30px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em;color:var(--ink)}
+.rowx{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)} .rowx:first-child{border-top:none}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;background:rgba(255,255,255,.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:6px 6px calc(6px + var(--sab))}
+nav button{flex:1;border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;font-size:10.5px;font-weight:800;color:var(--ink3);position:relative}
+nav button.on{color:var(--o)} nav svg{width:22px;height:22px}
+nav .n{position:absolute;top:2px;right:calc(50% - 22px);min-width:18px;height:18px;border-radius:9px;background:var(--bad);color:#fff;font-size:11px;line-height:18px;text-align:center;padding:0 5px}
+#toast{position:fixed;left:50%;bottom:calc(96px + var(--sab));transform:translateX(-50%);background:#0f172a;color:#fff;border-radius:100px;padding:10px 16px;font-size:13px;font-weight:700;opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;max-width:90vw;text-align:center}
+#toast.on{opacity:1}
+.skel{height:64px;border-radius:14px;background:linear-gradient(90deg,#eef0f6,#f8f9fc,#eef0f6);background-size:200% 100%;animation:sk 1.2s linear infinite;margin-bottom:10px}
+@keyframes sk{from{background-position:200% 0}to{background-position:-200% 0}}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="box">
+    <h1>JMB Admin</h1>
+    <p>Approvals, live team and codes — on your phone.</p>
+    <input class="inp" id="pw" type="password" placeholder="Admin password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <label class="chk"><input type="checkbox" id="keep" checked> Keep me signed in on this phone</label>
+    <button class="btn pri w" id="lbtn" onclick="doLogin()">Sign in</button>
+    <div class="err" id="lerr"></div>
+  </div>
+</div>
+
+<div id="app">
+  <header><h2 id="hdr">Inbox</h2><span class="pill" id="feedpill">…</span></header>
+  <main>
+    <div class="view on" id="v-inbox"><div class="skel"></div><div class="skel"></div></div>
+    <div class="view" id="v-live"></div>
+    <div class="view" id="v-codes"></div>
+    <div class="view" id="v-more"></div>
+  </main>
+  <nav>
+    <button id="nb-inbox" class="on" onclick="go('inbox')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>Inbox<span class="n" id="nb-n" style="display:none">0</span></button>
+    <button id="nb-live" onclick="go('live')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Live</button>
+    <button id="nb-codes" onclick="go('codes')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 4v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-4z"/></svg>Codes</button>
+    <button id="nb-more" onclick="go('more')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>More</button>
+  </nav>
+</div>
+<div id="toast"></div>
+
+<script>
+var API=(window.__AURA__&&window.__AURA__.EXEC)||"https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec";
+var LOGIN_API=(window.__AURA__&&window.__AURA__.LOGIN)||"https://script.google.com/macros/s/AKfycbx4oekhuDA4wTo1uIE8Zb1PsI9oOnQx7yW_uWcZ9e_jtLFwFS0b64e749iN3sx5VC6ziQ/exec";
+var PASS='', VIEW='inbox', SNAP=null, SNAP_AT=0, FEED={ url:'', exp:0, lastBust:0 }, GONE={}, EMP=[], TICK=null;
+var $=function(id){ return document.getElementById(id); };
+function E(x){ return String(x==null?'':x).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function toast(m){ var t=$('toast'); t.textContent=m; t.classList.add('on'); clearTimeout(t._t); t._t=setTimeout(function(){ t.classList.remove('on'); },2400); }
+function fetchJ(url, ms){ var ctl=window.AbortController?new AbortController():null; var to=setTimeout(function(){ try{ ctl&&ctl.abort(); }catch(e){} }, ms||30000); return fetch(url, ctl?{ signal:ctl.signal, cache:'no-store' }:{ cache:'no-store' }).then(function(r){ clearTimeout(to); return r.text(); }).then(function(t){ var s=t.trim().charAt(0); if(s!=='{'&&s!=='[') throw new Error('Server busy — try again'); return JSON.parse(t); }); }
+function api(q, ms){ return fetchJ(API+'?'+q+'&_='+Date.now(), ms); }
+function ap(q, ms){ return api(q+'&pass='+encodeURIComponent(PASS), ms); }
+function initials(n){ return String(n||'?').replace(/[^A-Za-z\s]/g,' ').trim().split(/\s+/).slice(0,2).map(function(w){ return w.charAt(0).toUpperCase(); }).join('')||'?'; }
+function face(id,name){ var e=String(id||'').toUpperCase(); if(!/^JMB\d{3}$/.test(e)) return '<span class="av">'+E(initials(name))+'</span>'; return '<img class="av" src="headshots/'+e+'.jpg" alt="" onerror="this.outerHTML=\'<span class=&quot;av&quot;>'+E(initials(name))+'</span>\'">'; }
+function fmtD(d){ d=String(d||''); if(!/^\d{4}-\d{2}-\d{2}/.test(d)) return d; var x=new Date(d.slice(0,10)+'T00:00:00'); return isNaN(x)?d:x.toLocaleDateString('en-PH',{ month:'short', day:'numeric' }); }
+function ago(ms){ var m=Math.round((Date.now()-ms)/60000); return m<1?'just now':(m<60?m+' min ago':(m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago')); }
+function hhmm(s){ s=Math.max(0,Math.round(s)); var h=Math.floor(s/3600), m=Math.floor(s%3600/60); return (h?h+'h ':'')+String(m).padStart(2,'0')+'m'; }
+
+/* ── sign-in: the admin password, verified by the backend; kept on this phone only if you tick the box ── */
+async function doLogin(){
+  var p=$('pw').value, b=$('lbtn'), e=$('lerr'); if(!p){ return; } b.disabled=true; b.textContent='Checking…'; e.style.display='none';
+  try{ var d=await api('action=verify_admin&pass='+encodeURIComponent(p), 20000);
+    if(d&&d.ok){ PASS=p; if($('keep').checked){ try{ localStorage.setItem('jmb_adm_pass', p); }catch(_s){} } else { try{ sessionStorage.setItem('jmb_adm_pass', p); }catch(_s){} } enter(); }
+    else { e.textContent='Wrong password.'; e.style.display='block'; }
+  }catch(x){ e.textContent='Could not reach the backend — '+x.message; e.style.display='block'; }
+  b.disabled=false; b.textContent='Sign in';
+}
+function signOut(){ try{ localStorage.removeItem('jmb_adm_pass'); sessionStorage.removeItem('jmb_adm_pass'); sessionStorage.removeItem('jmb_adm_feed'); }catch(e){} location.reload(); }
+function enter(){ $('login').style.display='none'; $('app').style.display='block'; go((location.hash||'').replace('#','')||'inbox'); feedStart(); setInterval(function(){ if(!document.hidden) ap('action=admin_watch').catch(function(){}); }, 5*60*1000); }
+(function(){ try{ var p=localStorage.getItem('jmb_adm_pass')||sessionStorage.getItem('jmb_adm_pass'); if(p){ PASS=p; enter(); } }catch(e){} })();
+
+/* ── the snapshot feed (same private CDN file the desktop console reads) ── */
+async function feedUrl(){ try{ var d=await ap('action=admin_feed_url'); if(d&&d.ok){ FEED.url=d.url; FEED.exp=d.exp||0; try{ sessionStorage.setItem('jmb_adm_feed', JSON.stringify({ url:d.url, exp:d.exp })); }catch(_s){} return true; } FEED.err=(d&&d.error)||'no url'; }catch(e){ FEED.err=e.message; } return false; }
+async function feedTick(force){
+  if(document.hidden && !force) return;
+  if(!FEED.url || Date.now()>FEED.exp-60000){ if(!(await feedUrl())) return fallback(); }
+  try{ var r=await fetch(FEED.url, { cache:'no-store' }); if(r.status===400||r.status===403){ FEED.url=''; return; } var snap=await r.json(); var at=Date.parse(snap&&snap.at||'')||0;
+    if(!snap||!snap.ok||(Date.now()-at)>3*60*1000) return fallback();
+    if(FEED.lastBust && at<FEED.lastBust && (Date.now()-FEED.lastBust)<3*60*1000) return;   // never seed from a snapshot older than my last write
+    SNAP=snap; SNAP_AT=at; GONE={}; paintFeed(); render();
+  }catch(e){ fallback(); }
+}
+var _fb=0;
+async function fallback(){   // no snapshot (cron asleep / bucket missing): read the bundle directly, at most once a minute
+  if(Date.now()-_fb<60000) return; _fb=Date.now();
+  try{ var b=await api('action=admin_bootstrap', 90000); var l=await api('action=lunch_work_list', 45000).catch(function(){ return { rows:[] }; }); var inv=await api('action=list_pending_invoices', 45000).catch(function(){ return {}; }); var tr=await ap('action=toolreq_list&status=open', 45000).catch(function(){ return {}; });
+    if(b&&b.ok){ SNAP={ ok:true, at:new Date().toISOString(), boot:b, running:b.running, lunch:l, invoices:inv, toolreq:tr, direct:true }; SNAP_AT=Date.now(); GONE={}; paintFeed(); render(); } }catch(e){ paintFeed(e.message); }
+}
+function feedStart(){ try{ var c=JSON.parse(sessionStorage.getItem('jmb_adm_feed')||'null'); if(c&&c.url&&c.exp>Date.now()+60000){ FEED.url=c.url; FEED.exp=c.exp; } }catch(e){} feedTick(true); setInterval(feedTick, 20000); document.addEventListener('visibilitychange', function(){ if(!document.hidden) feedTick(true); }); }
+function paintFeed(err){ var p=$('feedpill'); if(err){ p.className='pill bad'; p.textContent='offline'; return; } p.className='pill '+(SNAP&&SNAP.direct?'amb':'ok'); p.textContent=SNAP?((SNAP.direct?'direct · ':'⚡ ')+ago(SNAP_AT)):'…'; }
+function afterWrite(){ FEED.lastBust=Date.now(); setTimeout(fallback.bind(null), 1500); _fb=0; }
+
+/* ── navigation ── */
+function go(v){ if(['inbox','live','codes','more'].indexOf(v)<0) v='inbox'; VIEW=v; ['inbox','live','codes','more'].forEach(function(k){ $('v-'+k).classList.toggle('on',k===v); $('nb-'+k).classList.toggle('on',k===v); }); $('hdr').textContent={ inbox:'Inbox', live:'Live team', codes:'Office & codes', more:'More' }[v]; try{ history.replaceState(null,'','#'+v); }catch(e){} window.scrollTo(0,0); render(); }
+function render(){ if(!SNAP){ return; } if(VIEW==='inbox') vInbox(); else if(VIEW==='live') vLive(); else if(VIEW==='codes') vCodes(); else vMore(); }
+
+/* ── INBOX: every pending request, newest first, one card each, Approve / Reject ── */
+function items(){
+  var b=SNAP.boot||{}, out=[];
+  var pend=function(x){ return String(x.status||'pending').toLowerCase()==='pending'; };
+  ((b.leave&&b.leave.requests)||[]).filter(pend).forEach(function(r){ out.push({ k:'leave', key:'leave:'+r._row, id:r.employee_id, name:r.full_name, title:(String(r.type||'leave').toLowerCase()==='sick'?'🤒 Sick leave':'🏖 '+(r.type||'Leave')+' leave'), body:fmtD(r.start||r.start_date)+' → '+fmtD(r.end||r.end_date)+(r.days?' · '+r.days+' day'+(String(r.days)==='1'?'':'s'):'')+(r.reason?'\n'+r.reason:''), at:r.submitted, ok:function(){ return w('update_leave_status&row='+enc(r._row)+'&status=approved'); }, no:function(){ return w('update_leave_status&row='+enc(r._row)+'&status=rejected'); } }); });
+  ((b.coe&&b.coe.requests)||[]).filter(pend).forEach(function(r){ out.push({ k:'coe', key:'coe:'+r._row, id:r.employee_id, name:r.full_name, title:'📄 COE request', body:r.purpose||'', at:r.submitted, ok:function(){ var c=prompt('Client name for the certificate (required):'); if(!c||!c.trim()) return Promise.resolve({ error:'CLIENT_REQUIRED' }); var a=prompt('Client address (optional):')||''; return w('update_coe_status&row='+enc(r._row)+'&status=approved&client='+enc(c.trim())+'&client_address='+enc(a.trim())); }, no:function(){ return w('update_coe_status&row='+enc(r._row)+'&status=rejected'); } }); });
+  ((b.redeem&&b.redeem.requests)||[]).filter(pend).forEach(function(r){ var peso=(r.peso!=null)?r.peso:(r.points/5); out.push({ k:'redeem', key:'redeem:'+r.id, id:r.employee_id, name:r.full_name, title:'💸 Redeem '+Number(r.points||0).toLocaleString()+' pts · ₱'+Number(peso||0).toLocaleString(undefined,{ maximumFractionDigits:2 })+(r.rate&&r.rate!==5?' (old rate)':''), body:(r.type||'')+(r.detail?' · '+r.detail:''), at:r.created_at, ok:function(){ return w('redeem_resolve&id='+enc(r.id)+'&decision=approve&by=Admin'); }, no:function(){ var n=prompt('Reason (optional):')||''; return w('redeem_resolve&id='+enc(r.id)+'&decision=reject&by=Admin&note='+enc(n)); } }); });
+  ((b.appeals&&b.appeals.appeals)||[]).forEach(function(r){ out.push({ k:'appeal', key:'appeal:'+r.entry_id, id:r.employee_id, name:r.full_name, title:'⏱ '+(String(r.appeal_type||'')==='retag'?'Retag appeal':'Hour appeal')+(r.date?' · '+fmtD(r.date):''), body:[r.project,r.task].filter(Boolean).join(' · ')+(r.hours!=null&&r.hours!==''?' · logged '+r.hours+' h':'')+(r.claim_hours?' · claims '+r.claim_hours+' h':'')+(r.new_project||r.new_task?' → '+[r.new_project,r.new_task].filter(Boolean).join(' · '):'')+(r.note?'\n'+r.note:''), at:'', ok:function(){ return w('resolve_appeal&entry_id='+enc(r.entry_id)+'&decision=approve&row='+enc(r.row||'')); }, no:function(){ return w('resolve_appeal&entry_id='+enc(r.entry_id)+'&decision=reject&row='+enc(r.row||'')); } }); });
+  ((b.disputes&&b.disputes.disputes)||[]).forEach(function(r){ out.push({ k:'dispute', key:'dispute:'+r.id, id:r.employee_id, name:r.full_name, title:'⚖️ Demerit dispute'+(r.label?' · '+r.label:''), body:(r.explanation||'')+((r.files||[]).length?'\n'+r.files.length+' file'+(r.files.length===1?'':'s')+' attached (see desktop)':''), at:r.created_at, ok:function(){ return w('resolve_demerit_dispute&id='+enc(r.id)+'&status=approved&by=Admin&note='); }, no:function(){ var n=prompt('Note to the contractor (optional):')||''; return w('resolve_demerit_dispute&id='+enc(r.id)+'&status=rejected&by=Admin&note='+enc(n)); } }); });
+  ((b.lead_demerits&&b.lead_demerits.requests)||[]).forEach(function(r){ out.push({ k:'demerit', key:'dem:'+r.id, id:r.employee_id, name:r.full_name, title:'⚠️ Demerit to approve · '+(r.points||0)+' pt'+(String(r.points)==='1'?'':'s'), body:(r.infraction||'')+(r.by?'\nby '+r.by:'')+(r.note?'\n'+r.note:''), at:r.created_at, ok:function(){ return w('lead_demerit_resolve&id='+enc(r.id)+'&decision=approve&employee_id='+enc(r.employee_id)+'&by=Admin'); }, no:function(){ return w('lead_demerit_resolve&id='+enc(r.id)+'&decision=reject&employee_id='+enc(r.employee_id)+'&by=Admin'); } }); });
+  ((SNAP.lunch&&SNAP.lunch.rows)||[]).filter(pend).forEach(function(r){ out.push({ k:'lunch', key:'lunch:'+r.employee_id+':'+r.date, id:r.employee_id, name:r.full_name, title:'🍽 Working lunch · '+fmtD(r.date)+(r.shift?' · '+r.shift:''), body:r.reason||'', at:r.submitted, ok:function(){ return w('lunch_work_resolve&employee_id='+enc(r.employee_id)+'&date='+enc(r.date)+'&status=approved&by=Admin&note='); }, no:function(){ var n=(prompt('Reason (optional):')||'').slice(0,600); return w('lunch_work_resolve&employee_id='+enc(r.employee_id)+'&date='+enc(r.date)+'&status=rejected&by=Admin&note='+enc(n)); } }); });
+  ((SNAP.toolreq&&(SNAP.toolreq.items||SNAP.toolreq.requests))||[]).forEach(function(r){ out.push({ k:'tool', key:'tool:'+r.id, id:r.employee_id, name:r.full_name, title:(String(r.kind||'')==='bug'?'🐞 Bug report':'🛠 Tool request')+(r.tool?' · '+r.tool:''), body:(r.text||'')+(r.status&&r.status!=='new'?'\n['+r.status+']':''), at:r.created_at, okLabel:'Planned', noLabel:'Decline', ok:function(){ return wp('toolreq_update&id='+enc(r.id)+'&status=planned&note='); }, no:function(){ var n=prompt('Tell them why (optional):')||''; return wp('toolreq_update&id='+enc(r.id)+'&status=declined&note='+enc(n)); }, extra:{ label:'Done', fn:function(){ var n=prompt('Note (optional):')||''; return wp('toolreq_update&id='+enc(r.id)+'&status=done&note='+enc(n)); } } }); });
+  return out.filter(function(x){ return !GONE[x.key]; });
+}
+var enc=encodeURIComponent;
+function w(q){ return api('action='+q, 30000); }
+function wp(q){ return ap('action='+q, 30000); }
+var INF={ all:'All', leave:'Leave', coe:'COE', redeem:'Redeem', appeal:'Appeals', dispute:'Disputes', demerit:'Demerits', lunch:'Lunch', tool:'Tools' }, IFILT='all';
+function vInbox(){
+  var L=items(), v=$('v-inbox'); var n=L.length; var nb=$('nb-n'); nb.style.display=n?'':'none'; nb.textContent=n; try{ document.title=(n?'('+n+') ':'')+'JMB Admin'; }catch(e){}
+  var counts={ all:n }; L.forEach(function(x){ counts[x.k]=(counts[x.k]||0)+1; });
+  var chips='<div class="chips">'+Object.keys(INF).filter(function(k){ return k==='all'||counts[k]; }).map(function(k){ return '<button class="'+(IFILT===k?'sel':'')+'" onclick="IFILT=\''+k+'\';vInbox()">'+INF[k]+(counts[k]?' '+counts[k]:'')+'</button>'; }).join('')+'</div>';
+  var show=L.filter(function(x){ return IFILT==='all'||x.k===IFILT; });
+  v.innerHTML=chips+(show.length?show.map(function(x,i){ var key=x.key; ITEMS[key]=x; return '<div class="card" id="c-'+E(key.replace(/[^a-z0-9]/gi,'_'))+'"><div class="who">'+face(x.id,x.name)+'<div><div class="n">'+E(x.name||x.id)+'</div><div class="s">'+E(x.id||'')+(x.at?' · '+E(String(x.at).slice(0,16)):'')+'</div></div></div><div style="font-weight:800;font-size:14px;margin:2px 0">'+E(x.title)+'</div>'+(x.body?'<div class="body">'+E(x.body)+'</div>':'')+'<div class="acts"><button class="btn ok" onclick="act(\''+E(key)+'\',\'ok\',this)">'+E(x.okLabel||'Approve')+'</button>'+(x.extra?'<button class="btn amb" onclick="act(\''+E(key)+'\',\'extra\',this)">'+E(x.extra.label)+'</button>':'')+'<button class="btn bad" onclick="act(\''+E(key)+'\',\'no\',this)">'+E(x.noLabel||'Reject')+'</button></div></div>'; }).join(''):'<div class="empty">Nothing waiting. ✨</div>');
+}
+var ITEMS={};
+async function act(key, which, btn){
+  var x=ITEMS[key]; if(!x) return; var fn=which==='extra'?x.extra.fn:x[which]; var card=btn.closest('.card'); var all=card.querySelectorAll('button'); all.forEach(function(b){ b.disabled=true; }); btn.textContent='…';
+  try{ var d=await fn(); if(d&&(d.ok||d.success)){ GONE[key]=1; card.classList.add('gone'); toast(which==='no'?'Rejected':'Done ✓'); afterWrite(); setTimeout(vInbox, 300); }
+    else { all.forEach(function(b){ b.disabled=false; }); vInbox(); toast((d&&d.error)?('Refused: '+d.error):'Could not save'); } }
+  catch(e){ all.forEach(function(b){ b.disabled=false; }); vInbox(); toast('Could not reach the backend'); }
+}
+
+/* ── LIVE: who is on the clock right now ── */
+function liveStatus(r){ var p=String(r.project||''), c=String(r.category||'').toLowerCase(); if(p!=='Idle (Internal)') return 'work'; if(/lunch|dinner|meal/.test(c)) return 'lunch'; if(/micro|break/.test(c)) return 'micro'; return 'none'; }
+function vLive(){
+  var run=(SNAP.running&&SNAP.running.running)||[], now=Date.parse(SNAP.running&&SNAP.running.server_now||'')||SNAP_AT, emps=(SNAP.boot&&SNAP.boot.employees&&SNAP.boot.employees.employees)||[];
+  var active=emps.filter(function(e){ return e.employee_id && String(e.status||'active').toLowerCase().indexOf('active')>=0; });
+  var onClock={}; run.forEach(function(r){ onClock[String(r.employee_id).toLowerCase()]=1; });
+  var work=run.filter(function(r){ return liveStatus(r)==='work'; }), lunch=run.filter(function(r){ return liveStatus(r)!=='work'; }), off=active.filter(function(e){ return !onClock[String(e.employee_id).toLowerCase()]; });
+  var inv=(SNAP.invoices&&(SNAP.invoices.invoices||SNAP.invoices.items||[])).length||0;
+  var drift=Date.now()-now;
+  var row=function(r){ var st=liveStatus(r), col={ work:'#22c55e', lunch:'#f59e0b', micro:'#f59e0b', none:'#94a3b8' }[st]; var base=parseFloat(r.elapsed_secs)||0; return '<div class="live"><span class="dot" style="background:'+col+'"></span>'+face(r.employee_id,r.full_name)+'<div style="min-width:0"><div class="n">'+E(r.full_name||r.employee_id)+'</div><div class="s">'+E(st==='work'?(r.project+(r.task?' · '+r.task:'')):(st==='none'?'No task':r.category))+'</div></div><span class="t" data-base="'+base+'">'+hhmm(base+drift/1000)+'</span></div>'; };
+  $('v-live').innerHTML='<div class="kpis"><div class="kpi"><b style="color:#15803d">'+work.length+'</b><span>Working</span></div><div class="kpi"><b style="color:#b45309">'+lunch.length+'</b><span>Lunch / break</span></div><div class="kpi"><b>'+inv+'</b><span>Invoices</span></div></div>'+
+    (work.length?'<div class="sec"><b>Working</b><hr></div>'+work.map(row).join(''):'')+(lunch.length?'<div class="sec"><b>On a break</b><hr></div>'+lunch.map(row).join(''):'')+
+    '<div class="sec"><b>Not tracking</b><span>'+off.length+'</span><hr></div>'+(off.length?'<div class="card" style="font-size:13px;color:var(--ink2);line-height:1.7">'+off.map(function(e){ return E(e.full_name||e.employee_id); }).join(' · ')+'</div>':'<div class="empty">Everyone is on the clock.</div>');
+  clearInterval(TICK); TICK=setInterval(function(){ if(VIEW!=='live') return; var d=(Date.now()-now)/1000; document.querySelectorAll('#v-live .t[data-base]').forEach(function(el){ el.textContent=hhmm(parseFloat(el.dataset.base)+d); }); }, 30000);
+}
+
+/* ── CODES: the office-network gate and work-from-home codes ── */
+var NET=null;
+async function netLoad(){ try{ NET=await ap('action=office_net_status'); }catch(e){ NET={ error:e.message }; } if(VIEW==='codes') vCodes(); }
+function vCodes(){
+  var v=$('v-codes'); if(!NET){ v.innerHTML='<div class="skel"></div>'; netLoad(); return; }
+  if(NET.error){ v.innerHTML='<div class="card">'+E(NET.error)+'</div>'; return; }
+  var emps=((SNAP&&SNAP.boot&&SNAP.boot.employees&&SNAP.boot.employees.employees)||[]).filter(function(e){ return e.employee_id&&String(e.status||'active').toLowerCase().indexOf('active')>=0; }).sort(function(a,b){ return String(a.full_name||'').localeCompare(String(b.full_name||'')); });
+  v.innerHTML='<div class="card"><div class="rowx"><div><b>Network gate</b><div style="font-size:12px;color:var(--ink3)">'+(NET.gate_on?'Office Starlink only · codes elsewhere':'Off — sign-in from anywhere')+'</div></div><span class="pill '+(NET.gate_on?'ok':'')+'">'+(NET.gate_on?'ON':'OFF')+'</span></div>'+
+    '<div class="rowx"><div><b>Office IPs</b><div style="font-size:12px;color:var(--ink3)">'+((NET.ips||[]).map(function(x){ return x.ip; }).join(' · ')||'none known')+'</div></div><span class="pill '+(NET.beacon_paired?'ok':'amb')+'">'+(NET.beacon_paired?'beacon '+(NET.beacon_seen?ago(NET.beacon_seen):'paired'):'no beacon')+'</span></div></div>'+
+    '<div class="card"><div class="fld"><label>Issue a work-from-home code</label><select class="inp" id="wc-emp"><option value="">— person —</option>'+emps.map(function(e){ return '<option value="'+E(e.employee_id)+'">'+E(e.full_name||e.employee_id)+' · '+E(e.employee_id)+'</option>'; }).join('')+'</select></div><button class="btn pri w" onclick="issueCode()">Issue code</button><div id="wc-out" style="text-align:center;margin-top:12px"></div></div>'+
+    '<div class="sec"><b>Active codes</b><hr></div>'+((NET.codes||[]).length?(NET.codes||[]).map(function(c){ return '<div class="card"><div class="rowx" style="border:none;padding:0"><div><div style="font-weight:800">'+E(c.name)+'</div><div style="font-size:12px;color:var(--ink3)">until '+E(c.exp_label)+'</div></div><div style="text-align:right"><div class="code" style="font-size:22px">'+E(c.code)+'</div><button class="btn sm bad" style="margin-top:6px" onclick="revoke(\''+E(c.employee_id)+'\')">Revoke</button></div></div></div>'; }).join(''):'<div class="empty">No codes active.</div>');
+}
+async function issueCode(){ var id=$('wc-emp').value, o=$('wc-out'); if(!id){ toast('Pick the person first'); return; } o.textContent='…'; try{ var d=await ap('action=wfh_code_issue&employee_id='+enc(id)+'&by=admin'); if(d&&d.ok){ o.innerHTML='<div class="code">'+E(d.code)+'</div><div style="font-size:12px;color:var(--ink3);margin-top:6px">'+E(d.employee_id)+' · until '+E(d.exp_label)+'</div>'; try{ await navigator.clipboard.writeText(d.code); toast('Code copied'); }catch(e){} netLoad(); } else o.textContent=(d&&d.error)||'Failed'; }catch(e){ o.textContent='Could not reach the backend'; } }
+async function revoke(id){ if(!confirm('Revoke '+id+"'s code?")) return; try{ await ap('action=wfh_code_revoke&employee_id='+enc(id)); netLoad(); toast('Revoked'); }catch(e){ toast('Could not reach the backend'); } }
+
+/* ── MORE: broadcast, alerts, games & points, links ── */
+var GP=null, TG=null;
+function vMore(){
+  var v=$('v-more');
+  v.innerHTML='<div class="card"><div class="fld"><label>Broadcast to everyone</label><input class="inp" id="bc-t" placeholder="Title"></div><div class="fld"><textarea class="inp" id="bc-b" placeholder="Message"></textarea></div><button class="btn pri w" onclick="bcSend()">Send to all VAs</button></div>'+
+    '<div class="card" id="tg-card"><div style="font-weight:800;margin-bottom:4px">📲 Phone alerts (Telegram)</div><div id="tg-body" style="font-size:13px;color:var(--ink2)">…</div></div>'+
+    '<div class="card" id="gp-card"><div style="font-weight:800;margin-bottom:8px">🎮 Games &amp; JMB Points</div><div id="gp-body">…</div></div>'+
+    '<div class="card"><a class="btn w" href="admin.html" style="text-decoration:none">Open the full console</a><button class="btn w" style="margin-top:8px" onclick="signOut()">Sign out on this phone</button></div>'+
+    '<div style="text-align:center;font-size:11px;color:var(--ink3);margin:14px 0">JMB Admin · '+(SNAP?('snapshot '+ago(SNAP_AT)):'')+'</div>';
+  tgLoad(); gpLoad();
+}
+async function bcSend(){ var t=$('bc-t').value.trim(), b=$('bc-b').value.trim(); if(!t||!b){ toast('Title and message, please'); return; } if(!confirm('Send to ALL VAs?\n\n'+t)) return; try{ var d=await api('action=send_notification&type=announce&audience=all&by=Admin&title='+enc(t)+'&body='+enc(b)); if(d&&d.ok){ toast('Sent'); $('bc-t').value=''; $('bc-b').value=''; } else toast((d&&d.error)||'Failed'); }catch(e){ toast('Could not reach the backend'); } }
+async function tgLoad(){ try{ TG=await ap('action=admin_notify_get'); }catch(e){ TG={ error:e.message }; } tgPaint(); }
+function tgPaint(){ var b=$('tg-body'); if(!b) return; if(!TG||TG.error){ b.textContent=(TG&&TG.error)||'…'; return; }
+  if(TG.token_set&&TG.chat_set) b.innerHTML='<span class="pill ok">ON</span> &nbsp;New requests go to your Telegram (chat '+E(TG.chat)+').<div class="acts" style="margin-top:10px"><button class="btn sm" onclick="tgTest()">Send a test</button><button class="btn sm bad" onclick="tgOff()">Turn off</button></div>';
+  else if(TG.token_set) b.innerHTML='<span class="pill amb">ALMOST</span> &nbsp;Bot saved. In Telegram, open your bot and press <b>Start</b> (or send any message), then tap below.<div class="acts" style="margin-top:10px"><button class="btn sm pri" onclick="tgLink()">Link my Telegram</button><button class="btn sm" onclick="tgOff()">Reset</button></div>';
+  else b.innerHTML='<span class="pill">OFF</span> &nbsp;Get instant alerts for every new request.<ol style="margin:8px 0 0 18px;padding:0;line-height:1.6"><li>In Telegram, message <b>@BotFather</b> → <b>/newbot</b> → follow the prompts.</li><li>Paste the token it gives you here.</li></ol><div class="fld" style="margin-top:10px"><input class="inp" id="tg-tok" placeholder="123456789:ABC…" autocomplete="off"></div><button class="btn pri w" onclick="tgSave()">Save bot token</button>';
+}
+async function tgSave(){ var t=$('tg-tok').value.trim(); if(!/^\d+:[\w-]{20,}$/.test(t)){ toast('That does not look like a bot token'); return; } try{ TG=await ap('action=admin_notify_set&token='+enc(t)); tgPaint(); toast('Saved — now press Start on your bot'); }catch(e){ toast('Could not reach the backend'); } }
+async function tgLink(){ try{ var d=await ap('action=admin_notify_link'); if(d&&d.ok){ toast('Linked to '+(d.who||'you')+' — check Telegram'); tgLoad(); } else toast((d&&d.note)||(d&&d.error)||'Failed'); }catch(e){ toast('Could not reach the backend'); } }
+async function tgTest(){ try{ var d=await ap('action=admin_notify_test'); toast(d&&d.ok?'Sent — check Telegram':((d&&d.error)||'Failed')); }catch(e){ toast('Could not reach the backend'); } }
+async function tgOff(){ if(!confirm('Turn Telegram alerts off?')) return; try{ TG=await ap('action=admin_notify_set&token=&chat='); tgPaint(); }catch(e){ toast('Could not reach the backend'); } }
+async function gpLoad(){ try{ GP=await api('action=games_pause_get'); }catch(e){ GP={ error:e.message }; } var b=$('gp-body'); if(!b) return; if(!GP||!GP.ok){ b.textContent=(GP&&GP.error)||'…'; return; }
+  b.innerHTML='<div class="rowx"><div>Games &amp; points</div><button class="btn sm '+(GP.paused?'ok':'bad')+'" onclick="gpSet(\'on\','+(GP.paused?0:1)+')">'+(GP.paused?'Paused · resume':'On · pause')+'</button></div><div class="rowx"><div>Redemption queue</div><button class="btn sm '+(GP.redeem_closed?'ok':'bad')+'" onclick="gpSet(\'redeem\','+(GP.redeem_closed?0:1)+')">'+(GP.redeem_closed?'Closed · open':'Open · close')+'</button></div>'; }
+async function gpSet(k,v){ if(!confirm((k==='on'?(v?'Pause games & JMB Points?':'Resume games & JMB Points?'):(v?'Close the redemption queue?':'Open the redemption queue?')))) return; try{ var d=await ap('action=games_pause_set&'+k+'='+v); if(d&&d.ok) gpLoad(); else toast((d&&d.error)||'Failed'); }catch(e){ toast('Could not reach the backend'); } }
+</script>
+</body>
+</html>
