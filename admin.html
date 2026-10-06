@@ -3,8 +3,15 @@
 <head>
 <script src="aura-config.js"></script>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Admin — JMB Virtuals Portal</title>
+<!-- Installable on a phone (Oct 6, 2026): Safari → Share → Add to Home Screen → "JMB Admin" -->
+<link rel="manifest" href="admin.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="JMB Admin">
+<meta name="theme-color" content="#ffffff">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-v2.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
@@ -669,6 +676,7 @@ body{background-attachment:initial !important}
         </button>
       </div>
     </div>
+    <label id="akeep-row" style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--t2);margin:-6px 0 14px;cursor:pointer;"><input type="checkbox" id="akeep" style="width:16px;height:16px;margin:0;"> Keep me signed in on this device</label>
     <button class="btn-primary" onclick="doLogin()">Enter admin panel</button>
     <div class="err" id="aerr">Incorrect password.</div>
   </div>
@@ -1719,7 +1727,7 @@ body{background-attachment:initial !important}
    This page is world-readable (view-source / public repo), so the password lives only in the
    Apps Script's Script Properties. Login is verified server-side (verify_admin); the typed
    password is kept for this browser session only, for the few actions that require it. */
-var PASS = (function(){ try{ return sessionStorage.getItem('adm_pass')||''; }catch(e){ return ''; } })();
+var PASS = (function(){ try{ return sessionStorage.getItem('adm_pass')||localStorage.getItem('adm_pass_keep')||''; }catch(e){ return ''; } })();   // adm_pass_keep: "Keep me signed in on this device" (phone)
 function admPass(){ if(!PASS){ PASS=prompt('Admin password:')||''; try{ sessionStorage.setItem('adm_pass', PASS); }catch(e){} } return PASS; }
 async function verifyAdminPass(p){
   try{ var r=await fetch(API+'?action=verify_admin&pass='+encodeURIComponent(p)+'&_='+Date.now()); var d=await r.json(); return !!(d&&d.ok); }
@@ -2079,6 +2087,7 @@ async function doLogin(){
   if(await verifyAdminPass(p)){
     PASS=p; try{ sessionStorage.setItem('adm_pass', p); }catch(e){}
     try { localStorage.setItem('admin_authed','1'); } catch(e) {}
+    try{ var kp=document.getElementById('akeep'); if(kp&&kp.checked) localStorage.setItem('adm_pass_keep', p); else localStorage.removeItem('adm_pass_keep'); }catch(e){}   // phone: stay signed in across app restarts
     enterAdmin();
   } else {
     document.getElementById('aerr').style.display='block';
@@ -2476,7 +2485,8 @@ function renderHoursChart(dates, byDate, incIdle){
   return svg+'</svg>';
 }
 function doLogout(){
-  try { localStorage.removeItem('admin_authed'); } catch(e) {}
+  try { localStorage.removeItem('admin_authed'); localStorage.removeItem('adm_pass_keep'); sessionStorage.removeItem('adm_pass'); } catch(e) {}
+  PASS='';
   document.getElementById('shell').style.display='none';
   document.getElementById('login').style.display='flex';
   document.getElementById('apass').value='';
@@ -8948,11 +8958,30 @@ async function sendNotify(){
         <button class="bsm" onclick="officeNetMark()" title="Adds the public IP you are on right now to the office list">📍 Mark my network as the office</button>
         <button class="bsm" onclick="beaconPair()" title="Makes a link to open on one office computer; it reports the office IP every 5 minutes">🔗 Pair a beacon</button>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;border-top:1px solid rgba(15,23,42,.08);padding-top:12px;">
-        <select id="wc-emp" style="background:#eef2f8;border:1px solid rgba(15,23,42,.13);border-radius:8px;color:#0f172a;padding:6px 8px;font-family:inherit;font-size:12.5px;min-width:220px;"><option value="">— person —</option></select>
-        <button class="bsm" onclick="wfhCodeIssue()" style="color:#047857;border-color:rgba(4,120,87,.4);font-weight:700;">Issue a work-from-home code</button>
-        <span id="wc-out" style="font-size:13px;font-weight:800;color:var(--t1);"></span>
+      <div style="margin-top:12px;border-top:1px solid rgba(15,23,42,.08);padding-top:12px;">
+        <div style="font-size:12.5px;color:var(--t2);margin-bottom:8px;"><b>Issue work-from-home codes</b> — tick everyone who works from home, pick how long, issue once. Each person gets their own 6-digit code.</div>
+        <div id="wc-people" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"><span class="es" style="font-size:12px;">Loading people…</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select id="wc-days" style="background:#eef2f8;border:1px solid rgba(15,23,42,.13);border-radius:8px;color:#0f172a;padding:8px 10px;font-family:inherit;font-size:13px;">
+            <option value="1">Valid today (until 8 AM tomorrow)</option>
+            <option value="7">Valid this week (7 days)</option>
+            <option value="2">2 days</option><option value="3">3 days</option><option value="5">5 days</option>
+          </select>
+          <button class="bsm" onclick="wfhCodeIssue()" style="color:#047857;border-color:rgba(4,120,87,.4);font-weight:700;">Issue code<span id="wc-n"></span></button>
+          <button class="bsm" onclick="wfhPickAll(1)" title="Tick everyone">All</button>
+          <button class="bsm" onclick="wfhPickAll(0)" title="Untick everyone">None</button>
+        </div>
+        <div id="wc-out" style="margin-top:10px;font-size:13px;font-weight:800;color:var(--t1);"></div>
       </div>
+    </div>
+
+    <div id="tg-card" style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div style="font-size:15px;font-weight:800;color:var(--t1);">📲 Phone alerts (Telegram) <span id="tg-state" style="display:inline-block;margin-left:6px;border-radius:100px;padding:2px 9px;font-size:11px;font-weight:800;vertical-align:2px;background:#eef2f8;color:#475569;">…</span></div>
+        <button class="bsm" onclick="tgLoad()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻</button>
+      </div>
+      <div style="font-size:12.5px;color:var(--t3);margin:4px 0 10px;line-height:1.5;">Every new request — leave, COE, redemption, hour appeal, demerit dispute, lead demerit, working lunch, tool request — pings your Telegram the moment it is submitted.</div>
+      <div id="tg-body"><div class="es" style="padding:12px;">Loading…</div></div>
     </div>
 
     <div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
@@ -8996,13 +9025,21 @@ async function sendNotify(){
 
 <script>
 var _gqTimer=null;
-function openGamesSettings(){ document.getElementById('settings-modal').style.display='flex'; gamesPauseLoad(); try{ officeNetLoad(); }catch(e){} try{ loadTriviaBoard(); }catch(e){} try{ loadRedemptions(); }catch(e){} }
+function openGamesSettings(){ document.getElementById('settings-modal').style.display='flex'; gamesPauseLoad(); try{ officeNetLoad(); }catch(e){} try{ tgLoad(); }catch(e){} try{ loadTriviaBoard(); }catch(e){} try{ loadRedemptions(); }catch(e){} }
 /* ── Office network gate + work-from-home codes (Oct 5, 2026) ──
    Signed-IP checks (beacon report, "mark my network") go to the LOGIN lane, which holds NET_SECRET;
    the main script's Script Properties are full and take no new keys. */
 var LOGIN_API=(window.__AURA__&&window.__AURA__.LOGIN)||"https://script.google.com/macros/s/AKfycbx4oekhuDA4wTo1uIE8Zb1PsI9oOnQx7yW_uWcZ9e_jtLFwFS0b64e749iN3sx5VC6ziQ/exec";
 var _onEmpsLoaded=false, _onToken='';
-async function _onEmps(){ if(_onEmpsLoaded) return; try{ var r=await jGet(API+'?action=get_all_employees'); var d=await r.json(); var sel=document.getElementById('wc-emp'); if(!sel) return; (d.employees||[]).filter(function(e){ return e.employee_id && String(e.status||'active').toLowerCase().indexOf('active')>=0; }).sort(function(a,b){ return String(a.full_name||'').localeCompare(String(b.full_name||'')); }).forEach(function(e){ var o=document.createElement('option'); o.value=e.employee_id; o.textContent=(e.full_name||e.employee_id)+' · '+e.employee_id; sel.appendChild(o); }); _onEmpsLoaded=true; }catch(e){} }
+async function _onEmps(){ if(_onEmpsLoaded) return; try{ var r=await jGet(API+'?action=get_all_employees'); var d=await r.json(); var box=document.getElementById('wc-people'); if(!box) return; var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  var L=(d.employees||[]).filter(function(e){ return e.employee_id && String(e.status||'active').toLowerCase().indexOf('active')>=0; }).sort(function(a,b){ return String(a.full_name||'').localeCompare(String(b.full_name||'')); });
+  box.innerHTML=L.length?L.map(function(e){ return '<label class="wc-p" style="display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(15,23,42,.13);border-radius:100px;padding:6px 12px 6px 8px;font-size:12.5px;font-weight:700;background:#fff;cursor:pointer;min-height:36px;"><input type="checkbox" value="'+E(e.employee_id)+'" onchange="wfhCount()" style="width:16px;height:16px;margin:0;accent-color:#047857;">'+E(e.full_name||e.employee_id)+' <span style="color:var(--t3);font-weight:600;">'+E(e.employee_id)+'</span></label>'; }).join(''):'<span class="es" style="font-size:12px;">No active people.</span>';
+  _onEmpsLoaded=true; wfhCount(); }catch(e){} }
+function wfhPicked(){ return Array.prototype.map.call(document.querySelectorAll('#wc-people input:checked'), function(i){ return i.value; }); }
+function wfhPickAll(on){ document.querySelectorAll('#wc-people input').forEach(function(i){ i.checked=!!on; }); wfhCount(); }
+function wfhCount(){ var n=wfhPicked().length, el=document.getElementById('wc-n'); if(el) el.textContent=n>1?' for '+n+' people':(n===1?' for 1 person':''); document.querySelectorAll('#wc-people .wc-p').forEach(function(l){ var on=l.querySelector('input').checked; l.style.background=on?'#ecfdf5':'#fff'; l.style.borderColor=on?'rgba(4,120,87,.45)':'rgba(15,23,42,.13)'; }); }
+function wfhShareText(list, days){ var when=days>=7?'this week':(days===1?'today':days+' days'); return 'JMB work-from-home codes ('+when+'):\n'+list.map(function(x){ return x.name+' ('+x.employee_id+'): '+x.code+' — until '+x.exp_label; }).join('\n'); }
+async function wfhShare(txt){ try{ if(navigator.share){ await navigator.share({ title:'JMB work-from-home codes', text:txt }); return; } }catch(e){ if(e&&e.name==='AbortError') return; } try{ await navigator.clipboard.writeText(txt); alert('Copied — paste it to them.'); }catch(e){ prompt('Copy these:', txt); } }
 function _onAgo(ms){ if(!ms) return 'never'; var m=Math.round((Date.now()-ms)/60000); return m<1?'just now':(m<60?m+' min ago':(m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago')); }
 async function officeNetLoad(){ var b=document.getElementById('on-body'); _onEmps();
   try{ var r=await jGet(API+'?action=office_net_status&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(!d||!d.ok){ b.innerHTML='<div class="es" style="padding:12px;">'+((d&&d.error)||'Failed')+'</div>'; return; }
@@ -9031,10 +9068,30 @@ async function beaconPair(){ if(!confirm('Make a beacon link?\n\nOpen it on ONE 
   try{ var r=await jGet(API+'?action=beacon_pair&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(!(d&&d.ok)){ alert('Failed'+((d&&d.error)?(': '+d.error):'.')); return; }
     var link=location.origin+'/office-beacon.html#'+d.token; try{ await navigator.clipboard.writeText(link); }catch(e){}
     prompt('Beacon link (copied) — open it on the office computer:', link); officeNetLoad(); }catch(e){ alert('Could not reach the backend.'); } }
-async function wfhCodeIssue(){ var sel=document.getElementById('wc-emp'), out=document.getElementById('wc-out'); var id=sel&&sel.value; if(!id){ alert('Pick the person first.'); return; }
+async function wfhCodeIssue(){ var ids=wfhPicked(), out=document.getElementById('wc-out'), days=parseInt((document.getElementById('wc-days')||{}).value,10)||1; if(!ids.length){ alert('Tick at least one person first.'); return; }
+  out.textContent='Issuing…';
+  try{ var r=await jGet(API+'?action=wfh_code_issue&employee_id='+encodeURIComponent(ids.join(','))+'&days='+days+'&by=admin&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json();
+    if(d&&d.ok){ var list=d.issued||[{ employee_id:d.employee_id, name:d.name||d.employee_id, code:d.code, exp_label:d.exp_label }]; var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }; var txt=wfhShareText(list, days); window._wcLast=txt;
+      out.innerHTML='<div style="display:flex;flex-direction:column;gap:6px;">'+list.map(function(x){ return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;border:1px solid rgba(4,120,87,.25);background:#ecfdf5;border-radius:10px;"><span style="font-family:monospace;font-size:20px;letter-spacing:.14em;color:#047857;">'+E(x.code)+'</span><span style="font-weight:700;">'+E(x.name||x.employee_id)+'</span><span style="color:var(--t3);font-weight:600;font-size:12px;">'+E(x.employee_id)+' · until '+E(x.exp_label)+'</span></div>'; }).join('')+'</div>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"><button class="bsm" onclick="wfhShare(window._wcLast)" style="color:#047857;border-color:rgba(4,120,87,.4);font-weight:700;">📤 Share / copy '+(list.length>1?'all '+list.length+' codes':'the code')+'</button></div>';
+      if(list.length===1){ try{ await navigator.clipboard.writeText(list[0].code); }catch(e){} }
+      wfhPickAll(0); officeNetLoad(); } else out.textContent=(d&&d.error)||'Failed'; }catch(e){ out.textContent='Could not reach the backend.'; } }
   out.textContent='…';
-  try{ var r=await jGet(API+'?action=wfh_code_issue&employee_id='+encodeURIComponent(id)+'&by=admin&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok){ out.innerHTML='<span style="font-family:monospace;font-size:18px;letter-spacing:.12em;">'+d.code+'</span> <span style="color:var(--t3);font-weight:600;font-size:12px;">for '+d.employee_id+' · until '+d.exp_label+'</span>'; try{ await navigator.clipboard.writeText(d.code); }catch(e){} officeNetLoad(); } else out.textContent=(d&&d.error)||'Failed'; }catch(e){ out.textContent='Could not reach the backend.'; } }
 async function wfhCodeRevoke(id){ if(!confirm('Revoke '+id+'\'s code?')) return; try{ var r=await jGet(API+'?action=wfh_code_revoke&employee_id='+encodeURIComponent(id)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok) officeNetLoad(); }catch(e){} }
+/* ── Phone alerts (Telegram) — Oct 6, 2026. Bot token + chat id live in the Settings sheet; the backend posts on every new request. */
+var _tg=null;
+async function tgLoad(){ var b=document.getElementById('tg-body'); if(!b) return; try{ var r=await jGet(API+'?action=admin_notify_get&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); _tg=await r.json(); }catch(e){ _tg={ error:'Could not reach the backend' }; } tgPaint(); }
+function tgPaint(){ var b=document.getElementById('tg-body'), st=document.getElementById('tg-state'); if(!b) return; var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  var setSt=function(t,bg,fg){ if(st){ st.textContent=t; st.style.background=bg; st.style.color=fg; } };
+  if(!_tg||_tg.error){ setSt('?', '#eef2f8', '#475569'); b.innerHTML='<div class="es" style="padding:12px;">'+E((_tg&&_tg.error)||'…')+(_tg&&_tg.error==='UNKNOWN_ACTION'?' — deploy the latest Portal API script first.':'')+'</div>'; return; }
+  if(_tg.token_set&&_tg.chat_set){ setSt('ON', '#ecfdf5', '#047857'); b.innerHTML='<div style="font-size:13px;color:var(--t2);">Alerts go to your Telegram (chat '+E(_tg.chat)+').</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;"><button class="bsm" onclick="tgTest()">Send a test</button><button class="bsm" onclick="tgOff()" style="color:#be123c;border-color:rgba(190,18,60,.4);">Turn off</button></div>'; return; }
+  if(_tg.token_set){ setSt('ALMOST', '#fffbeb', '#b45309'); b.innerHTML='<div style="font-size:13px;color:var(--t2);line-height:1.6;">Bot saved. Now in Telegram, open your bot and press <b>Start</b> (or send it any message), then tap below.</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;"><button class="bsm" onclick="tgLink()" style="color:#047857;border-color:rgba(4,120,87,.4);font-weight:700;">Link my Telegram</button><button class="bsm" onclick="tgOff()">Reset</button></div>'; return; }
+  setSt('OFF', '#eef2f8', '#475569');
+  b.innerHTML='<ol style="margin:0 0 10px 18px;padding:0;font-size:13px;color:var(--t2);line-height:1.7;"><li>In Telegram, message <b>@BotFather</b> → <b>/newbot</b> → follow the prompts.</li><li>Paste the token it gives you here.</li></ol><div style="display:flex;gap:8px;flex-wrap:wrap;"><input id="tg-tok" placeholder="123456789:ABC…" autocomplete="off" style="flex:1;min-width:220px;background:#eef2f8;border:1px solid rgba(15,23,42,.13);border-radius:8px;color:#0f172a;padding:8px 10px;font-family:inherit;font-size:13px;"><button class="bsm" onclick="tgSave()" style="color:#047857;border-color:rgba(4,120,87,.4);font-weight:700;">Save bot token</button></div>'; }
+async function tgSave(){ var t=(document.getElementById('tg-tok')||{}).value||''; t=t.trim(); if(!/^\d+:[\w-]{20,}$/.test(t)){ alert('That does not look like a bot token.'); return; } try{ var r=await jGet(API+'?action=admin_notify_set&token='+encodeURIComponent(t)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); _tg=await r.json(); tgPaint(); }catch(e){ alert('Could not reach the backend.'); } }
+async function tgLink(){ try{ var r=await jGet(API+'?action=admin_notify_link&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok){ alert('Linked to '+(d.who||'you')+' — check Telegram.'); tgLoad(); } else alert((d&&d.note)||(d&&d.error)||'Failed'); }catch(e){ alert('Could not reach the backend.'); } }
+async function tgTest(){ try{ var r=await jGet(API+'?action=admin_notify_test&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); alert(d&&d.ok?'Sent — check Telegram.':((d&&d.error)||'Failed')); }catch(e){ alert('Could not reach the backend.'); } }
+async function tgOff(){ if(!confirm('Turn Telegram alerts off?')) return; try{ var r=await jGet(API+'?action=admin_notify_set&token=&chat=&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); _tg=await r.json(); tgPaint(); }catch(e){ alert('Could not reach the backend.'); } }
 function _gpPaint(on){ var st=document.getElementById('gp-state'), b=document.getElementById('gp-btn'), c=document.getElementById('gp-card'); if(!st||!b) return;
   st.textContent=on?'PAUSED':'ON'; st.style.background=on?'#fff1f2':'#ecfdf5'; st.style.color=on?'#be123c':'#047857';
   b.textContent=on?'▶ Resume games & points':'⏸ Pause games & points'; b.style.color=on?'#047857':'#be123c'; b.style.borderColor=on?'rgba(4,120,87,.4)':'rgba(190,18,60,.4)';
@@ -9894,6 +9951,13 @@ body{
   function imp(el,p,v){ el && el.style.setProperty(p,v,'important'); }
 
   function styleRail(){
+    /* Phone / tablet (Oct 6, 2026): the mobile layer (admin-mobile-css) owns the geometry — strip ours and leave */
+    if(window.innerWidth<1000){
+      ['background','background-image','backdrop-filter','-webkit-backdrop-filter','width','top','left','height','max-height','border','border-right','border-radius','box-shadow','overflow','padding-bottom'].forEach(function(p){ rail.style.removeProperty(p); });
+      var hd0=document.querySelector('header'); if(hd0) hd0.style.removeProperty('left');
+      var bd0=document.querySelector('.body'); if(bd0) bd0.style.removeProperty('padding-left');
+      return;
+    }
     imp(rail,'background',GRAD); imp(rail,'background-image',GRAD);
     imp(rail,'backdrop-filter','none'); imp(rail,'-webkit-backdrop-filter','none');
     imp(rail,'width',W+'px'); imp(rail,'top','0'); imp(rail,'left','0');
@@ -10028,7 +10092,12 @@ body{
       requestAnimationFrame(function(){ apply();
         setTimeout(apply,60); setTimeout(apply,220); });
     },true);
-    window.addEventListener('resize',function(){ apply(); });
+    var wasMobile=window.innerWidth<1000;
+    window.addEventListener('resize',function(){
+      var m=window.innerWidth<1000;
+      if(m!==wasMobile){ wasMobile=m; var a=rail.querySelector('.navgroup['+DONE+']'); if(a) a.removeAttribute(DONE); }   // crossed the breakpoint: redo the geometry
+      apply();
+    });
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start);
   else start();
@@ -11198,6 +11267,133 @@ var ADMAURA = (function(){
     if(!tl){ try{ return orig ? orig(x) : ''; }catch(e){ return ''; } }
     return tl;
   };
+})();
+</script>
+
+<style id="admin-mobile-css">
+/* ══ ADMIN ON A PHONE (Oct 6, 2026) — every feature, thumb-sized ══════════════════════
+   Below 1000px the sidebar becomes a drawer, the sub-tabs a scrolling strip under the header,
+   and a bottom bar holds what you reach for most. Nothing is removed; the fast snapshot feed
+   is the same one the desktop uses. */
+@media (max-width:999px){
+  html{ -webkit-text-size-adjust:100%; }
+  #shell header{ position:sticky !important; top:0; left:0 !important; right:0; height:calc(56px + env(safe-area-inset-top,0px)) !important; min-height:0; padding:calc(7px + env(safe-area-inset-top,0px)) 10px 7px 12px !important; gap:8px; box-sizing:border-box; }
+  #shell header .htitle{ display:none !important; }
+  #admin-header-actions, #aa-hdr{ display:none !important; }
+  #m-ttl{ display:flex; align-items:center; gap:9px; min-width:0; flex:1; }
+  #m-ttl img{ width:26px; height:26px; object-fit:contain; flex:none; }
+  #m-ttl b{ font:800 16px/1.1 Inter,sans-serif; color:#262262; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #m-ttl small{ display:block; font:700 10px/1.2 Inter,sans-serif; color:#9a9db0; letter-spacing:.08em; text-transform:uppercase; }
+  #m-hdr{ display:flex; align-items:center; gap:6px; margin-left:auto; flex:none; }
+  .m-ib{ position:relative; width:42px; height:42px; border-radius:12px; border:1px solid rgba(15,23,42,.1); background:#fff; color:#262262; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; padding:0; flex:none; }
+  .m-ib svg{ width:20px; height:20px; }
+  .m-ib .n{ position:absolute; top:-5px; right:-5px; min-width:18px; height:18px; border-radius:9px; background:#f43f5e; color:#fff; font:800 11px/18px Inter,sans-serif; text-align:center; padding:0 5px; }
+  .m-ib .n.zero{ display:none; }
+  /* the sidebar becomes a drawer */
+  .navbar{ position:fixed !important; top:0 !important; left:0 !important; bottom:0 !important; width:min(86vw,330px) !important; height:auto !important; max-height:none !important; margin:0 !important; padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(16px + env(safe-area-inset-bottom,0px)) !important; background:#fff !important; background-image:none !important; border:none !important; border-right:1px solid rgba(124,58,237,.12) !important; border-radius:0 18px 18px 0 !important; box-shadow:none !important; overflow-y:auto !important; -webkit-overflow-scrolling:touch; display:flex !important; flex-direction:column; gap:0; z-index:9200 !important; transform:translateX(-106%); transition:transform .28s cubic-bezier(.2,.8,.2,1), box-shadow .28s; }
+  .navbar.m-open{ transform:none; box-shadow:30px 0 60px -30px rgba(15,23,42,.45) !important; }
+  #m-scrim{ position:fixed; inset:0; background:rgba(15,23,42,.42); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px); z-index:9100; opacity:0; pointer-events:none; transition:opacity .25s; }
+  #m-scrim.on{ opacity:1; pointer-events:auto; }
+  .navbar .navgroups{ display:flex !important; flex-direction:column !important; flex-wrap:nowrap !important; gap:4px !important; padding:0 !important; border:none !important; border-radius:0 !important; background:none !important; box-shadow:none !important; overflow:visible !important; -webkit-backdrop-filter:none !important; backdrop-filter:none !important; transform:none !important; }
+  .navbar .navgroup{ width:100% !important; flex:0 0 auto !important; justify-content:flex-start !important; padding:13px 14px !important; font-size:15px !important; border-radius:12px !important; min-height:48px; }
+  .navbar .navsubs{ display:none !important; }   /* on a phone the sub-tabs live in the strip under the header */
+  .navbar .jmb-tools{ margin-top:12px !important; }
+  .navbar .jmb-tools button{ min-height:44px; font-size:14px !important; }
+  .navbar .jmb-foot{ margin-top:auto !important; }
+  #m-dhead{ display:flex; align-items:center; gap:10px; padding:2px 4px 12px; border-bottom:1px solid rgba(124,58,237,.12); margin-bottom:10px; }
+  #m-dhead img{ width:28px; height:28px; object-fit:contain; }
+  #m-dhead b{ font:800 15px/1.1 Inter,sans-serif; color:#262262; } #m-dhead small{ display:block; font:600 10.5px/1.2 Inter,sans-serif; color:#9a9db0; letter-spacing:.08em; text-transform:uppercase; margin-top:2px; }
+  #m-dhead .m-ib{ margin-left:auto; width:38px; height:38px; }
+  /* sub-tab strip under the header */
+  #m-subbar{ display:none; position:sticky; top:calc(56px + env(safe-area-inset-top,0px)); z-index:45; margin:0 -12px 8px; padding:8px 12px; background:rgba(246,247,251,.92); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); border-bottom:1px solid rgba(15,23,42,.07); overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  #m-subbar::-webkit-scrollbar{ display:none; }
+  #m-subbar.has{ display:block; }
+  #m-subbar .navsubs{ display:flex !important; flex-wrap:nowrap !important; gap:6px !important; margin:0 !important; width:max-content; }
+  #m-subbar .navsub{ flex:0 0 auto; white-space:nowrap; min-height:38px; padding:8px 14px !important; font-size:13px !important; border-radius:999px !important; background:#fff; }
+  #m-subbar .navsub.active{ background:#262262 !important; color:#fff !important; border-color:#262262 !important; }
+  /* content */
+  html body .body, html body.adm-aura .body{ max-width:none !important; margin:0 !important; padding:8px 12px calc(86px + env(safe-area-inset-bottom,0px)) !important; border:none !important; border-radius:0 !important; box-shadow:none !important; }
+  .toolbar{ flex-wrap:wrap; gap:8px; } .toolbar > *{ flex:1 1 auto; min-width:0; } .toolbar input, .toolbar select, .toolbar .sinp{ width:100% !important; }
+  input, select, textarea{ font-size:16px !important; }
+  button, .btn, .bsm, .blogout{ min-height:40px; }
+  table{ min-width:0; } .tw table{ min-width:640px; } .tw{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .sg{ grid-template-columns:repeat(2,1fr) !important; } .mgrid,.m2,.chat-layout{ grid-template-columns:1fr !important; }
+  #aa-hero{ grid-template-columns:1fr !important; } #aa-hero .aa-kpis{ grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+  /* modals become full-width sheets */
+  #pipe-modal, #award-modal, #settings-modal, #qrmgr-modal, #promote-modal, #adjust-modal, #pay-modal, #notify-modal, #jcal-modal{ padding:10px 8px calc(10px + env(safe-area-inset-bottom,0px)) !important; align-items:flex-start !important; }
+  #pipe-modal > div, #award-modal > div, #settings-modal > div, #qrmgr-modal > div, #promote-modal > div, #adjust-modal > div, #pay-modal > div, #notify-modal > div, #jcal-modal > div{ width:100% !important; max-width:100% !important; margin:0 auto !important; }
+  #settings-modal > div{ padding:16px 12px !important; }
+  #settings-modal > div > div[style*="border-radius:14px"]{ padding:14px 12px !important; }
+  #wc-emp{ min-width:0 !important; width:100%; }
+  .mb{ align-items:flex-end !important; padding:0 !important; }
+  .modal{ width:100% !important; max-width:100% !important; max-height:92vh !important; border-radius:18px 18px 0 0 !important; padding:1.1rem !important; padding-bottom:calc(1.1rem + env(safe-area-inset-bottom,0px)) !important; }
+  /* bottom bar */
+  #m-tabbar{ position:fixed; left:0; right:0; bottom:0; z-index:90; display:flex; background:rgba(255,255,255,.94); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); border-top:1px solid rgba(15,23,42,.08); padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px)); }
+  #m-tabbar button{ flex:1; border:none; background:none; display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 2px 4px; font:800 10.5px/1 Inter,sans-serif; color:#9a9db0; position:relative; cursor:pointer; min-height:48px; }
+  #m-tabbar button svg{ width:22px; height:22px; } #m-tabbar button.on{ color:#f1560f; }
+  #m-tabbar .n{ position:absolute; top:0; right:calc(50% - 22px); min-width:18px; height:18px; border-radius:9px; background:#f43f5e; color:#fff; font:800 11px/18px Inter,sans-serif; text-align:center; padding:0 5px; }
+  #m-tabbar .n.zero{ display:none; }
+  #login{ padding:16px !important; } #login .box{ padding:1.6rem 1.3rem !important; }
+}
+@media (min-width:1000px){ #m-ttl, #m-hdr, #m-tabbar, #m-scrim, #m-subbar, #m-dhead, .m-x{ display:none !important; } }
+</style>
+<script id="admin-mobile-js">
+/* ── ADMIN ON A PHONE: drawer, sub-tab strip, bottom bar (Oct 6, 2026) ── */
+(function(){
+  var MQ=window.matchMedia('(max-width:999px)');
+  var I={ menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+          x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+          home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v9a2 2 0 0 1-2 2h-4v-6H9v6H5a2 2 0 0 1-2-2z"/></svg>',
+          inbox:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
+          team:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+          gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+          phone:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>' };
+  var built=false, nav=null, subs=null, scrim=null, subbar=null;
+  function $(id){ return document.getElementById(id); }
+  function open(){ if(!MQ.matches||!nav) return; nav.classList.add('m-open'); scrim.classList.add('on'); document.body.style.overflow='hidden'; }
+  function close(){ if(!nav) return; nav.classList.remove('m-open'); scrim.classList.remove('on'); document.body.style.overflow=''; }
+  function place(){   // the sub-tab row moves between the drawer (desktop) and the strip under the header (phone)
+    if(!subs||!subbar) return;
+    if(MQ.matches){ if(subs.parentNode!==subbar) subbar.appendChild(subs); subbar.classList.toggle('has', subs.children.length>0); }
+    else { if(subs.parentNode!==nav){ var og=nav.querySelector('.navgroups'); nav.insertBefore(subs, og?og.nextSibling:null); } subbar.classList.remove('has'); close(); }
+  }
+  function mark(n){ var b=$('m-tabbar'); if(!b) return; b.querySelectorAll('button[data-t]').forEach(function(x){ x.classList.toggle('on', x.getAttribute('data-t')===n); }); }
+  function sync(){ var src=$('aa-hdr-n'); var v=src?(src.textContent||'0'):'0'; [$('m-h-n'),$('m-b-n')].forEach(function(n){ if(!n) return; n.textContent=v; n.classList.toggle('zero', !(parseInt(v,10)>0)); }); var t=$('aa-hdr-t'), mt=$('m-ttl-b'); if(t&&mt&&mt.textContent!==t.textContent) mt.textContent=t.textContent; }
+  function build(){
+    if(built) return; nav=document.querySelector('.navbar'); subs=$('navsubs'); var hd=document.querySelector('#shell header'); if(!nav||!subs||!hd) return; built=true;
+    var logo=($('admin-logo-img')||{}).src||'';
+    var tt=document.createElement('div'); tt.id='m-ttl'; tt.innerHTML='<img src="'+logo+'" alt=""><div style="min-width:0"><b id="m-ttl-b">Dashboard</b><small>Admin Console</small></div>'; hd.insertBefore(tt, hd.firstChild);
+    var hb=document.createElement('div'); hb.id='m-hdr'; hb.innerHTML='<button type="button" class="m-ib" aria-label="Inbox" onclick="goTab(\'inbox\')">'+I.inbox+'<span class="n zero" id="m-h-n">0</span></button><button type="button" class="m-ib" id="m-burger" aria-label="Menu">'+I.menu+'</button>'; hd.appendChild(hb);
+    var dh=document.createElement('div'); dh.id='m-dhead'; dh.innerHTML='<img src="'+logo+'" alt=""><div><b>Admin Console</b><small>JMB Virtuals</small></div><button type="button" class="m-ib" id="m-dclose" aria-label="Close">'+I.x+'</button>'; nav.insertBefore(dh, nav.firstChild);
+    scrim=document.createElement('div'); scrim.id='m-scrim'; document.body.appendChild(scrim);
+    subbar=document.createElement('div'); subbar.id='m-subbar'; nav.parentNode.insertBefore(subbar, nav.nextSibling);
+    var bar=document.createElement('nav'); bar.id='m-tabbar';
+    bar.innerHTML='<button type="button" data-t="dash" onclick="goTab(\'dash\')">'+I.home+'Home</button>'+
+      '<button type="button" data-t="inbox" onclick="goTab(\'inbox\')">'+I.inbox+'Inbox<span class="n zero" id="m-b-n">0</span></button>'+
+      '<button type="button" data-t="team" onclick="goTab(\'team\')">'+I.team+'Team</button>'+
+      '<button type="button" data-t="settings" onclick="openGamesSettings()">'+I.gear+'Settings</button>'+
+      '<button type="button" data-t="menu" id="m-menu">'+I.menu+'Menu</button>';
+    document.body.appendChild(bar);
+    /* drawer extras: Settings (games, points, office codes, phone alerts) + the quick inbox app */
+    var addX=function(){ var tools=nav.querySelector('.jmb-tools'); if(!tools||tools.querySelector('.m-x')) return; var mk=function(icon,label,fn){ var b=document.createElement('button'); b.type='button'; b.className='m-x'; b.innerHTML='<span style="display:flex">'+icon+'</span><span>'+label+'</span>'; b.style.cssText='width:100%;display:flex;align-items:center;gap:10px;background:rgba(124,58,237,.05);color:#3b3355;border:1px solid rgba(124,58,237,.14);border-radius:12px;padding:10px 12px;font:600 13.5px/1 Inter,sans-serif;cursor:pointer;text-align:left;'; b.onclick=fn; return b; };
+      tools.appendChild(mk('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>','Settings · games, codes, alerts',function(){ try{ openGamesSettings(); }catch(e){} }));
+      tools.appendChild(mk(I.phone,'Quick inbox app (JMB Admin)',function(){ location.href='admin-m.html'; })); };
+    addX(); setTimeout(addX, 1500); setTimeout(addX, 5000);
+    $('m-burger').onclick=open; $('m-menu').onclick=open; $('m-dclose').onclick=close; scrim.onclick=close;
+    nav.addEventListener('click', function(e){ var g=e.target.closest&&e.target.closest('.navgroup, .jmb-tools button, .jmb-foot button, .m-x'); if(g) setTimeout(close, 120); });
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+    try{ new MutationObserver(sync).observe(hd, { childList:true, characterData:true, subtree:true }); }catch(e){}
+    try{ new MutationObserver(function(){ place(); }).observe(subs, { childList:true }); }catch(e){}
+    try{ var og=window.goTab; if(typeof og==='function'){ window.goTab=function(n){ var r=og.apply(this, arguments); mark(n); return r; }; } }catch(e){}
+    var cur=document.querySelector('.navgroup.active'); mark(cur?String(cur.id||'').replace('ng-',''):'dash');
+    place(); sync();
+    if(MQ.addEventListener) MQ.addEventListener('change', place); else if(MQ.addListener) MQ.addListener(place);
+  }
+  /* build once the console is on screen (login → enterAdmin), whichever way it got there */
+  try{ var oe=window.enterAdmin; if(typeof oe==='function'){ window.enterAdmin=function(){ var r=oe.apply(this, arguments); setTimeout(build, 30); setTimeout(build, 800); return r; }; } }catch(e){}
+  var t0=Date.now(), iv=setInterval(function(){ var sh=$('shell'); if(sh&&sh.style.display!=='none') build(); if(built||Date.now()-t0>20000) clearInterval(iv); }, 500);
+  /* the Keep-me-signed-in box is ticked by default on a touch device */
+  try{ if(MQ.matches && ('ontouchstart' in window)){ var k=$('akeep'); if(k) k.checked=true; } }catch(e){}
 })();
 </script>
 </body>

@@ -6,17 +6,17 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="JMB Admin">
+<meta name="apple-mobile-web-app-title" content="JMB Inbox">
 <meta name="theme-color" content="#ff6b1a">
-<link rel="manifest" href="admin.webmanifest">
+<link rel="manifest" href="admin-m.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon-v2.png">
 <link rel="icon" href="icons/icon-192-v2.png">
-<title>JMB Admin</title>
+<title>JMB Inbox</title>
 <script src="aura-config.js"></script>
 <style>
-/* ═══ JMB Admin — the phone console (Oct 6, 2026) ═══
+/* ═══ JMB Inbox — the quick phone inbox (Oct 6, 2026) ═══
    Light, thumb-first, reads the admin snapshot from the CDN (same fast path as the desktop console) and
-   writes through the same backend actions. Installs to the Home Screen as "JMB Admin". */
+   writes through the same backend actions. Installs to the Home Screen as "JMB Inbox"; the full console is admin.html ("JMB Admin"). */
 :root{ --bg:#f6f7fb; --card:#fff; --ink:#0f172a; --ink2:#475569; --ink3:#8a93a3; --line:rgba(15,23,42,.09); --o:#ff6b1a; --o2:#ffe6d6; --ok:#047857; --okbg:#ecfdf5; --bad:#be123c; --badbg:#fff1f2; --amb:#b45309; --ambbg:#fffbeb; --vio:#6d28d9; --viobg:#f3e8ff; --r:16px; --sat:env(safe-area-inset-top); --sab:env(safe-area-inset-bottom); }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,Inter,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain}
@@ -76,7 +76,7 @@ nav .n{position:absolute;top:2px;right:calc(50% - 22px);min-width:18px;height:18
 
 <div id="login">
   <div class="box">
-    <h1>JMB Admin</h1>
+    <h1>JMB Inbox</h1>
     <p>Approvals, live team and codes — on your phone.</p>
     <input class="inp" id="pw" type="password" placeholder="Admin password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
     <label class="chk"><input type="checkbox" id="keep" checked> Keep me signed in on this phone</label>
@@ -175,7 +175,7 @@ function w(q){ return api('action='+q, 30000); }
 function wp(q){ return ap('action='+q, 30000); }
 var INF={ all:'All', leave:'Leave', coe:'COE', redeem:'Redeem', appeal:'Appeals', dispute:'Disputes', demerit:'Demerits', lunch:'Lunch', tool:'Tools' }, IFILT='all';
 function vInbox(){
-  var L=items(), v=$('v-inbox'); var n=L.length; var nb=$('nb-n'); nb.style.display=n?'':'none'; nb.textContent=n; try{ document.title=(n?'('+n+') ':'')+'JMB Admin'; }catch(e){}
+  var L=items(), v=$('v-inbox'); var n=L.length; var nb=$('nb-n'); nb.style.display=n?'':'none'; nb.textContent=n; try{ document.title=(n?'('+n+') ':'')+'JMB Inbox'; }catch(e){}
   var counts={ all:n }; L.forEach(function(x){ counts[x.k]=(counts[x.k]||0)+1; });
   var chips='<div class="chips">'+Object.keys(INF).filter(function(k){ return k==='all'||counts[k]; }).map(function(k){ return '<button class="'+(IFILT===k?'sel':'')+'" onclick="IFILT=\''+k+'\';vInbox()">'+INF[k]+(counts[k]?' '+counts[k]:'')+'</button>'; }).join('')+'</div>';
   var show=L.filter(function(x){ return IFILT==='all'||x.k===IFILT; });
@@ -214,10 +214,21 @@ function vCodes(){
   var emps=((SNAP&&SNAP.boot&&SNAP.boot.employees&&SNAP.boot.employees.employees)||[]).filter(function(e){ return e.employee_id&&String(e.status||'active').toLowerCase().indexOf('active')>=0; }).sort(function(a,b){ return String(a.full_name||'').localeCompare(String(b.full_name||'')); });
   v.innerHTML='<div class="card"><div class="rowx"><div><b>Network gate</b><div style="font-size:12px;color:var(--ink3)">'+(NET.gate_on?'Office Starlink only · codes elsewhere':'Off — sign-in from anywhere')+'</div></div><span class="pill '+(NET.gate_on?'ok':'')+'">'+(NET.gate_on?'ON':'OFF')+'</span></div>'+
     '<div class="rowx"><div><b>Office IPs</b><div style="font-size:12px;color:var(--ink3)">'+((NET.ips||[]).map(function(x){ return x.ip; }).join(' · ')||'none known')+'</div></div><span class="pill '+(NET.beacon_paired?'ok':'amb')+'">'+(NET.beacon_paired?'beacon '+(NET.beacon_seen?ago(NET.beacon_seen):'paired'):'no beacon')+'</span></div></div>'+
-    '<div class="card"><div class="fld"><label>Issue a work-from-home code</label><select class="inp" id="wc-emp"><option value="">— person —</option>'+emps.map(function(e){ return '<option value="'+E(e.employee_id)+'">'+E(e.full_name||e.employee_id)+' · '+E(e.employee_id)+'</option>'; }).join('')+'</select></div><button class="btn pri w" onclick="issueCode()">Issue code</button><div id="wc-out" style="text-align:center;margin-top:12px"></div></div>'+
+    '<div class="card"><div class="fld"><label>Issue work-from-home codes</label><div style="font-size:12px;color:var(--ink3);margin:-2px 0 8px">Tick everyone working from home, pick how long, issue once — each person gets their own code.</div><div id="wc-people" style="display:flex;flex-wrap:wrap;gap:6px">'+(emps.length?emps.map(function(e){ return '<label class="wc-p" style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:100px;padding:7px 12px 7px 9px;font-size:13px;font-weight:700;background:#fff;min-height:38px"><input type="checkbox" value="'+E(e.employee_id)+'" onchange="wcCount()" style="width:17px;height:17px;margin:0;accent-color:#047857">'+E(e.full_name||e.employee_id)+'</label>'; }).join(''):'<span class="empty" style="padding:4px">No people loaded yet — wait for the snapshot.</span>')+'</div></div>'+
+    '<div class="fld"><label>Valid for</label><select class="inp" id="wc-days"><option value="1">Today (until 8 AM tomorrow)</option><option value="7">This week (7 days)</option><option value="2">2 days</option><option value="3">3 days</option><option value="5">5 days</option></select></div>'+
+    '<div class="acts" style="margin-bottom:8px"><button class="btn sm" onclick="wcAll(1)">All</button><button class="btn sm" onclick="wcAll(0)">None</button></div><button class="btn pri w" id="wc-go" onclick="issueCode()">Issue code</button><div id="wc-out" style="margin-top:12px"></div></div>'+
     '<div class="sec"><b>Active codes</b><hr></div>'+((NET.codes||[]).length?(NET.codes||[]).map(function(c){ return '<div class="card"><div class="rowx" style="border:none;padding:0"><div><div style="font-weight:800">'+E(c.name)+'</div><div style="font-size:12px;color:var(--ink3)">until '+E(c.exp_label)+'</div></div><div style="text-align:right"><div class="code" style="font-size:22px">'+E(c.code)+'</div><button class="btn sm bad" style="margin-top:6px" onclick="revoke(\''+E(c.employee_id)+'\')">Revoke</button></div></div></div>'; }).join(''):'<div class="empty">No codes active.</div>');
 }
-async function issueCode(){ var id=$('wc-emp').value, o=$('wc-out'); if(!id){ toast('Pick the person first'); return; } o.textContent='…'; try{ var d=await ap('action=wfh_code_issue&employee_id='+enc(id)+'&by=admin'); if(d&&d.ok){ o.innerHTML='<div class="code">'+E(d.code)+'</div><div style="font-size:12px;color:var(--ink3);margin-top:6px">'+E(d.employee_id)+' · until '+E(d.exp_label)+'</div>'; try{ await navigator.clipboard.writeText(d.code); toast('Code copied'); }catch(e){} netLoad(); } else o.textContent=(d&&d.error)||'Failed'; }catch(e){ o.textContent='Could not reach the backend'; } }
+function wcPicked(){ return Array.prototype.map.call(document.querySelectorAll('#wc-people input:checked'), function(i){ return i.value; }); }
+function wcAll(on){ document.querySelectorAll('#wc-people input').forEach(function(i){ i.checked=!!on; }); wcCount(); }
+function wcCount(){ var n=wcPicked().length, g=$('wc-go'); if(g) g.textContent=n>1?'Issue codes for '+n+' people':(n===1?'Issue code for 1 person':'Issue code'); document.querySelectorAll('#wc-people .wc-p').forEach(function(l){ var on=l.querySelector('input').checked; l.style.background=on?'var(--okbg)':'#fff'; l.style.borderColor=on?'rgba(4,120,87,.45)':'var(--line)'; }); }
+function wcText(list, days){ var when=days>=7?'this week':(days===1?'today':days+' days'); return 'JMB work-from-home codes ('+when+'):\n'+list.map(function(x){ return x.name+' ('+x.employee_id+'): '+x.code+' — until '+x.exp_label; }).join('\n'); }
+async function wcShare(){ var txt=window._wcLast||''; if(!txt) return; try{ if(navigator.share){ await navigator.share({ title:'JMB work-from-home codes', text:txt }); return; } }catch(e){ if(e&&e.name==='AbortError') return; } try{ await navigator.clipboard.writeText(txt); toast('Copied'); }catch(e){ prompt('Copy these:', txt); } }
+async function issueCode(){ var ids=wcPicked(), o=$('wc-out'), days=parseInt(($('wc-days')||{}).value,10)||1; if(!ids.length){ toast('Tick at least one person'); return; } o.innerHTML='<div class="skel" style="height:40px"></div>';
+  try{ var d=await ap('action=wfh_code_issue&employee_id='+enc(ids.join(','))+'&days='+days+'&by=admin'); if(d&&d.ok){ var list=d.issued||[{ employee_id:d.employee_id, name:d.name||d.employee_id, code:d.code, exp_label:d.exp_label }]; window._wcLast=wcText(list, days);
+      o.innerHTML=list.map(function(x){ return '<div class="rowx"><div><div style="font-weight:800">'+E(x.name||x.employee_id)+'</div><div style="font-size:12px;color:var(--ink3)">'+E(x.employee_id)+' · until '+E(x.exp_label)+'</div></div><div class="code" style="font-size:24px;color:var(--ok)">'+E(x.code)+'</div></div>'; }).join('')+'<button class="btn ok w" style="margin-top:10px" onclick="wcShare()">📤 Share / copy '+(list.length>1?'all '+list.length+' codes':'the code')+'</button>';
+      if(list.length===1){ try{ await navigator.clipboard.writeText(list[0].code); toast('Code copied'); }catch(e){} } else toast(list.length+' codes issued');
+      wcAll(0); netLoad(); } else o.innerHTML='<div class="empty">'+E((d&&d.error)||'Failed')+'</div>'; }catch(e){ o.innerHTML='<div class="empty">Could not reach the backend</div>'; } }
 async function revoke(id){ if(!confirm('Revoke '+id+"'s code?")) return; try{ await ap('action=wfh_code_revoke&employee_id='+enc(id)); netLoad(); toast('Revoked'); }catch(e){ toast('Could not reach the backend'); } }
 
 /* ── MORE: broadcast, alerts, games & points, links ── */
@@ -227,8 +238,8 @@ function vMore(){
   v.innerHTML='<div class="card"><div class="fld"><label>Broadcast to everyone</label><input class="inp" id="bc-t" placeholder="Title"></div><div class="fld"><textarea class="inp" id="bc-b" placeholder="Message"></textarea></div><button class="btn pri w" onclick="bcSend()">Send to all VAs</button></div>'+
     '<div class="card" id="tg-card"><div style="font-weight:800;margin-bottom:4px">📲 Phone alerts (Telegram)</div><div id="tg-body" style="font-size:13px;color:var(--ink2)">…</div></div>'+
     '<div class="card" id="gp-card"><div style="font-weight:800;margin-bottom:8px">🎮 Games &amp; JMB Points</div><div id="gp-body">…</div></div>'+
-    '<div class="card"><a class="btn w" href="admin.html" style="text-decoration:none">Open the full console</a><button class="btn w" style="margin-top:8px" onclick="signOut()">Sign out on this phone</button></div>'+
-    '<div style="text-align:center;font-size:11px;color:var(--ink3);margin:14px 0">JMB Admin · '+(SNAP?('snapshot '+ago(SNAP_AT)):'')+'</div>';
+    '<div class="card"><a class="btn w pri" href="admin.html" style="text-decoration:none">Open the full console (JMB Admin)</a><button class="btn w" style="margin-top:8px" onclick="signOut()">Sign out on this phone</button></div>'+
+    '<div style="text-align:center;font-size:11px;color:var(--ink3);margin:14px 0">JMB Inbox · '+(SNAP?('snapshot '+ago(SNAP_AT)):'')+'</div>';
   tgLoad(); gpLoad();
 }
 async function bcSend(){ var t=$('bc-t').value.trim(), b=$('bc-b').value.trim(); if(!t||!b){ toast('Title and message, please'); return; } if(!confirm('Send to ALL VAs?\n\n'+t)) return; try{ var d=await api('action=send_notification&type=announce&audience=all&by=Admin&title='+enc(t)+'&body='+enc(b)); if(d&&d.ok){ toast('Sent'); $('bc-t').value=''; $('bc-b').value=''; } else toast((d&&d.error)||'Failed'); }catch(e){ toast('Could not reach the backend'); } }
