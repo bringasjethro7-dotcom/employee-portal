@@ -13255,14 +13255,31 @@ function closePresenceStopped(){
 }
 // ── NIGHT ALERTNESS CHECK (Oct 2026, owner) ─────────────────────────────────────
 // Between 3:00 and 7:00 AM PHT the team gets sleepy, and a resting hand on the mouse keeps the idle
-// detector happy. So while a productive timer runs, every half hour (3:00, 3:30 … 7:00) a word
-// appears that must be TYPED within 15 seconds. Typed → carry on. Missed → the timer stops, credited
-// up to the moment the check appeared, and admin sees a "night check missed" flag. A loud repeating
-// chime, a flashing tab title and a desktop notification make sure nobody misses it by accident.
-// Never during a bio break (it waits until the 5-minute window ends), never on an idle timer, and not
-// in the first 2 minutes after a timer was started (pressing Start already proves you're awake).
-var NC_SLOTS = [[3,0],[3,30],[4,0],[4,30],[5,0],[5,30],[6,0],[6,30],[7,0]];
+// detector happy. So while a productive timer runs, a word appears that must be TYPED within 15
+// seconds. Typed → carry on. Missed → the timer stops, credited up to the moment the check appeared,
+// and admin sees a "night check missed" flag. A loud repeating chime, a flashing tab title and a
+// desktop notification make sure nobody misses it by accident.
+// WHEN (owner, Oct 6): the times are PRIVATE and SHUFFLED. One check per half-hour block, at a random
+// minute inside the block, drawn fresh every night on each VA's own device — so no two VAs get it at
+// the same moment and nobody can say "it's 3:30, type the word". The old fixed slots (3:00, 3:30 …)
+// are gone. Never during a bio break (it waits until the 5-minute window ends), never on an idle
+// timer, and not in the first 2 minutes after a timer was started (pressing Start proves you're awake).
+var NC_WINDOW = [3, 7];                       // 3:00 → 7:00 AM PHT, 8 half-hour blocks
 var NC_ANSWER_MS = 15000, NC_GRACE_MIN = 20;
+function ncPlan(dateKey){
+  var emp = String((window._currentEmpData && window._currentEmpData.employee_id) || (typeof chatEmpId !== 'undefined' && chatEmpId) || 'x').toUpperCase();
+  var key = 'nc_plan_' + emp + '_' + dateKey, plan = null;
+  try { plan = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { plan = null; }
+  if (!plan || !plan.length) {
+    plan = [];
+    for (var h = NC_WINDOW[0]; h < NC_WINDOW[1]; h++) for (var half = 0; half < 2; half++) {
+      var start = h * 60 + half * 30;
+      plan.push(start + 1 + Math.floor(Math.random() * 28));      // minute 1–28 of the block: never on the hour or half-hour
+    }
+    try { localStorage.setItem(key, JSON.stringify(plan)); } catch (e) {}
+  }
+  return plan;
+}
 var NC_WORDS = ['river','candle','orange','planet','garden','silver','window','pencil','summer','rocket','basket','forest','mango','cloud','lemon','tiger',
                 'bridge','coffee','island','violet','marble','pillow','harbor','meadow','copper','falcon','jungle','mirror','pepper','sunset','pebble','rainbow'];
 var _ncOpen = false, _ncWord = '', _ncDeadline = 0, _ncShownAt = 0, _ncTick = null, _ncAlarmT = null, _ncAlarmN = 0, _ncTitleT = null, _ncTitle0 = '', _ncNote = null;
@@ -13273,16 +13290,18 @@ function ncCheck(){
   try {
     if (_ncOpen || !ncTimerOk() || typeof _phtNow !== 'function') return;
     var p = _phtNow(), now = p.h * 60 + p.m;
-    for (var i = 0; i < NC_SLOTS.length; i++) {
-      var s = NC_SLOTS[i][0] * 60 + NC_SLOTS[i][1], late = now - s;
+    if (now < NC_WINDOW[0] * 60 || now > NC_WINDOW[1] * 60 + NC_GRACE_MIN) return;
+    var plan = ncPlan(p.dateKey);
+    for (var i = 0; i < plan.length; i++) {
+      var s = plan[i], late = now - s;
       if (late < 0 || late > NC_GRACE_MIN) continue;
-      var key = 'nc_' + p.dateKey + '_' + NC_SLOTS[i][0] + '_' + NC_SLOTS[i][1];
+      var key = 'nc_' + p.dateKey + '_b' + i;
       if (localStorage.getItem(key)) continue;
       if (typeof trkInBioBreak === 'function' && trkInBioBreak()) return;          // after the bio break, not during it
       var seg = Number(trkRunning.segStart) || 0;
       if (seg && Date.now() - seg < 120000) return;   // just pressed Start/refreshed — ask a couple of minutes later
       localStorage.setItem(key, '1');
-      ncOpen(NC_SLOTS[i]);
+      ncOpen([Math.floor(s / 60), s % 60]);
       return;
     }
   } catch (e) {}
