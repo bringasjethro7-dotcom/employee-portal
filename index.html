@@ -10953,7 +10953,10 @@ function trkSetRunning(r) {
   // restarts, exactly as the warning tells them to, would never be warned again that shift.
   var newId = r ? r.entry_id : null;
   if (newId !== cfyRunningId) { try{ _entryCapReset(); }catch(e){} }
+  var _was = trkRunning ? trkRunning.entry_id : null;
   trkRunning = r; cfyRunningId = newId;
+  // tell the tools at once (presence row) — they gate their own timers on the portal timer (Oct 6)
+  if (_was !== newId) { try { setTimeout(function(){ updatePresence(true); }, 300); } catch(e) {} }
 }
 
 // Init when the Time Tracker tab is first opened
@@ -14383,6 +14386,19 @@ async function updatePresence(isOnline) {
       row.time_in = isOnline ? myTin : '';
       if (myTin) presenceTimeIn[chatEmpId] = myTin;
     }
+    /* TOOL LINK (Oct 6, owner): the tools (Reddit Central first) read this row to know whether the
+       portal timer is running, on what, since when, and how much productive time is tracked today —
+       the hard clock that every tool timer must live inside. Columns: task, task_since, tracked_secs,
+       tracked_proj_secs (seconds on the running task's project). Missing columns → dropped quietly. */
+    if (!_presenceNoLinkCols) {
+      try {
+        var _tl = trkLinkState();
+        row.task = isOnline ? _tl.task : '';
+        row.task_since = isOnline ? _tl.since : '';
+        row.tracked_secs = isOnline ? _tl.tracked : 0;
+        row.tracked_proj_secs = isOnline ? _tl.trackedProj : 0;
+      } catch(_tl0) {}
+    }
     var r = await supaClient.from('presence').upsert(row, { onConflict: 'employee_id' });
     // If the presence table is missing an optional column, remember it and retry on base only
     if (r && r.error) {
@@ -14390,6 +14406,7 @@ async function updatePresence(isOnline) {
       if (/photo/i.test(msg))   _presenceNoPhotoCol   = true;
       if (/status/i.test(msg))  _presenceNoStatusCol  = true;
       if (/time_in/i.test(msg)) _presenceNoTimeInCol  = true;
+      if (/task|tracked/i.test(msg)) _presenceNoLinkCols = true;   // presence table not yet upgraded (PRESENCE_toollink.sql)
       await supaClient.from('presence').upsert(base, { onConflict: 'employee_id' });
     }
   } catch(e) {
@@ -14398,6 +14415,36 @@ async function updatePresence(isOnline) {
 }
 var _presenceNoPhotoCol  = false;
 var _presenceNoStatusCol = false;
+var _presenceNoLinkCols  = false;
+/* Productive seconds tracked today (idle project excluded): finished + paused entries plus the live
+   running segment. `proj` filter = seconds on that project only (the running task's project). */
+function trkTodaySecs(projRe){
+  var tot = 0, seen = {};
+  try {
+    (window._trkTodayEntries || []).forEach(function(e){
+      if (!e || !e.entry_id || seen[e.entry_id]) return; seen[e.entry_id] = 1;
+      if (isIdleProject(e.project)) return;
+      if (e.status === 'running' || e.status === 'rejected') return;           // running is added live below
+      if (projRe && !projRe.test(String(e.project || ''))) return;
+      tot += Number(e.active_secs) || 0;
+    });
+    if (typeof trkRunning !== 'undefined' && trkRunning && !isIdleProject(trkRunning.project) && (!projRe || projRe.test(String(trkRunning.project || '')))) {
+      tot += (Number(trkRunning.baseSecs) || 0) + (trkRunning.segStart ? Math.max(0, (Date.now() - trkRunning.segStart) / 1000) : 0);
+    }
+  } catch(e) {}
+  return Math.round(tot);
+}
+function trkLinkState(){
+  var running = (typeof trkRunning !== 'undefined' && trkRunning && !(typeof isIdle !== 'undefined' && isIdle)) ? trkRunning : null;
+  var proj = running ? String(running.project || '') : '';
+  var projRe = proj ? new RegExp('^' + proj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') : null;
+  return {
+    task: running ? (proj + (running.task ? ' · ' + running.task : '')) : '',
+    since: running && running.segStart ? new Date(Number(running.segStart)).toISOString() : '',
+    tracked: trkTodaySecs(null),
+    trackedProj: running ? trkTodaySecs(projRe) : 0
+  };
+}
 /* ── Manual status: the VA can override the auto work-status (Active/Away/Busy/Inactive). ── */
 var _manualStatus = (function(){ try{ return localStorage.getItem('jmb_status')||''; }catch(e){ return ''; } })();
 function setMyStatus(v){
