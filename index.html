@@ -6626,6 +6626,69 @@ function netCodeAsk(d){
   if(f){ if(invalid) f.value=''; setTimeout(function(){ try{ f.focus(); }catch(_e){} }, 50); }
   showError(invalid ? 'Work-from-home code not valid.' : 'Work-from-home code needed.');
 }
+/* ── 🛰 NETWORK GATE, AFTER SIGN-IN (Oct 6, 2026) ───────────────────────────────
+   Sign-in already asks "office network or a code?". But a session that started at the office kept
+   working from anywhere. Now the same question is asked again at every tracker Start/Resume and
+   every 10 minutes while a timer runs: office IP (beacon list) → fine; a live work-from-home code →
+   fine; otherwise the timer stops and a code box appears. ADMIN is exempt. Network trouble on the
+   check itself is never a reason to stop someone (fail-open); only a definite "not allowed" is. */
+var NETG = {
+  _last: 0, _lastOk: null, _tick: null, _busy: false, EVERY: 10*60*1000,
+  me: function(){ return String((window._currentEmpData||{}).employee_id||attEmpId||'').toUpperCase(); },
+  code: function(){ try{ return localStorage.getItem('netg_code_'+this.me())||''; }catch(e){ return ''; } },
+  setCode: function(c){ try{ if(c) localStorage.setItem('netg_code_'+this.me(), c); else localStorage.removeItem('netg_code_'+this.me()); }catch(e){} },
+  /* true = may work, false = not allowed (definite), null = could not tell (treated as allowed) */
+  check: async function(){
+    var id=this.me(); if(!id || id==='ADMIN') return true;
+    if(this._busy) return this._lastOk!==false; this._busy=true;
+    try{
+      var n=await netWhoAmI();
+      var q='action=net_check&employee_id='+encodeURIComponent(id)+(n?('&net_ip='+encodeURIComponent(n.ip)+'&net_ts='+n.ts+'&net_sig='+n.sig):'')+(this.code()?('&wfh_code='+encodeURIComponent(this.code())):'')+'&_='+Date.now();
+      var ctl=(typeof AbortController!=='undefined')?new AbortController():null; var t=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(_e){} },12000):null;
+      var r=await fetch((window.LOGIN_API||APPS_SCRIPT_URL)+'?'+q, ctl?{ signal:ctl.signal }:{}); if(t) clearTimeout(t);
+      var d=await r.json(); this._last=Date.now();
+      if(!d || !d.ok){ this._lastOk=null; return true; }            // backend trouble → never stop anyone
+      this._lastOk=!!d.allowed; this._why=d.why||''; this._ip=d.ip||'';
+      if(!d.allowed && d.why==='NETWORK_CODE_INVALID') this.setCode('');
+      return !!d.allowed;
+    }catch(e){ this._lastOk=null; return true; }
+    finally{ this._busy=false; }
+  },
+  /* the gate used by startTimer / resumeTask */
+  allowWork: async function(){
+    var ok=await this.check();
+    if(ok) return true;
+    this.ask(); return false;
+  },
+  start: function(){ var self=this; if(self._tick) return; self._tick=setInterval(function(){ self.watch(); }, 60*1000); },
+  /* every 10 min while a timer runs: a timer that is no longer allowed stops, and the code box appears */
+  watch: async function(){
+    try{ if(typeof trkRunning==='undefined' ? !document.querySelector('.cfy-start-btn.running, #cfy-start-btn.stop') : !trkRunning) return; }catch(e){ return; }
+    if(Date.now()-this._last < this.EVERY) return;
+    var ok=await this.check();
+    if(ok===false){ try{ showToast('⛔ You are not on the office network — the timer was stopped. Enter a work-from-home code to continue.'); }catch(e){} try{ await stopTimer(); }catch(e){} this.ask(); }
+  },
+  ask: function(){
+    var self=this; var el=document.getElementById('netg-gate');
+    if(!el){ el=document.createElement('div'); el.id='netg-gate';
+      el.style.cssText='position:fixed;inset:0;z-index:9950;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:18px;';
+      el.innerHTML='<div style="width:100%;max-width:420px;background:#fff;color:#0f172a;border-radius:20px;padding:24px 22px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);font-family:inherit;">'+
+        '<div style="font-size:30px;line-height:1;margin-bottom:8px;">🛰</div><div style="font-size:19px;font-weight:800;margin-bottom:6px;">You are not on the office network</div>'+
+        '<div id="netg-sub" style="font-size:13.5px;color:#475569;line-height:1.5;margin-bottom:14px;">The time tracker only runs from the office Starlink. Working from home today? Enter the work-from-home code from the admin.</div>'+
+        '<input id="netg-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="width:100%;box-sizing:border-box;border:1px solid rgba(15,23,42,.15);border-radius:12px;padding:13px 14px;font-size:22px;letter-spacing:.2em;text-align:center;font-family:ui-monospace,monospace;outline:none;">'+
+        '<div id="netg-err" style="color:#be123c;font-size:12.5px;font-weight:700;margin-top:8px;min-height:16px;"></div>'+
+        '<div style="display:flex;gap:8px;margin-top:12px;"><button type="button" id="netg-go" style="flex:1;border:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;cursor:pointer;">Use this code</button><button type="button" id="netg-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">Later</button></div>'+
+        '<div style="font-size:11.5px;color:#9aa4b2;margin-top:12px;line-height:1.5;">Codes last until 8:00 AM the next day (or the week, if the admin issued a weekly one). Chat, the feed and your requests still work without one.</div></div>';
+      document.body.appendChild(el);
+      document.getElementById('netg-x').onclick=function(){ el.style.display='none'; };
+      document.getElementById('netg-go').onclick=async function(){ var c=(document.getElementById('netg-code').value||'').replace(/\D/g,''); var er=document.getElementById('netg-err'); if(c.length!==6){ er.textContent='Enter the 6-digit code.'; return; }
+        this.disabled=true; this.textContent='Checking…'; self.setCode(c); self._last=0; var ok=await self.check(); this.disabled=false; this.textContent='Use this code';
+        if(ok){ el.style.display='none'; try{ showToast('✅ Code accepted — you can work from here today.'); }catch(e){} } else { er.textContent=(self._why==='NETWORK_CODE_INVALID')?'That code is not valid (expired or wrong). Ask the admin for a new one.':'Still not allowed from this network.'; } };
+    }
+    var sub=document.getElementById('netg-sub'); if(sub && this._ip) sub.textContent='This network ('+this._ip+') is not the office. Working from home today? Enter the work-from-home code from the admin.';
+    el.style.display='flex'; setTimeout(function(){ try{ document.getElementById('netg-code').focus(); }catch(e){} }, 60);
+  }
+};
 /* ── 🙂 SIGN-IN FACE ──────────────────────────────────────────────────────────
    Type JMB014 and your own face appears above the card. It is a plain image
    request against headshots/JMB0XX.{jpg,webp,png} — no backend, no account
@@ -7561,6 +7624,7 @@ function renderDashboard(data) {
 
   // ── NOTIFICATIONS (bell) ──
   try { startNotifs(); } catch(e) {}
+  try { NETG.start(); } catch(e) {}
 
   // ── PAYSLIPS ──
   window._currentEmpData = data;
@@ -12175,6 +12239,7 @@ var AUL = {
   START_NIGHT: 0,             // 00:00 PHT
   skew: 0,                    // serverNow − deviceNow, so a wrong laptop clock can't shift lunch
   workApproved: false,        // admin said this VA may work through lunch today
+  workApprovedDate: '',       // ...and only for this PHT date (one lunch, never a standing pass)
   enabled: null,              // backend switch (AUTO_LUNCH_ON); null until the first lunch_state reply
   request: null,              // their working-lunch request for today, if any
   _wasActive: null,           // previous tick's state, for edge detection
@@ -12213,7 +12278,7 @@ var AUL = {
   },
   active: function(){
     if (this.enabled !== true) return false;   // switch off on this backend, or not confirmed yet → never stop a timer
-    if (this.workApproved) return false;
+    if (this.workApproved && this.workApprovedDate && this.workApprovedDate === ((this.parts()||{}).date||'')) return false;   // approved for THIS lunch only
     var p = this.parts(); if (!p) return false;
     var st = this.startMins();
     return p.mins >= st && p.mins < st + this.MINS;
@@ -12245,11 +12310,14 @@ var AUL = {
         if (wasEnabled === true && !self.enabled) { self.hide(); }
         var wasApproved = self.workApproved;
         self.workApproved = !!d.working_lunch;
+        /* The approval is for ONE lunch: stamp it with the PHT date the server answered for, so a tab left open
+           overnight (or a failed noon sync) can never carry yesterday's approval into today (Oct 6, 2026). */
+        self.workApprovedDate = self.workApproved ? String((d.now_pht||'').slice(0,10) || ((self.parts()||{}).date||'')) : '';
         self.request = d.request || null;
         if (self.workApproved && !wasApproved) { self.hide(); showToast('Working lunch approved — your timer is yours again.'); }
         self.paint();
       })
-      .catch(function(){});
+      .catch(function(){ if (self.workApproved && (Date.now() - self._synced) > 0 && self.workApprovedDate !== ((self.parts()||{}).date||'')) { self.workApproved = false; self.workApprovedDate = ''; } });
   },
 
   /* One-second watcher. Only the EDGES do anything, so this is nearly free. */
@@ -12451,6 +12519,7 @@ async function startTimer() {
      start path (new entry, paused-duplicate resume, double-start recovery) so there is no
      side door into a running timer. */
   if (!(await _sopAllowWork())) return;
+  if (!(await NETG.allowWork())) return;   // 🛰 office network or a work-from-home code (Oct 6, 2026)
   var f = trkFormFields();
   // Require project, plus category/task wherever the project/category provides them
   if (!f.proj) { showToast('Select a Project before starting the timer.'); return; }
@@ -12517,6 +12586,7 @@ async function resumeTask(entryId) {
   if (!TRKDEV.required()) return;           // 💻 resuming is starting work too — laptop first
   if (AUL.blocked()) return;                // 🍽 AUTO-LUNCH: resuming mid-lunch is starting work too
   if (!(await _sopAllowWork())) return;     // 📚 resuming a paused task is starting work too
+  if (!(await NETG.allowWork())) return;    // 🛰 same network rule on resume
   if (trkRunning) { var rid = trkRunning.entry_id; _bankRunningToPaused(); _trkPost('tracker_pause', { entry_id: rid }); }
   var i = -1;
   for (var k = 0; k < trkPaused.length; k++) { if (trkPaused[k].entry_id === entryId) { i = k; break; } }

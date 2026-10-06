@@ -8975,6 +8975,16 @@ async function sendNotify(){
       </div>
     </div>
 
+    <div id="ld-card" style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
+      <div style="font-size:15px;font-weight:800;color:var(--t1);">🍽 Auto-lunch check</div>
+      <div style="font-size:12.5px;color:var(--t3);margin:4px 0 10px;line-height:1.5;">Why is this person (not) blocked at lunch right now? Shows the switch, their detected shift and lunch window, and every working-lunch approval on file — each approval counts for ONE date only.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <select id="ld-emp" style="background:#eef2f8;border:1px solid rgba(15,23,42,.13);border-radius:8px;color:#0f172a;padding:8px 10px;font-family:inherit;font-size:13px;min-width:220px;"><option value="">— person —</option></select>
+        <button class="bsm" onclick="lunchDiag()" style="font-weight:700;">Check</button>
+      </div>
+      <div id="ld-out" style="margin-top:10px;font-size:12.5px;color:var(--t2);line-height:1.6;"></div>
+    </div>
+
     <div id="tg-card" style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin-top:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
         <div style="font-size:15px;font-weight:800;color:var(--t1);">📲 Phone alerts (Telegram) <span id="tg-state" style="display:inline-block;margin-left:6px;border-radius:100px;padding:2px 9px;font-size:11px;font-weight:800;vertical-align:2px;background:#eef2f8;color:#475569;">…</span></div>
@@ -9033,6 +9043,7 @@ var LOGIN_API=(window.__AURA__&&window.__AURA__.LOGIN)||"https://script.google.c
 var _onEmpsLoaded=false, _onToken='';
 async function _onEmps(){ if(_onEmpsLoaded) return; try{ var r=await jGet(API+'?action=get_all_employees'); var d=await r.json(); var box=document.getElementById('wc-people'); if(!box) return; var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
   var L=(d.employees||[]).filter(function(e){ return e.employee_id && String(e.status||'active').toLowerCase().indexOf('active')>=0; }).sort(function(a,b){ return String(a.full_name||'').localeCompare(String(b.full_name||'')); });
+  try{ var sel=document.getElementById('ld-emp'); if(sel && sel.options.length<=1) L.forEach(function(e){ var o=document.createElement('option'); o.value=e.employee_id; o.textContent=(e.full_name||e.employee_id)+' · '+e.employee_id; sel.appendChild(o); }); }catch(_e){}
   box.innerHTML=L.length?L.map(function(e){ return '<label class="wc-p" style="display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(15,23,42,.13);border-radius:100px;padding:6px 12px 6px 8px;font-size:12.5px;font-weight:700;background:#fff;cursor:pointer;min-height:36px;"><input type="checkbox" value="'+E(e.employee_id)+'" onchange="wfhCount()" style="width:16px;height:16px;margin:0;accent-color:#047857;">'+E(e.full_name||e.employee_id)+' <span style="color:var(--t3);font-weight:600;">'+E(e.employee_id)+'</span></label>'; }).join(''):'<span class="es" style="font-size:12px;">No active people.</span>';
   _onEmpsLoaded=true; wfhCount(); }catch(e){} }
 function wfhPicked(){ return Array.prototype.map.call(document.querySelectorAll('#wc-people input:checked'), function(i){ return i.value; }); }
@@ -9091,6 +9102,16 @@ function tgPaint(){ var b=document.getElementById('tg-body'), st=document.getEle
 async function tgSave(){ var t=(document.getElementById('tg-tok')||{}).value||''; t=t.trim(); if(!/^\d+:[\w-]{20,}$/.test(t)){ alert('That does not look like a bot token.'); return; } try{ var r=await jGet(API+'?action=admin_notify_set&token='+encodeURIComponent(t)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); _tg=await r.json(); tgPaint(); }catch(e){ alert('Could not reach the backend.'); } }
 async function tgLink(){ try{ var r=await jGet(API+'?action=admin_notify_link&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); if(d&&d.ok){ alert('Linked to '+(d.who||'you')+' — check Telegram.'); tgLoad(); } else alert((d&&d.note)||(d&&d.error)||'Failed'); }catch(e){ alert('Could not reach the backend.'); } }
 async function tgTest(){ try{ var r=await jGet(API+'?action=admin_notify_test&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json(); alert(d&&d.ok?'Sent — check Telegram.':((d&&d.error)||'Failed')); }catch(e){ alert('Could not reach the backend.'); } }
+async function lunchDiag(){ var id=(document.getElementById('ld-emp')||{}).value, o=document.getElementById('ld-out'); if(!id){ alert('Pick the person first.'); return; } o.textContent='Checking…';
+  try{ var r=await jGet(API+'?action=lunch_diag&employee_id='+encodeURIComponent(id)+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 40000); var d=await r.json(); if(!d||!d.ok){ o.textContent=(d&&d.error)||'Failed'; return; }
+    var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+    var pill=function(t,ok){ return '<span style="display:inline-block;border-radius:100px;padding:2px 9px;font-size:11px;font-weight:800;background:'+(ok?'#ecfdf5':'#fff1f2')+';color:'+(ok?'#047857':'#be123c')+';">'+E(t)+'</span>'; };
+    var h='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">'+pill('auto-lunch switch '+(d.enabled?'ON':'OFF'), d.enabled)+pill('shift: '+(d.shift||'?'), true)+pill('approved today: '+(d.approved_today?'YES':'no'), !d.approved_today)+pill('in lunch window now: '+(d.in_window_now?'yes':'no'), true)+pill('blocked right now: '+(d.blocked_now?'YES':'NO'), d.blocked_now||!d.in_window_now)+'</div>';
+    h+='<div>Server time '+E(d.now_pht)+' PHT · lunch starts at minute '+E(d.lunch_start_mins)+' of the day'+(d.window?' · window '+E(new Date(d.window.start).toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'numeric',minute:'2-digit'}))+'–'+E(new Date(d.window.end).toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'numeric',minute:'2-digit'})):'')+'</div>';
+    if(!d.enabled) h+='<div style="color:#b45309;font-weight:700;margin-top:6px;">The auto-lunch switch is OFF in this Portal API project (Script Property AUTO_LUNCH_ON is not "1") — nobody is blocked at lunch. Run RUN_InstallAutoLunch in the Apps Script editor to turn it on.</div>';
+    var rows=d.approvals||[]; h+='<div style="margin-top:8px;"><b>Working-lunch requests on file</b> ('+(d.approvals_total||0)+')</div>';
+    h+=rows.length?'<div style="overflow:auto;border:1px solid rgba(15,23,42,.08);border-radius:10px;margin-top:4px;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f6f7fb;"><th style="text-align:left;padding:5px 8px;">Date</th><th style="text-align:left;padding:5px 8px;">Status</th><th style="text-align:left;padding:5px 8px;">Client / reason</th><th style="text-align:left;padding:5px 8px;">Counts today?</th></tr></thead><tbody>'+rows.map(function(x){ var today=(x._date_key===d.today); return '<tr style="border-top:1px solid rgba(15,23,42,.06);'+(today?'background:#fffbeb;':'')+'"><td style="padding:5px 8px;font-family:monospace;">'+E(x._date_key||x.date)+'</td><td style="padding:5px 8px;font-weight:700;">'+E(x.status)+'</td><td style="padding:5px 8px;">'+E(x.client||x.reason||'')+'</td><td style="padding:5px 8px;">'+(today?'<b style="color:#b45309;">yes — this is today</b>':'no')+'</td></tr>'; }).join('')+'</tbody></table></div>':'<div style="color:var(--t3);">none</div>';
+    o.innerHTML=h; }catch(e){ o.textContent='Could not reach the backend.'; } }
 async function tgOff(){ if(!confirm('Turn Telegram alerts off?')) return; try{ var r=await jGet(API+'?action=admin_notify_set&token=&chat=&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); _tg=await r.json(); tgPaint(); }catch(e){ alert('Could not reach the backend.'); } }
 function _gpPaint(on){ var st=document.getElementById('gp-state'), b=document.getElementById('gp-btn'), c=document.getElementById('gp-card'); if(!st||!b) return;
   st.textContent=on?'PAUSED':'ON'; st.style.background=on?'#fff1f2':'#ecfdf5'; st.style.color=on?'#be123c':'#047857';
