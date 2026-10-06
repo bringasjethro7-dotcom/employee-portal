@@ -14253,6 +14253,16 @@ var chatChannel   = null;
 var presenceChannel = null;
 var onlineUsers   = {};
 var unreadCounts  = {};
+/* Header message badge = the sum of what is still unread, recomputed on every change (Oct 6). */
+function syncMsgBadge(){
+  try{
+    var total=0; Object.keys(unreadCounts).forEach(function(k){ total+=parseInt(unreadCounts[k],10)||0; });
+    var badge=document.getElementById('msg-badge');
+    if(badge){ badge.textContent=total>99?'99+':String(total); badge.style.display=total>0?'inline':'none'; }
+    var tabDot=document.getElementById('tab-msg-notif');
+    if(tabDot) tabDot.classList.toggle('show', total>0);
+  }catch(e){}
+}
 var bumpedOrder   = []; // tracks contacts bumped to top, in order
 
 function initChat(data) {
@@ -15285,6 +15295,7 @@ function selectChat(empId, name) {
   var unreadEl = document.getElementById('unread-' + (empId === 'group' ? 'group' : empId));
   if (unreadEl) { unreadEl.style.display = 'none'; unreadEl.textContent = ''; }
   if (empId !== 'group') setBubbleUnread(empId, 0); // clear the bubble badge too
+  syncMsgBadge();   // the header badge follows what is still unread (Oct 6: it used to keep the old total after a chat was read)
 
   // Load messages
   loadMessages();
@@ -16269,11 +16280,7 @@ function subscribeToMessages() {
           var unreadEl = document.getElementById('unread-' + chatKey);
           if (unreadEl) { unreadEl.textContent = unreadCounts[chatKey]; unreadEl.style.display = 'inline'; }
           if (!isGroup) setBubbleUnread(m.sender_id, unreadCounts[chatKey]); // mirror onto the floating bubble
-          var total = Object.values(unreadCounts).reduce(function(a,b){return a+b;}, 0);
-          var badge = document.getElementById('msg-badge');
-          if (badge) { badge.textContent = total; badge.style.display = total > 0 ? 'inline' : 'none'; }
-          var tabDot = document.getElementById('tab-msg-notif');
-          if (tabDot) tabDot.classList.add('show');
+          syncMsgBadge();
         }
       }
     })
@@ -39390,7 +39397,7 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
     var d=window._currentEmpData; if(!d||!d.employee_id||!window.JMBFeed) return false; panel();
     JMBFeed.init({ api:APPS_SCRIPT_URL, supaUrl:(window.__AURA__&&window.__AURA__.SUPA_URL)||(typeof SUPA_URL!=='undefined'?SUPA_URL:''), supaKey:(window.__AURA__&&window.__AURA__.SUPA_KEY)||(typeof SUPA_KEY!=='undefined'?SUPA_KEY:''),
       me:{ employee_id:d.employee_id, full_name:d.full_name, pin:d._pin||'', client:d.client||d.project||'', start_date:d.start_date||'', career_level:d.career_level||'', photo:d.photo||'' },
-      admin:false, mount:'#feed-mount', host:'portal', onBadge:badge, logo:'logo.png',
+      admin:false, mount:'#feed-mount', host:'portal', onBadge:badge, logo:'logo-aura.svg',
       show:function(){ try{ switchTab('feed', document.getElementById('tabbtn-feed')); }catch(e){} } });
     booted=true;
     try{ var m=/^#feed:([A-Za-z0-9]+)/.exec(location.hash||''); if(m){ setTimeout(function(){ JMBFeed.open(m[1]); }, 900); history.replaceState(null,'',location.pathname); } }catch(e){}
