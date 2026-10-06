@@ -11358,7 +11358,11 @@ var ADMAURA = (function(){
     else { if(subs.parentNode!==nav){ var og=nav.querySelector('.navgroups'); nav.insertBefore(subs, og?og.nextSibling:null); } subbar.classList.remove('has'); close(); }
   }
   function mark(n){ var b=$('m-tabbar'); if(!b) return; b.querySelectorAll('button[data-t]').forEach(function(x){ x.classList.toggle('on', x.getAttribute('data-t')===n); }); }
-  function sync(){ var src=$('aa-hdr-n'); var v=src?(src.textContent||'0'):'0'; [$('m-h-n'),$('m-b-n')].forEach(function(n){ if(!n) return; n.textContent=v; n.classList.toggle('zero', !(parseInt(v,10)>0)); }); var t=$('aa-hdr-t'), mt=$('m-ttl-b'); if(t&&mt&&mt.textContent!==t.textContent) mt.textContent=t.textContent; }
+  /* mirror the inbox count + section title. Write ONLY when the value changed: the badge lives inside the
+     header this watcher observes, so an unconditional write would re-trigger the watcher forever (froze Safari, Oct 6). */
+  function sync(){ var src=$('aa-hdr-n'); var v=src?(src.textContent||'0').trim():'0'; var zero=!(parseInt(v,10)>0);
+    [$('m-h-n'),$('m-b-n')].forEach(function(n){ if(!n) return; if(n.textContent!==v) n.textContent=v; if(n.classList.contains('zero')!==zero) n.classList.toggle('zero', zero); });
+    var t=$('aa-hdr-t'), mt=$('m-ttl-b'); if(t&&mt){ var tv=t.textContent||''; if(mt.textContent!==tv) mt.textContent=tv; } }
   function build(){
     if(built) return; nav=document.querySelector('.navbar'); subs=$('navsubs'); var hd=document.querySelector('#shell header'); if(!nav||!subs||!hd) return; built=true;
     var logo=($('admin-logo-img')||{}).src||'';
@@ -11382,7 +11386,8 @@ var ADMAURA = (function(){
     $('m-burger').onclick=open; $('m-menu').onclick=open; $('m-dclose').onclick=close; scrim.onclick=close;
     nav.addEventListener('click', function(e){ var g=e.target.closest&&e.target.closest('.navgroup, .jmb-tools button, .jmb-foot button, .m-x'); if(g) setTimeout(close, 120); });
     document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
-    try{ new MutationObserver(sync).observe(hd, { childList:true, characterData:true, subtree:true }); }catch(e){}
+    try{ var watch=$('aa-hdr')||hd; new MutationObserver(sync).observe(watch, { childList:true, characterData:true, subtree:true }); if(watch===hd){ var tries=0, w2=setInterval(function(){ var x=$('aa-hdr'); tries++; if(x){ clearInterval(w2); try{ new MutationObserver(sync).observe(x, { childList:true, characterData:true, subtree:true }); }catch(e){} } else if(tries>40) clearInterval(w2); }, 500); } }catch(e){}
+    setInterval(sync, 5000);   // belt and braces: a slow mirror even if the watcher misses an update
     try{ new MutationObserver(function(){ place(); }).observe(subs, { childList:true }); }catch(e){}
     try{ var og=window.goTab; if(typeof og==='function'){ window.goTab=function(n){ var r=og.apply(this, arguments); mark(n); return r; }; } }catch(e){}
     var cur=document.querySelector('.navgroup.active'); mark(cur?String(cur.id||'').replace('ng-',''):'dash');
