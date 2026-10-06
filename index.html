@@ -9531,9 +9531,14 @@ var todayLog   = {};
 var clockTimer = null;
 
 // ── Detect shift from clock-in time ──
+/* SPLIT SHIFT (Oct 6, 2026): a VA whose day is two blocks — an evening block (e.g. 8 PM–12 MN) and a morning block
+   (e.g. 6 AM–1 PM). Admin sets Work schedule = "Split shift" on the contractor. Both blocks belong to ONE business day
+   (the date the evening block started), Time In Again starts block 2, and End of Day closes the whole day. */
+function isSplitSched(){ try{ var d=window._currentEmpData||{}; return /split/i.test(String(d.work_schedule||d.shift||'')); }catch(e){ return false; } }
 function detectShift(hour, minute) {
   // Morning: clock in between 05:00–14:00
   // Night:   clock in between 17:00–23:59 or 00:00–04:59
+  if (isSplitSched()) return 'split';
   if (hour >= 5 && hour < 14) return 'morning';
   return 'night';
 }
@@ -9578,6 +9583,23 @@ function resolveAttToday(empId) {
             time_in: yRec.time_in || null, time_out: yRec.time_out || null,
             lunch_out: yRec.lunch_out || null, lunch_in: yRec.lunch_in || null, shift: yRec.shift || 'night' }] };
           localStorage.setItem('att_today_' + empId + '_' + yKey, JSON.stringify(restored));
+        }
+      } catch(e) {}
+    }
+    // SPLIT SHIFT: yesterday's day started in the evening (≥ 3 PM) and it is not yet 4 PM today → still the same
+    // business day, whether or not block 1 was timed out. Block 2 (the morning block) files under yesterday's date.
+    if (isSplitSched()) {
+      try {
+        var firstIn = null;
+        var sr = stored ? JSON.parse(stored) : null;
+        if (sr && sr.sessions && sr.sessions.length && sr.sessions[0].time_in) firstIn = sr.sessions[0].time_in;
+        else if (sr && sr.time_in) firstIn = sr.time_in;
+        if (!firstIn) { var ar = JSON.parse(localStorage.getItem('att_' + empId) || '[]'); var yr = ar.find(function(r){ return r.date && String(r.date).substring(0,10) === yKey; }); if (yr && yr.time_in) firstIn = yr.time_in; }
+        if (firstIn) {
+          var fi = new Date(firstIn);
+          var fiH = isNaN(fi.getTime()) ? parseInt(String(firstIn).replace(/^.*?(\d{1,2}):\d{2}.*$/, '$1'), 10) : fi.getHours();
+          var ageSplit = isNaN(fi.getTime()) ? 0 : (now - fi) / 3600000;
+          if (fiH >= 15 && now.getHours() < 16 && ageSplit >= 0 && ageSplit <= 22) return yKey;
         }
       } catch(e) {}
     }
@@ -11061,7 +11083,7 @@ function businessDateOf(iso) {
 // mid-shift and drop already-tracked hours. Falls back to the resolved date before a shift.
 function _setShiftDateFrozen(d){ try{ if(attEmpId && d) localStorage.setItem('att_shiftdate_'+attEmpId, JSON.stringify({date:d, ts:Date.now()})); }catch(e){} }
 function _clearShiftDateFrozen(){ try{ if(attEmpId) localStorage.removeItem('att_shiftdate_'+attEmpId); }catch(e){} }
-function _frozenShiftDate(){ try{ var raw=localStorage.getItem('att_shiftdate_'+(attEmpId||'')); if(raw){ var o=JSON.parse(raw); if(o && o.date && (Date.now()-(o.ts||0)) < 20*3600000) return o.date; } }catch(e){} return null; }
+function _frozenShiftDate(){ try{ var raw=localStorage.getItem('att_shiftdate_'+(attEmpId||'')); if(raw){ var o=JSON.parse(raw); if(o && o.date && (Date.now()-(o.ts||0)) < (isSplitSched()?22:20)*3600000) return o.date; } }catch(e){} return null; }
 function shiftDate() {
   var frozen = _frozenShiftDate();
   if (frozen) return frozen;                                       // stable for the entire shift
@@ -12269,6 +12291,7 @@ var AUL = {
     var h = 8;
     try { h = parseInt(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Manila',hour12:false,hour:'2-digit'}).format(ti), 10); } catch(e){}
     if (h >= 24) h = 0;
+    if (isSplitSched()) return 'morning';   // split shift: the only lunch is the noon one, inside the morning block
     return (h >= 17 || h < 5) ? 'night' : 'morning';
   },
   startMins: function(){ return this.shift() === 'night' ? this.START_NIGHT : this.START_MORNING; },
