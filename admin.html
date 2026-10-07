@@ -5341,10 +5341,11 @@ function renderTable(){
     var toggleBtn=inactive
       ? '<button class="bsm" style="border-color:rgba(34,197,94,.4);color:#4ade80;" onclick="toggleActive('+ri+')">Reactivate</button>'
       : '<button class="bsm" style="border-color:rgba(248,113,113,.4);color:#f87171;" onclick="toggleActive('+ri+')">Deactivate</button>';
-    // Permanent delete is only offered once the account is deactivated (safety gate).
-    var purgeBtn=inactive
+    // Permanent delete: always offered (Oct 7) — for an active person the flow deactivates them first. Double-confirmed + typed ID.
+    var _prot=/^(admin|jmbeast)$/i.test(String(e.employee_id||''));
+    var purgeBtn=_prot ? '' : (inactive
       ? '<button class="bsm danger" style="background:rgba(248,113,113,.14);" onclick="purgeEmp('+ri+')">Delete permanently</button>'
-      : '';
+      : '<button class="bsm" style="border-color:rgba(248,113,113,.3);color:#f87171;" onclick="purgeEmp('+ri+')" title="Deactivates them, then deletes everything">Delete…</button>');
     var promoteBtn=inactive?'':'<button class="bsm" style="border-color:rgba(234,88,12,.4);color:#ea580c;" onclick="openPromote('+ri+')">★ Promote</button><button class="bsm" style="border-color:rgba(51,65,85,.35);color:#334155;" onclick="openAdjust('+ri+')">Adjust role</button>';
     return'<tr'+(inactive?' style="opacity:.55"':'')+'><td style="font-weight:500;color:var(--t1);">'+nameCell+'</td><td style="font-family:monospace;color:var(--t3);">'+(e.employee_id||'—')+'</td><td>'+clCell+'</td><td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td><td>'+(e.rate?'₱'+Number(e.rate).toLocaleString():'—')+'</td><td>'+(e.payslips||[]).length+' slip'+((e.payslips||[]).length!==1?'s':'')+'</td><td><div class="ac"><button class="bsm edit" onclick="openModal('+ri+')">Edit</button>'+promoteBtn+toggleBtn+purgeBtn+'</div></td></tr>';
   }).join('');
@@ -5538,6 +5539,11 @@ function saveEmp(){
   persist();renderTable();closeModal();
 }
 
+/* ── PERMANENT DELETE (Oct 7, 2026) ──
+   The backend now deletes in ~20-second steps and answers { done:false, cursor } until everything is gone, so
+   no single call can hit Apps Script's 6-minute limit (the old one-shot purge died half-way for anyone with a
+   few months of time logs — that is why it "never let you"). The Employees row is deleted LAST, so stopping
+   half-way is safe: pressing Delete again carries on where it stopped. Admin password required. */
 async function purgeEmp(idx){
   var e=emps[idx]; if(!e) return;
   var id=e.employee_id||''; var nm=e.full_name||id;
@@ -5545,29 +5551,56 @@ async function purgeEmp(idx){
     if(confirm('Remove '+nm+' from the list?')){ emps.splice(idx,1); persist(); renderTable(); toast('Removed.'); }
     return;
   }
-  if(!confirm('PERMANENTLY DELETE '+nm+' ('+id+')?\n\nThis erases ALL their data across every feature — time logs, attendance, payslips, demerits, QA, trivia, points, redemptions, appeals, notifications, and chat. This CANNOT be undone.')) return;
+  if(/^(admin|jmbeast)$/i.test(id)){ toast('The admin account cannot be deleted.'); return; }
+  var active=!((e.status||'').toLowerCase()==='inactive'||(e.status||'').toLowerCase()==='deactivated');
+  if(!confirm('PERMANENTLY DELETE '+nm+' ('+id+')?\n\n'+(active?'They are still ACTIVE — they will be deactivated first (no more portal sign-in).\n\n':'')+'This erases ALL their data across every feature — time logs, attendance, payslips, demerits, QA, trivia, points, redemptions, appeals, notifications, and chat. This CANNOT be undone.\n\nIt runs in steps and can take a few minutes for someone with months of time logs — keep this tab open.')) return;
   var typed=prompt('To confirm, type the Contractor ID exactly:\n'+id);
   if(typed===null) return;
   if(String(typed).trim().toLowerCase()!==String(id).trim().toLowerCase()){ toast('Contractor ID did not match — nothing deleted.'); return; }
-  toast('Deleting '+nm+' everywhere…');
-  try{
-    // 1) Purge all Google Sheet data (server-side, across every per-user sheet)
-    var r=await fetch(API+'?action=purge_employee&employee_id='+encodeURIComponent(id)+'&_='+Date.now());
-    var d=await r.json();
-    if(!d||!d.ok){ toast('Purge failed: '+((d&&d.error)||'error')); return; }
-    // 2) Purge Supabase chat + presence (best-effort)
-    try{
-      if(typeof bubbleSupa!=='undefined' && bubbleSupa){
-        await bubbleSupa.from('messages').delete().or('sender_id.eq.'+id+',receiver_id.eq.'+id);
-        await bubbleSupa.from('presence').delete().eq('employee_id', id);
-      }
-    }catch(_s){}
-    // 3) Remove locally
-    var li=emps.indexOf(e); if(li>=0) emps.splice(li,1);
-    persist(); renderTable();
-    var parts=Object.keys(d.removed||{}).map(function(k){ return k+':'+d.removed[k]; });
-    toast(' '+nm+' permanently deleted'+(parts.length?(' ('+parts.join(', ')+')'):'.'));
-  }catch(err){ toast('Network error — could not delete.'); }
+  if(active){
+    e.status='inactive'; persist(); renderTable();
+    try{ await admAct(API+'?action=set_employee_meta&employee_id='+encodeURIComponent(id)+'&status=inactive&_='+Date.now(), 60000); }catch(_d){}
+  }
+  var box=purgeBox(nm, id), total={}, cursor=0, fails=0, steps=0, t0=Date.now();
+  while(true){
+    steps++;
+    var d=null;
+    try{ var r=await admAct(API+'?action=purge_employee&employee_id='+encodeURIComponent(id)+'&cursor='+cursor+'&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 90000); d=await r.json(); }
+    catch(err){ d={ _net:err }; }
+    if(d && d.ok){
+      fails=0; Object.keys(d.removed||{}).forEach(function(k){ total[k]=(total[k]||0)+d.removed[k]; });
+      var gone=Object.keys(total).reduce(function(s,k){ return s+total[k]; },0);
+      if(d.done){ box.done(total, d.supabase); break; }
+      cursor=d.cursor||0;
+      box.step('Step '+steps+' · '+gone.toLocaleString()+' rows deleted so far'+(d.at?' · now: '+d.at+(d.left?' ('+Number(d.left).toLocaleString()+' left there)':''):'')+' · sheet '+Math.min((d.cursor||0)+1, d.of||27)+' of '+(d.of||27));
+      await new Promise(function(res){ setTimeout(res, 1200); });   // let VAs' timer writes through between steps
+      continue;
+    }
+    if(d && d.error==='BUSY'){ box.step('Backend busy — retrying…'); await new Promise(function(res){ setTimeout(res, 4000); }); if(++fails<15) continue; }
+    else if(d && !d._net && d.error){ box.fail(admErr(null,d)); return; }
+    else if(++fails<4){ box.step('No answer from Google — retrying ('+fails+'/3)…'); await new Promise(function(res){ setTimeout(res, 5000); }); continue; }
+    box.fail('Stopped — Google did not answer. Nothing is half-broken: press "Delete permanently" again and it carries on where it stopped.');
+    return;
+  }
+  // Supabase chat + presence from this console as well (the backend already did it with the service key — this is belt and braces)
+  try{ if(typeof bubbleSupa!=='undefined' && bubbleSupa){ await bubbleSupa.from('messages').delete().or('sender_id.eq.'+id+',receiver_id.eq.'+id); await bubbleSupa.from('presence').delete().eq('employee_id', id); } }catch(_s){}
+  var li=emps.indexOf(e); if(li>=0) emps.splice(li,1);
+  persist(); renderTable();
+  toast(nm+' permanently deleted ('+Math.round((Date.now()-t0)/1000)+' s).');
+}
+function purgeBox(nm, id){
+  var el=document.getElementById('purge-box');
+  if(!el){ el=document.createElement('div'); el.id='purge-box'; el.style.cssText='position:fixed;right:18px;bottom:18px;z-index:9990;width:min(380px,calc(100vw - 36px));background:#fff;color:#0f172a;border:1px solid rgba(190,18,60,.25);border-radius:14px;padding:14px 16px;box-shadow:0 20px 60px -20px rgba(0,0,0,.45);font-size:13px;line-height:1.5;'; document.body.appendChild(el); }
+  var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  var head='<div style="font-weight:800;margin-bottom:4px;">🗑 Deleting '+E(nm)+' <span style="color:#64748b;font-weight:600;">'+E(id)+'</span></div>';
+  var close='<div style="text-align:right;margin-top:8px;"><button class="bsm" onclick="document.getElementById(\'purge-box\').remove()">Close</button></div>';
+  el.innerHTML=head+'<div id="purge-st" style="color:#475569;">Starting…</div><div style="color:#94a3b8;font-size:11.5px;margin-top:6px;">Keep this tab open. Closing it is safe — press Delete again to continue.</div>';
+  return {
+    step:function(t){ var s=document.getElementById('purge-st'); if(s) s.textContent=t; },
+    done:function(total, sb){ var parts=Object.keys(total).map(function(k){ return E(k)+': '+Number(total[k]).toLocaleString(); }); var sbs=sb?Object.keys(sb).filter(function(k){ return sb[k]==='ok'; }):[];
+      el.style.borderColor='rgba(4,120,87,.35)'; el.innerHTML=head+'<div style="color:#047857;font-weight:700;">✓ Permanently deleted.</div>'+(parts.length?'<div style="color:#475569;font-size:12px;margin-top:4px;">'+parts.join(' · ')+'</div>':'')+(sbs.length?'<div style="color:#94a3b8;font-size:11.5px;margin-top:4px;">Also removed from the database copies: '+E(sbs.join(', '))+'</div>':'')+close; },
+    fail:function(t){ el.innerHTML=head+'<div style="color:#be123c;font-weight:700;">'+E(t)+'</div>'+close; }
+  };
 }
 
 function exportJSON(){

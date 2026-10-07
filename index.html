@@ -6763,6 +6763,67 @@ var NETG = {
     try{ wfhReqResume('shift'); }catch(_r){}
   }
 };
+/* ── 🔗 TOOL LINK, THE OTHER WAY (Oct 7, 2026) ────────────────────────────────
+   Reddit Central and ALTR Studio already refuse to tick unless THIS timer runs on their project. Now the
+   portal checks back: while a timer runs on a Reddit / ALTR project, the tool must show work at least once
+   every 10 minutes (Reddit: a task timer running or activity in the tab; ALTR: ticking/clicking in the
+   Studio). The tools write a heartbeat to Supabase tool_beat; this reads it every minute. 8 min without
+   one → warning; 10 min → the timer stops and a box explains why. The 10 minutes count from Start/Resume,
+   so there is always time to open the tool. Meetings / huddles / training categories are exempt. No
+   tool_beat table yet, or Supabase unreachable → nobody is ever stopped (fail-open). */
+var TOOLG = {
+  GRACE: 10*60*1000, WARN: 8*60*1000, _t: null, _warned: '', _hinted: '',
+  NAME: { reddit:'Reddit Central', altr:'ALTR Studio' },
+  URL:  { reddit:'https://internals.jmbvirtuals.com/reddit.html', altr:'https://internals.jmbvirtuals.com/altr-studio.html' },
+  EXEMPT: /meeting|huddle|training|coaching|onboarding|interview/i,
+  toolOf: function(proj){ proj=String(proj||''); if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; return ''; },
+  me: function(){ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); },
+  applies: function(r){ var id=this.me(); if(!r || !id || id==='ADMIN' || id==='JMBEAST') return ''; var t=this.toolOf(r.project); if(!t) return ''; if(this.EXEMPT.test((r.category||'')+' '+(r.task||''))) return ''; return t; },
+  start: function(){ var s=this; if(s._t) return; s._t=setInterval(function(){ s.watch(); }, 60*1000); },
+  last: async function(id, tool){
+    try{
+      var ctl=(typeof AbortController!=='undefined')?new AbortController():null, tm=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(_e){} },10000):null;
+      var r=await fetch(SUPA_URL+'/rest/v1/tool_beat?select=last_active&employee_id=eq.'+encodeURIComponent(id)+'&tool=eq.'+tool, { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY }, signal:ctl?ctl.signal:undefined });
+      if(tm) clearTimeout(tm);
+      if(!r.ok) return { ok:false };                       // table not created yet / RLS / outage → fail-open
+      var rows=await r.json(); return { ok:true, at:(rows&&rows[0]&&Date.parse(rows[0].last_active))||0 };
+    }catch(e){ return { ok:false }; }
+  },
+  hint: function(r){ var t=this.applies(r); if(!t || this._hinted===r.entry_id) return; this._hinted=r.entry_id;
+    try{ showToast('🔗 Open '+this.NAME[t]+' and work there — this timer stops if '+this.NAME[t]+' shows no activity for 10 minutes.'); }catch(e){} },
+  watch: async function(){
+    var r=(typeof trkRunning!=='undefined')?trkRunning:null; if(!r || (typeof isIdle!=='undefined' && isIdle)) return;
+    var tool=this.applies(r); if(!tool) return;
+    var since=Number(r.segStart)||Date.now();
+    if(Date.now()-since < this.WARN) return;                // still inside the grace window — no need to ask
+    var la=await this.last(this.me(), tool); if(!la.ok) return;
+    if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;   // it changed while we were asking
+    var ref=Math.max(since, la.at||0), quiet=Date.now()-ref;
+    if(quiet >= this.GRACE){
+      try{ await stopTimer(); }catch(e){}
+      this.block(tool, la.at);
+      return;
+    }
+    if(quiet >= this.WARN && this._warned!==r.entry_id+'|'+ref){ this._warned=r.entry_id+'|'+ref;
+      try{ showToast('⚠ No activity in '+this.NAME[tool]+' for '+Math.floor(quiet/60000)+' minutes — your timer stops at 10. Go back to '+this.NAME[tool]+'.'); }catch(e){} }
+  },
+  block: function(tool, at){
+    var el=document.getElementById('toolg-box'), self=this;
+    if(!el){ el=document.createElement('div'); el.id='toolg-box';
+      el.style.cssText='position:fixed;inset:0;z-index:9950;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:18px;';
+      document.body.appendChild(el); }
+    var nm=this.NAME[tool], ago=at?Math.round((Date.now()-at)/60000):0;
+    el.innerHTML='<div style="width:100%;max-width:440px;background:#fff;color:#0f172a;border-radius:20px;padding:24px 22px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);font-family:inherit;">'+
+      '<div style="font-size:30px;line-height:1;margin-bottom:8px;">⏸</div><div style="font-size:19px;font-weight:800;margin-bottom:6px;">Timer stopped — no activity in '+nm+'</div>'+
+      '<div style="font-size:13.5px;color:#475569;line-height:1.55;margin-bottom:14px;">Time on this project only counts while you are working in '+nm+'. '+(at?'Its last activity was '+ago+' minutes ago.':'It has not shown any activity since you started.')+
+      ' Open '+nm+(tool==='reddit'?', start your task timer there,':' and keep ticking as you go,')+' then press <b>Resume</b> on your task.</div>'+
+      '<div style="display:flex;gap:8px;"><a href="'+this.URL[tool]+'" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;">Open '+nm+' ↗</a>'+
+      '<button type="button" id="toolg-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">OK</button></div></div>';
+    el.style.display='flex';
+    document.getElementById('toolg-x').onclick=function(){ el.style.display='none'; };
+    try{ showToast('⏸ Timer stopped — no activity in '+nm+' for 10 minutes.'); }catch(e){}
+  }
+};
 /* ── 🙂 SIGN-IN FACE ──────────────────────────────────────────────────────────
    Type JMB014 and your own face appears above the card. It is a plain image
    request against headshots/JMB0XX.{jpg,webp,png} — no backend, no account
@@ -7699,6 +7760,7 @@ function renderDashboard(data) {
   // ── NOTIFICATIONS (bell) ──
   try { startNotifs(); } catch(e) {}
   try { NETG.start(); } catch(e) {}
+  try { TOOLG.start(); } catch(e) {}   // 🔗 Reddit / ALTR timers need activity in their tool (Oct 7)
 
   // ── PAYSLIPS ──
   window._currentEmpData = data;
@@ -11029,6 +11091,7 @@ function trkSetRunning(r) {
   trkRunning = r; cfyRunningId = newId;
   // tell the tools at once (presence row) — they gate their own timers on the portal timer (Oct 6)
   if (_was !== newId) { try { setTimeout(function(){ updatePresence(true); }, 300); } catch(e) {} }
+  if (r && _was !== newId) { try { TOOLG.hint(r); } catch(e) {} }
 }
 
 // Init when the Time Tracker tab is first opened
