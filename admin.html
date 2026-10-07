@@ -10999,7 +10999,19 @@ var ADMAURA = (function(){
       .then(function(d){ if(!(d&&d.ok)){ alert('Could not save: '+((d&&d.error)||'unknown')); if(btn){ btn.disabled=false; btn.textContent=dec==='approve'?'Approve delete':'Decline'; } return; } inboxLoad(true); })
       .catch(function(){ alert('Connection error — try again.'); if(btn) btn.disabled=false; });
   };
-  var IB={ rcdel:{ l:'Reddit deletion', ic:'warn' }, rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
+  /* Work-from-home code requests (Oct 7): the VA asked from the sign-in screen. Approve issues the code and EMAILS it to them. */
+  window.wfhReqDecide=function(id, dec, days, btn){
+    var row=btn&&btn.closest('.aa-ib'); var bs=row?row.querySelectorAll('button'):[]; bs.forEach(function(b){ b.disabled=true; }); if(btn) btn.textContent='Saving…';
+    var reason=''; if(dec==='reject'){ reason=prompt('Reason (optional — goes in their email):','')||''; }
+    admAct(API+'?action=wfh_req_decide&id='+encodeURIComponent(id)+'&decision='+dec+'&days='+(days||1)+(reason?'&reason='+encodeURIComponent(reason):'')+'&by=admin&pass='+encodeURIComponent(admPass())+'&_='+Date.now())
+      .then(function(r){ return r.json(); }).then(function(d){
+        if(!(d&&d.ok)){ alert(admErr(null,d)); bs.forEach(function(b){ b.disabled=false; }); if(btn) btn.textContent=dec==='reject'?'Reject':(days>1?'Approve · this week':'Approve · today'); return; }
+        if(d.status==='approved' && !d.emailed) alert('Approved — but there is no email on file for '+(d.name||d.employee_id)+'. Give them the code: '+d.code+' (valid until '+d.exp_label+').');
+        try{ if(window.showToast) showToast(d.status==='approved'?('Code emailed to '+(d.name||d.employee_id)+(d.to?' ('+d.to+')':'')):'Request rejected'); }catch(e){}
+        inboxLoad(true);
+      }).catch(function(e){ alert(admErr(e,null)); bs.forEach(function(b){ b.disabled=false; }); });
+  };
+  var IB={ wfh:{ l:'Work-from-home code', ic:'laptop' }, rcdel:{ l:'Reddit deletion', ic:'warn' }, rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
   function inboxLoad(force, quiet){
     if(force){ try{ jBust(); }catch(e){} }
     var boot=api('admin_bootstrap').then(function(b){ if(!b || !b.ok) throw new Error('boot'); return b; }).catch(function(){
@@ -11023,6 +11035,12 @@ var ADMAURA = (function(){
           ac:'<button class="bsm edit" onclick="window.open(\''+RC_URL+'\',\'_blank\')">Decide in Reddit Central</button>' });
       });
       var pend=function(r){ return String(r.status||'pending').toLowerCase()==='pending'; };
+      (((b.wfh_reqs||{}).requests)||[]).forEach(function(q){
+        var when=''; try{ when=new Date(q.at).toLocaleTimeString('en-US',{ timeZone:'Asia/Manila', hour:'numeric', minute:'2-digit' }); }catch(e){}
+        items.push({ t:'wfh', name:q.name||q.employee_id, date:when,
+          dt:'Not on the office network'+(q.where==='shift'?' (mid-shift)':' (at sign-in)')+' — wants a work-from-home code.'+(q.note?'<br><q>'+E(q.note)+'</q>':'')+'<br><span style="opacity:.75">Approve → the code is emailed to them.</span>',
+          ac:'<button class="bsm edit" onclick="wfhReqDecide(\''+E(q.id)+'\',\'approve\',1,this)">Approve · today</button><button class="bsm" onclick="wfhReqDecide(\''+E(q.id)+'\',\'approve\',7,this)">Approve · this week</button><button class="bsm danger" onclick="wfhReqDecide(\''+E(q.id)+'\',\'reject\',0,this)">Reject</button>' });
+      });
       (((R[1]||{}).rows)||[]).filter(pend).forEach(function(x){
         var key=x.employee_id+'|'+x.date; try{ _lwCache[key]=x; }catch(e){}
         var extra=[]; if(x.client) extra.push('client: <b>'+E(x.client)+'</b>'); if(x.minutes) extra.push(E(x.minutes)+' min');
@@ -11083,12 +11101,12 @@ var ADMAURA = (function(){
     recount();
   }
   function recount(){
-    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 };
+    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 };
     var live=!!document.getElementById('aa-i-body') && S.cur==='inbox';
     if(live){ rows.forEach(function(r){ if(r.style.opacity==='0' || r.style.display==='none') return; var m=(r.className.match(/t-(\w+)/)||[])[1]; if(m){ c[m]++; c.all++; } }); }
-    if(!live || S.iff!=='all'){ c={ all:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ c[x.t]++; c.all++; }); }
+    if(!live || S.iff!=='all'){ c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ c[x.t]++; c.all++; }); }
     var ch=document.getElementById('aa-i-chips');
-    if(ch) ch.innerHTML=[['all','Everything'],['rcdel','Reddit deletions'],['rc','Reddit coverage'],['lunch','Working lunch'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
+    if(ch) ch.innerHTML=[['all','Everything'],['wfh','WFH codes'],['rcdel','Reddit deletions'],['rc','Reddit coverage'],['lunch','Working lunch'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
       .filter(function(k){ return k[0]==='all' || c[k[0]]; })
       .map(function(k){ return '<button type="button" class="aa-chip'+(S.iff===k[0]?' on':'')+'" onclick="ADMAURA.iff(\''+k[0]+'\')">'+k[1]+' <i>'+c[k[0]]+'</i></button>'; }).join('');
     var n=document.getElementById('aa-hdr-n'); if(n){ n.textContent=c.all; n.classList.toggle('zero', !c.all); }

@@ -4695,6 +4695,8 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
         <input class="field-input has-ico" type="text" id="wfh-code" inputmode="numeric" maxlength="6" placeholder="6-digit code from the admin" autocomplete="one-time-code" />
       </div>
       <div id="wfh-code-note" style="font-size:12px;color:#8a93a3;margin-top:6px;line-height:1.45;">This isn't the office network. Ask the admin for today's code, or sign in from the office.</div>
+      <button type="button" id="wfhreq-btn" onclick="wfhReqSend('login')" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,107,26,.45);background:rgba(255,107,26,.08);color:#ff6b1a;border-radius:12px;padding:11px 12px;font-weight:800;font-size:13.5px;font-family:inherit;cursor:pointer;margin-top:10px;">📨 Request a code from the admin</button>
+      <div id="wfhreq-st" style="font-size:12px;color:#8a93a3;margin-top:6px;line-height:1.45;min-height:0;"></div>
     </div>
     <div style="margin-bottom:1rem;">
       <div id="hcaptcha-container"></div>
@@ -6623,11 +6625,78 @@ function netCodeAsk(d){
   if(g) g.style.display='';
   var invalid = d && d.error==='NETWORK_CODE_INVALID';
   if(n) n.textContent = invalid
-    ? 'That code is not valid any more (codes last until 8:00 AM the next day). Ask the admin for a new one.'
-    : ((d && d.ip) ? 'This network ('+d.ip+') is not the office. Enter the work-from-home code from the admin, or sign in from the office.' : 'This isn\'t the office network. Enter the work-from-home code from the admin, or sign in from the office.');
+    ? 'That code is not valid any more (codes last until 8:00 AM the next day). Press "Request a code" for a new one.'
+    : ((d && d.ip) ? 'This network ('+d.ip+') is not the office. Enter your work-from-home code — or press "Request a code" and it comes to your email once approved.' : 'This isn\'t the office network. Enter your work-from-home code — or press "Request a code" and it comes to your email once approved.');
   if(f){ if(invalid) f.value=''; setTimeout(function(){ try{ f.focus(); }catch(_e){} }, 50); }
   showError(invalid ? 'Work-from-home code not valid.' : 'Work-from-home code needed.');
+  try{ wfhReqResume('login'); }catch(_r){}
 }
+/* ── 📨 WORK-FROM-HOME CODE REQUEST (Oct 7, 2026) ─────────────────────────────
+   Not on the office network and no code? "Request a code" sends ID + PIN (POST body) to the backend; the
+   request lands in the admin inbox + Telegram; when the admin approves, the code is EMAILED to the VA.
+   This screen then polls the request (by its random id — no PIN, never the code) and says what happened.
+   The same button sits in the mid-shift network box. A pending request survives a reload (localStorage). */
+var WFHREQ={ timer:null };
+function _wfhReqEls(where){ var sh=where==='shift'; return { btn:document.getElementById(sh?'netg-req':'wfhreq-btn'), st:document.getElementById(sh?'netg-reqst':'wfhreq-st') }; }
+function _wfhReqWho(where){
+  if(where==='shift') return { emp:NETG.me(), pin:String((window._currentEmpData||{})._pin||'') };
+  var raw=String((document.getElementById('emp-id')||{}).value||'').trim();
+  return { emp:(_faceIdOf(raw)||raw.toUpperCase()), pin:String((document.getElementById('emp-pin')||{}).value||'').trim() };
+}
+function _wfhReqPaint(where, html, tone){ var e=_wfhReqEls(where); if(!e.st) return; e.st.innerHTML=html; e.st.style.color=tone==='ok'?'#10b981':(tone==='bad'?'#f43f5e':'#8a93a3'); e.st.style.fontWeight=tone?'700':'500'; }
+function _wfhReqBtn(where, label, disabled){ var e=_wfhReqEls(where); if(!e.btn) return; e.btn.textContent=label; e.btn.disabled=!!disabled; e.btn.style.opacity=disabled?'.6':'1'; e.btn.style.cursor=disabled?'default':'pointer'; }
+function _wfhReqStore(emp, v){ try{ if(v) localStorage.setItem('wfhreq_'+emp, JSON.stringify(v)); else localStorage.removeItem('wfhreq_'+emp); }catch(e){} }
+function _wfhReqLoad(emp){ try{ var v=JSON.parse(localStorage.getItem('wfhreq_'+emp)||'null'); if(v && v.id && Date.now()-(v.at||0) < 12*3600*1000) return v; }catch(e){} return null; }
+async function wfhReqSend(where){
+  var w=_wfhReqWho(where);
+  if(!/^JMB\d{3}$/.test(w.emp) || !w.pin){ _wfhReqPaint(where, 'Type your Contractor ID and PIN first — the request needs them.', 'bad'); return; }
+  _wfhReqBtn(where, 'Sending…', true); _wfhReqPaint(where, '', '');
+  var net=null; try{ net=await netWhoAmI(); }catch(e){}
+  try{
+    var r=await fetch(APPS_SCRIPT_URL, { method:'POST', body:JSON.stringify({ action:'wfh_code_request', employee_id:w.emp, pin:w.pin, ip:(net&&net.ip)||'', where:where }) });
+    var d=await r.json();
+    if(d && d.ok){
+      var v={ id:d.request_id, at:Date.now(), to:d.to||'', no_email:!!d.no_email }; _wfhReqStore(w.emp, v);
+      _wfhReqPending(where, v, !!d.already); _wfhReqPoll(where, w.emp, v);
+      return;
+    }
+    var er=(d&&d.error)||'';
+    _wfhReqPaint(where, er==='WRONG_PIN'||er==='NOT_FOUND' ? 'Your Contractor ID or PIN is not right — the request needs both.' :
+                        er==='TOO_MANY_TRIES' ? 'Too many wrong PINs — wait 15 minutes, then try again.' :
+                        er==='DEACTIVATED' ? 'This account is deactivated.' : 'Could not send the request'+(er?' ('+er+')':'')+' — try again.', 'bad');
+  }catch(e){ _wfhReqPaint(where, 'Could not reach the server — check your internet and try again.', 'bad'); }
+  _wfhReqBtn(where, '📨 Request a code from the admin', false);
+}
+function _wfhReqPending(where, v, already){
+  _wfhReqBtn(where, '✓ Request sent — waiting for approval', true);
+  _wfhReqPaint(where, (already?'Your request is already with the admin. ':'Sent to the admin. ')+(v.no_email?'There is no email on your profile, so the admin will give you the code directly.':'Once approved, the code arrives by email'+(v.to?' at <b>'+String(v.to).replace(/[<>&"]/g,'')+'</b>':'')+' — type it in the box above.')+' You can leave this page open; it updates by itself.', '');
+}
+function _wfhReqPoll(where, emp, v){
+  if(WFHREQ.timer) clearInterval(WFHREQ.timer);
+  var started=Date.now();
+  var tick=async function(){
+    if(Date.now()-started > 45*60*1000){ clearInterval(WFHREQ.timer); WFHREQ.timer=null; return; }
+    if(document.hidden) return;
+    try{
+      var r=await fetch(APPS_SCRIPT_URL+'?action=wfh_code_request_status&employee_id='+encodeURIComponent(emp)+'&request_id='+encodeURIComponent(v.id)+'&_='+Date.now());
+      var d=await r.json(); if(!d || !d.ok){ if(d && d.error==='NOT_FOUND'){ clearInterval(WFHREQ.timer); WFHREQ.timer=null; _wfhReqStore(emp, null); _wfhReqBtn(where, '📨 Request a code from the admin', false); } return; }
+      if(d.status==='approved'){
+        clearInterval(WFHREQ.timer); WFHREQ.timer=null; _wfhReqStore(emp, null);
+        _wfhReqBtn(where, '✓ Approved', true);
+        _wfhReqPaint(where, d.emailed ? '✅ Approved — the code is in your email'+(v.to?' ('+String(v.to).replace(/[<>&"]/g,'')+')':'')+'. Type it in the box'+(where==='shift'?' above and press "Use this code".':' above and press Sign in.')+(d.exp_label?' Valid until '+String(d.exp_label).replace(/[<>&"]/g,'')+'.':'')
+                                    : '✅ Approved — but the email did not go out. Ask the admin for the code.', 'ok');
+        try{ var f=document.getElementById(where==='shift'?'netg-code':'wfh-code'); if(f) f.focus(); }catch(_f){}
+        try{ showToast('✅ Work-from-home code approved — check your email.'); }catch(_t){}
+      } else if(d.status==='rejected'){
+        clearInterval(WFHREQ.timer); WFHREQ.timer=null; _wfhReqStore(emp, null);
+        _wfhReqBtn(where, '📨 Request a code from the admin', false);
+        _wfhReqPaint(where, '❌ Not approved'+(d.reason?': '+String(d.reason).replace(/[<>&"]/g,''):'')+'. Sign in from the office network, or message the admin.', 'bad');
+      }
+    }catch(e){}
+  };
+  WFHREQ.timer=setInterval(tick, 25000); setTimeout(tick, 4000);
+}
+function wfhReqResume(where){ var w=_wfhReqWho(where); if(!/^JMB\d{3}$/.test(w.emp)) return; var v=_wfhReqLoad(w.emp); if(!v) return; _wfhReqPending(where, v, true); _wfhReqPoll(where, w.emp, v); }
 /* ── 🛰 NETWORK GATE, AFTER SIGN-IN (Oct 6, 2026) ───────────────────────────────
    Sign-in already asks "office network or a code?". But a session that started at the office kept
    working from anywhere. Now the same question is asked again at every tracker Start/Resume and
@@ -6679,16 +6748,19 @@ var NETG = {
         '<div id="netg-sub" style="font-size:13.5px;color:#475569;line-height:1.5;margin-bottom:14px;">The time tracker only runs from the office Starlink. Working from home today? Enter the work-from-home code from the admin.</div>'+
         '<input id="netg-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="width:100%;box-sizing:border-box;border:1px solid rgba(15,23,42,.15);border-radius:12px;padding:13px 14px;font-size:22px;letter-spacing:.2em;text-align:center;font-family:ui-monospace,monospace;outline:none;">'+
         '<div id="netg-err" style="color:#be123c;font-size:12.5px;font-weight:700;margin-top:8px;min-height:16px;"></div>'+
+        '<button type="button" id="netg-req" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,107,26,.45);background:rgba(255,107,26,.08);color:#ff6b1a;border-radius:12px;padding:11px 12px;font-weight:800;font-size:13.5px;font-family:inherit;cursor:pointer;margin-top:6px;">📨 Request a code from the admin</button><div id="netg-reqst" style="font-size:12px;color:#8a93a3;margin-top:6px;line-height:1.45;"></div>'+
         '<div style="display:flex;gap:8px;margin-top:12px;"><button type="button" id="netg-go" style="flex:1;border:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;cursor:pointer;">Use this code</button><button type="button" id="netg-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">Later</button></div>'+
         '<div style="font-size:11.5px;color:#9aa4b2;margin-top:12px;line-height:1.5;">Codes last until 8:00 AM the next day (or the week, if the admin issued a weekly one). Chat, the feed and your requests still work without one.</div></div>';
       document.body.appendChild(el);
       document.getElementById('netg-x').onclick=function(){ el.style.display='none'; };
+      document.getElementById('netg-req').onclick=function(){ wfhReqSend('shift'); };
       document.getElementById('netg-go').onclick=async function(){ var c=(document.getElementById('netg-code').value||'').replace(/\D/g,''); var er=document.getElementById('netg-err'); if(c.length!==6){ er.textContent='Enter the 6-digit code.'; return; }
         this.disabled=true; this.textContent='Checking…'; self.setCode(c); self._last=0; var ok=await self.check(); this.disabled=false; this.textContent='Use this code';
         if(ok){ el.style.display='none'; try{ showToast('✅ Code accepted — you can work from here today.'); }catch(e){} } else { er.textContent=(self._why==='NETWORK_CODE_INVALID')?'That code is not valid (expired or wrong). Ask the admin for a new one.':'Still not allowed from this network.'; } };
     }
     var sub=document.getElementById('netg-sub'); if(sub && this._ip) sub.textContent='This network ('+this._ip+') is not the office. Working from home today? Enter the work-from-home code from the admin.';
     el.style.display='flex'; setTimeout(function(){ try{ document.getElementById('netg-code').focus(); }catch(e){} }, 60);
+    try{ wfhReqResume('shift'); }catch(_r){}
   }
 };
 /* ── 🙂 SIGN-IN FACE ──────────────────────────────────────────────────────────
