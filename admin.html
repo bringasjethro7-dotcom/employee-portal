@@ -1436,9 +1436,11 @@ body{background-attachment:initial !important}
           <span id="pay-summary" style="font-size:12px;color:var(--t2);"></span>
           <button class="bsm" onclick="openQrMgr()" style="color:#38bdf8;border-color:rgba(56,189,248,.4);"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex:none"><path d="M3 10 12 4l9 6M4 10v8M20 10v8M8 10v8M16 10v8M3 21h18"/></svg> Bank QRs</button>
           <button class="bsm" id="pb-toggle" onclick="payBoardToggle()" style="color:#16a34a;border-color:rgba(34,197,94,.45);font-weight:700;">💸 Pay board</button>
+          <button class="bsm" onclick="slipRatesCheck()" title="Find old payslips whose rate moved after a raise — fix them and lock every paid one">🔒 Check old payslip rates</button>
           <button class="bsm" onclick="loadPayslipsAdmin()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
         </div>
       </div>
+      <div id="slip-rates" style="display:none;"></div>
       <!-- PAY BOARD (Oct 6): every slip that is ready to pay, QR + amount on one screen. The QR is blurred
            until the cursor is on that card, so a phone can never scan the wrong person's code. -->
       <div id="pay-board" style="display:none;"></div>
@@ -4226,7 +4228,7 @@ async function loadPayslipsAdmin(){
         if(fStatus==='pending'&&paid) return;
         var _parts=(p.partials||[]).slice(); if(p.partial) _parts.push(p.partial);
         var _partSum=0; _parts.forEach(function(x){ _partSum+=parseFloat(x.amount)||0; });
-        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && (_intOnly || isFunded(p.period,proj))),split:_spl,rate:p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
+        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && (_intOnly || isFunded(p.period,proj))),split:_spl,locked:p.locked||null,rate:(p.locked&&p.locked.rate)||p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
       });
     });
     // Ready-to-pay (invoice paid) pending first, then other pending, then paid — newest within
@@ -4312,7 +4314,7 @@ function removeEmpQr(){
 }
 
 /* ── Pay modal: amount + bank QR for fast manual payment ── */
-function payAmt(r){ var a=parseFloat(r.amount); if(!isNaN(a)&&a>0) return a; var rate=parseFloat(r.rate)||0,hours=parseFloat(r.hours)||0,basic=hours*rate/240,night=(String(r.shift).toLowerCase()==='night')?basic*0.05:0,inc=parseFloat(r.incentives)||0; return basic+night+inc; }
+function payAmt(r){ if(r.locked && parseFloat(r.locked.gross)>0) return parseFloat(r.locked.gross); var a=parseFloat(r.amount); if(!isNaN(a)&&a>0) return a; var rate=parseFloat(r.rate)||0,hours=parseFloat(r.hours)||0,basic=hours*rate/240,night=(String(r.shift).toLowerCase()==='night')?basic*0.05:0,inc=parseFloat(r.incentives)||0; return basic+night+inc; }
 function payMoney(n){ return '₱'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function payNet(r){ return Math.max(0, payAmt(r)-(parseFloat(r.deductions)||0)); }
 function openPayModal(idx){
@@ -4523,6 +4525,45 @@ function payTableRowPaid(r){
    (tap on a phone), so a scanner can never pick up the wrong person's code. Pay from the bank, tap
    "Paid ✓" on that card — it greys out at once, the server + email happen in the background. */
 var PB={ open:null, filter:'ready' };
+/* ── PAYSLIPS STAY PUT (Oct 8, 2026) ──
+   Old payslips that had no rate of their own were priced at TODAY's rate, so a raise moved every past cutoff.
+   This finds each payslip whose rate is not the one for its own cutoff (a paid one keeps what it was generated
+   and paid at) and, on "Fix & lock", writes the right rate into it and locks every paid one for good.
+   Owner only (admin password). Paid slips are locked automatically from now on when you mark them paid. */
+async function slipRatesCheck(){
+  var box=document.getElementById('slip-rates'); if(!box) return; box.style.display='';
+  var E=function(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  var M=function(n){ return '₱'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  box.innerHTML='<div class="es" style="padding:14px;">Checking every payslip…</div>';
+  var d=null; try{ var r=await admAct(API+'?action=payslip_rates_check&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 90000); d=await r.json(); }catch(e){ box.innerHTML='<div class="es" style="padding:14px;color:#be123c;">'+E(admErr(e,null))+'</div>'; return; }
+  if(!d || !d.ok){ box.innerHTML='<div class="es" style="padding:14px;color:#be123c;">'+E(admErr(null,d))+(d&&d.error==='UNKNOWN_ACTION'?' — paste the 2026-10-08a Portal API script first.':'')+'</div>'; return; }
+  var mv=(d.rows||[]).filter(function(x){ return x.rate_moves; }), lk=(d.rows||[]).filter(function(x){ return x.paid && !x.rate_moves; });
+  var h='<div style="border:1px solid rgba(15,23,42,.11);border-radius:14px;padding:16px;margin:10px 0 14px;">'+
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><div style="flex:1;min-width:240px;"><div style="font-size:15px;font-weight:800;color:var(--t1);">🔒 Old payslip rates</div>'+
+    '<div style="font-size:12.5px;color:var(--t3);margin-top:2px;line-height:1.5;">'+(mv.length?('<b style="color:#be123c;">'+mv.length+' payslip'+(mv.length===1?'':'s')+'</b> show a rate that is not the one for their own cutoff'):'Every payslip already shows the rate of its own cutoff')+(lk.length?' · '+lk.length+' paid payslip'+(lk.length===1?'':'s')+' to lock':'')+'. Only you see this.</div></div>'+
+    ((mv.length||lk.length)?'<button class="bsm" id="slip-fix" onclick="slipRatesFix()" style="color:#047857;border-color:rgba(4,120,87,.45);font-weight:700;">Fix &amp; lock'+(mv.length?' '+mv.length+' rate'+(mv.length===1?'':'s'):'')+'</button>':'')+
+    '<button class="bsm" onclick="document.getElementById(\'slip-rates\').style.display=\'none\'">Close</button></div>';
+  if(mv.length){
+    h+='<div style="overflow:auto;margin-top:12px;border:1px solid rgba(15,23,42,.08);border-radius:10px;max-height:420px;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f6f7fb;position:sticky;top:0;">'+
+      '<th style="text-align:left;padding:6px 8px;">Contractor</th><th style="text-align:left;padding:6px 8px;">Cutoff</th><th style="padding:6px 8px;">Status</th><th style="text-align:right;padding:6px 8px;">Shows now</th><th style="text-align:right;padding:6px 8px;">Correct</th><th style="text-align:left;padding:6px 8px;">Why</th></tr></thead><tbody>'+
+      mv.map(function(x){ return '<tr style="border-top:1px solid rgba(15,23,42,.06);"><td style="padding:6px 8px;font-weight:700;">'+E(x.name)+' <span style="color:var(--t3);font-weight:500;">'+E(x.employee_id)+'</span></td><td style="padding:6px 8px;">'+E(x.period)+'</td>'+
+        '<td style="padding:6px 8px;text-align:center;">'+(x.paid?'<span style="color:#047857;font-weight:700;">Paid</span>':'<span style="color:#b45309;">Pending</span>')+'</td>'+
+        '<td style="padding:6px 8px;text-align:right;color:#be123c;">'+M(x.gross_from)+'<div style="color:var(--t3);font-size:11px;">rate '+M(x.from_rate)+'</div></td>'+
+        '<td style="padding:6px 8px;text-align:right;color:#047857;font-weight:700;">'+M(x.gross_to)+'<div style="color:var(--t3);font-size:11px;font-weight:500;">rate '+M(x.to_rate)+'</div></td>'+
+        '<td style="padding:6px 8px;color:var(--t3);">'+E(x.source)+'</td></tr>'; }).join('')+'</tbody></table></div>';
+  }
+  h+='<div style="font-size:11.5px;color:var(--t3);margin-top:8px;line-height:1.5;">How the correct rate is found: a <b>paid</b> payslip keeps the amount it was generated and paid at (or the rate recorded the day you marked it paid); a <b>pending</b> one gets the rate in force when its cutoff started, from your Promotions log and rate history. Locked payslips never change again — not by a raise, not by re-generating that cutoff.</div></div>';
+  box.innerHTML=h;
+}
+async function slipRatesFix(){
+  var b=document.getElementById('slip-fix'); if(!confirm('Write the correct rate into these payslips and lock every paid one?\n\nLocked payslips never change again.')) return;
+  if(b){ b.disabled=true; b.textContent='Fixing…'; }
+  var d=null; try{ var r=await admAct(API+'?action=payslip_rates_fix&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 120000); d=await r.json(); }catch(e){ alert(admErr(e,null)); if(b){ b.disabled=false; b.textContent='Fix & lock'; } return; }
+  if(!d || !d.ok){ alert(admErr(null,d)); if(b){ b.disabled=false; b.textContent='Fix & lock'; } return; }
+  try{ jBust(); }catch(_j){}
+  alert('Done — '+(d.fixed||0)+' payslip rate'+((d.fixed||0)===1?'':'s')+' corrected, '+(d.locked||0)+' paid payslip'+((d.locked||0)===1?'':'s')+' locked.');
+  try{ loadPayslipsAdmin(); }catch(_l){} slipRatesCheck();
+}
 function payBoardToggle(){ var on=localStorage.getItem('adm_payboard')!=='0'; localStorage.setItem('adm_payboard', on?'0':'1'); payBoardRender(); }
 function payBoardFilter(f){ PB.filter=f; payBoardRender(); }
 function payBoardFocus(id){ PB.open=(PB.open===id)?null:id; document.querySelectorAll('.pb-card').forEach(function(c){ c.classList.toggle('focus', c.getAttribute('data-id')===PB.open); }); }

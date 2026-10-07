@@ -9451,6 +9451,7 @@ function renderPayslipList(data) {
     var nightD     = isNight ? basicP * 0.05 : 0;
     var incentive  = p.incentives ? parseFloat(p.incentives) : 0;
     var totalP     = basicP + nightD + incentive;
+    if (p.locked && parseFloat(p.locked.gross) >= 0) totalP = parseFloat(p.locked.gross);   // paid = locked: never recomputed (Oct 8)
     var grossFmt   = formatMoney(totalP);
     var hrsFmt     = hours !== null ? hours + ' hrs' : '—';
 
@@ -9473,20 +9474,21 @@ function renderPayslipList(data) {
 function openPayslip(idx) {
   var data    = window._currentEmpData;
   var p       = data.payslips[idx];
-  var hourly  = (parseFloat(p.rate) > 0) ? parseFloat(p.rate) / 240 : (data.rate ? parseFloat(data.rate) / 240 : 0);   // the cutoff's own rate
+  var _lk     = (p.locked && parseFloat(p.locked.rate) > 0) ? p.locked : null;   // paid = locked: the numbers it was paid with (Oct 8)
+  var hourly  = _lk ? parseFloat(_lk.rate) / 240 : ((parseFloat(p.rate) > 0) ? parseFloat(p.rate) / 240 : (data.rate ? parseFloat(data.rate) / 240 : 0));   // the cutoff's own rate
   var hours   = p.hours ? parseFloat(p.hours) : null;
-  var basicPay = hours !== null ? hours * hourly : (p.amount ? parseFloat(p.amount) : 0);
+  var basicPay = _lk ? parseFloat(_lk.basic) : (hours !== null ? hours * hourly : (p.amount ? parseFloat(p.amount) : 0));
 
   // Night shift differential: 5% of basic pay
   var isNightShift   = (p.shift || '').toLowerCase() === 'night';
-  var nightDiff      = isNightShift ? basicPay * 0.05 : 0;
+  var nightDiff      = _lk ? (parseFloat(_lk.night) || 0) : (isNightShift ? basicPay * 0.05 : 0);
 
   // Incentives: fixed amount from payslip JSON
   var incentives     = p.incentives ? parseFloat(p.incentives) : 0;
   var incentiveLabel = p.incentive_label || 'Incentives';
 
   // Total
-  var totalPay = basicPay + nightDiff + incentives;
+  var totalPay = _lk ? (parseFloat(_lk.gross) || 0) : (basicPay + nightDiff + incentives);
   var now = new Date();
 
   var nightDiffRow = isNightShift ? `
@@ -9554,7 +9556,7 @@ function openPayslip(idx) {
         '</div>' : '') +
 
       '<div class="ps-footer">' +
-        'This is a system-generated payslip. No signature required.<br/>' +
+        'This is a system-generated payslip. No signature required.<br/>' + (_lk ? '🔒 Paid — these figures are locked and will not change.<br/>' : '') +
         'JMB Virtuals · ' + (p.period||'') +
       '</div>' +
     '</div>' +
