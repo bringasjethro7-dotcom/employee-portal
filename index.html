@@ -6782,15 +6782,92 @@ var TOOLG = {
      Threads tool is live. EXEMPT_IDS = people excused for now (upper-case contractor IDs). */
   NO_TOOL: /thread/i, EXEMPT_IDS: ['JMB014'],   // JMB014 — Threads on Alts, no tool yet (Jeth, Oct 8)
   applies: function(r){ var id=this.me(); if(!r || !id || id==='ADMIN' || id==='JMBEAST') return ''; if(this.EXEMPT_IDS.indexOf(id)>=0) return ''; var t=this.toolOf(r.project); if(!t) return ''; var lbl=(r.project||'')+' '+(r.category||'')+' '+(r.task||'')+' '+(r.description||''); if(this.EXEMPT.test(lbl) || this.NO_TOOL.test(lbl)) return ''; return t; },
-  start: function(){ var s=this; if(s._t) return; s._t=setInterval(function(){ s.watch(); }, 60*1000); },
-  last: async function(id, tool){
+  start: function(){ var s=this; if(s._t) return; s._t=setInterval(function(){ s.watch(); }, 60*1000); setInterval(function(){ s.poll(); }, 20*1000); setInterval(function(){ try{ s.paint(); }catch(e){} }, 1000); setTimeout(function(){ s.poll(); }, 2500); },
+  /* the tool's row: last_active (real work), open_at (open + signed in), run_since / run_label (its timer), today_secs */
+  cur: null,
+  row: async function(id, tool){
     try{
       var ctl=(typeof AbortController!=='undefined')?new AbortController():null, tm=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(_e){} },10000):null;
-      var r=await fetch(SUPA_URL+'/rest/v1/tool_beat?select=last_active&employee_id=eq.'+encodeURIComponent(id)+'&tool=eq.'+tool, { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY }, signal:ctl?ctl.signal:undefined });
+      var r=await fetch(SUPA_URL+'/rest/v1/tool_beat?select=*&employee_id=eq.'+encodeURIComponent(id)+'&tool=eq.'+tool, { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY }, signal:ctl?ctl.signal:undefined });
       if(tm) clearTimeout(tm);
       if(!r.ok) return { ok:false };                       // table not created yet / RLS / outage → fail-open
-      var rows=await r.json(); return { ok:true, at:(rows&&rows[0]&&Date.parse(rows[0].last_active))||0 };
+      var rows=await r.json(); return { ok:true, row:(rows&&rows[0])||null };
     }catch(e){ return { ok:false }; }
+  },
+  last: async function(id, tool){
+    var x=await this.row(id, tool); if(!x.ok) return { ok:false };
+    this.cur={ tool:tool, row:x.row, at:Date.now() };
+    return { ok:true, at:(x.row && Date.parse(x.row.last_active))||0 };
+  },
+  /* open + signed in as me: open_at in the last 2 min (pairing columns), else any activity in the last 3 min */
+  isOpen: function(rw){ if(!rw) return false; if('open_at' in rw) return !!rw.open_at && (Date.now()-Date.parse(rw.open_at))<120000; return !!rw.last_active && (Date.now()-Date.parse(rw.last_active))<180000; },
+  /* 🔗 PAIRING (Jeth, Oct 8): a Reddit / ALTR timer starts only when its tool is open and signed in as this VA.
+     Already open → starts at once. Not open → a box waits for it and starts the timer by itself the moment the tool
+     shows up. Supabase unreachable / no table → never blocks (fail-open). */
+  pair: async function(f){
+    var r={ project:f.proj||f.project, category:f.cat||f.category, task:f.task, description:f.desc||f.description };
+    var tool=this.applies(r); if(!tool) return true;
+    var id=this.me(), self=this, x=await this.row(id, tool); if(!x.ok) return true;
+    if(this.isOpen(x.row)){ this.cur={ tool:tool, row:x.row, at:Date.now() }; return true; }
+    var nm=this.NAME[tool];
+    return await new Promise(function(res){
+      var el=document.getElementById('toolg-pair'); if(el) el.remove();
+      el=document.createElement('div'); el.id='toolg-pair';
+      el.style.cssText='position:fixed;inset:0;z-index:9960;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:18px;';
+      el.innerHTML='<div style="width:100%;max-width:440px;background:#fff;color:#0f172a;border-radius:20px;padding:24px 22px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);font-family:inherit;">'+
+        '<div style="font-size:30px;line-height:1;margin-bottom:8px;">🔗</div><div style="font-size:19px;font-weight:800;margin-bottom:6px;">Pair '+nm+' first</div>'+
+        '<div style="font-size:13.5px;color:#475569;line-height:1.55;margin-bottom:14px;">This project is tracked in '+nm+'. Open it and sign in as <b>'+id+'</b> — your portal timer starts by itself the moment they are paired.</div>'+
+        '<div id="toolg-pair-st" style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#6d28d9;background:#f5f3ff;border-radius:12px;padding:10px 12px;margin-bottom:14px;">⏳ Waiting for '+nm+'…</div>'+
+        '<div style="display:flex;gap:8px;"><a href="'+self.URL[tool]+'" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;">Open '+nm+' ↗</a>'+
+        '<button type="button" id="toolg-pair-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">Cancel</button></div></div>';
+      document.body.appendChild(el);
+      var done=false, fails=0, t0=Date.now();
+      var finish=function(v){ if(done) return; done=true; clearInterval(iv); try{ el.remove(); }catch(_r){} res(v); };
+      document.getElementById('toolg-pair-x').onclick=function(){ finish(false); };
+      var iv=setInterval(async function(){
+        if(done) return;
+        if(Date.now()-t0>10*60*1000){ finish(false); try{ showToast('Pairing timed out — press Start again when '+nm+' is open.'); }catch(e){} return; }
+        var y=await self.row(id, tool);
+        if(!y.ok){ if(++fails>=3) finish(true); return; }   // Supabase trouble → never block anyone
+        fails=0;
+        if(self.isOpen(y.row)){
+          self.cur={ tool:tool, row:y.row, at:Date.now() };
+          var stEl=document.getElementById('toolg-pair-st'); if(stEl){ stEl.textContent='✓ Paired with '+nm+' — starting your timer'; stEl.style.color='#047857'; stEl.style.background='#ecfdf5'; }
+          setTimeout(function(){ finish(true); }, 700);
+          try{ showToast('🔗 Paired with '+nm+' ✓'); }catch(e){}
+        }
+      }, 3000);
+    });
+  },
+  /* live line: the tool's own timer next to the portal's, and today's portal vs tool time */
+  poll: async function(){
+    var r=(typeof trkRunning!=='undefined')?trkRunning:null, tool=r?this.applies(r):'';
+    if(!tool){ this.cur=null; return; }
+    var x=await this.row(this.me(), tool); if(x.ok) this.cur={ tool:tool, row:x.row, at:Date.now() };
+  },
+  _hm: function(sec){ sec=Math.max(0,Math.round(sec||0)); var h=Math.floor(sec/3600), m=Math.round((sec%3600)/60); return h?(h+'h '+(m<10?'0':'')+m+'m'):(m+'m'); },
+  _clock: function(sec){ sec=Math.max(0,Math.floor(sec)); var h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), x=sec%60, p=function(n){ return n<10?'0'+n:''+n; }; return p(h)+':'+p(m)+':'+p(x); },
+  line: function(){
+    var r=(typeof trkRunning!=='undefined')?trkRunning:null; if(!r || (typeof isIdle!=='undefined' && isIdle)) return null;
+    var tool=this.applies(r); if(!tool) return null;
+    var nm=this.NAME[tool];
+    if(!this.cur || this.cur.tool!==tool) return { a:'🔗 '+nm+' · checking…', b:'', warn:false };
+    var rw=this.cur.row||{}, a, warn=false;
+    if(rw.run_since){ a='🔗 '+nm+' ▶ '+this._clock((Date.now()-Date.parse(rw.run_since))/1000)+(rw.run_label?' · '+rw.run_label:''); }
+    else if(this.isOpen(rw)){ a='🔗 '+nm+' open · '+(rw.run_label || (tool==='reddit'?'no task timer running':'no activity right now')); }
+    else { a='⚠ '+nm+' is not open — the timer stops after 10 min without it'; warn=true; }
+    var b='', tp=0; try{ tp=trkLinkState().trackedProj||0; }catch(e){}
+    if(rw.today_secs!==undefined && rw.today_secs!==null && rw.today_secs!==''){ var ts=+rw.today_secs||0, pc=tp?Math.min(100,Math.round(ts/tp*100)):null;
+      b='Today: portal '+this._hm(tp)+' · '+(tool==='reddit'?'Reddit Central':'Studio')+' '+this._hm(ts)+(pc!=null?' ('+pc+'%)':''); }
+    return { a:a, b:b, warn:warn };
+  },
+  paint: function(){
+    var L=this.line();
+    var disp=document.getElementById('cfy-timer-display'), el=document.getElementById('trk-toolline');
+    if(disp && !el){ el=document.createElement('div'); el.id='trk-toolline'; el.style.cssText='margin:6px auto 2px;max-width:520px;font-size:12.5px;font-weight:700;line-height:1.5;border-radius:12px;padding:7px 12px;text-align:center;'; disp.parentNode.insertBefore(el, disp.nextSibling); }
+    if(el){ if(!L){ el.style.display='none'; } else { el.style.display=''; el.style.background=L.warn?'rgba(244,63,94,.10)':'rgba(139,92,246,.10)'; el.style.color=L.warn?'#e11d48':'#6d28d9';
+      var h='<div>'+L.a.replace(/[<>&]/g,'')+'</div>'+(L.b?'<div style="font-weight:600;opacity:.8;font-size:11.5px;">'+L.b.replace(/[<>&]/g,'')+'</div>':''); if(el.__h!==h){ el.innerHTML=h; el.__h=h; } } }
+    var mt=document.getElementById('mn-tool'); if(mt){ var t=L?(L.a+(L.b?'\n'+L.b:'')):''; if(mt.textContent!==t) mt.textContent=t; mt.style.color=L&&L.warn?'#e11d48':''; mt.style.display=L?'':'none'; }
   },
   hint: function(r){ var t=this.applies(r); if(!t || this._hinted===r.entry_id) return; this._hinted=r.entry_id;
     try{ showToast('🔗 Open '+this.NAME[t]+' and work there — this timer stops if '+this.NAME[t]+' shows no activity for 10 minutes.'); }catch(e){} },
@@ -11096,7 +11173,7 @@ function trkSetRunning(r) {
   trkRunning = r; cfyRunningId = newId;
   // tell the tools at once (presence row) — they gate their own timers on the portal timer (Oct 6)
   if (_was !== newId) { try { setTimeout(function(){ updatePresence(true); }, 300); } catch(e) {} }
-  if (r && _was !== newId) { try { TOOLG.hint(r); } catch(e) {} }
+  if (r && _was !== newId) { try { TOOLG.hint(r); TOOLG.cur=null; setTimeout(function(){ TOOLG.poll(); }, 400); } catch(e) {} }
 }
 
 // Init when the Time Tracker tab is first opened
@@ -12699,6 +12776,7 @@ async function startTimer() {
   if (projHasCats && !f.cat) { showToast('Select a Category before starting the timer.'); return; }
   var catHasTasks = nativeProjects.some(function(p){ return p.project === f.proj && (p.category||'') === (f.cat||'') && p.task; });
   if (catHasTasks && !f.task) { showToast('Select a Task before starting the timer.'); return; }
+  if (!(await TOOLG.pair(f))) return;   // 🔗 Reddit / ALTR: the tool must be open + signed in first (Oct 8)
   // If an identical task is already paused (same project/category/task/description), resume THAT
   // instead of creating a new entry — prevents stacked duplicates (e.g. repeated Idle/Lunch Break).
   for (var _di = 0; _di < trkPaused.length; _di++) {
@@ -12759,6 +12837,7 @@ async function resumeTask(entryId) {
   if (!(await _sopAllowWork())) return;     // 📚 resuming a paused task is starting work too
   if (!(await NETG.allowWork())) return;    // 🛰 same network rule on resume
   if (window.JMBFeed && !(await JMBFeed.allowWork())) return;   // 📣 same feed rule on resume
+  { var _pe0=null; for (var _q=0; _q<trkPaused.length; _q++) { if (trkPaused[_q].entry_id === entryId) { _pe0 = trkPaused[_q]; break; } } if (_pe0 && !(await TOOLG.pair(_pe0))) return; }   // 🔗 pair the tool on resume too (Oct 8)
   if (trkRunning) { var rid = trkRunning.entry_id; _bankRunningToPaused(); _trkPost('tracker_pause', { entry_id: rid }); }
   var i = -1;
   for (var k = 0; k < trkPaused.length; k++) { if (trkPaused[k].entry_id === entryId) { i = k; break; } }
@@ -38560,7 +38639,7 @@ var MINI = {
     if (document.getElementById('au-mini')) return;
     var d = document.createElement('div'); d.id = 'au-mini'; d.setAttribute('role','region'); d.setAttribute('aria-label','Time tracker');
     d.innerHTML = '<div class="mn-top"><span class="mn-brand">JMB · Time tracker</span><span class="mn-pill"><i></i><b id="mn-state">—</b></span></div>'+
-      '<div class="mn-time" id="mn-time">00:00:00</div><div class="mn-task" id="mn-task"></div>'+
+      '<div class="mn-time" id="mn-time">00:00:00</div><div class="mn-task" id="mn-task"></div><div class="mn-tool" id="mn-tool" style="display:none;white-space:pre-line;font-size:12px;font-weight:700;max-width:92%;opacity:.85;"></div>'+
       '<div class="mn-btns"><button type="button" class="mn-go" id="mn-go" onclick="MINI.go()">Start</button>'+
       ('documentPictureInPicture' in window ? '<button type="button" class="mn-pop" onclick="MINI.popout()" title="Keep the timer on top of every window">⧉ Pop out</button>' : '')+'</div>'+
       '<div class="mn-today" id="mn-today"></div><div class="mn-hint" id="mn-hint">Make the window bigger to see the full portal.</div>';
@@ -38579,7 +38658,8 @@ var MINI = {
     try { if (running){ var r = trkRunning || {}; task = [r.project, r.task || r.category].filter(Boolean).join(' › '); } } catch(e){}
     var hint = ''; try { var hh = document.getElementById('cfy-timein-hint'); if (hh && hh.style.display !== 'none') hint = hh.textContent.trim(); } catch(e){}
     var today = ''; try { var tv = document.getElementById('cfy-total-val'); if (tv && tv.textContent.trim() && tv.textContent.trim() !== '0h 0m') today = 'Today ' + tv.textContent.trim(); } catch(e){}
-    return { running:running, timedIn:timedIn, lunch:lunch, ready:ready, time:p(h)+':'+p(m)+':'+p(s), task:task, hint:hint, today:today };
+    var tool=null; try { tool = (window.TOOLG && TOOLG.line) ? TOOLG.line() : null; } catch(e){}
+    return { running:running, timedIn:timedIn, lunch:lunch, ready:ready, time:p(h)+':'+p(m)+':'+p(s), task:task, hint:hint, today:today, tool:tool };
   },
   paint: function(){
     var d = document.getElementById('au-mini'); if (!d) return; var st = MINI.state();
@@ -38599,7 +38679,7 @@ var MINI = {
   popout: async function(){
     if (!('documentPictureInPicture' in window)) { try { showToast('Pop out needs Chrome or Edge.'); } catch(e){} return; }
     if (MINI.pip && !MINI.pip.closed){ try { MINI.pip.focus(); } catch(e){} return; }
-    var w = await documentPictureInPicture.requestWindow({ width:300, height:170 });
+    var w = await documentPictureInPicture.requestWindow({ width:320, height:215 });
     MINI.pip = w;
     var css = 'html,body{margin:0;height:100%;font-family:Inter,system-ui,sans-serif}body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;'+
       'background:radial-gradient(70% 90% at 0% 0%,rgba(255,150,90,.35),transparent 62%),radial-gradient(60% 90% at 100% 0%,rgba(139,92,246,.30),transparent 62%),radial-gradient(70% 90% at 100% 100%,rgba(34,211,238,.32),transparent 62%),linear-gradient(135deg,#fff3ea,#f6efff 50%,#e9f7ff);color:#15172a}'+
@@ -38610,7 +38690,7 @@ var MINI = {
       'button.stop{background:linear-gradient(135deg,#1f2335,#3b3f58)}button:disabled{background:#d7d9e3;color:#8a90a8;cursor:not-allowed}';
     var st = w.document.createElement('style'); st.textContent = css; w.document.head.appendChild(st);
     w.document.title = 'JMB timer';
-    w.document.body.innerHTML = '<div class="st" id="s">—</div><div class="t" id="t">00:00:00</div><div class="k" id="k"></div><button id="b">Start</button>';
+    w.document.body.innerHTML = '<div class="st" id="s">—</div><div class="t" id="t">00:00:00</div><div class="k" id="k"></div><div class="k" id="tl" style="font-size:11.5px;white-space:pre-line;color:#6d28d9;display:none"></div><button id="b">Start</button>';
     var B = w.document.getElementById('b'); B.onclick = function(){ MINI.go(); };
     var tick = function(){
       var x = MINI.state(), S = w.document.getElementById('s'), T = w.document.getElementById('t'), K = w.document.getElementById('k');
@@ -38619,6 +38699,7 @@ var MINI = {
       T.textContent = x.running ? x.time : '00:00:00'; T.className = 't' + (x.running ? ' run' : '');
       K.textContent = x.running ? (x.task || 'Working') : (x.lunch ? 'Lunch break' : 'No task running');
       B.textContent = x.running ? 'Stop' : 'Start'; B.className = x.running ? 'stop' : ''; B.disabled = !x.running && !x.ready;
+      var TL = w.document.getElementById('tl'); if (TL) { var tx = x.tool ? (x.tool.a + (x.tool.b ? '\n' + x.tool.b : '')) : ''; TL.textContent = tx; TL.style.display = tx ? '' : 'none'; TL.style.color = (x.tool && x.tool.warn) ? '#e11d48' : '#6d28d9'; }
     };
     tick(); var iv = w.setInterval(tick, 500);
     w.addEventListener('pagehide', function(){ try { w.clearInterval(iv); } catch(e){} MINI.pip = null; });
