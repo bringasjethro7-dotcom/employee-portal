@@ -29,7 +29,7 @@
 <main>
   <div class="card">
     <h1>JMB office beacon</h1>
-    <p>Leave this page open on one office computer. Every 5 minutes it tells the portal "this is the office network", so Starlink's changing public IP is always known and nobody in the office is asked for a code.</p>
+    <p>Leave this page open on one office computer. Every 2 minutes it tells the portal "this is the office network", so Starlink's changing public IP is always known and nobody in the office is asked for a code. After a power cut it reports the new IP as soon as the internet is back.</p>
     <div class="big" id="ip">—</div>
     <p id="sub">public IP of this network</p>
     <div class="st" id="st"><i></i><span>Starting…</span></div>
@@ -40,7 +40,11 @@
     </div>
     <div class="row" id="acts" style="display:none"><button onclick="report(true)">Report now</button><button onclick="unpair()">Unpair</button></div>
     <div class="log" id="log"></div>
-    <div class="hint">Keep the tab open (it is fine in the background). If the computer sleeps, the beacon stops; the admin can still mark the office network from the admin console.</div>
+    <div class="hint"><b>Make it survive a power cut</b> (once, on this computer):<br>
+      1. Chrome → Settings → <b>On start-up</b> → <b>Open a specific page</b> → add <code id="me-url">this page</code>.<br>
+      2. Windows → Settings → System → Power → <b>Screen and sleep: Never</b> (when plugged in).<br>
+      3. Optional: BIOS "Restore on AC power loss: <b>Power on</b>" so the PC starts by itself when the power returns.<br>
+      Even without it, the portal now recognises a new office network by itself once two people from the office sign in.</div>
   </div>
 </main>
 <script src="aura-config.js"></script>
@@ -68,11 +72,20 @@ async function report(manual){
     var d=await r.json();
     if(d&&d.ok){ status('ok','Office network reported'+(d.changed?' (new IP saved)':'')); log('reported '+n.ip+(d.changed?' · saved as a new office IP':'')); }
     else { status('bad','Backend refused: '+((d&&d.error)||'unknown')); log('refused: '+((d&&d.error)||'unknown')+(d&&d.error==='BAD_TOKEN'?' — re-pair from the admin console':'')); if(d&&d.error==='BAD_TOKEN'){ try{ localStorage.removeItem('jmb_beacon_key'); }catch(e){} $('pair').style.display='block'; } }
-  }catch(e){ status('warn','Backend busy — will retry'); log('backend did not answer; retrying in 5 min'); }
+  }catch(e){ status('warn','Backend busy — will retry'); log('backend did not answer; retrying in 30 s'); }
 }
+/* Oct 8: every 2 minutes; after a failure (internet coming back after a power cut) every 30 s until it lands;
+   the moment the network returns, report; keep the screen awake while this tab is visible. */
+var failT=null;
+function again(ok){ if(failT){ clearTimeout(failT); failT=null; } if(!ok) failT=setTimeout(function(){ report(false); }, 30000); }
+var _rep=report; report=async function(m){ var before=$('st').className; await _rep(m); again(!/bad|warn/.test($('st').className)); };
+try{ $('me-url').textContent=location.origin+location.pathname; }catch(e){}
 report(false);
-setInterval(function(){ report(false); }, 5*60*1000);
-document.addEventListener('visibilitychange', function(){ if(!document.hidden) report(false); });
+setInterval(function(){ report(false); }, 2*60*1000);
+document.addEventListener('visibilitychange', function(){ if(!document.hidden){ report(false); wake(); } });
+window.addEventListener('online', function(){ log('network is back'); setTimeout(function(){ report(true); }, 3000); });
+var _wl=null; async function wake(){ try{ if('wakeLock' in navigator && !_wl){ _wl=await navigator.wakeLock.request('screen'); _wl.addEventListener('release', function(){ _wl=null; }); } }catch(e){} }
+wake();
 </script>
 </body>
 </html>

@@ -6524,13 +6524,13 @@ async function _bootGet(key){
   return null;
 }
 
-async function doLogin() {
+async function doLogin(auto) {
   const id  = document.getElementById('emp-id').value.trim();
   const pin = document.getElementById('emp-pin').value.trim();
   const err = document.getElementById('login-error');
   const btn = document.getElementById('login-btn');
 
-  if (!captchaVerified) { showError('Please verify you\'re not a robot.'); return; }
+  if (!captchaVerified && auto!==true) { showError('Please verify you\'re not a robot.'); return; }   // auto = office-network retry (Oct 8)
   if (!id || !pin) { showError('Please enter your Contractor ID and PIN.'); return; }
 
   btn.textContent = 'Signing in…';
@@ -6569,7 +6569,7 @@ async function doLogin() {
             + (_net && _net.ip ? `&net_ip=${encodeURIComponent(_net.ip)}&net_ts=${encodeURIComponent(_net.ts)}&net_sig=${encodeURIComponent(_net.sig||'')}` : '')
             + (_wc.trim() ? `&wfh_code=${encodeURIComponent(_wc.trim())}` : '');
     // Fire the HEAVY card-data bootstrap in parallel — the shell must not wait on it.
-    window._bootPromise = fetch(`${APPS_SCRIPT_URL}?action=bootstrap&${q}`)
+    window._bootPromise = (auto===true) ? null : fetch(`${APPS_SCRIPT_URL}?action=bootstrap&${q}`)   // office-network retries skip the heavy bootstrap (Oct 8)
       .then(function(r){ return r.json(); }).catch(function(){ return null; });
     // The FAST auth returns just the employee record (one sheet read) — enough to render the
     // entire dashboard shell instantly. Card loaders pull their slices from _bootPromise.
@@ -6599,6 +6599,7 @@ async function doLogin() {
           ? 'Incorrect Contractor ID or PIN. Please try again.'
           : 'Something went wrong. Please try again.');
     } else {
+      try{ NETAUTO.stop(); if(raw && raw.office_learned) NETAUTO.alert(); }catch(_na){}
       data._pin = pin; // store for background refresh
       sessionStorage.setItem('emp_data', JSON.stringify(data));
       sessionStorage.setItem('jmb_last_active', String(Date.now()));   // start the heartbeat clock
@@ -6620,9 +6621,34 @@ async function netWhoAmI(){
     var r=await fetch('/.netlify/functions/net?_='+Date.now(), ctl?{ signal:ctl.signal, cache:'no-store' }:{ cache:'no-store' }); if(t) clearTimeout(t);
     var d=await r.json(); return (d && d.ip) ? d : null; }catch(e){ return null; }
 }
+/* ── 🛰 OFFICE NETWORK SELF-HEALING (Oct 8, 2026) ──
+   After a power cut Starlink comes back on a new IP. The login lane recognises it as the office once 2 people
+   who were just at the office sign in from it (and the old IP has gone quiet for 5 min). This screen says so
+   and simply tries again every 20 seconds — no code, no waking the admin. Typing a code stops the retries. */
+var NETAUTO={ t:null, n:0, MAX:45,
+  stop:function(){ if(this.t){ clearTimeout(this.t); this.t=null; } this.n=0; var b=document.getElementById('netauto-note'); if(b) b.remove(); },
+  alert:function(){ try{ fetch(APPS_SCRIPT_URL+'?action=office_auto_alert&_='+Date.now()).catch(function(){}); }catch(e){} },
+  note:function(html){ var g=document.getElementById('wfh-code-group'); if(!g) return; var b=document.getElementById('netauto-note');
+    if(!b){ b=document.createElement('div'); b.id='netauto-note'; b.style.cssText='margin:8px 0 2px;padding:10px 12px;border-radius:12px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.35);color:#065f46;font-size:12.5px;line-height:1.5;font-weight:600;'; g.insertBefore(b, g.firstChild); }
+    b.innerHTML=html; },
+  arm:function(d){
+    var self=this, L=(d&&d.learning)||null;
+    if(!d || d.error!=='NETWORK_CODE_REQUIRED' || !d.ip) return false;
+    if(!L && !d.office_recent) return false;                                   // not someone who was just at the office → the normal code box
+    if(self.n>=self.MAX){ self.stop(); return false; }
+    var f=document.getElementById('wfh-code'); if(f && String(f.value||'').trim()) return false;          // they are using a code
+    var msg=L ? ('🛰 <b>New office network?</b> If the office internet just restarted, the portal recognises the new network by itself once <b>'+L.need+'</b> people who were at the office sign in from it'+(L.have?(' — <b>'+L.have+' of '+L.need+'</b> so far'):'')+(L.quiet===false?' (it waits a few minutes for the old connection to drop)':'')+'. <b>Trying again by itself every 20 seconds</b> — keep this page open, no code needed.')
+              : '🛰 If the office internet just restarted, ask a teammate who was in the office today to sign in too — once two of you do, the new office network is recognised by itself. Trying again every 20 seconds…';
+    self.note(msg);
+    if(self.t) clearTimeout(self.t);
+    self.t=setTimeout(function(){ self.t=null; self.n++; var f2=document.getElementById('wfh-code'); if(f2 && String(f2.value||'').trim()) return; try{ doLogin(true); }catch(e){} }, 20000);
+    return true;
+  }
+};
 function netCodeAsk(d){
   var g=document.getElementById('wfh-code-group'), f=document.getElementById('wfh-code'), n=document.getElementById('wfh-code-note');
   if(g) g.style.display='';
+  try{ NETAUTO.arm(d); }catch(_na){}
   var invalid = d && d.error==='NETWORK_CODE_INVALID';
   if(n) n.textContent = invalid
     ? 'That code is not valid any more (codes last until 8:00 AM the next day). Press "Request a code" for a new one.'
@@ -6704,7 +6730,7 @@ function wfhReqResume(where){ var w=_wfhReqWho(where); if(!/^JMB\d{3}$/.test(w.e
    fine; otherwise the timer stops and a code box appears. ADMIN is exempt. Network trouble on the
    check itself is never a reason to stop someone (fail-open); only a definite "not allowed" is. */
 var NETG = {
-  _last: 0, _lastOk: null, _tick: null, _busy: false, EVERY: 10*60*1000,
+  _last: 0, _lastOk: null, _tick: null, _busy: false, EVERY: 10*60*1000, _graceUntil: 0,
   me: function(){ return String((window._currentEmpData||{}).employee_id||attEmpId||'').toUpperCase(); },
   code: function(){ try{ return localStorage.getItem('netg_code_'+this.me())||''; }catch(e){ return ''; } },
   setCode: function(c){ try{ if(c) localStorage.setItem('netg_code_'+this.me(), c); else localStorage.removeItem('netg_code_'+this.me()); }catch(e){} },
@@ -6714,12 +6740,17 @@ var NETG = {
     if(this._busy) return this._lastOk!==false; this._busy=true;
     try{
       var n=await netWhoAmI();
-      var q='action=net_check&employee_id='+encodeURIComponent(id)+(n?('&net_ip='+encodeURIComponent(n.ip)+'&net_ts='+n.ts+'&net_sig='+n.sig):'')+(this.code()?('&wfh_code='+encodeURIComponent(this.code())):'')+'&_='+Date.now();
+      var q='action=net_check&employee_id='+encodeURIComponent(id)+'&device='+encodeURIComponent(_devId())+(n?('&net_ip='+encodeURIComponent(n.ip)+'&net_ts='+n.ts+'&net_sig='+n.sig):'')+(this.code()?('&wfh_code='+encodeURIComponent(this.code())):'')+'&_='+Date.now();
       var ctl=(typeof AbortController!=='undefined')?new AbortController():null; var t=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(_e){} },12000):null;
       var r=await fetch((window.LOGIN_API||APPS_SCRIPT_URL)+'?'+q, ctl?{ signal:ctl.signal }:{}); if(t) clearTimeout(t);
       var d=await r.json(); this._last=Date.now();
       if(!d || !d.ok){ this._lastOk=null; return true; }            // backend trouble → never stop anyone
       this._lastOk=!!d.allowed; this._why=d.why||''; this._ip=d.ip||'';
+      if(d.office_learned){ try{ NETAUTO.alert(); }catch(_a){} }
+      if(d.allowed){ if(this._graceUntil){ this._graceUntil=0; try{ showToast('✅ New office network recognised — carry on.'); }catch(_t){} } }
+      /* Oct 8: on the office network in the last 2 h and the office IP just changed → keep working up to 15 min while it confirms */
+      else if(d.grace){ if(!this._graceUntil){ this._graceUntil=Date.now()+15*60*1000; try{ showToast('🛰 The office internet changed — confirming the new network. Keep working.'); }catch(_t){} }
+        if(Date.now()<this._graceUntil) return true; }
       if(!d.allowed && d.why==='NETWORK_CODE_INVALID') this.setCode('');
       return !!d.allowed;
     }catch(e){ this._lastOk=null; return true; }
@@ -6735,7 +6766,7 @@ var NETG = {
   /* every 10 min while a timer runs: a timer that is no longer allowed stops, and the code box appears */
   watch: async function(){
     try{ if(typeof trkRunning==='undefined' ? !document.querySelector('.cfy-start-btn.running, #cfy-start-btn.stop') : !trkRunning) return; }catch(e){ return; }
-    if(Date.now()-this._last < this.EVERY) return;
+    if(Date.now()-this._last < (this._graceUntil ? 60*1000 : this.EVERY)) return;
     var ok=await this.check();
     if(ok===false){ try{ showToast('⛔ You are not on the office network — the timer was stopped. Enter a work-from-home code to continue.'); }catch(e){} try{ await stopTimer(); }catch(e){} this.ask(); }
   },
