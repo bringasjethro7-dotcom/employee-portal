@@ -6905,6 +6905,7 @@ var PFX=(function(){
 .pfx-sm .pfx-wave{width:20px;height:20px;margin:-10px 0 0 -10px}
 .pfx-sm .pfx-tx{min-width:0;display:flex;flex-direction:column}
 .pfx-sm .pfx-tx.r{text-align:right;align-items:flex-end}
+.pfx-sm .pfx-tx>div{max-width:100%}
 .pfx-sm .pfx-nm{font-size:12px}
 .pfx-sm .pfx-sb{font-size:11px}
 .pfx-sm .pfx-clk{font-size:12.5px;font-weight:800}
@@ -7008,14 +7009,14 @@ var PFX=(function(){
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function css(){
     try{ if(!document.getElementById('pfx-css')){ var s=document.createElement('style'); s.id='pfx-css'; s.textContent=CSS; (document.head||document.documentElement).appendChild(s); } }catch(e){}
-    if(!_tk){ _tk=setInterval(tick, 1000); try{ ['pointerdown','keydown'].forEach(function(ev){ document.addEventListener(ev, function u(){ ctx(); document.removeEventListener(ev, u, true); }, true); }); }catch(e){} }
+    if(!_tk){ _tk=setInterval(function(){ tick(); }, 1000); try{ ['pointerdown','keydown'].forEach(function(ev){ document.addEventListener(ev, function u(){ ctx(); document.removeEventListener(ev, u, true); }, true); }); }catch(e){} }
   }
   function clock(sec){ sec=Math.max(0,Math.floor(sec||0)); var h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), x=sec%60, p=function(n){ return n<10?'0'+n:''+n; }; return p(h)+':'+p(m)+':'+p(x); }
-  function tick(){
+  function tick(doc){
     try{
-      var now=Date.now();
-      document.querySelectorAll('[data-pfx-since]').forEach(function(e){ var t=+e.getAttribute('data-pfx-since'); if(t) e.textContent=clock((now-t)/1000); });
-      document.querySelectorAll('[data-pfx-copy]').forEach(function(e){ var s=document.getElementById(e.getAttribute('data-pfx-copy')); if(s && e.textContent!==s.textContent) e.textContent=s.textContent; });
+      var now=Date.now(); doc=doc||document;
+      doc.querySelectorAll('[data-pfx-since]').forEach(function(e){ var t=+e.getAttribute('data-pfx-since'); if(t) e.textContent=clock((now-t)/1000); });
+      doc.querySelectorAll('[data-pfx-copy]').forEach(function(e){ var s=document.getElementById(e.getAttribute('data-pfx-copy')); if(s && e.textContent!==s.textContent) e.textContent=s.textContent; });
     }catch(e){}
   }
   /* o: { size:'lg'|'sm', tool:'reddit'|'altr', toolName, state, rev, theme:'dark'|'light', id, cls,
@@ -7049,7 +7050,7 @@ var PFX=(function(){
   function sparks(el){
     try{
       var fx=el.querySelector('.pfx-fx'); if(!fx) return; var big=el.classList.contains('pfx-lg'), n=big?16:10, cols=['#34d399','#ffffff','#FFB067','#FF6B1A', el.classList.contains('t-altr')?'#c6ff4d':'#a78bfa'];
-      for(var i=0;i<n;i++){ (function(i){ var s=document.createElement('span'); s.className='pfx-spk'; var a=(i/n)*Math.PI*2+Math.random()*.5, d=(big?34:18)+Math.random()*(big?40:16);
+      var od=el.ownerDocument||document; for(var i=0;i<n;i++){ (function(i){ var s=od.createElement('span'); s.className='pfx-spk'; var a=(i/n)*Math.PI*2+Math.random()*.5, d=(big?34:18)+Math.random()*(big?40:16);
         s.style.setProperty('--x', (Math.cos(a)*d).toFixed(1)+'px'); s.style.setProperty('--y', (Math.sin(a)*d*0.8).toFixed(1)+'px');
         s.style.background=cols[i%cols.length]; s.style.boxShadow='0 0 8px '+cols[i%cols.length]; if(!big){ s.style.width=s.style.height='4px'; s.style.margin='-2px 0 0 -2px'; }
         fx.appendChild(s); setTimeout(function(){ try{ s.remove(); }catch(e){} }, 900); })(i); }
@@ -7155,7 +7156,7 @@ var PFX=(function(){
       setTimeout(poll, 600);
     });
   }
-  return { css:css, html:html, pairBox:pairBox, setState:setState, lock:lock, sparks:sparks, beat:beat, chime:chime, celebrate:celebrate, clock:clock, esc:esc, ICON:ICON };
+  return { css:css, cssText:function(){ return CSS; }, tickDoc:function(d){ tick(d); }, html:html, pairBox:pairBox, setState:setState, lock:lock, sparks:sparks, beat:beat, chime:chime, celebrate:celebrate, clock:clock, esc:esc, ICON:ICON };
 })();
 
 /* ═══ PAIRFX END ═══ */
@@ -39106,33 +39107,121 @@ var MINI = {
       go.classList.toggle('stop', st.running); go.disabled = !st.running && !st.ready; }
   },
   go: function(){ try { toggleTimer(); } catch(e){} setTimeout(MINI.paint, 300); },
-  /* Always-on-top timer (Document Picture-in-Picture — Chrome / Edge 116+) */
+  /* Always-on-top timer (Document Picture-in-Picture — Chrome / Edge 116+).
+     Oct 9 (Jeth): Aura look — a night-sky window with slow aurora glows, the clock in the Aura gradient, a status pill,
+     and on Reddit / ALTR work the live Portal ⇄ tool link from the pairing animation:
+       paired       → the beam locks from both ends, a check bursts, the window edge flashes green (also when the pop-out
+                      opens on a linked timer, and every time the tool comes back);
+       linked       → light pulses run both ways, the hub pulses on every heartbeat from the tool, its own timer ticks;
+       disconnected → the beam breaks red, the window edge glows red and the minutes left before the portal stops count down.
+     pipMount(doc) builds into any document and returns its tick(), so the look can be previewed outside a PiP window. */
+  PIP_CSS: [
+    'html,body{margin:0;height:100%;overflow:hidden}',
+    'body{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:12px 14px;box-sizing:border-box;text-align:center;font-family:Inter,"Segoe UI",system-ui,sans-serif;color:#f5f3ff;background:#0b0914;-webkit-font-smoothing:antialiased}',
+    '.aur{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}',
+    '.aur i{position:absolute;width:62%;height:70%;border-radius:50%;filter:blur(34px);opacity:.55;animation:pipDrift 14s ease-in-out infinite alternate}',
+    '.aur i:nth-child(1){left:-18%;top:-26%;background:#FF6B1A}',
+    '.aur i:nth-child(2){right:-20%;top:-22%;background:#8B5CF6;animation-delay:-5s;animation-duration:17s}',
+    '.aur i:nth-child(3){left:18%;bottom:-40%;background:#14B8A6;opacity:.4;animation-delay:-9s;animation-duration:19s}',
+    '.aur::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,9,20,.15),rgba(11,9,20,.55))}',
+    'body>*:not(.aur){position:relative;z-index:1}',
+    '.top{position:absolute!important;top:10px;left:12px;right:12px;display:flex;align-items:center;justify-content:space-between}',
+    '.brand{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55)}',
+    '.brand b{width:14px;height:14px;border-radius:5px;background:linear-gradient(145deg,#FFB067,#FF6B1A 55%,#E8452A);box-shadow:0 0 10px rgba(255,107,26,.6)}',
+    '.pill{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:800;background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);color:rgba(255,255,255,.7)}',
+    '.pill i{width:7px;height:7px;border-radius:50%;background:currentColor}',
+    'body.s-run .pill{color:#6ee7b7;background:rgba(16,185,129,.14);box-shadow:inset 0 0 0 1px rgba(52,211,153,.35)}',
+    'body.s-run .pill i{animation:pipPulse 1.4s ease-out infinite}',
+    'body.s-ready .pill{color:#fcd34d;background:rgba(245,158,11,.12);box-shadow:inset 0 0 0 1px rgba(245,158,11,.3)}',
+    'body.s-lunch .pill{color:#5eead4;background:rgba(20,184,166,.14);box-shadow:inset 0 0 0 1px rgba(20,184,166,.35)}',
+    '.t{margin-top:16px;font-size:46px;font-weight:800;letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.88)}',
+    'body.s-run .t{background:linear-gradient(90deg,#FFB067,#FF6B1A 30%,#c4b5fd 62%,#5eead4 85%,#FFB067);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:pipShine 7s linear infinite}',
+    'body.s-idle .t,body.s-ready .t{color:rgba(255,255,255,.4)}',
+    '.k{font-size:12.5px;font-weight:700;max-width:94%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(255,255,255,.72)}',
+    '.lk{width:100%;max-width:340px}',
+    '.lk:empty{display:none}',
+    '.lk .pfx-sm{padding:8px 10px;text-align:left;grid-template-columns:auto minmax(54px,.6fr) minmax(0,1fr) auto;column-gap:9px}',
+    '.lk .pfx-sm>.pfx-tx:not(.r){display:none}',
+    '.lk .pfx-foot{font-size:11px;gap:6px}.lk .pfx-bar{display:none}',
+    '.row{display:flex;gap:8px;margin-top:2px}',
+    'button{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;min-width:148px;padding:0 18px;border:none;border-radius:999px;font:inherit;font-size:13.5px;font-weight:800;color:#fff;cursor:pointer;background:linear-gradient(135deg,#FF8A3D,#FF6B1A 50%,#E8452A);box-shadow:0 10px 24px -10px rgba(255,107,26,.9);transition:transform .12s,filter .15s}',
+    'button:hover{filter:brightness(1.08)}button:active{transform:scale(.97)}',
+    'button i{width:0;height:0;border-left:8px solid currentColor;border-top:5px solid transparent;border-bottom:5px solid transparent}',
+    'button.stop{background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}',
+    'button.stop i{width:9px;height:9px;border:none;border-radius:2px;background:#fb7185}',
+    'button:disabled{background:rgba(255,255,255,.06);color:rgba(255,255,255,.35);box-shadow:none;cursor:not-allowed}',
+    '.td{font-size:11px;font-weight:700;color:rgba(255,255,255,.45);min-height:13px}',
+    'body::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;border-radius:0;opacity:0;transition:opacity .4s}',
+    'body.lk-bad::before{opacity:1;box-shadow:inset 0 0 0 1.5px rgba(244,63,94,.55),inset 0 0 34px rgba(244,63,94,.28);animation:pipWarn 2.4s ease-in-out infinite}',
+    'body.lk-ok::before{opacity:1;box-shadow:inset 0 0 0 1px rgba(52,211,153,.22)}',
+    'body.flash::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:3;background:radial-gradient(circle at 50% 62%,rgba(52,211,153,.4),transparent 60%);animation:pipFlash 1.1s ease-out both}',
+    'body.light{color:#14161f;background:#f7f5ff}',
+    'body.light .aur i{opacity:.32}body.light .aur::after{background:linear-gradient(180deg,rgba(255,255,255,.35),rgba(255,255,255,.7))}',
+    'body.light .brand{color:#7f859c}body.light .k{color:#4b5164}body.light .td{color:#7f859c}',
+    'body.light .pill{background:rgba(17,19,34,.05);box-shadow:inset 0 0 0 1px rgba(17,19,34,.08);color:#4b5164}',
+    'body.light.s-run .pill{color:#047857;background:#ecfdf5}body.light.s-ready .pill{color:#b45309;background:#fffbeb}body.light.s-lunch .pill{color:#0f766e;background:#f0fdfa}',
+    'body.light.s-idle .t,body.light.s-ready .t{color:#a9aec0}',
+    'body.light button.stop{background:#fff;color:#14161f;box-shadow:inset 0 0 0 1px rgba(17,19,34,.14)}',
+    '@keyframes pipDrift{from{transform:translate(0,0) scale(1)}to{transform:translate(8%,10%) scale(1.15)}}',
+    '@keyframes pipShine{to{background-position:-220% 0}}',
+    '@keyframes pipPulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.7)}100%{box-shadow:0 0 0 7px rgba(52,211,153,0)}}',
+    '@keyframes pipWarn{0%,100%{opacity:1}50%{opacity:.55}}',
+    '@keyframes pipFlash{0%{opacity:0}25%{opacity:1}100%{opacity:0}}',
+    '@media (max-height:250px){.td{display:none}.lk .pfx-foot{display:none}.t{font-size:38px;margin-top:14px}}',
+    '@media (max-height:200px){.lk{display:none}}',
+    '@media (prefers-reduced-motion:reduce){.aur i,body.s-run .t,body.lk-bad::before,body.flash::after,body.s-run .pill i{animation:none!important}}'
+  ].join('\n'),
+  pipMount: function(D){
+    var st = D.createElement('style'); st.textContent = MINI.PIP_CSS + '\n' + ((window.PFX && PFX.cssText) ? PFX.cssText() : ''); D.head.appendChild(st);
+    D.title = 'JMB timer';
+    D.body.innerHTML = '<div class="aur"><i></i><i></i><i></i></div>'+
+      '<div class="top"><span class="brand"><b></b>JMB · Aura</span><span class="pill"><i></i><span id="sx">—</span></span></div>'+
+      '<div class="t" id="t">00:00:00</div><div class="k" id="k"></div><div class="lk" id="lk"></div>'+
+      '<div class="row"><button id="b" type="button"><i></i><span id="bx">Start</span></button></div><div class="td" id="td"></div>';
+    var $d = function(id){ return D.getElementById(id); }, B = $d('b'), LK = $d('lk'), prev = { key:'', st:'', beat:0, cls:'', lk:'' };
+    B.onclick = function(){ MINI.go(); };
+    var setT = function(id, v){ var e = $d(id); if (e && e.textContent !== v) e.textContent = v; };
+    var setH = function(el, h){ if (el && el.__h !== h){ el.innerHTML = h; el.__h = h; } };
+    var flash = function(){ D.body.classList.remove('flash'); void D.body.offsetWidth; D.body.classList.add('flash'); setTimeout(function(){ try { D.body.classList.remove('flash'); } catch(e){} }, 1200); };
+    var tick = function(){
+      var x = MINI.state(), light = document.body.classList.contains('au-light') || document.body.classList.contains('light');
+      var cls = (x.lunch ? 's-lunch' : x.running ? 's-run' : x.timedIn ? 's-ready' : 's-idle') + (light ? ' light' : '');
+      if (prev.cls !== cls){ D.body.classList.remove('s-lunch','s-run','s-ready','s-idle','light'); cls.split(' ').forEach(function(c){ if (c) D.body.classList.add(c); }); prev.cls = cls; }
+      setT('sx', x.lunch ? 'On lunch' : x.running ? 'Tracking' : x.timedIn ? 'Ready' : 'Not timed in');
+      setT('t', x.running ? x.time : '00:00:00');
+      setT('k', x.running ? (x.task || 'Working') : (x.lunch ? 'Lunch break' : (x.hint || 'No task running')));
+      setT('bx', x.running ? 'Stop' : 'Start'); B.className = x.running ? 'stop' : ''; B.disabled = !x.running && !x.ready;
+      setT('td', x.today || '');
+      /* the Portal ⇄ tool link */
+      var S = null; try { S = (x.running && window.TOOLG && TOOLG.strip) ? TOOLG.strip() : null; } catch(e){ S = null; }
+      var lkc = !S ? '' : (S.state === 'linked' ? 'lk-ok' : (S.state === 'broken' ? 'lk-bad' : ''));
+      if (prev.lk !== lkc){ D.body.classList.remove('lk-ok','lk-bad'); if (lkc) D.body.classList.add(lkc); prev.lk = lkc; }
+      if (!S){ if (prev.key){ LK.innerHTML = ''; prev.key = ''; prev.st = ''; } }
+      else {
+        var key = S.tool + '|' + S.state + '|' + (S.tSince || 0) + '|' + (light ? 'l' : 'd');
+        if (prev.key !== key){
+          var was = prev.st, relink = S.state === 'linked' && was !== 'linked';   // just paired: on open, after Start, or the tool came back
+          LK.innerHTML = PFX.html({ size:'sm', theme:light ? 'light' : 'dark', tool:S.tool, toolName:S.nm, state: relink ? (was === 'broken' ? 'broken' : 'search') : S.state,
+            pName:'Portal', pSub:'<span class="pp"></span>', tName:S.nm, tSince:S.tSince || null, tSub:'<span class="t2"></span>', foot:'<span class="pfx-f"></span>' });
+          if (relink){ PFX.lock(LK.firstChild, null, { sound:false }); setTimeout(flash, 380); }
+          prev.key = key; prev.st = S.state; prev.beat = 0;
+        }
+        setH(LK.querySelector('.pp'), S.state === 'linked' ? '<span class="ok">linked</span>' : (S.state === 'broken' ? '<span class="bad">link lost</span>' : 'checking…'));
+        setH(LK.querySelector('.t2'), S.tSubH || '');
+        setH(LK.querySelector('.pfx-f'), S.footH || '');
+        try { if (S.state === 'linked' && TOOLG.cur && prev.beat !== TOOLG.cur.at){ if (prev.beat) PFX.beat(LK.firstChild); prev.beat = TOOLG.cur.at; } } catch(e){}
+      }
+      try { PFX.tickDoc(D); } catch(e){}
+    };
+    tick();
+    return tick;
+  },
   popout: async function(){
     if (!('documentPictureInPicture' in window)) { try { showToast('Pop out needs Chrome or Edge.'); } catch(e){} return; }
     if (MINI.pip && !MINI.pip.closed){ try { MINI.pip.focus(); } catch(e){} return; }
-    var w = await documentPictureInPicture.requestWindow({ width:320, height:215 });
+    var w = await documentPictureInPicture.requestWindow({ width:352, height:304 });
     MINI.pip = w;
-    var css = 'html,body{margin:0;height:100%;font-family:Inter,system-ui,sans-serif}body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;'+
-      'background:radial-gradient(70% 90% at 0% 0%,rgba(255,150,90,.35),transparent 62%),radial-gradient(60% 90% at 100% 0%,rgba(139,92,246,.30),transparent 62%),radial-gradient(70% 90% at 100% 100%,rgba(34,211,238,.32),transparent 62%),linear-gradient(135deg,#fff3ea,#f6efff 50%,#e9f7ff);color:#15172a}'+
-      '.st{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6b7280}.st.run{color:#059669}.st.lunch{color:#0d9488}'+
-      '.t{font-size:44px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}.t.run{color:#6d28d9}'+
-      '.k{font-size:12px;font-weight:700;max-width:92%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.8}'+
-      'button{margin-top:4px;height:34px;min-width:110px;border:none;border-radius:999px;font:inherit;font-size:13px;font-weight:800;color:#fff;cursor:pointer;background:linear-gradient(135deg,#ff8a3d,#e23d5a)}'+
-      'button.stop{background:linear-gradient(135deg,#1f2335,#3b3f58)}button:disabled{background:#d7d9e3;color:#8a90a8;cursor:not-allowed}';
-    var st = w.document.createElement('style'); st.textContent = css; w.document.head.appendChild(st);
-    w.document.title = 'JMB timer';
-    w.document.body.innerHTML = '<div class="st" id="s">—</div><div class="t" id="t">00:00:00</div><div class="k" id="k"></div><div class="k" id="tl" style="font-size:11.5px;white-space:pre-line;color:#6d28d9;display:none"></div><button id="b">Start</button>';
-    var B = w.document.getElementById('b'); B.onclick = function(){ MINI.go(); };
-    var tick = function(){
-      var x = MINI.state(), S = w.document.getElementById('s'), T = w.document.getElementById('t'), K = w.document.getElementById('k');
-      S.textContent = x.lunch ? 'On lunch' : x.running ? '● Tracking' : x.timedIn ? 'Ready' : 'Not timed in';
-      S.className = 'st' + (x.running ? ' run' : x.lunch ? ' lunch' : '');
-      T.textContent = x.running ? x.time : '00:00:00'; T.className = 't' + (x.running ? ' run' : '');
-      K.textContent = x.running ? (x.task || 'Working') : (x.lunch ? 'Lunch break' : 'No task running');
-      B.textContent = x.running ? 'Stop' : 'Start'; B.className = x.running ? 'stop' : ''; B.disabled = !x.running && !x.ready;
-      var TL = w.document.getElementById('tl'); if (TL) { var tx = x.tool ? (x.tool.a + (x.tool.b ? '\n' + x.tool.b : '')) : ''; TL.textContent = tx; TL.style.display = tx ? '' : 'none'; TL.style.color = (x.tool && x.tool.warn) ? '#e11d48' : '#6d28d9'; }
-    };
-    tick(); var iv = w.setInterval(tick, 500);
+    var tick = MINI.pipMount(w.document), iv = w.setInterval(tick, 500);
     w.addEventListener('pagehide', function(){ try { w.clearInterval(iv); } catch(e){} MINI.pip = null; });
   }
 };
