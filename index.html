@@ -6794,6 +6794,371 @@ var NETG = {
     try{ wfhReqResume('shift'); }catch(_r){}
   }
 };
+/* ═══ PAIRFX BEGIN (generated from pairfx.js — edit there, rebuild) ═══ */
+/* ═══ PAIRFX — the portal timer ⇄ tool timer link, drawn (Jeth, Oct 9 2026) ═══
+   One look everywhere the two timers meet — the portal, Reddit Central and ALTR Studio:
+     [ Portal ⏱ ] ───── ● ───── [ Tool ]
+   search  — one side is lit, the other is dim and pinging; a signal runs down a dashed track; the hub spins.
+   lock    — both halves of the beam fill toward the middle, the hub pops a check, a shock-ring and sparks fly,
+             the waiting side lights up (≈1.2 s), then it settles into…
+   linked  — a solid beam with light pulses running both ways (the heartbeat), a chain on the hub, live clocks.
+   broken  — the beam is cut at the hub, the tool side greys out, the hub shows "!" — something stopped.
+   PFX.html(o) builds a stage (size lg = the big pairing box, sm = the strip under a timer / in a banner).
+   PFX.lock(el) plays the lock → linked moment on a stage that is already on screen.
+   PFX.celebrate(o) pops a small card at the top of the page with the lock moment (non-blocking, ~3.6 s).
+   Live clocks: any element with data-pfx-since="<ms>" ticks HH:MM:SS; data-pfx-copy="<id>" mirrors that
+   element's text (the portal's own timer). Loops keep their phase across re-renders (negative delays), and
+   prefers-reduced-motion turns every loop off. Same source in all three pages — edit pairfx.js, rebuild.     */
+var PFX=(function(){
+  var CSS=`
+.pfx{--pa1:#FFB067;--pa2:#FF6B1A;--pa3:#E8452A;--tb1:#c4b5fd;--tb2:#8B5CF6;--tb3:#6D28D9;--tglow:139,92,246;--tink:#fff;--ok1:#34d399;--ok2:#059669;--bad:#f43f5e;position:relative;font-family:inherit;-webkit-font-smoothing:antialiased;box-sizing:border-box;text-align:left}
+.pfx *,.pfx *::before,.pfx *::after{box-sizing:border-box}
+.pfx.t-altr{--tb1:#e6ff9e;--tb2:#c6ff4d;--tb3:#22d3ee;--tglow:198,255,77;--tink:#0b0a14}
+.pfx svg{display:block;width:100%;height:100%}
+/* ── nodes ── */
+.pfx-n{position:relative;display:grid;place-items:center;color:#fff;background:linear-gradient(145deg,var(--pa1),var(--pa2) 55%,var(--pa3));box-shadow:0 10px 26px -10px rgba(255,107,26,.75),inset 0 1px 0 rgba(255,255,255,.4);transition:filter .5s,opacity .5s,transform .5s,box-shadow .5s;z-index:2}
+.pfx-n.tool{color:var(--tink);background:linear-gradient(145deg,var(--tb1),var(--tb2) 55%,var(--tb3));box-shadow:0 10px 26px -10px rgba(var(--tglow),.8),inset 0 1px 0 rgba(255,255,255,.45)}
+.pfx-n .ic{width:46%;height:46%}
+.pfx-n .r{position:absolute;inset:-5px;border-radius:inherit;border:2px solid rgba(255,255,255,.55);opacity:0;pointer-events:none}
+.pfx-n.tool .r{border-color:rgba(var(--tglow),.75)}
+.pfx-n.portal .r{border-color:rgba(255,150,80,.8)}
+.pfx-s-search .pfx-n.wait{filter:grayscale(.9) brightness(.7);opacity:.62;animation:pfxBreath 2.2s ease-in-out infinite}
+.pfx-s-search .pfx-n.wait .r{animation:pfxPing 2.2s cubic-bezier(.2,.7,.3,1) infinite}
+.pfx-s-search .pfx-n.wait .r+.r{animation-delay:1.1s}
+.pfx-s-search .pfx-n.lit .r{animation:pfxEmit 1.7s ease-out infinite}
+.pfx-s-broken .pfx-n.tool,.pfx-s-broken.pfx-rev .pfx-n.portal{filter:grayscale(1) brightness(.75);opacity:.5}
+.pfx-s-broken.pfx-rev .pfx-n.tool{filter:none;opacity:1}
+.pfx-s-lock .pfx-n.portal{animation:pfxPop .7s cubic-bezier(.3,1.7,.5,1) both;animation-delay:calc(var(--pfx-lockd,0ms) + 0ms)}
+.pfx-s-lock .pfx-n.tool{animation:pfxPop .7s cubic-bezier(.3,1.7,.5,1) both;animation-delay:calc(var(--pfx-lockd,0ms) + 380ms)}
+.pfx-s-lock .pfx-n.wait,.pfx-s-linked .pfx-n{filter:none;opacity:1}
+.pfx-s-linked .pfx-n.portal{box-shadow:0 0 0 3px rgba(255,107,26,.16),0 10px 26px -10px rgba(255,107,26,.75),inset 0 1px 0 rgba(255,255,255,.4)}
+.pfx-s-linked .pfx-n.tool{box-shadow:0 0 0 3px rgba(var(--tglow),.18),0 10px 26px -10px rgba(var(--tglow),.8),inset 0 1px 0 rgba(255,255,255,.45)}
+/* ── beam ── */
+.pfx-beam{position:relative;min-width:40px}
+.pfx-sig,.pfx-fx{position:absolute;inset:0;pointer-events:none}
+.pfx-rev .pfx-sig{transform:scaleX(-1)}
+.pfx-trk{position:absolute;left:0;right:0;top:50%;height:2px;margin-top:-1px;opacity:0;background:repeating-linear-gradient(90deg,currentColor 0 6px,transparent 6px 12px);color:rgba(255,255,255,.3);background-size:12px 2px;transition:opacity .3s}
+.pfx-s-search .pfx-trk{opacity:1;animation:pfxDash .6s linear infinite}
+.pfx-pkt{position:absolute;top:50%;left:0;width:44px;height:3px;margin-top:-1.5px;border-radius:3px;opacity:0;background:linear-gradient(90deg,transparent,rgba(255,190,140,.95))}
+.pfx-pkt::after{content:'';position:absolute;right:-4px;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:#fff;box-shadow:0 0 10px 3px rgba(255,150,70,.95)}
+.pfx-rev .pfx-pkt{background:linear-gradient(90deg,transparent,rgba(var(--tglow),.95))}
+.pfx-rev .pfx-pkt::after{box-shadow:0 0 10px 3px rgba(var(--tglow),.95)}
+.pfx-s-search .pfx-pkt{animation:pfxPkt 1.7s cubic-bezier(.45,0,.55,1) infinite}
+.pfx-fl,.pfx-fr{position:absolute;top:50%;height:3px;margin-top:-1.5px;width:50%;border-radius:3px;transform:scaleX(0)}
+.pfx-fl{left:0;transform-origin:0 50%;background:linear-gradient(90deg,var(--pa2),#ffc9a0);box-shadow:0 0 12px rgba(255,120,40,.7)}
+.pfx-fr{right:0;transform-origin:100% 50%;background:linear-gradient(270deg,var(--tb2),#f5f3ff);box-shadow:0 0 12px rgba(var(--tglow),.7)}
+.pfx-s-lock .pfx-fl,.pfx-s-lock .pfx-fr{animation:pfxFill .46s cubic-bezier(.7,0,.25,1) both;animation-delay:var(--pfx-lockd,0ms)}
+.pfx-s-linked .pfx-fl,.pfx-s-linked .pfx-fr{transform:scaleX(1)}
+.pfx-s-broken .pfx-fl{transform:scaleX(.74);background:linear-gradient(90deg,var(--pa2),#fb7185);box-shadow:none}
+.pfx-s-broken .pfx-fr{transform:scaleX(.74);background:linear-gradient(270deg,#64748b,#fb7185);box-shadow:none;animation:pfxFlick 2.4s steps(1) infinite;animation-delay:var(--ph,0ms)}
+.pfx-flow{position:absolute;left:0;right:0;top:50%;height:3px;margin-top:-1.5px;overflow:hidden;opacity:0;border-radius:3px}
+.pfx-flow::before,.pfx-flow::after{content:'';position:absolute;top:0;bottom:0;width:26%;left:-26%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.95),transparent)}
+.pfx-s-linked .pfx-flow{opacity:1}
+.pfx-s-linked .pfx-flow::before{animation:pfxFlow 2.4s ease-in-out infinite;animation-delay:var(--ph,0ms)}
+.pfx-s-linked .pfx-flow::after{animation:pfxFlowR 2.4s ease-in-out infinite;animation-delay:calc(var(--ph,0ms) - 1200ms)}
+/* ── hub ── */
+.pfx-hub{position:absolute;left:50%;top:50%;border-radius:50%;display:grid;place-items:center;background:#1c1828;color:rgba(255,255,255,.6);box-shadow:0 0 0 1px rgba(255,255,255,.14),0 6px 18px -6px rgba(0,0,0,.6);z-index:3;transition:background .35s,color .35s}
+.pfx-hub i{position:absolute;inset:0;display:grid;place-items:center;opacity:0;transform:scale(.4);transition:opacity .25s,transform .35s cubic-bezier(.3,1.6,.5,1)}
+.pfx-hub i svg{width:48%;height:48%}
+.pfx-s-search .pfx-hub .h-link,.pfx-s-linked .pfx-hub .h-link,.pfx-s-lock .pfx-hub .h-ok,.pfx-s-broken .pfx-hub .h-bad{opacity:1;transform:scale(1)}
+.pfx-s-search .pfx-hub .h-link{opacity:.55}
+.pfx-hub .sp{position:absolute;inset:-3px;border-radius:50%;opacity:0;background:conic-gradient(from 0deg,transparent 0 62%,rgba(255,170,100,.95) 86%,transparent 100%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px))}
+.pfx-rev .pfx-hub .sp{background:conic-gradient(from 0deg,transparent 0 62%,rgba(var(--tglow),.95) 86%,transparent 100%)}
+.pfx-s-search .pfx-hub .sp{opacity:1;animation:pfxSpin 1.1s linear infinite}
+.pfx-s-lock .pfx-hub,.pfx-s-linked .pfx-hub{background:linear-gradient(135deg,var(--ok1),var(--ok2));color:#fff;box-shadow:0 0 0 3px rgba(52,211,153,.18),0 6px 20px -4px rgba(16,185,129,.7)}
+.pfx-s-lock .pfx-hub{animation:pfxHubPop .6s cubic-bezier(.3,1.8,.5,1) both;animation-delay:calc(var(--pfx-lockd,0ms) + 400ms)}
+.pfx-s-linked .pfx-hub{animation:pfxBreathHub 2.4s ease-in-out infinite;animation-delay:var(--ph,0ms)}
+.pfx-s-broken .pfx-hub{background:linear-gradient(135deg,#fb7185,#e11d48);color:#fff;box-shadow:0 0 0 3px rgba(244,63,94,.18)}
+.pfx-s-broken .pfx-hub::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(244,63,94,.7);animation:pfxPing 1.8s ease-out infinite;animation-delay:var(--ph,0ms)}
+.pfx-wave{position:absolute;left:50%;top:50%;border-radius:50%;border:2px solid var(--ok1);opacity:0;pointer-events:none;z-index:1}
+.pfx-s-lock .pfx-wave{animation:pfxWave .85s cubic-bezier(.2,.7,.3,1) both;animation-delay:calc(var(--pfx-lockd,0ms) + 420ms)}
+.pfx-s-lock .pfx-wave+.pfx-wave{animation-delay:calc(var(--pfx-lockd,0ms) + 560ms);border-color:rgba(255,255,255,.7)}
+.pfx.beat .pfx-hub{animation:pfxBeat .6s ease-out}
+.pfx-spk{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;pointer-events:none;z-index:4;animation:pfxSpk .8s cubic-bezier(.15,.7,.3,1) forwards}
+/* ── labels ── */
+.pfx-nm{font-weight:800;letter-spacing:-.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pfx-sb{font-weight:600;opacity:.62;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pfx-sb.ok{opacity:1;color:#10b981}
+.pfx-sb.bad{opacity:1;color:#f43f5e}
+.pfx-clk{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+/* ── lg: the pairing box stage ── */
+.pfx-lg{height:178px;border-radius:18px;overflow:hidden;color:#f5f3ff;background:radial-gradient(90% 120% at 12% 42%,rgba(255,107,26,.24),transparent 58%),radial-gradient(90% 120% at 88% 42%,rgba(var(--tglow),.20),transparent 58%),linear-gradient(180deg,#14111f,#0b0914);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
+.pfx-lg::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:22px 22px;-webkit-mask-image:radial-gradient(ellipse at 50% 40%,#000 25%,transparent 75%);mask-image:radial-gradient(ellipse at 50% 40%,#000 25%,transparent 75%);pointer-events:none}
+.pfx-lg::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(circle at 50% 40%,rgba(52,211,153,.38),transparent 55%)}
+.pfx-lg.pfx-s-lock::after{animation:pfxFlash 1s ease-out both;animation-delay:calc(var(--pfx-lockd,0ms) + 420ms)}
+.pfx-lg .pfx-row{position:absolute;inset:0;display:grid;grid-template-columns:116px 1fr 116px;align-items:start;padding:26px 16px 0}
+.pfx-lg .pfx-side{display:flex;flex-direction:column;align-items:center;text-align:center;min-width:0}
+.pfx-lg .pfx-n{width:66px;height:66px;border-radius:21px}
+.pfx-lg .pfx-beam{height:66px;margin:0 -26px}
+.pfx-lg .pfx-hub{width:36px;height:36px;margin:-18px 0 0 -18px}
+.pfx-lg .pfx-wave{width:36px;height:36px;margin:-18px 0 0 -18px}
+.pfx-lg .pfx-nm{margin-top:11px;font-size:12.5px;max-width:112px}
+.pfx-lg .pfx-sb{margin-top:2px;font-size:11px;max-width:112px}
+.pfx-lg .pfx-clk{font-size:12px}
+/* ── sm: the live strip ── */
+.pfx-sm{display:grid;grid-template-columns:auto minmax(0,auto) minmax(46px,1fr) minmax(0,auto) auto;align-items:center;column-gap:10px;padding:9px 12px;border-radius:14px;font-size:12px;line-height:1.35}
+.pfx-sm .pfx-n{width:30px;height:30px;border-radius:10px;box-shadow:0 6px 14px -6px rgba(255,107,26,.7),inset 0 1px 0 rgba(255,255,255,.4)}
+.pfx-sm .pfx-n.tool{box-shadow:0 6px 14px -6px rgba(var(--tglow),.8),inset 0 1px 0 rgba(255,255,255,.45)}
+.pfx-sm .pfx-n .r{inset:-4px}
+.pfx-sm .pfx-beam{height:30px}
+.pfx-sm .pfx-hub{width:20px;height:20px;margin:-10px 0 0 -10px}
+.pfx-sm .pfx-wave{width:20px;height:20px;margin:-10px 0 0 -10px}
+.pfx-sm .pfx-tx{min-width:0;display:flex;flex-direction:column}
+.pfx-sm .pfx-tx.r{text-align:right;align-items:flex-end}
+.pfx-sm .pfx-nm{font-size:12px}
+.pfx-sm .pfx-sb{font-size:11px}
+.pfx-sm .pfx-clk{font-size:12.5px;font-weight:800}
+.pfx-sm .pfx-foot{grid-column:1/-1;margin-top:7px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pfx-sm .pfx-foot:empty{display:none}
+.pfx-f{display:contents}
+.pfx-bar{flex:1;min-width:60px;height:5px;border-radius:5px;background:rgba(127,127,140,.22);overflow:hidden}
+.pfx-bar i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--pa2),var(--tb2))}
+.pfx-dark{color:#f5f3ff;background:linear-gradient(90deg,rgba(255,107,26,.12),rgba(255,255,255,.03) 50%,rgba(var(--tglow),.12));box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.pfx-light{color:#14161f;background:linear-gradient(90deg,#fff6ef,#fff 50%,#f5f2ff);box-shadow:inset 0 0 0 1px rgba(17,19,34,.08),0 6px 18px -12px rgba(17,19,34,.25)}
+.pfx-light.t-altr{background:linear-gradient(90deg,#fff6ef,#fff 50%,#f4ffe0)}
+.pfx-light .pfx-trk{color:rgba(17,19,34,.28)}
+.pfx-light.pfx-s-search .pfx-hub{background:#fff;color:#64748b;box-shadow:0 0 0 1px rgba(17,19,34,.12),0 4px 12px -4px rgba(17,19,34,.3)}
+.pfx-light .pfx-fl{background:linear-gradient(90deg,var(--pa3),var(--pa2) 60%,var(--pa1))}
+.pfx-light .pfx-fr{background:linear-gradient(270deg,var(--tb3),var(--tb2) 60%,var(--tb1))}
+.pfx-light .pfx-flow::before,.pfx-light .pfx-flow::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,1),transparent)}
+.pfx-dark.pfx-s-broken{background:linear-gradient(90deg,rgba(244,63,94,.14),rgba(255,255,255,.03) 60%);box-shadow:inset 0 0 0 1px rgba(244,63,94,.28)}
+.pfx-light.pfx-s-broken{background:linear-gradient(90deg,#fff1f2,#fff 70%);box-shadow:inset 0 0 0 1px rgba(244,63,94,.25)}
+.pfx-sm .pfx-act{display:flex;gap:6px;margin-left:auto}
+.pfx-sm .pfx-act a,.pfx-sm .pfx-act button{font:inherit;font-size:11.5px;font-weight:800;border-radius:9px;padding:6px 10px;cursor:pointer;text-decoration:none;border:1px solid transparent;white-space:nowrap}
+.pfx-sm .pfx-act .p{background:linear-gradient(135deg,#FF8A3D,#E8452A);color:#fff}
+.pfx-sm .pfx-act .s{background:transparent;color:inherit;border-color:rgba(127,127,140,.35)}
+/* ── the pairing card (modal body) ── */
+.pfx-card{color:#f5f3ff;background:linear-gradient(180deg,#191526,#100d19);border-radius:22px;padding:20px 20px 18px;box-shadow:0 40px 100px -30px rgba(0,0,0,.85),inset 0 0 0 1px rgba(255,255,255,.08);width:100%;max-width:460px;font-family:inherit;text-align:left}
+.pfx-eyebrow{display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55)}
+.pfx-eyebrow .d{width:7px;height:7px;border-radius:50%;background:#FF6B1A;box-shadow:0 0 0 0 rgba(255,107,26,.6);animation:pfxDot 1.6s ease-out infinite}
+.pfx-card.done .pfx-eyebrow .d{background:#34d399;animation:none;box-shadow:0 0 8px rgba(52,211,153,.9)}
+.pfx-ttl{font-size:20px;font-weight:800;letter-spacing:-.01em;margin:6px 0 4px;line-height:1.25}
+.pfx-dsc{font-size:13px;color:rgba(255,255,255,.66);line-height:1.55;margin-bottom:14px}
+.pfx-dsc b{color:#fff}
+.pfx-st{display:flex;align-items:center;gap:9px;margin-top:12px;padding:10px 12px;border-radius:12px;font-size:13px;font-weight:700;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);color:#e9e5ff;transition:background .35s,color .35s}
+.pfx-st .el{margin-left:auto;font-variant-numeric:tabular-nums;opacity:.55;font-weight:700;font-size:12px}
+.pfx-st .dots{display:inline-flex;gap:3px}
+.pfx-st .dots i{width:5px;height:5px;border-radius:50%;background:currentColor;animation:pfxDots 1.2s ease-in-out infinite}
+.pfx-st .dots i:nth-child(2){animation-delay:.15s}.pfx-st .dots i:nth-child(3){animation-delay:.3s}
+.pfx-st.ok{background:rgba(16,185,129,.14);box-shadow:inset 0 0 0 1px rgba(52,211,153,.35);color:#6ee7b7}
+.pfx-st.bad{background:rgba(244,63,94,.12);box-shadow:inset 0 0 0 1px rgba(244,63,94,.3);color:#fda4af}
+.pfx-st .tx{transition:opacity .25s}
+.pfx-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
+.pfx-step{display:flex;align-items:center;gap:7px;padding:8px 9px;border-radius:11px;font-size:11.5px;font-weight:700;line-height:1.25;color:rgba(255,255,255,.45);background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);transition:all .35s}
+.pfx-step .n{flex:none;font-style:normal;width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.7);transition:all .35s}
+.pfx-step.on{color:#fff;background:rgba(255,107,26,.10);box-shadow:inset 0 0 0 1px rgba(255,107,26,.45)}
+.pfx-step.on .n{background:#FF6B1A;color:#fff;box-shadow:0 0 0 4px rgba(255,107,26,.18)}
+.pfx-step.dn{color:rgba(255,255,255,.75)}
+.pfx-step.dn .n{background:#10b981;color:#fff;font-size:0}
+.pfx-step.dn .n::after{content:'✓';font-size:11px}
+.pfx-step span b{color:#fff}
+.pfx-btns{display:flex;gap:8px;margin-top:14px}
+.pfx-btn{font:inherit;font-weight:800;font-size:14px;border-radius:13px;padding:13px 16px;cursor:pointer;text-decoration:none;text-align:center;border:none;transition:transform .15s,filter .15s}
+.pfx-btn:active{transform:scale(.97)}
+.pfx-btn.p{flex:1;color:#fff;background:linear-gradient(135deg,#FF8A3D,#FF6B1A 50%,#E8452A);box-shadow:0 12px 28px -12px rgba(255,107,26,.9)}
+.pfx-btn.p:hover{filter:brightness(1.07)}
+.pfx-btn.s{color:#e9e5ff;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.pfx-card.done .pfx-btns{display:none}
+.pfx-ov{position:fixed;inset:0;z-index:9960;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(8,6,14,.62);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);animation:pfxFade .25s ease-out both}
+.pfx-ov.out{animation:pfxFadeOut .3s ease-in both}
+.pfx-ov .pfx-card{animation:pfxRise .45s cubic-bezier(.2,1.2,.4,1) both}
+/* ── the "linked" card ── */
+.pfx-cel{position:fixed;left:50%;top:14px;z-index:99990;width:min(390px,calc(100vw - 20px));transform:translateX(-50%);color:#f5f3ff;background:rgba(20,17,31,.94);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-radius:18px;padding:12px 12px 12px;box-shadow:0 24px 60px -18px rgba(0,0,0,.75),inset 0 0 0 1px rgba(255,255,255,.1);font-family:inherit;cursor:pointer;animation:pfxDrop .5s cubic-bezier(.2,1.3,.4,1) both;text-align:left}
+.pfx-cel.out{animation:pfxLift .35s ease-in both}
+.pfx-cel .hd{display:flex;align-items:center;gap:8px;padding:0 2px 9px}
+.pfx-cel .hd b{font-size:14px;font-weight:800}
+.pfx-cel .hd span{margin-left:auto;font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#6ee7b7}
+.pfx-cel .ft{font-size:12px;color:rgba(255,255,255,.62);padding:9px 2px 0;line-height:1.45}
+@keyframes pfxBreath{0%,100%{transform:scale(1)}50%{transform:scale(.95)}}
+@keyframes pfxPing{0%{opacity:.85;transform:scale(1)}100%{opacity:0;transform:scale(1.55)}}
+@keyframes pfxEmit{0%{opacity:.7;transform:scale(1)}70%,100%{opacity:0;transform:scale(1.28)}}
+@keyframes pfxDash{to{background-position:12px 0}}
+@keyframes pfxPkt{0%{left:0;opacity:0}15%{opacity:1}82%{opacity:1}100%{left:calc(100% - 44px);opacity:0}}
+@keyframes pfxFill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes pfxFlick{0%,100%{opacity:1}46%{opacity:.35}50%{opacity:1}54%{opacity:.5}58%{opacity:1}}
+@keyframes pfxFlow{0%{left:-26%}62%,100%{left:100%}}
+@keyframes pfxFlowR{0%{left:100%}62%,100%{left:-26%}}
+@keyframes pfxSpin{to{transform:rotate(360deg)}}
+@keyframes pfxPop{0%{transform:scale(1)}35%{transform:scale(.88)}70%{transform:scale(1.1)}100%{transform:scale(1)}}
+@keyframes pfxHubPop{0%{transform:scale(.6)}60%{transform:scale(1.28)}100%{transform:scale(1)}}
+@keyframes pfxBreathHub{0%,100%{box-shadow:0 0 0 3px rgba(52,211,153,.16),0 6px 20px -4px rgba(16,185,129,.6)}50%{box-shadow:0 0 0 6px rgba(52,211,153,.10),0 6px 24px -2px rgba(16,185,129,.8)}}
+@keyframes pfxWave{0%{opacity:.95;transform:scale(.6)}100%{opacity:0;transform:scale(3.4)}}
+@keyframes pfxBeat{0%{transform:scale(1)}40%{transform:scale(1.25)}100%{transform:scale(1)}}
+@keyframes pfxSpk{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(var(--x),var(--y)) scale(.3)}}
+@keyframes pfxFlash{0%{opacity:0}25%{opacity:1}100%{opacity:0}}
+@keyframes pfxDot{0%{box-shadow:0 0 0 0 rgba(255,107,26,.6)}100%{box-shadow:0 0 0 8px rgba(255,107,26,0)}}
+@keyframes pfxDots{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-2px)}}
+@keyframes pfxFade{from{opacity:0}to{opacity:1}}
+@keyframes pfxFadeOut{to{opacity:0}}
+@keyframes pfxRise{from{opacity:0;transform:translateY(18px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes pfxDrop{from{opacity:0;transform:translate(-50%,-24px) scale(.96)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes pfxLift{to{opacity:0;transform:translate(-50%,-16px) scale(.97)}}
+@media (max-width:520px){.pfx-lg .pfx-row{grid-template-columns:96px 1fr 96px;padding:24px 8px 0}.pfx-lg .pfx-beam{margin:0 -16px}.pfx-steps{grid-template-columns:1fr}.pfx-sm{column-gap:7px;padding:8px 10px}}
+@media (prefers-reduced-motion:reduce){.pfx *,.pfx *::before,.pfx *::after,.pfx,.pfx-ov,.pfx-cel,.pfx-card{animation-duration:1ms!important;animation-iteration-count:1!important;animation-delay:0ms!important;transition:none!important}}
+`;
+  var ICON={
+    portal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.6"/><path d="M12 13.5V9.6M9.4 2.6h5.2M12 2.6v3.2M18.6 6.4l1.6-1.6"/></svg>',
+    reddit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.2A2.7 2.7 0 0 1 6.7 3.5h10.6A2.7 2.7 0 0 1 20 6.2v7.6a2.7 2.7 0 0 1-2.7 2.7H10.4L5.6 20.4v-3.9A2.7 2.7 0 0 1 4 13.8z"/><path d="M8.6 10h.01M12 10h.01M15.4 10h.01" stroke-width="3"/></svg>',
+    altr:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3.2"/><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor"/></svg>',
+    link:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>',
+    ok:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.6l4.3 4.3L19 7.2"/></svg>',
+    bad:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M12 6.5v7M12 17.6h.01"/></svg>'
+  };
+  var _tk=null;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function css(){
+    try{ if(!document.getElementById('pfx-css')){ var s=document.createElement('style'); s.id='pfx-css'; s.textContent=CSS; (document.head||document.documentElement).appendChild(s); } }catch(e){}
+    if(!_tk){ _tk=setInterval(tick, 1000); try{ ['pointerdown','keydown'].forEach(function(ev){ document.addEventListener(ev, function u(){ ctx(); document.removeEventListener(ev, u, true); }, true); }); }catch(e){} }
+  }
+  function clock(sec){ sec=Math.max(0,Math.floor(sec||0)); var h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), x=sec%60, p=function(n){ return n<10?'0'+n:''+n; }; return p(h)+':'+p(m)+':'+p(x); }
+  function tick(){
+    try{
+      var now=Date.now();
+      document.querySelectorAll('[data-pfx-since]').forEach(function(e){ var t=+e.getAttribute('data-pfx-since'); if(t) e.textContent=clock((now-t)/1000); });
+      document.querySelectorAll('[data-pfx-copy]').forEach(function(e){ var s=document.getElementById(e.getAttribute('data-pfx-copy')); if(s && e.textContent!==s.textContent) e.textContent=s.textContent; });
+    }catch(e){}
+  }
+  /* o: { size:'lg'|'sm', tool:'reddit'|'altr', toolName, state, rev, theme:'dark'|'light', id, cls,
+          pName, pSub, pSince, pCopy, tName, tSub, tSince, foot, lockAt }  — pSub/tSub are HTML (escape before) */
+  function html(o){
+    css();
+    o=o||{}; var size=o.size==='sm'?'sm':'lg', tool=o.tool==='altr'?'altr':'reddit', st=o.state||'search', style='--ph:-'+(Date.now()%2400)+'ms';
+    if(o.lockAt && st==='linked'){ var el=Date.now()-o.lockAt; if(el>=0 && el<1500){ st='lock'; style+=';--pfx-lockd:-'+el+'ms'; } }
+    var cls='pfx pfx-'+size+' t-'+tool+' pfx-s-'+st+(o.rev?' pfx-rev':'')+(size==='sm'?' pfx-'+(o.theme==='light'?'light':'dark'):'')+(o.cls?' '+o.cls:'');
+    var pWait=!!o.rev, tWait=!o.rev;
+    var pNode='<div class="pfx-n portal '+(pWait?'wait':'lit')+'"><i class="r"></i><i class="r"></i><span class="ic">'+ICON.portal+'</span></div>';
+    var tNode='<div class="pfx-n tool '+(tWait?'wait':'lit')+'"><i class="r"></i><i class="r"></i><span class="ic">'+(ICON[tool])+'</span></div>';
+    var beam='<div class="pfx-beam"><div class="pfx-sig"><div class="pfx-trk"></div><div class="pfx-pkt"></div></div>'+
+      '<div class="pfx-fx"><div class="pfx-fl"></div><div class="pfx-fr"></div><div class="pfx-flow"></div><div class="pfx-wave"></div><div class="pfx-wave"></div>'+
+      '<div class="pfx-hub"><span class="sp"></span><i class="h-link">'+ICON.link+'</i><i class="h-ok">'+ICON.ok+'</i><i class="h-bad">'+ICON.bad+'</i></div></div></div>';
+    var clk=function(since, copy){ return since?'<span class="pfx-clk" data-pfx-since="'+(+since)+'">'+clock((Date.now()-since)/1000)+'</span>':(copy?'<span class="pfx-clk" data-pfx-copy="'+esc(copy)+'">'+esc((document.getElementById(copy)||{}).textContent||'')+'</span>':''); };
+    var pNm=esc(o.pName||'Portal timer'), tNm=esc(o.tName||o.toolName||(tool==='altr'?'ALTR Studio':'Reddit Central'));
+    var pClk=clk(o.pSince, o.pCopy), tClk=clk(o.tSince, o.tCopy);
+    var h;
+    if(size==='lg'){
+      h='<div class="pfx-row"><div class="pfx-side">'+pNode+'<div class="pfx-nm">'+pNm+'</div><div class="pfx-sb pfx-psub">'+(pClk||o.pSub||'')+'</div></div>'+beam+
+        '<div class="pfx-side">'+tNode+'<div class="pfx-nm">'+tNm+'</div><div class="pfx-sb pfx-tsub">'+(tClk||o.tSub||'')+'</div></div></div>';
+    } else {
+      h=pNode+'<div class="pfx-tx"><div class="pfx-nm">'+pNm+'</div><div class="pfx-sb pfx-psub">'+(pClk?pClk+(o.pSub?' · '+o.pSub:''):(o.pSub||''))+'</div></div>'+beam+
+        '<div class="pfx-tx r"><div class="pfx-nm">'+tNm+'</div><div class="pfx-sb pfx-tsub">'+(tClk?tClk+(o.tSub?' · '+o.tSub:''):(o.tSub||''))+'</div></div>'+tNode+
+        '<div class="pfx-foot">'+(o.foot||'')+'</div>';
+    }
+    return '<div class="'+cls+'"'+(o.id?' id="'+esc(o.id)+'"':'')+' style="'+style+'">'+h+'</div>';
+  }
+  function setState(el, st){ if(!el) return; el.className=el.className.replace(/\bpfx-s-\w+/g,'').replace(/\s+/g,' ').trim()+' pfx-s-'+st; el.style.setProperty('--pfx-lockd','0ms'); el.style.setProperty('--ph','-'+(Date.now()%2400)+'ms'); }
+  function sparks(el){
+    try{
+      var fx=el.querySelector('.pfx-fx'); if(!fx) return; var big=el.classList.contains('pfx-lg'), n=big?16:10, cols=['#34d399','#ffffff','#FFB067','#FF6B1A', el.classList.contains('t-altr')?'#c6ff4d':'#a78bfa'];
+      for(var i=0;i<n;i++){ (function(i){ var s=document.createElement('span'); s.className='pfx-spk'; var a=(i/n)*Math.PI*2+Math.random()*.5, d=(big?34:18)+Math.random()*(big?40:16);
+        s.style.setProperty('--x', (Math.cos(a)*d).toFixed(1)+'px'); s.style.setProperty('--y', (Math.sin(a)*d*0.8).toFixed(1)+'px');
+        s.style.background=cols[i%cols.length]; s.style.boxShadow='0 0 8px '+cols[i%cols.length]; if(!big){ s.style.width=s.style.height='4px'; s.style.margin='-2px 0 0 -2px'; }
+        fx.appendChild(s); setTimeout(function(){ try{ s.remove(); }catch(e){} }, 900); })(i); }
+    }catch(e){}
+  }
+  /* the lock → linked moment on a stage already on screen; cb runs when it has settled (~1.25 s) */
+  function lock(el, cb, opt){
+    if(typeof el==='string') el=document.getElementById(el);
+    if(!el){ if(cb) cb(); return; }
+    setState(el,'lock');
+    setTimeout(function(){ sparks(el); }, 420);
+    if(!opt || opt.sound!==false) setTimeout(function(){ chime(opt&&opt.vol); }, 400);
+    setTimeout(function(){ setState(el,'linked'); if(cb) cb(); }, 1250);
+  }
+  function beat(el){ if(typeof el==='string') el=document.getElementById(el); if(!el) return; el.classList.remove('beat'); void el.offsetWidth; el.classList.add('beat'); setTimeout(function(){ try{ el.classList.remove('beat'); }catch(e){} }, 650); }
+  var _ac=null;
+  function ctx(){ try{ if(typeof auAudio==='function'){ var c=auAudio(); if(c) return c; } var AC=window.AudioContext||window.webkitAudioContext; if(!AC) return null; if(!_ac) _ac=new AC(); if(_ac.state==='suspended') _ac.resume().catch(function(){}); return _ac; }catch(e){ return null; } }
+  /* a soft two-note "click-in": a low tick as the beam locks, then a bright bell fifth */
+  function chime(vol){
+    try{
+      if(document.hidden) return; var c=ctx(); if(!c || c.state!=='running') return; var t=c.currentTime, v=(vol==null?0.12:vol);
+      var m=c.createGain(); m.gain.value=v; m.connect(c.destination);
+      var tick=c.createOscillator(), tg=c.createGain(); tick.type='triangle'; tick.frequency.setValueAtTime(320,t); tick.frequency.exponentialRampToValueAtTime(140,t+0.08);
+      tg.gain.setValueAtTime(0.0001,t); tg.gain.exponentialRampToValueAtTime(0.9,t+0.005); tg.gain.exponentialRampToValueAtTime(0.0001,t+0.12); tick.connect(tg); tg.connect(m); tick.start(t); tick.stop(t+0.14);
+      [[880,0.04,0.7],[1318.5,0.13,0.9]].forEach(function(n){ [[1,1],[2,.28],[3,.1]].forEach(function(hm){
+        var o=c.createOscillator(), g=c.createGain(); o.type='sine'; o.frequency.value=n[0]*hm[0];
+        g.gain.setValueAtTime(0.0001,t+n[1]); g.gain.exponentialRampToValueAtTime(0.6*hm[1],t+n[1]+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+n[1]+n[2]/hm[0]);
+        o.connect(g); g.connect(m); o.start(t+n[1]); o.stop(t+n[1]+n[2]+0.05); }); });
+    }catch(e){}
+  }
+  /* the small card at the top: { tool, toolName, title, sub, rev, pSince, tSub, vol } */
+  function celebrate(o){
+    css(); o=o||{};
+    try{
+      var old=document.getElementById('pfx-cel'); if(old) old.remove();
+      var c=document.createElement('div'); c.id='pfx-cel'; c.className='pfx-cel'; c.setAttribute('role','status');
+      c.innerHTML='<div class="hd"><b>'+esc(o.title||'Timers linked')+'</b><span>● Linked</span></div>'+
+        html({ size:'sm', theme:'dark', tool:o.tool, toolName:o.toolName, state:'search', rev:o.rev, id:'pfx-cel-st', pSince:o.pSince, pSub:o.pSub||(o.pSince?'':'running'), tSub:o.tSub||'you' })+
+        (o.sub?'<div class="ft">'+esc(o.sub)+'</div>':'');
+      document.body.appendChild(c);
+      var gone=false, close=function(){ if(gone) return; gone=true; c.classList.add('out'); setTimeout(function(){ try{ c.remove(); }catch(e){} }, 360); };
+      c.onclick=close;
+      setTimeout(function(){ lock('pfx-cel-st', null, { vol:o.vol }); }, 380);
+      setTimeout(close, o.ms||3800);
+    }catch(e){}
+  }
+  /* The pairing box — a blocking card that waits for the other side and plays the lock when it shows up.
+     o: { tool, toolName, rev, eyebrow, title, desc (HTML), steps:[a,b,c], open:{ url, label }, waitMsgs:[...],
+          check: async () => 'ok' | 'wait' | 'skip'  ('skip' = cannot tell → let them through),
+          every (ms, 3000), timeout (ms, 10 min), okTitle, okDesc (HTML), okStatus, holdMs (after lock, 1600),
+          pSub, tSub, okTSub, okPSince, onTimeout, vol }   → Promise<boolean>                                    */
+  function pairBox(o){
+    css(); o=o||{};
+    return new Promise(function(res){
+      var old=document.getElementById('pfx-ov'); if(old) old.remove();
+      var ov=document.createElement('div'); ov.id='pfx-ov'; ov.className='pfx-ov'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true');
+      var steps=(o.steps||[]).map(function(s,i){ return '<div class="pfx-step'+(i===0?' on':'')+'" data-k="'+i+'"><i class="n">'+(i+1)+'</i><span>'+s+'</span></div>'; }).join('');
+      ov.innerHTML='<div class="pfx-card" id="pfx-card"><div class="pfx-eyebrow"><span class="d"></span>'+esc(o.eyebrow||'Timer link')+'</div>'+
+        '<div class="pfx-ttl" id="pfx-ttl">'+esc(o.title||'')+'</div><div class="pfx-dsc" id="pfx-dsc">'+(o.desc||'')+'</div>'+
+        html({ size:'lg', tool:o.tool, toolName:o.toolName, state:'search', rev:o.rev, id:'pfx-stage', pName:o.pName, tName:o.tName, pSub:o.pSub, tSub:o.tSub })+
+        '<div class="pfx-st" id="pfx-st"><span class="dots"><i></i><i></i><i></i></span><span class="tx" id="pfx-stt">'+esc((o.waitMsgs||['Waiting…'])[0])+'</span><span class="el" id="pfx-el">0:00</span></div>'+
+        (steps?'<div class="pfx-steps" id="pfx-steps">'+steps+'</div>':'')+
+        '<div class="pfx-btns">'+(o.open?'<a class="pfx-btn p" id="pfx-open" href="'+esc(o.open.url)+'" target="_blank" rel="noopener">'+esc(o.open.label)+'</a>':'')+'<button type="button" class="pfx-btn s" id="pfx-x">Cancel</button></div></div>';
+      document.body.appendChild(ov);
+      var done=false, t0=Date.now(), busy=false, msgI=0, fails=0;
+      var step=function(k){ var L=ov.querySelectorAll('.pfx-step'); L.forEach(function(e,i){ e.classList.toggle('dn', i<k); e.classList.toggle('on', i===k); }); };
+      var finish=function(v, fast){ if(done) return; done=true; clearInterval(iv); clearInterval(ui); document.removeEventListener('keydown', onKey, true);
+        ov.classList.add('out'); setTimeout(function(){ try{ ov.remove(); }catch(e){} }, fast?0:300); res(v); };
+      var onKey=function(e){ if(e.key==='Escape'){ e.stopPropagation(); finish(false); } };
+      document.addEventListener('keydown', onKey, true);
+      ov.querySelector('#pfx-x').onclick=function(){ finish(false); };
+      var op=ov.querySelector('#pfx-open'); if(op) op.addEventListener('click', function(){ step(1); setTimeout(function(){ poll(); }, 1500); });
+      var ui=setInterval(function(){
+        if(done) return; var s=Math.floor((Date.now()-t0)/1000), e=document.getElementById('pfx-el'); if(e) e.textContent=Math.floor(s/60)+':'+(s%60<10?'0':'')+(s%60);
+        var M=o.waitMsgs||[]; if(M.length>1 && s>0 && s%4===0){ msgI=(msgI+1)%M.length; var tx=document.getElementById('pfx-stt'); if(tx){ tx.style.opacity=0; setTimeout(function(){ tx.textContent=M[msgI]; tx.style.opacity=1; }, 220); } }
+      }, 1000);
+      var won=function(){
+        done=true; clearInterval(iv); clearInterval(ui);
+        step((o.steps||[]).length);
+        var card=document.getElementById('pfx-card'); if(card) card.classList.add('done');
+        var st=document.getElementById('pfx-st'); if(st){ st.className='pfx-st ok'; st.innerHTML='<span style="width:18px;height:18px;display:inline-block">'+ICON.ok+'</span><span class="tx">'+esc(o.okStatus||'Linked')+'</span><span class="el">'+(document.getElementById('pfx-el')||{}).textContent+'</span>'; }
+        var tt=document.getElementById('pfx-ttl'); if(tt && o.okTitle) tt.textContent=o.okTitle;
+        var dd=document.getElementById('pfx-dsc'); if(dd && o.okDesc) dd.innerHTML=o.okDesc;
+        var stg=document.getElementById('pfx-stage');
+        if(stg){ var ts=stg.querySelector(o.rev?'.pfx-psub':'.pfx-tsub'); if(ts){ setTimeout(function(){ var v=o.rev?o.okPSub:o.okTSub; if(typeof v==='function') v=v(); ts.className=ts.className+' ok'; ts.innerHTML=v||(o.rev?'running ✓':'signed in ✓'); }, 520); }
+          if(o.okPSince){ var ps0=(o.okPSince===true)?Date.now()+900:o.okPSince, ps=stg.querySelector('.pfx-psub'); if(ps && !o.rev) setTimeout(function(){ ps.innerHTML='<span class="pfx-clk" data-pfx-since="'+ps0+'">00:00:00</span>'; ps.classList.add('ok'); }, 900); } }
+        lock(stg, null, { vol:o.vol });
+        setTimeout(function(){ document.removeEventListener('keydown', onKey, true); ov.classList.add('out'); setTimeout(function(){ try{ ov.remove(); }catch(e){} }, 300); res(true); }, 1250+(o.holdMs==null?1600:o.holdMs));
+      };
+      var poll=async function(){
+        if(done || busy) return; busy=true;
+        try{
+          if(Date.now()-t0>(o.timeout||10*60*1000)){ finish(false); if(o.onTimeout) o.onTimeout(); return; }
+          var r=null; try{ r=await o.check(); }catch(e){ r=null; }
+          if(done) return;
+          if(r==='ok'){ won(); return; }
+          if(r==='skip'){ finish(true, true); return; }
+          if(r==null){ if(++fails>=3){ finish(true, true); } return; }
+          fails=0;
+        } finally { busy=false; }
+      };
+      var iv=setInterval(poll, o.every||3000);
+      setTimeout(poll, 600);
+    });
+  }
+  return { css:css, html:html, pairBox:pairBox, setState:setState, lock:lock, sparks:sparks, beat:beat, chime:chime, celebrate:celebrate, clock:clock, esc:esc, ICON:ICON };
+})();
+
+/* ═══ PAIRFX END ═══ */
 /* ── 🔗 TOOL LINK, THE OTHER WAY (Oct 7, 2026) ────────────────────────────────
    Reddit Central and ALTR Studio already refuse to tick unless THIS timer runs on their project. Now the
    portal checks back: while a timer runs on a Reddit / ALTR project, the tool must show work at least once
@@ -6839,36 +7204,30 @@ var TOOLG = {
     var r={ project:f.proj||f.project, category:f.cat||f.category, task:f.task, description:f.desc||f.description };
     var tool=this.applies(r); if(!tool) return true;
     var id=this.me(), self=this, x=await this.row(id, tool); if(!x.ok) return true;
-    if(this.isOpen(x.row)){ this.cur={ tool:tool, row:x.row, at:Date.now() }; return true; }
-    var nm=this.NAME[tool];
-    return await new Promise(function(res){
-      var el=document.getElementById('toolg-pair'); if(el) el.remove();
-      el=document.createElement('div'); el.id='toolg-pair';
-      el.style.cssText='position:fixed;inset:0;z-index:9960;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:18px;';
-      el.innerHTML='<div style="width:100%;max-width:440px;background:#fff;color:#0f172a;border-radius:20px;padding:24px 22px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);font-family:inherit;">'+
-        '<div style="font-size:30px;line-height:1;margin-bottom:8px;">🔗</div><div style="font-size:19px;font-weight:800;margin-bottom:6px;">Pair '+nm+' first</div>'+
-        '<div style="font-size:13.5px;color:#475569;line-height:1.55;margin-bottom:14px;">This project is tracked in '+nm+'. Open it and sign in as <b>'+id+'</b> — your portal timer starts by itself the moment they are paired.</div>'+
-        '<div id="toolg-pair-st" style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#6d28d9;background:#f5f3ff;border-radius:12px;padding:10px 12px;margin-bottom:14px;">⏳ Waiting for '+nm+'…</div>'+
-        '<div style="display:flex;gap:8px;"><a href="'+self.URL[tool]+'" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;">Open '+nm+' ↗</a>'+
-        '<button type="button" id="toolg-pair-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">Cancel</button></div></div>';
-      document.body.appendChild(el);
-      var done=false, fails=0, t0=Date.now();
-      var finish=function(v){ if(done) return; done=true; clearInterval(iv); try{ el.remove(); }catch(_r){} res(v); };
-      document.getElementById('toolg-pair-x').onclick=function(){ finish(false); };
-      var iv=setInterval(async function(){
-        if(done) return;
-        if(Date.now()-t0>10*60*1000){ finish(false); try{ showToast('Pairing timed out — press Start again when '+nm+' is open.'); }catch(e){} return; }
-        var y=await self.row(id, tool);
-        if(!y.ok){ if(++fails>=3) finish(true); return; }   // Supabase trouble → never block anyone
-        fails=0;
-        if(self.isOpen(y.row)){
-          self.cur={ tool:tool, row:y.row, at:Date.now() };
-          var stEl=document.getElementById('toolg-pair-st'); if(stEl){ stEl.textContent='✓ Paired with '+nm+' — starting your timer'; stEl.style.color='#047857'; stEl.style.background='#ecfdf5'; }
-          setTimeout(function(){ finish(true); }, 700);
-          try{ showToast('🔗 Paired with '+nm+' ✓'); }catch(e){}
-        }
-      }, 3000);
+    var nm=this.NAME[tool], E=PFX.esc;
+    if(this.isOpen(x.row)){   // already open → it starts at once; the small "Paired" card plays the moment (Oct 9)
+      this.cur={ tool:tool, row:x.row, at:Date.now() };
+      try{ PFX.celebrate({ tool:tool, toolName:nm, title:'Paired with '+nm, sub:'Your portal timer is running and linked — keep working in '+nm+'.', pSub:'starting', tSub:id+' ✓', vol:0.1 }); }catch(e){}
+      return true;
+    }
+    /* Oct 9 (Jeth): the pairing box is now an animated handshake — portal on the left, the tool on the right, a signal
+       running between them while it waits, then the beam locks, a check bursts and the portal clock starts. */
+    var ok=await PFX.pairBox({
+      tool:tool, toolName:nm, eyebrow:'Timer link · '+String(r.project||nm),
+      title:'Pair '+nm+' to start',
+      desc:'This project is tracked in '+E(nm)+'. Open it and sign in as <b>'+E(id)+'</b> — your portal timer starts by itself the moment they connect.',
+      steps:['Open '+E(nm), 'Sign in as <b>'+E(id)+'</b>', 'Timer starts by itself'],
+      open:{ url:self.URL[tool], label:'Open '+nm+' ↗' },
+      waitMsgs:['Looking for '+nm+'…', 'Sign in there as '+id, 'Keep this open — it connects by itself'],
+      pName:'Portal timer', pSub:'ready', tName:nm, tSub:'waiting…',
+      okTitle:'Paired with '+nm, okDesc:'Your portal timer is starting, linked to '+E(nm)+'. Keep working there — if '+E(nm)+' shows no activity for 10 minutes, the timer stops.',
+      okStatus:'Paired — starting your timer', okTSub:E(id)+' ✓', okPSince:true, holdMs:1500, vol:0.12,
+      check:async function(){ var y=await self.row(id, tool); if(!y.ok) return null; if(self.isOpen(y.row)){ self.cur={ tool:tool, row:y.row, at:Date.now() }; return 'ok'; } return 'wait'; },
+      every:3000, timeout:10*60*1000,
+      onTimeout:function(){ try{ showToast('Pairing timed out — press Start again when '+nm+' is open.'); }catch(e){} }
     });
+    if(ok){ try{ showToast('🔗 Paired with '+nm+' ✓'); }catch(e){} }
+    return ok;
   },
   /* live line: the tool's own timer next to the portal's, and today's portal vs tool time */
   poll: async function(){
@@ -6892,12 +7251,51 @@ var TOOLG = {
       b='Today: portal '+this._hm(tp)+' · '+(tool==='reddit'?'Reddit Central':'Studio')+' '+this._hm(ts)+(pc!=null?' ('+pc+'%)':''); }
     return { a:a, b:b, warn:warn };
   },
+  /* Oct 9: the strip under the timer — Portal ⇄ tool with a live beam. linked = light pulses both ways and the tool's own
+     timer ticking; broken = the tool is not open, with the minutes left before the portal stops; it re-locks with the
+     check-burst when the tool comes back. Each fresh heartbeat from the tool (every 20 s) pulses the hub. */
+  strip: function(){
+    var r=(typeof trkRunning!=='undefined')?trkRunning:null; if(!r || (typeof isIdle!=='undefined' && isIdle)) return null;
+    var tool=this.applies(r); if(!tool) return null;
+    var nm=this.NAME[tool], E=PFX.esc;
+    if(!this.cur || this.cur.tool!==tool) return { tool:tool, nm:nm, state:'search', tSince:0, tSubH:'checking…', footH:'' };
+    var rw=this.cur.row||{}, open=this.isOpen(rw), run=rw.run_since?(Date.parse(rw.run_since)||0):0;
+    var since=Number(r.segStart)||Date.now(), la=Date.parse(rw.last_active||'')||0, quiet=Date.now()-Math.max(since,la), left=Math.max(0,this.GRACE-quiet);
+    var tp=0; try{ tp=trkLinkState().trackedProj||0; }catch(e){}
+    var today='';
+    if(rw.today_secs!==undefined && rw.today_secs!==null && rw.today_secs!==''){ var ts=+rw.today_secs||0, pc=tp?Math.min(100,Math.round(ts/tp*100)):null;
+      today='<span>Today · portal <b>'+this._hm(tp)+'</b> · '+(tool==='reddit'?'Reddit Central':'Studio')+' <b>'+this._hm(ts)+'</b></span>'+(pc!=null?'<span class="pfx-bar"><i style="width:'+pc+'%"></i></span><b>'+pc+'%</b>':''); }
+    if(!open){
+      var s=Math.ceil(left/1000), mm=Math.floor(s/60)+':'+(s%60<10?'0':'')+(s%60);
+      return { tool:tool, nm:nm, state:'broken', tSince:0, tSubH:'<span class="bad">not open</span>',
+        footH:'<span style="color:#f43f5e;font-weight:700">'+E(nm)+' is not open — your timer stops in <b class="pfx-clk">'+mm+'</b></span><span class="pfx-act"><a class="p" href="'+this.URL[tool]+'" target="_blank" rel="noopener">Open '+E(nm)+' ↗</a></span>' };
+    }
+    var sub=E(rw.run_label || (run?'task timer':(tool==='reddit'?'open · no task timer':'open')));
+    var warn=quiet>=5*60000?'<span style="color:#f59e0b;font-weight:700">No activity in '+E(nm)+' for '+Math.floor(quiet/60000)+' min — the timer stops at 10.</span>':'';
+    return { tool:tool, nm:nm, state:'linked', tSince:run, tSubH:sub, footH:warn||today };
+  },
   paint: function(){
     var L=this.line();
     var disp=document.getElementById('cfy-timer-display'), el=document.getElementById('trk-toolline');
-    if(disp && !el){ el=document.createElement('div'); el.id='trk-toolline'; el.style.cssText='margin:6px auto 2px;max-width:520px;font-size:12.5px;font-weight:700;line-height:1.5;border-radius:12px;padding:7px 12px;text-align:center;'; disp.parentNode.insertBefore(el, disp.nextSibling); }
-    if(el){ if(!L){ el.style.display='none'; } else { el.style.display=''; el.style.background=L.warn?'rgba(244,63,94,.10)':'rgba(139,92,246,.10)'; el.style.color=L.warn?'#e11d48':'#6d28d9';
-      var h='<div>'+L.a.replace(/[<>&]/g,'')+'</div>'+(L.b?'<div style="font-weight:600;opacity:.8;font-size:11.5px;">'+L.b.replace(/[<>&]/g,'')+'</div>':''); if(el.__h!==h){ el.innerHTML=h; el.__h=h; } } }
+    if(disp && !el){ el=document.createElement('div'); el.id='trk-toolline'; el.style.cssText='margin:8px auto 2px;max-width:560px;width:100%;'; disp.parentNode.insertBefore(el, disp.nextSibling); }
+    if(el){
+      var S=null; try{ S=this.strip(); }catch(e){ S=null; }
+      if(!S){ el.style.display='none'; el.__k=''; }
+      else {
+        el.style.display='';
+        var light=document.body.classList.contains('light')||document.body.classList.contains('au-light'), key=S.tool+'|'+S.state+'|'+(light?'l':'d')+'|'+(S.tSince||0), prev=el.__k?el.__k.split('|')[1]:'';
+        if(el.__k!==key){
+          var relink=(S.state==='linked' && (prev==='broken' || prev==='search'));
+          el.innerHTML=PFX.html({ size:'sm', theme:light?'light':'dark', tool:S.tool, toolName:S.nm, state:relink?(prev==='search'?'search':'broken'):S.state, id:'trk-pfx',
+            pName:'Portal', pCopy:'cfy-timer-display', tName:S.nm, tSince:S.tSince||null, tSub:'<span class="pfx-t2"></span>', foot:'<span class="pfx-f"></span>' });
+          if(relink) PFX.lock('trk-pfx', null, { sound:prev==='broken', vol:0.08 });
+          el.__k=key; el.__beat=0;
+        }
+        var t2=el.querySelector('.pfx-t2'); if(t2 && t2.__h!==S.tSubH){ t2.innerHTML=S.tSubH; t2.__h=S.tSubH; }
+        var ft=el.querySelector('.pfx-f'); if(ft && ft.__h!==S.footH){ ft.innerHTML=S.footH; ft.__h=S.footH; }
+        if(this.cur && S.state==='linked' && el.__beat!==this.cur.at){ if(el.__beat) PFX.beat('trk-pfx'); el.__beat=this.cur.at; }
+      }
+    }
     var mt=document.getElementById('mn-tool'); if(mt){ var t=L?(L.a+(L.b?'\n'+L.b:'')):''; if(mt.textContent!==t) mt.textContent=t; mt.style.color=L&&L.warn?'#e11d48':''; mt.style.display=L?'':'none'; }
   },
   hint: function(r){ var t=this.applies(r); if(!t || this._hinted===r.entry_id) return; this._hinted=r.entry_id;
@@ -6925,7 +7323,7 @@ var TOOLG = {
       document.body.appendChild(el); }
     var nm=this.NAME[tool], ago=at?Math.round((Date.now()-at)/60000):0;
     el.innerHTML='<div style="width:100%;max-width:440px;background:#fff;color:#0f172a;border-radius:20px;padding:24px 22px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);font-family:inherit;">'+
-      '<div style="font-size:30px;line-height:1;margin-bottom:8px;">⏸</div><div style="font-size:19px;font-weight:800;margin-bottom:6px;">Timer stopped — no activity in '+nm+'</div>'+
+      '<div style="margin-bottom:14px;">'+PFX.html({ size:'sm', theme:'light', tool:tool, toolName:nm, state:'broken', pName:'Portal', pSub:'<span class="bad">stopped</span>', tName:nm, tSub:'no activity' })+'</div><div style="font-size:19px;font-weight:800;margin-bottom:6px;">Timer stopped — no activity in '+nm+'</div>'+
       '<div style="font-size:13.5px;color:#475569;line-height:1.55;margin-bottom:14px;">Time on this project only counts while you are working in '+nm+'. '+(at?'Its last activity was '+ago+' minutes ago.':'It has not shown any activity since you started.')+
       ' Open '+nm+(tool==='reddit'?', start your task timer there,':' and keep ticking as you go,')+' then press <b>Resume</b> on your task.</div>'+
       '<div style="display:flex;gap:8px;"><a href="'+this.URL[tool]+'" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;">Open '+nm+' ↗</a>'+
@@ -37797,6 +38195,8 @@ html body.app-authed #tab-attendance .at-card #cfy-timer-display{ grid-area:disp
 html body.app-authed #tab-attendance .at-card #cfy-timer-display.running{ background:linear-gradient(90deg,#7c3aed,#0891b2,#7c3aed); background-size:200% 100%; -webkit-background-clip:text; background-clip:text;
   color:transparent !important; -webkit-text-fill-color:transparent; animation:trkxShine 5s linear infinite; }
 @keyframes trkxShine{ to{ background-position:-200% 0; } }
+/* Oct 9: the Portal ⇄ tool link strip spans the whole timer stage, under the clock */
+html body.app-authed #tab-attendance .at-card #trk-toolline{ grid-column:1 / -1 !important; max-width:none !important; margin:12px 0 2px !important; }
 html body.app-authed #tab-attendance .at-card .trk-actions{ grid-area:btn; margin:0 !important; }
 html body.app-authed #tab-attendance .at-card .trk-actions .trk-group{ display:block !important; }
 html body.app-authed #tab-attendance .at-card .trk-actions .trk-group-lbl{ display:none !important; }
