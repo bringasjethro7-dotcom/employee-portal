@@ -6737,6 +6737,8 @@ function netCodeAsk(d){
   if(n) n.textContent = invalid
     ? 'That code is not valid any more (codes last until 8:00 AM the next day). Press "Request a code" for a new one.'
     : ((d && d.ip) ? 'This network ('+d.ip+') is not the office. Enter your work-from-home code — or press "Request a code" and it comes to your email once approved.' : 'This isn\'t the office network. Enter your work-from-home code — or press "Request a code" and it comes to your email once approved.');
+  if(n && wfhWeekendNow()) n.textContent=(invalid?'That code has expired. ':'')+'Weekend work-from-home: press the button below and your code is emailed to you right away.';
+  try{ var rb=document.getElementById('wfhreq-btn'); if(rb && !rb.disabled) rb.textContent=wfhReqLabel(); }catch(_l){}
   if(f){ if(invalid) f.value=''; setTimeout(function(){ try{ f.focus(); }catch(_e){} }, 50); }
   showError(invalid ? 'Work-from-home code not valid.' : 'Work-from-home code needed.');
   try{ wfhReqResume('login'); }catch(_r){}
@@ -6747,6 +6749,18 @@ function netCodeAsk(d){
    This screen then polls the request (by its random id — no PIN, never the code) and says what happened.
    The same button sits in the mid-shift network box. A pending request survives a reload (localStorage). */
 var WFHREQ={ timer:null };
+/* Weekend (Oct 9): Saturday 07:00 → Sunday 23:59 PHT the backend approves an active VA's request on the spot and
+   emails the code — the label and note say so; the server is still the only one that decides. */
+function wfhWeekendNow(){ var x=new Date(Date.now()+8*3600e3), d=x.getUTCDay(), h=x.getUTCHours(); return (d===6 && h>=7) || d===0; }
+function wfhReqLabel(){ return wfhWeekendNow() ? '📨 Email me my weekend code' : '📨 Request a code from the admin'; }
+function _wfhReqApproved(where, v, d){
+  _wfhReqBtn(where, '✓ Approved', true);
+  var to=String((v&&v.to)||'').replace(/[<>&"]/g,''), exp=String(d.exp_label||'').replace(/[<>&"]/g,'');
+  _wfhReqPaint(where, d.emailed ? ('✅ '+(d.auto?'Weekend code sent':'Approved')+' — the code is in your email'+(to?' ('+to+')':'')+'. Type it in the box'+(where==='shift'?' above and press "Use this code".':' above and press Sign in.')+(exp?' Valid until '+exp+'.':''))
+                              : '✅ Approved — but the email did not go out. Ask the admin for the code.', 'ok');
+  try{ var f=document.getElementById(where==='shift'?'netg-code':'wfh-code'); if(f) f.focus(); }catch(_f){}
+  try{ showToast(d.auto?'📨 Weekend code sent — check your email.':'✅ Work-from-home code approved — check your email.'); }catch(_t){}
+}
 function _wfhReqEls(where){ var sh=where==='shift'; return { btn:document.getElementById(sh?'netg-req':'wfhreq-btn'), st:document.getElementById(sh?'netg-reqst':'wfhreq-st') }; }
 function _wfhReqWho(where){
   if(where==='shift') return { emp:NETG.me(), pin:String((window._currentEmpData||{})._pin||'') };
@@ -6766,7 +6780,9 @@ async function wfhReqSend(where){
     var r=await fetch(APPS_SCRIPT_URL, { method:'POST', body:JSON.stringify({ action:'wfh_code_request', employee_id:w.emp, pin:w.pin, ip:(net&&net.ip)||'', where:where }) });
     var d=await r.json();
     if(d && d.ok){
-      var v={ id:d.request_id, at:Date.now(), to:d.to||'', no_email:!!d.no_email }; _wfhReqStore(w.emp, v);
+      var v={ id:d.request_id, at:Date.now(), to:d.to||'', no_email:!!d.no_email, held:!!d.held };
+      if(d.status==='approved'){ _wfhReqStore(w.emp, null); _wfhReqApproved(where, v, d); return; }   // weekend: approved on the spot
+      _wfhReqStore(w.emp, v);
       _wfhReqPending(where, v, !!d.already); _wfhReqPoll(where, w.emp, v);
       return;
     }
@@ -6775,11 +6791,11 @@ async function wfhReqSend(where){
                         er==='TOO_MANY_TRIES' ? 'Too many wrong PINs — wait 15 minutes, then try again.' :
                         er==='DEACTIVATED' ? 'This account is deactivated.' : 'Could not send the request'+(er?' ('+er+')':'')+' — try again.', 'bad');
   }catch(e){ _wfhReqPaint(where, 'Could not reach the server — check your internet and try again.', 'bad'); }
-  _wfhReqBtn(where, '📨 Request a code from the admin', false);
+  _wfhReqBtn(where, wfhReqLabel(), false);
 }
 function _wfhReqPending(where, v, already){
   _wfhReqBtn(where, '✓ Request sent — waiting for approval', true);
-  _wfhReqPaint(where, (already?'Your request is already with the admin. ':'Sent to the admin. ')+(v.no_email?'There is no email on your profile, so the admin will give you the code directly.':'Once approved, the code arrives by email'+(v.to?' at <b>'+String(v.to).replace(/[<>&"]/g,'')+'</b>':'')+' — type it in the box above.')+' You can leave this page open; it updates by itself.', '');
+  _wfhReqPaint(where, (v.held?'This one needs the admin\'s OK, so it\'s in their inbox. ':(already?'Your request is already with the admin. ':'Sent to the admin. '))+(v.no_email?'There is no email on your profile, so the admin will give you the code directly.':'Once approved, the code arrives by email'+(v.to?' at <b>'+String(v.to).replace(/[<>&"]/g,'')+'</b>':'')+' — type it in the box above.')+' You can leave this page open; it updates by itself.', '');
 }
 function _wfhReqPoll(where, emp, v){
   if(WFHREQ.timer) clearInterval(WFHREQ.timer);
@@ -6789,17 +6805,13 @@ function _wfhReqPoll(where, emp, v){
     if(document.hidden) return;
     try{
       var r=await fetch(APPS_SCRIPT_URL+'?action=wfh_code_request_status&employee_id='+encodeURIComponent(emp)+'&request_id='+encodeURIComponent(v.id)+'&_='+Date.now());
-      var d=await r.json(); if(!d || !d.ok){ if(d && d.error==='NOT_FOUND'){ clearInterval(WFHREQ.timer); WFHREQ.timer=null; _wfhReqStore(emp, null); _wfhReqBtn(where, '📨 Request a code from the admin', false); } return; }
+      var d=await r.json(); if(!d || !d.ok){ if(d && d.error==='NOT_FOUND'){ clearInterval(WFHREQ.timer); WFHREQ.timer=null; _wfhReqStore(emp, null); _wfhReqBtn(where, wfhReqLabel(), false); } return; }
       if(d.status==='approved'){
         clearInterval(WFHREQ.timer); WFHREQ.timer=null; _wfhReqStore(emp, null);
-        _wfhReqBtn(where, '✓ Approved', true);
-        _wfhReqPaint(where, d.emailed ? '✅ Approved — the code is in your email'+(v.to?' ('+String(v.to).replace(/[<>&"]/g,'')+')':'')+'. Type it in the box'+(where==='shift'?' above and press "Use this code".':' above and press Sign in.')+(d.exp_label?' Valid until '+String(d.exp_label).replace(/[<>&"]/g,'')+'.':'')
-                                    : '✅ Approved — but the email did not go out. Ask the admin for the code.', 'ok');
-        try{ var f=document.getElementById(where==='shift'?'netg-code':'wfh-code'); if(f) f.focus(); }catch(_f){}
-        try{ showToast('✅ Work-from-home code approved — check your email.'); }catch(_t){}
+        _wfhReqApproved(where, v, d);
       } else if(d.status==='rejected'){
         clearInterval(WFHREQ.timer); WFHREQ.timer=null; _wfhReqStore(emp, null);
-        _wfhReqBtn(where, '📨 Request a code from the admin', false);
+        _wfhReqBtn(where, wfhReqLabel(), false);
         _wfhReqPaint(where, '❌ Not approved'+(d.reason?': '+String(d.reason).replace(/[<>&"]/g,''):'')+'. Sign in from the office network, or message the admin.', 'bad');
       }
     }catch(e){}
@@ -6863,7 +6875,7 @@ var NETG = {
         '<div id="netg-sub" style="font-size:13.5px;color:#475569;line-height:1.5;margin-bottom:14px;">The time tracker only runs from the office Starlink. Working from home today? Enter the work-from-home code from the admin.</div>'+
         '<input id="netg-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="width:100%;box-sizing:border-box;border:1px solid rgba(15,23,42,.15);border-radius:12px;padding:13px 14px;font-size:22px;letter-spacing:.2em;text-align:center;font-family:ui-monospace,monospace;outline:none;">'+
         '<div id="netg-err" style="color:#be123c;font-size:12.5px;font-weight:700;margin-top:8px;min-height:16px;"></div>'+
-        '<button type="button" id="netg-req" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,107,26,.45);background:rgba(255,107,26,.08);color:#ff6b1a;border-radius:12px;padding:11px 12px;font-weight:800;font-size:13.5px;font-family:inherit;cursor:pointer;margin-top:6px;">📨 Request a code from the admin</button><div id="netg-reqst" style="font-size:12px;color:#8a93a3;margin-top:6px;line-height:1.45;"></div>'+
+        '<button type="button" id="netg-req" style="width:100%;box-sizing:border-box;border:1px solid rgba(255,107,26,.45);background:rgba(255,107,26,.08);color:#ff6b1a;border-radius:12px;padding:11px 12px;font-weight:800;font-size:13.5px;font-family:inherit;cursor:pointer;margin-top:6px;">'+wfhReqLabel()+'</button><div id="netg-reqst" style="font-size:12px;color:#8a93a3;margin-top:6px;line-height:1.45;"></div>'+
         '<div style="display:flex;gap:8px;margin-top:12px;"><button type="button" id="netg-go" style="flex:1;border:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;cursor:pointer;">Use this code</button><button type="button" id="netg-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">Later</button></div>'+
         '<div style="font-size:11.5px;color:#9aa4b2;margin-top:12px;line-height:1.5;">Codes last until 8:00 AM the next day (or the week, if the admin issued a weekly one). Chat, the feed and your requests still work without one.</div></div>';
       document.body.appendChild(el);
