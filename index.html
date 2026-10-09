@@ -7276,6 +7276,8 @@ var TOOLG = {
      no pairing, no timer. Design & Shopify + Imperium (SOP-02) + Ember (Snapchat) now; add Project 2 when its tab goes live
      (a placeholder tab can't show work, so pairing it would lock those VAs out). */
   toolOf: function(proj){ proj=String(proj||''); if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; if(/shopify|torchlight|imperium|\bember\b|snapchat/i.test(proj)) return 'clients'; return ''; },
+  /* Oct 9: links into the Client Hub open the VA's own client tab (?c=…), not the hub's front page */
+  link: function(tool, proj){ var u=this.URL[tool]||''; if(tool==='clients'){ var p=String(proj||''), c=/imperium/i.test(p)?'imperium':(/\bember\b|snapchat/i.test(p)?'ember':(/shopify|torchlight/i.test(p)?'design-shopify':'')); if(c) u+='?c='+c; } return u; },
   me: function(){ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); },
   /* Oct 8 (Jeth): Threads work sits under the Alts project but has no tool yet — never stop it. Remove once the
      Threads tool is live. EXEMPT_IDS = people excused for now (upper-case contractor IDs). */
@@ -7320,7 +7322,7 @@ var TOOLG = {
       title:'Pair '+nm+' to start',
       desc:'This project is tracked in '+E(nm)+'. Open it and sign in as <b>'+E(id)+'</b> — your portal timer starts by itself the moment they connect.',
       steps:['Open '+E(nm), 'Sign in as <b>'+E(id)+'</b>', 'Timer starts by itself'],
-      open:{ url:self.URL[tool], label:'Open '+nm+' ↗' },
+      open:{ url:self.link(tool, r.project), label:'Open '+nm+' ↗' },
       waitMsgs:['Looking for '+nm+'…', 'Sign in there as '+id, 'Keep this open — it connects by itself'],
       pName:'Portal timer', pSub:'ready', tName:nm, tSub:'waiting…',
       okTitle:'Paired with '+nm, okDesc:'Your portal timer is starting, linked to '+E(nm)+'. Keep working there — if '+E(nm)+' shows no activity for 10 minutes, the timer stops.',
@@ -7371,7 +7373,7 @@ var TOOLG = {
     if(!open){
       var s=Math.ceil(left/1000), mm=Math.floor(s/60)+':'+(s%60<10?'0':'')+(s%60);
       return { tool:tool, nm:nm, state:'broken', tSince:0, tSubH:'<span class="bad">not open</span>',
-        footH:'<span style="color:#f43f5e;font-weight:700">'+E(nm)+' is not open — your timer stops in <b class="pfx-clk">'+mm+'</b></span><span class="pfx-act"><a class="p" href="'+this.URL[tool]+'" target="_blank" rel="noopener">Open '+E(nm)+' ↗</a></span>' };
+        footH:'<span style="color:#f43f5e;font-weight:700">'+E(nm)+' is not open — your timer stops in <b class="pfx-clk">'+mm+'</b></span><span class="pfx-act"><a class="p" href="'+this.link(tool, r.project)+'" target="_blank" rel="noopener">Open '+E(nm)+' ↗</a></span>' };
     }
     var sub=E(rw.run_label || (run?'task timer':(tool==='reddit'?'open · no task timer':'open')));
     var warn=quiet>=5*60000?'<span style="color:#f59e0b;font-weight:700">No activity in '+E(nm)+' for '+Math.floor(quiet/60000)+' min — the timer stops at 10.</span>':'';
@@ -7413,13 +7415,13 @@ var TOOLG = {
     var ref=Math.max(since, la.at||0), quiet=Date.now()-ref;
     if(quiet >= this.GRACE){
       try{ await stopTimer(); }catch(e){}
-      this.block(tool, la.at);
+      this.block(tool, la.at, r.project);
       return;
     }
     if(quiet >= this.WARN && this._warned!==r.entry_id+'|'+ref){ this._warned=r.entry_id+'|'+ref;
       try{ showToast('⚠ No activity in '+this.NAME[tool]+' for '+Math.floor(quiet/60000)+' minutes — your timer stops at 10. Go back to '+this.NAME[tool]+'.'); }catch(e){} }
   },
-  block: function(tool, at){
+  block: function(tool, at, proj){
     var el=document.getElementById('toolg-box'), self=this;
     if(!el){ el=document.createElement('div'); el.id='toolg-box';
       el.style.cssText='position:fixed;inset:0;z-index:9950;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:18px;';
@@ -7429,7 +7431,7 @@ var TOOLG = {
       '<div style="margin-bottom:14px;">'+PFX.html({ size:'sm', theme:'light', tool:tool, toolName:nm, state:'broken', pName:'Portal', pSub:'<span class="bad">stopped</span>', tName:nm, tSub:'no activity' })+'</div><div style="font-size:19px;font-weight:800;margin-bottom:6px;">Timer stopped — no activity in '+nm+'</div>'+
       '<div style="font-size:13.5px;color:#475569;line-height:1.55;margin-bottom:14px;">Time on this project only counts while you are working in '+nm+'. '+(at?'Its last activity was '+ago+' minutes ago.':'It has not shown any activity since you started.')+
       ' Open '+nm+(tool==='reddit'?', start your task timer there,':(tool==='clients'?' and keep working there,':' and keep ticking as you go,'))+' then press <b>Resume</b> on your task.</div>'+
-      '<div style="display:flex;gap:8px;"><a href="'+this.URL[tool]+'" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;">Open '+nm+' ↗</a>'+
+      '<div style="display:flex;gap:8px;"><a href="'+this.link(tool, proj)+'" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;">Open '+nm+' ↗</a>'+
       '<button type="button" id="toolg-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">OK</button></div></div>';
     el.style.display='flex';
     document.getElementById('toolg-x').onclick=function(){ el.style.display='none'; };
@@ -33975,9 +33977,9 @@ var TOOLREG={
   'reddit':      { n:'Reddit Central', u:'https://internals.jmbvirtuals.com/reddit.html' },
   'reddit-casey':{ n:'Reddit Central (Casey)', u:'https://internals.jmbvirtuals.com/reddit.html?base=casey' },
   'reddit-meg':  { n:'Reddit Central (MeG)',   u:'https://internals.jmbvirtuals.com/reddit.html?base=meg' },
-  'ember':       { n:'Client Hub', u:'https://internals.jmbvirtuals.com/clients.html' },   // Oct 9: Ember moved into the Client Hub
+  'ember':       { n:'Client Hub', u:'https://internals.jmbvirtuals.com/clients.html?c=ember' },   // Oct 9: Ember moved into the Client Hub
   'altr':        { n:'ALTR Studio',   u:'https://internals.jmbvirtuals.com/altr-studio.html' },
-  'design-shopify': { n:'Client Hub', u:'https://internals.jmbvirtuals.com/clients.html' },
+  'design-shopify': { n:'Client Hub', u:'https://internals.jmbvirtuals.com/clients.html?c=design-shopify' },
   'clients':     { n:'Client Hub', u:'https://internals.jmbvirtuals.com/clients.html' }
 };
 var _mtDone=true;   /* Overview strip retired — tools live in Tools & Automation */
