@@ -17,7 +17,7 @@
    ═══════════════════════════════════════════════════════════════════════════════ */
 (function(){
   var C={ api:'', supaUrl:'', supaKey:'', me:null, admin:false, pass:null, mount:null, host:'portal', onBadge:null, headshots:'headshots/', logo:'logo-aura.svg' };
-  var S={ posts:[], mine:{ acks:{}, votes:{}, rx:{} }, comments:{}, open:{}, teams:null, people:null, loaded:false, lastSeen:0, rt:null, poll:null, mounted:false, filter:'all', names:{} };
+  var S={ posts:[], mine:{ acks:{}, votes:{}, rx:{} }, comments:{}, open:{}, teams:null, people:null, loaded:false, lastSeen:0, rt:null, poll:null, mounted:false, filter:'all', names:{}, fresh:{}, ann:{}, booted:false };
   var EMOJI=['👍','❤️','🎉','😂','😮','🙏'];
   var $=function(sel, root){ return (root||document).querySelector(sel); };
   var $$=function(sel, root){ return Array.prototype.slice.call((root||document).querySelectorAll(sel)); };
@@ -41,7 +41,7 @@
   function doneByMe(p){ var a=myAck(p); return !!(a && a.passed!==false); }
   function needsMe(p){ return p.required && p.required!=='none' && p.required_open!==false && targeted(p) && !doneByMe(p) && afterMyStart(p); }
   function afterMyStart(p){ var sd=String(me().start_date||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(sd)) return true; return String(p.created_at||'').slice(0,10)>=sd; }
-  function unreadCount(){ var seen=S.lastSeen; return S.posts.filter(function(p){ return (Date.parse(p.created_at)||0)>seen; }).length; }
+  function unreadCount(){ if(C.admin) return 0; return S.posts.filter(isNewForMe).length; }   // only posts addressed to me, unseen until the Feed is on screen
   function badge(){ try{ if(C.onBadge) C.onBadge(unreadCount(), pending().length); }catch(e){} }
   function pending(){ return S.posts.filter(needsMe); }
 
@@ -174,9 +174,9 @@
   }
   function postHtml(p){
     var need=needsMe(p), req=p.required&&p.required!=='none';
-    return '<article class="jf-post'+(p.pinned?' pinned':'')+(need?' need':'')+'" id="jfp-'+E(p.id)+'">'+
+    return '<article class="jf-post'+(p.pinned?' pinned':'')+(need?' need':'')+(S.fresh[p.id]?' fresh':'')+'" id="jfp-'+E(p.id)+'">'+
       '<header class="jf-ph">'+face('ADMIN','JMB Virtuals','')+'<div class="jf-pm"><div class="jf-pn2">'+E(p.author||'JMB Virtuals')+' <span class="jf-adm">Admin</span></div><div class="jf-pt"><span title="'+E(when(p.created_at))+'">'+ago(p.created_at)+'</span> · <span class="jf-aud">'+(String((p.audience||{}).type||'all')==='all'?'🌐':'👥')+' '+E(audLabel(p))+'</span></div></div>'+
-      (p.pinned?'<span class="jf-chip pin">📌 Pinned</span>':'')+(req?'<span class="jf-chip req'+(p.required_open===false?' off':'')+'">'+E(reqLabel(p.required))+(p.required_open===false?' · closed':'')+'</span>':'')+'</header>'+
+      (S.fresh[p.id]?'<span class="jf-chip new">✨ New</span>':'')+(p.pinned?'<span class="jf-chip pin">📌 Pinned</span>':'')+(req?'<span class="jf-chip req'+(p.required_open===false?' off':'')+'">'+E(reqLabel(p.required))+(p.required_open===false?' · closed':'')+'</span>':'')+'</header>'+
       (p.title?'<h3 class="jf-title">'+E(p.title)+'</h3>':'')+
       (p.body?'<div class="jf-body">'+rich(p.body)+'</div>':'')+
       mediaHtml(p)+embed(p.video_url)+pollHtml(p)+
@@ -194,7 +194,7 @@
        is never touched, so a post being written can't vanish mid-sentence (it did, Oct 7). */
     if(!root.querySelector('#jf-head') || !root.querySelector('#jf-list') || !root.querySelector('#jf-composer')){ root.innerHTML='<div class="jf"><div id="jf-head"></div><div id="jf-composer"></div><div id="jf-list"></div></div>'; }
     root.querySelector('#jf-head').innerHTML=head; root.querySelector('#jf-list').innerHTML=body;
-    S.lastSeen=Date.now(); try{ localStorage.setItem('jf_seen_'+myId(), String(S.lastSeen)); }catch(e){} badge();
+    badge(); setTimeout(seenWatch, 0);   // "seen" is decided by what is on screen, never by a background refresh (see the announcer)
   }
   function rerender(pid){ var p=S.posts.filter(function(x){ return x.id===pid; })[0]; var el=pid&&$('#jfp-'+CSS.escape(pid)); if(!p||!el){ return render(); } var tmp=document.createElement('div'); tmp.innerHTML=postHtml(p); el.replaceWith(tmp.firstElementChild); badge(); }
 
@@ -312,6 +312,123 @@
   A.pending=pending;
   A.allowWork=async function(){ if(C.admin) return true; if(!S.loaded){ try{ await loadPosts(); }catch(e){ return true; } } var list=pending(); if(!list.length) return true; toast('📣 '+list.length+' post'+(list.length===1?'':'s')+' need your action before you can start.'); gateOverlay(list); return false; };
 
+  /* ── 📣 NEW-POST ANNOUNCER (Oct 9, 2026) ───────────────────────────────────────────────────
+     Why: render() used to stamp "seen" on EVERY refresh, and the 90-second poll refreshes even while the VA is
+     on another tab, so the badge cleared itself before anyone looked. Posts went unnoticed. Now:
+       · a post counts as seen only once the Feed is actually on screen (page visible, Feed panel shown);
+       · new posts addressed to me slide in as a card (top-right; top on a phone) with a soft chime: on sign-in
+         for anything unseen, and live the moment the admin publishes. "Later" folds it into a small pill that
+         stays until the post is read;
+       · if the portal tab is in the background, a desktop alert does the same job (once the VA allows it);
+       · posts that were new when the Feed opened keep a "New" glow for the rest of the session. */
+  var ANN={ mode:null, list:[], ac:null, dismissed:false, t:0, lastChime:0, t0:0 };
+  function tOf(p){ return Date.parse(p&&p.created_at)||0; }
+  function isNewForMe(p){ return !C.admin && targeted(p) && afterMyStart(p) && tOf(p)>S.lastSeen; }
+  function newsForMe(){ return S.posts.filter(isNewForMe).sort(function(a,b){ return tOf(b)-tOf(a); }); }
+  function feedVisible(){ if(document.hidden) return false; var r=C.mount&&$(C.mount); if(!r||!r.getClientRects().length) return false; var b=r.getBoundingClientRect(); return b.width>0 && b.height>0; }
+  function seenKey(){ return 'jf_seen2_'+myId(); }
+  function annKey(){ return 'jf_ann_'+myId(); }
+  function annLoad(){ var o={}; try{ o=JSON.parse(localStorage.getItem(annKey())||'{}')||{}; }catch(e){ o={}; } var cut=Date.now()-45*864e5; Object.keys(o).forEach(function(k){ if(!(o[k]>cut)) delete o[k]; }); S.ann=o; }
+  function annSave(){ try{ localStorage.setItem(annKey(), JSON.stringify(S.ann||{})); }catch(e){} }
+  function markSeen(){
+    var news=S.posts.filter(isNewForMe), mx=S.lastSeen;
+    S.posts.forEach(function(p){ var t=tOf(p); if(t>mx) mx=t; });
+    news.forEach(function(p){ S.fresh[p.id]=1; S.ann[p.id]=S.ann[p.id]||Date.now(); });
+    if(mx>S.lastSeen){ S.lastSeen=mx; try{ localStorage.setItem(seenKey(), String(S.lastSeen)); }catch(e){} }
+    if(news.length) annSave();
+    badge(); return news.map(function(p){ return p.id; });
+  }
+  function inView(id){ var el=$('#jfp-'+CSS.escape(id)); if(!el) return false; var b=el.getBoundingClientRect(); return b.bottom>60 && b.top<(window.innerHeight||800)-60; }
+  /* The one decision point — runs after every load, on a 1.2 s visibility watch, and when the page comes back. */
+  function scan(){
+    if(C.admin||!S.loaded||!C.me) return;
+    var news=newsForMe();
+    if(feedVisible()){
+      if(!news.length) return;
+      var live=news.filter(function(p){ return !S.ann[p.id]; });   // arrived while I'm looking at the Feed (never announced)
+      var ids=markSeen(); annClose(); ids.forEach(function(id){ rerender(id); });
+      if(S.booted && live.length){ chime(); var off=live.filter(function(p){ return !inView(p.id); }); if(off.length) annShow(off, { auto:9000, seen:true }); }   // scrolled away from the top: point at it
+      return;
+    }
+    if(!news.length){ annClose(); return; }
+    var fresh=news.filter(function(p){ return !S.ann[p.id]; });
+    if(fresh.length){
+      var go=function(){ news=newsForMe(); if(!news.length||feedVisible()) return scan(); fresh.forEach(function(p){ S.ann[p.id]=Date.now(); }); annSave(); ANN.dismissed=false; annShow(news, {}); chime(); if(document.hidden) sysNotify(fresh); };
+      var wait=S.booted?0:Math.max(0, 3200-(Date.now()-ANN.t0));   // let the sign-in reveal + chime finish first
+      if(wait){ clearTimeout(ANN.w); ANN.w=setTimeout(go, wait); } else go();
+      return;
+    }
+    if(ANN.mode==='card'||ANN.mode==='pill'){ ANN.list=news; if(ANN.mode==='pill') pillShow(); return; }
+    if(!ANN.dismissed) pillShow(news);
+  }
+  function seenWatch(){ if(C.admin||!S.loaded) return; if(feedVisible() && S.posts.some(isNewForMe)) scan(); }
+  function snip(p, n){
+    var t=String(p.body||'').replace(/\*\*([^*\n]+)\*\*/g,'$1').replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim();
+    if(!t) t=p.poll?'📊 Poll — cast your vote':(p.quiz?'📝 Short quiz':(p.video_url?'🎬 New video':((p.media||[]).length?'📎 Attachment':'Tap to read it.')));
+    return t.length>n?t.slice(0, n-1).replace(/\s+\S*$/,'')+'…':t;
+  }
+  function ytId(u){ var m=String(u||'').match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/); return m?m[1]:''; }
+  function thumbOf(p){ var im=(p.media||[]).filter(function(m){ return m && m.type==='image' && m.url; })[0]; if(im) return { url:im.url, vid:false }; var y=ytId(p.video_url); return y?{ url:'https://i.ytimg.com/vi/'+y+'/hqdefault.jpg', vid:true }:null; }
+  function absUrl(u){ try{ return new URL(u, location.href).href; }catch(e){ return u; } }
+  function agoLong(iso){ var a=ago(iso); return /^\d+[mhd]$/.test(a)?a+' ago':a; }
+  var ARROW='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  var PLAY='<svg width="18" height="18" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="#fff"/></svg>';
+  function annRoot(){ var r=$('#jf-ann'); if(!r){ r=document.createElement('div'); r.id='jf-ann'; r.setAttribute('aria-live','polite'); document.body.appendChild(r); } r.className=(C.host==='chat'?'chat':''); return r; }
+  function canAskPerm(){ try{ return C.host!=='chat' && ('Notification' in window) && Notification.permission==='default' && !('ontouchstart' in window); }catch(e){ return false; } }
+  function annShow(list, o){
+    o=o||{}; clearTimeout(ANN.t); ANN.list=list; ANN.mode='card';
+    var p=list[0], th=thumbOf(p), need=needsMe(p), more=list.length-1, r=annRoot(), lg=C.logo?'<img src="'+E(C.logo)+'" alt="JMB Virtuals">':'<b>JMB</b>';
+    var aud=String((p.audience||{}).type||'all')==='all'?'Everyone':audLabel(p);
+    r.innerHTML='<div class="jfa-card" role="alert">'+
+      '<div class="jfa-in"><div class="jfa-wash"></div>'+
+        '<div class="jfa-top"><span class="jfa-logo">'+lg+'</span><div class="jfa-meta"><div class="jfa-eye"><i class="jfa-dot"></i>'+(o.seen?'Just posted':'New on the Feed')+'</div><div class="jfa-sub">JMB Virtuals · '+E(agoLong(p.created_at))+' · '+E(aud)+'</div></div>'+
+          '<button type="button" class="jfa-x" title="'+(o.seen?'Close':'Later')+'" aria-label="Close" onclick="JMBFeed._annLater()">✕</button></div>'+
+        (th?'<div class="jfa-th"><img src="'+E(th.url)+'" alt="" onerror="this.parentNode.remove()">'+(th.vid?'<span class="jfa-play">'+PLAY+'</span>':'')+'</div>':'')+
+        '<div class="jfa-body">'+(need?'<div class="jfa-req">⚡ '+E(reqLabel(p.required))+' · needed before your tracker starts</div>':'')+
+          '<div class="jfa-title">'+E(p.title||'A new post from JMB Virtuals')+'</div><div class="jfa-snip">'+E(snip(p, 150))+'</div></div>'+
+        '<div class="jfa-acts"><button type="button" class="jfa-go" onclick="JMBFeed._annGo(\''+E(p.id)+'\')">'+(need?'Open it now':'View post')+' '+ARROW+'</button>'+(o.seen?'':'<button type="button" class="jfa-later" onclick="JMBFeed._annLater()">Later</button>')+'</div>'+
+        ((more>0||(!o.seen&&canAskPerm()))?'<div class="jfa-foot">'+
+          (more>0?'<button type="button" class="jfa-more" onclick="JMBFeed._annMore()"><span class="jfa-stack"><i></i><i></i>'+(more>1?'<i></i>':'')+'</span>+'+more+' more new post'+(more===1?'':'s')+'<span class="jfa-chev">›</span></button>':'')+
+          (!o.seen&&canAskPerm()?'<button type="button" class="jfa-perm" onclick="JMBFeed._annPerm()"><span class="jfa-bell">🔔</span>Also alert me when the portal is in another tab</button>':'')+'</div>':'')+
+        (o.auto?'<div class="jfa-bar" style="animation-duration:'+o.auto+'ms"></div>':'')+
+      '</div></div>';
+    if(o.auto) ANN.t=setTimeout(function(){ annClose(); }, o.auto);
+  }
+  function pillShow(list){
+    list=list||ANN.list; if(!list||!list.length) return annClose(); ANN.list=list; ANN.mode='pill';
+    var n=list.length, need=list.some(needsMe), r=annRoot();
+    r.innerHTML='<button type="button" class="jfa-pill'+(need?' need':'')+'" onclick="JMBFeed._annGo(\''+E(list[0].id)+'\')" title="Open the Feed">'+(C.logo?'<img src="'+E(C.logo)+'" alt="">':'')+
+      '<span class="jfa-ptx"><i class="jfa-dot"></i><span><b>'+n+' new post'+(n===1?'':'s')+'</b>'+(need?' · action needed':' on the Feed')+'</span></span><i class="jfa-px" title="Hide" onclick="JMBFeed._annHide(event)">✕</i></button>';
+  }
+  function annClose(){ clearTimeout(ANN.t); var r=$('#jf-ann'); ANN.mode=null; if(!r||!r.firstChild) return; var c=r.firstChild; c.classList.add('out'); setTimeout(function(){ if(r.firstChild===c) r.innerHTML=''; }, 380); }
+  A._annGo=function(pid){ ANN.dismissed=false; annClose(); A.open(pid); };
+  A._annLater=function(){ var r=$('#jf-ann'), c=r&&r.firstChild; clearTimeout(ANN.t); if(!c){ return; } if(!S.posts.some(isNewForMe)){ return annClose(); } c.classList.add('out'); ANN.mode='pill'; setTimeout(function(){ if(ANN.mode==='pill') pillShow(newsForMe()); }, 360); };
+  A._annMore=function(){ annClose(); try{ if(typeof C.show==='function') C.show(); }catch(e){} S.filter='all'; render(); try{ var m=C.mount&&$(C.mount); if(m) m.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(e){} };
+  A._annHide=function(ev){ try{ ev.stopPropagation(); ev.preventDefault(); }catch(e){} ANN.dismissed=true; annClose(); };
+  A._annPerm=function(){ try{ Notification.requestPermission().then(function(v){ var b=$('#jf-ann .jfa-perm'); if(v==='granted'){ if(b) b.innerHTML='<span class="jfa-bell">✅</span>Desktop alerts are on'; try{ var n=new Notification('📣 Feed alerts are on', { body:'You\'ll get a ping here when a new post lands while the portal is in another tab.', icon:absUrl(C.logo||''), tag:'jf-test' }); setTimeout(function(){ try{ n.close(); }catch(e){} }, 5000); }catch(e){} } else if(b){ b.innerHTML='<span class="jfa-bell">🔕</span>Alerts are blocked in this browser\'s site settings'; } }); }catch(e){} };
+  function sysNotify(list){
+    try{ if(!('Notification' in window) || Notification.permission!=='granted') return; var p=list[0];
+      var n=new Notification('📣 '+(p.title||'New post on the Feed'), { body:snip(p, 120)+(list.length>1?'  (+'+(list.length-1)+' more)':''), icon:absUrl(C.logo||''), tag:'jf-'+p.id, requireInteraction:needsMe(p) });
+      n.onclick=function(){ try{ window.focus(); }catch(e){} A._annGo(p.id); try{ n.close(); }catch(e){} }; }catch(e){}
+  }
+  /* A soft two-note glass chime, synthesised (no file to load). Browsers only allow sound after the person has
+     clicked or typed on the page once; the context is unlocked on the first such gesture. */
+  function audio(){ try{ if(!ANN.ac){ var AC=window.AudioContext||window.webkitAudioContext; if(!AC) return null; ANN.ac=new AC(); } return ANN.ac; }catch(e){ return null; } }
+  function unlockAudio(){ var ac=audio(); try{ if(ac && ac.state==='suspended') ac.resume(); }catch(e){} }
+  function chime(){
+    if(C.quiet) return; var now=Date.now(); if(now-ANN.lastChime<5000) return; ANN.lastChime=now;
+    var ac=audio(); if(!ac) return; var play=function(){ try{
+      var t=ac.currentTime+0.03, out=ac.createGain(), lp=ac.createBiquadFilter(), dl=ac.createDelay(), fb=ac.createGain(), wet=ac.createGain();
+      out.gain.value=0.16; lp.type='lowpass'; lp.frequency.value=7200; dl.delayTime.value=0.16; fb.gain.value=0.22; wet.gain.value=0.22;
+      out.connect(lp); lp.connect(ac.destination); lp.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(ac.destination);
+      [[1046.5,0],[1567.98,0.13]].forEach(function(nv, i){ [[1,1],[2.01,0.18],[3.02,0.05]].forEach(function(h){ var o=ac.createOscillator(), g=ac.createGain(); o.type='sine'; o.frequency.value=nv[0]*h[0]; var s=t+nv[1];
+        g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(0.9*h[1]*(i?0.85:1), s+0.012); g.gain.exponentialRampToValueAtTime(0.0001, s+(i?1.25:0.7)/(h[0]>1?1.8:1));
+        o.connect(g); g.connect(out); o.start(s); o.stop(s+1.4); }); });
+    }catch(e){} };
+    try{ if(ac.state==='suspended'){ ac.resume().then(function(){ if(ac.state==='running') play(); }).catch(function(){}); } else play(); }catch(e){}
+  }
+  A.scan=scan;
+
   /* ── modal + styles + boot ────────────────────────────────────────────────── */
   function modal(html, bare){ var m=$('#jf-modal'); if(!m){ m=document.createElement('div'); m.id='jf-modal'; m.onclick=function(e){ if(e.target===m) closeModal(); }; document.body.appendChild(m); } m.innerHTML='<div class="jf-mbox'+(bare?' bare':'')+'">'+(bare?'':'<button type="button" class="jf-x abs" onclick="JMBFeed._close()">✕</button>')+html+'</div>'; m.style.display='flex'; }
   function closeModal(){ var m=$('#jf-modal'); if(m) m.style.display='none'; } A._close=closeModal;
@@ -321,9 +438,18 @@
         .on('postgres_changes',{ event:'INSERT', schema:'public', table:'feed_comments' },function(pl){ var c=pl.new; if(!c) return; if(S.comments[c.post_id] && !S.comments[c.post_id].some(function(x){ return x.id===c.id; })) S.comments[c.post_id].push(c); var p=S.posts.filter(function(x){ return x.id===c.post_id; })[0]; if(p && String(c.employee_id).toUpperCase()!==myId()){ p.counts=p.counts||{}; p.counts.comments=(p.counts.comments||0)+1; rerender(p.id); } })
         .on('postgres_changes',{ event:'*', schema:'public', table:'feed_reactions' },function(pl){ var r=pl.new||pl.old; if(r && String(r.employee_id).toUpperCase()!==myId()) A.refresh(false); }).subscribe(); }catch(e){}
   }
-  var _rfT=0;
-  A.refresh=async function(force){ if(!force && Date.now()-_rfT<4000) return; _rfT=Date.now(); try{ var openC=Object.keys(S.open).filter(function(k){ return k.indexOf('c:')===0 && S.open[k]; }); await loadPosts(); render(); openC.forEach(function(k){ var pid=k.slice(2); loadComments(pid).then(function(){ rerender(pid); }); }); }catch(e){ if(!S.loaded){ var root=C.mount&&$(C.mount); if(root) root.innerHTML='<div class="jf"><div class="jf-empty">The feed is not set up yet (run FEED_setup.sql in Supabase) or is unreachable.<br><small>'+E(e.message)+'</small></div></div>'; } } };
-  A.init=function(cfg){ Object.assign(C, cfg||{}); if(S.mounted){ render(); return A.refresh(true); } S.mounted=true; try{ S.lastSeen=parseInt(localStorage.getItem('jf_seen_'+myId()),10)||0; }catch(e){} injectCss(); render(); A.refresh(true).then(realtime); if(!S.poll) S.poll=setInterval(function(){ if(!document.hidden) A.refresh(false); }, 90*1000); document.addEventListener('visibilitychange', function(){ if(!document.hidden) A.refresh(false); }); return Promise.resolve(); };
+  var _rfT=0, _rfQ=0;
+  /* Throttled to one load per 4 s, but never DROPPED: a realtime ping inside the window schedules one trailing load,
+     so a post published right after another refresh still lands within seconds (it used to wait for the 90 s poll). */
+  A.refresh=async function(force){ if(!force && Date.now()-_rfT<4000){ if(!_rfQ) _rfQ=setTimeout(function(){ _rfQ=0; A.refresh(true); }, 4050-(Date.now()-_rfT)); return; } _rfT=Date.now(); try{ var openC=Object.keys(S.open).filter(function(k){ return k.indexOf('c:')===0 && S.open[k]; }); await loadPosts(); render(); scan(); S.booted=true; openC.forEach(function(k){ var pid=k.slice(2); loadComments(pid).then(function(){ rerender(pid); }); }); }catch(e){ if(!S.loaded){ var root=C.mount&&$(C.mount); if(root) root.innerHTML='<div class="jf"><div class="jf-empty">The feed is not set up yet (run FEED_setup.sql in Supabase) or is unreachable.<br><small>'+E(e.message)+'</small></div></div>'; } } };
+  A.init=function(cfg){ Object.assign(C, cfg||{}); if(S.mounted){ render(); return A.refresh(true); } S.mounted=true; ANN.t0=Date.now();
+    /* jf_seen2_: fresh start for everyone (the old jf_seen_ stamp was written by background refreshes and can't be trusted).
+       First run on a device = the last 3 days count as new, so nothing recent slips by and nobody gets 60 old posts. */
+    if(!C.admin){ try{ S.lastSeen=parseInt(localStorage.getItem(seenKey()),10)||0; if(!S.lastSeen){ S.lastSeen=Date.now()-3*864e5; localStorage.setItem(seenKey(), String(S.lastSeen)); } }catch(e){ S.lastSeen=Date.now()-3*864e5; } annLoad(); }
+    injectCss(); render(); A.refresh(true).then(realtime);
+    var tick=0; if(!S.poll) S.poll=setInterval(function(){ tick++; if(!document.hidden || tick%2===0) A.refresh(false); }, 90*1000);   // a background tab still checks every 3 min (desktop alert)
+    if(!C.admin){ setInterval(seenWatch, 1200); ['pointerdown','keydown','touchstart'].forEach(function(ev){ document.addEventListener(ev, unlockAudio, { passive:true, capture:true }); }); }
+    document.addEventListener('visibilitychange', function(){ if(!document.hidden){ A.refresh(false); seenWatch(); } }); return Promise.resolve(); };
   A.unread=unreadCount; A.state=S;
   function injectCss(){ if($('#jf-css')) return; var st=document.createElement('style'); st.id='jf-css'; st.textContent=CSS_TEXT; document.head.appendChild(st); }
   var CSS_TEXT='.jf{--jo:#ff6b1a;--jo2:#f1560f;--jv:#7c3aed;--ink:#0f172a;--ink2:#475569;--ink3:#8a93a3;--line:rgba(15,23,42,.09);--card:#fff;max-width:760px;margin:0 auto;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}'+
@@ -353,6 +479,81 @@
   '.jf-q{border:1px solid rgba(15,23,42,.09);border-radius:12px;padding:10px 12px;margin-bottom:10px}.jf-q.ok{border-color:#34d399;background:#f0fdf4}.jf-q.bad{border-color:#fb7185;background:#fff1f2}.jf-qq{font-weight:800;margin-bottom:6px;font-size:14px}.jf-qo{display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:14px;cursor:pointer}.jf-qo input{accent-color:#7c3aed;width:18px;height:18px;margin:0}.jf-qres{border-radius:12px;padding:12px;margin-bottom:12px;font-size:14px}.jf-qres.ok{background:#ecfdf5;color:#047857}.jf-qres.bad{background:#fff1f2;color:#be123c}'+
   '#jf-gate{position:fixed;inset:0;z-index:9955;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:16px}.jf-gbox{background:#fff;color:#0f172a;border-radius:20px;padding:20px 18px;width:100%;max-width:460px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);font-family:Inter,system-ui,sans-serif}.jf-gh{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:12px}.jf-gt{font-size:20px;font-weight:800}.jf-gs{font-size:13px;color:#475569;margin-top:2px}.jf-glist{display:flex;flex-direction:column;gap:8px}.jf-gi{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid rgba(15,23,42,.09);border-radius:12px;padding:10px 12px}.jf-gm{font-size:12px;color:#be123c;font-weight:700;margin-top:2px}'+
   '#jf-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#0f172a;color:#fff;border-radius:999px;padding:10px 16px;font:700 13px Inter,sans-serif;opacity:0;pointer-events:none;transition:opacity .2s;z-index:9970;max-width:90vw;text-align:center}#jf-toast.on{opacity:1}'+
+  /* new-post announcer + fresh glow + pulsing badge (Oct 9) */
+  '#jf-ann{position:fixed;top:78px;right:22px;z-index:9950;width:392px;max-width:calc(100vw - 24px);display:flex;flex-direction:column;align-items:flex-end;pointer-events:none;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;color:#0f172a}'+
+  '#jf-ann *{box-sizing:border-box}'+
+  '#jf-ann.chat{top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;right:10px;width:auto;max-width:none}'+
+  '.jfa-card{pointer-events:auto;position:relative;width:100%;border-radius:22px;padding:1.6px;background:linear-gradient(115deg,#ffc08a,#ff6b1a 20%,#f43f5e 44%,#a855f7 68%,#ff8a3d 86%,#ffc08a);background-size:300% 300%;box-shadow:0 38px 80px -34px rgba(15,23,42,.6),0 22px 44px -26px rgba(244,63,94,.6),0 2px 6px -2px rgba(15,23,42,.18);animation:jfaIn .74s cubic-bezier(.16,1.16,.3,1) both,jfaFlow 8s linear infinite}'+
+  '.jfa-card.out{animation:jfaOut .36s cubic-bezier(.55,0,.75,.3) both}'+
+  '.jfa-in{position:relative;border-radius:20.5px;overflow:hidden;background:rgba(255,255,255,.95);backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6)}'+
+  '.jfa-in:after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 28%,rgba(255,255,255,.85) 45%,rgba(255,255,255,0) 60%);transform:translateX(-130%);animation:jfaSheen 1.5s .6s cubic-bezier(.4,0,.2,1) both;pointer-events:none;z-index:3}'+
+  '.jfa-wash{position:absolute;left:-10%;right:-10%;top:-70px;height:200px;background:radial-gradient(55% 60% at 14% 45%,rgba(255,138,61,.30),transparent 70%),radial-gradient(45% 55% at 86% 25%,rgba(168,85,247,.24),transparent 72%),radial-gradient(40% 45% at 52% 50%,rgba(244,63,94,.14),transparent 70%);pointer-events:none}'+
+  '.jfa-top{position:relative;display:flex;align-items:center;gap:12px;padding:14px 14px 11px}'+
+  '.jfa-logo{position:relative;width:46px;height:46px;flex:none;border-radius:14px;display:block}'+
+  '.jfa-logo img{position:relative;z-index:1;width:100%;height:100%;display:block;border-radius:14px;box-shadow:0 12px 22px -10px rgba(244,63,94,.8),0 2px 4px rgba(15,23,42,.12)}'+
+  '.jfa-logo b{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:14px;background:linear-gradient(135deg,#ff8a3d,#f43f5e,#a855f7);color:#fff;font-size:13px}'+
+  '.jfa-logo:before,.jfa-logo:after{content:"";position:absolute;inset:-3px;border-radius:17px;border:2px solid rgba(244,63,94,.5);animation:jfaRing 2.4s cubic-bezier(.2,.6,.3,1) infinite}'+
+  '.jfa-logo:after{animation-delay:1.2s;border-color:rgba(168,85,247,.45)}'+
+  '.jfa-meta{flex:1;min-width:0}'+
+  '.jfa-eye{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.15em;text-transform:uppercase}'+
+  '.jfa-eye{background:linear-gradient(90deg,#ea580c,#e11d48 52%,#7c3aed);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}'+
+  '.jfa-dot{width:7px;height:7px;border-radius:50%;background:#f43f5e;flex:none;display:inline-block;animation:jfaDot 1.7s ease-out infinite}'+
+  '.jfa-sub{font-size:12px;color:#64748b;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}'+
+  '.jfa-x{flex:none;align-self:flex-start;width:30px;height:30px;border-radius:50%;border:0;background:rgba(15,23,42,.055);color:#64748b;font:700 12.5px Inter,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s,color .2s}'+
+  '.jfa-x:hover{background:rgba(15,23,42,.11);color:#0f172a}'+
+  '.jfa-th{position:relative;margin:0 14px 12px;border-radius:14px;overflow:hidden;aspect-ratio:2/1;background:#f1f5f9;box-shadow:inset 0 0 0 1px rgba(15,23,42,.06)}'+
+  '.jfa-th img{width:100%;height:100%;object-fit:cover;display:block;animation:jfaKen 10s ease-out both}'+
+  '.jfa-play{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px rgba(255,255,255,.55)}'+
+  '.jfa-body{position:relative;padding:0 16px 2px}'+
+  '.jfa-req{display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;padding:4px 10px;border-radius:999px;background:linear-gradient(135deg,#fff7ed,#ffe4e6);color:#c2410c;border:1px solid rgba(241,86,15,.26);font-size:11.5px;font-weight:800}'+
+  '.jfa-title{font-size:16.5px;font-weight:800;line-height:1.28;letter-spacing:-.012em;color:#0b1220;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}'+
+  '.jfa-snip{margin-top:5px;font-size:13.5px;line-height:1.5;color:#526075;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}'+
+  '.jfa-acts{position:relative;display:flex;gap:8px;padding:14px 14px 14px}'+
+  '.jfa-go{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:13px;padding:11.5px 14px;font:800 14px Inter,sans-serif;letter-spacing:.005em;color:#fff;cursor:pointer;background:linear-gradient(135deg,#ff8133,#f1560f 46%,#e11d48);box-shadow:0 14px 26px -14px rgba(241,86,15,.95),inset 0 1px 0 rgba(255,255,255,.32);transition:transform .16s,box-shadow .2s,filter .2s}'+
+  '.jfa-go:hover{transform:translateY(-1px);filter:saturate(1.08);box-shadow:0 18px 30px -14px rgba(241,86,15,1),inset 0 1px 0 rgba(255,255,255,.32)}'+
+  '.jfa-go:active{transform:translateY(0) scale(.985)}'+
+  '.jfa-go svg{transition:transform .2s}.jfa-go:hover svg{transform:translateX(3px)}'+
+  '.jfa-later{border:1px solid rgba(15,23,42,.1);background:#fff;color:#334155;border-radius:13px;padding:11px 18px;font:700 14px Inter,sans-serif;cursor:pointer;transition:background .2s}'+
+  '.jfa-later:hover{background:#f8fafc}'+
+  '.jfa-foot{position:relative;display:flex;flex-direction:column;border-top:1px solid rgba(15,23,42,.065);background:rgba(248,250,252,.7)}'+
+  '.jfa-more,.jfa-perm{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:11px 16px;font:700 12.5px Inter,sans-serif;color:#475569;cursor:pointer;text-align:left;transition:background .2s,color .2s}'+
+  '.jfa-more+.jfa-perm{border-top:1px solid rgba(15,23,42,.05)}'+
+  '.jfa-more:hover,.jfa-perm:hover{background:rgba(15,23,42,.035);color:#0f172a}'+
+  '.jfa-chev{margin-left:auto;font-size:18px;line-height:1;color:#94a3b8}'+
+  '.jfa-bell{width:18px;text-align:center}'+
+  '.jfa-stack{display:inline-flex;align-items:center}.jfa-stack i{width:15px;height:15px;border-radius:50%;border:2px solid #fff;margin-left:-6px;background:linear-gradient(135deg,#ff8a3d,#f43f5e);box-shadow:0 2px 4px rgba(15,23,42,.15)}.jfa-stack i:first-child{margin-left:0}.jfa-stack i:nth-child(2){background:linear-gradient(135deg,#f43f5e,#a855f7)}.jfa-stack i:nth-child(3){background:linear-gradient(135deg,#a855f7,#6366f1)}'+
+  '.jfa-bar{position:absolute;left:0;bottom:0;height:3px;width:100%;transform-origin:left;background:linear-gradient(90deg,#ff8a3d,#f43f5e,#a855f7);animation:jfaBar linear both}'+
+  '.jfa-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:10px;cursor:pointer;padding:5px 6px 5px 5px;border-radius:999px;border:1.5px solid transparent;background:linear-gradient(rgba(255,255,255,.97),rgba(255,255,255,.97)) padding-box,linear-gradient(115deg,#ff8a3d,#f43f5e,#a855f7) border-box;box-shadow:0 20px 40px -20px rgba(244,63,94,.65),0 8px 18px -12px rgba(15,23,42,.35);font:600 13px Inter,sans-serif;color:#334155;animation:jfaPillIn .55s cubic-bezier(.16,1.2,.3,1) both;transition:transform .16s}'+
+  '.jfa-pill:hover{transform:translateY(-1px)}'+
+  '.jfa-pill.out{animation:jfaPillOut .3s ease-in both}'+
+  '.jfa-pill img{width:30px;height:30px;border-radius:10px;display:block;box-shadow:0 6px 12px -6px rgba(244,63,94,.8)}'+
+  '.jfa-ptx{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}.jfa-ptx b{color:#0f172a;font-weight:800}'+
+  '.jfa-pill.need .jfa-dot{background:#f1560f}'+
+  '.jfa-px{width:24px;height:24px;border-radius:50%;background:rgba(15,23,42,.06);display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-style:normal;color:#64748b;margin-left:2px}'+
+  '.jfa-px:hover{background:rgba(15,23,42,.12);color:#0f172a}'+
+  '#jf-ann.chat .jfa-card{animation:jfaDrop .62s cubic-bezier(.16,1.16,.3,1) both,jfaFlow 8s linear infinite}'+
+  '#jf-ann.chat .jfa-card.out{animation:jfaUp .32s ease-in both}'+
+  '#jf-ann.chat .jfa-pill{margin:0 auto}'+
+  '@keyframes jfaIn{0%{opacity:0;transform:translateX(calc(100% + 44px)) scale(.94) rotate(1.5deg)}60%{opacity:1}100%{opacity:1;transform:none}}'+
+  '@keyframes jfaOut{to{opacity:0;transform:translateX(calc(100% + 44px)) scale(.96)}}'+
+  '@keyframes jfaDrop{0%{opacity:0;transform:translateY(-115%) scale(.96)}100%{opacity:1;transform:none}}'+
+  '@keyframes jfaUp{to{opacity:0;transform:translateY(-115%)}}'+
+  '@keyframes jfaFlow{0%{background-position:0% 50%}100%{background-position:300% 50%}}'+
+  '@keyframes jfaSheen{to{transform:translateX(130%)}}'+
+  '@keyframes jfaRing{0%{transform:scale(.92);opacity:.95}100%{transform:scale(1.32);opacity:0}}'+
+  '@keyframes jfaDot{0%{box-shadow:0 0 0 0 rgba(244,63,94,.55)}80%,100%{box-shadow:0 0 0 7px rgba(244,63,94,0)}}'+
+  '@keyframes jfaKen{from{transform:scale(1.1)}to{transform:scale(1)}}'+
+  '@keyframes jfaBar{from{transform:scaleX(1)}to{transform:scaleX(0)}}'+
+  '@keyframes jfaPillIn{0%{opacity:0;transform:translateY(-10px) scale(.86)}100%{opacity:1;transform:none}}'+
+  '@keyframes jfaPillOut{to{opacity:0;transform:translateY(-8px) scale(.9)}}'+
+  '.jf-post.fresh{border:1.5px solid transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(115deg,#ff8a3d,#f43f5e 45%,#a855f7) border-box;box-shadow:0 18px 44px -30px rgba(244,63,94,.65);animation:jfFresh 2.6s ease-out 1}'+
+  '@keyframes jfFresh{0%{box-shadow:0 0 0 0 rgba(244,63,94,.35),0 18px 44px -30px rgba(244,63,94,.65)}40%{box-shadow:0 0 0 9px rgba(244,63,94,0),0 18px 44px -30px rgba(244,63,94,.65)}100%{box-shadow:0 18px 44px -30px rgba(244,63,94,.65)}}'+
+  '.jf-chip.new{background:linear-gradient(135deg,#ff7a29,#f43f5e);color:#fff;box-shadow:0 6px 14px -8px rgba(244,63,94,.9)}'+
+  '.jf-nb{animation:jfNb 2.2s ease-out infinite}.jf-nb.todo{animation-name:jfNbO}'+
+  '@keyframes jfNb{0%{box-shadow:0 0 0 0 rgba(244,63,94,.6)}70%,100%{box-shadow:0 0 0 7px rgba(244,63,94,0)}}'+
+  '@keyframes jfNbO{0%{box-shadow:0 0 0 0 rgba(241,86,15,.6)}70%,100%{box-shadow:0 0 0 7px rgba(241,86,15,0)}}'+
+  '@media (max-width:560px){#jf-ann{top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;right:10px;width:auto;max-width:none}#jf-ann .jfa-card{animation:jfaDrop .62s cubic-bezier(.16,1.16,.3,1) both,jfaFlow 8s linear infinite}#jf-ann .jfa-card.out{animation:jfaUp .32s ease-in both}#jf-ann .jfa-pill{margin:0 auto}}'+
+  '@media (prefers-reduced-motion:reduce){#jf-ann *,#jf-ann *:before,#jf-ann *:after,.jf-nb,.jf-post.fresh{animation:none!important}}'+
   '@media (max-width:640px){.jf-post{padding:12px 12px 8px;border-radius:14px}.jf-title{font-size:16.5px}.jf-body{font-size:14.5px}.jf-rx{font-size:18px;padding:4px 4px}.jf-c.reply{margin-left:28px}.jf-opts{flex-direction:column}}';
   window.JMBFeed=A;
 })();
