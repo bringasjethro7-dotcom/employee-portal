@@ -7272,9 +7272,10 @@ var TOOLG = {
   URL:  { reddit:'https://internals.jmbvirtuals.com/reddit.html', altr:'https://internals.jmbvirtuals.com/altr-studio.html', clients:'https://internals.jmbvirtuals.com/clients.html' },
   SHORT:{ reddit:'Reddit Central', altr:'Studio', clients:'Client Hub' },
   EXEMPT: /meeting|huddle|training|coaching|onboarding|interview/i,
-  /* Client Hub (Oct 9): small clients share one tool page. Only clients whose tool is LIVE in the hub are linked —
-     Design & Shopify now; add Imperium / Project 2 here when their tabs go live (a placeholder tab can't show work). */
-  toolOf: function(proj){ proj=String(proj||''); if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; if(/shopify|torchlight/i.test(proj)) return 'clients'; return ''; },
+  /* Client Hub (Oct 9): small clients share one tool page. Every client whose tool is LIVE in the hub is linked —
+     no pairing, no timer. Design & Shopify + Imperium (SOP-02) now; add Project 2 when its tab goes live
+     (a placeholder tab can't show work, so pairing it would lock those VAs out). */
+  toolOf: function(proj){ proj=String(proj||''); if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; if(/shopify|torchlight|imperium/i.test(proj)) return 'clients'; return ''; },
   me: function(){ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); },
   /* Oct 8 (Jeth): Threads work sits under the Alts project but has no tool yet — never stop it. Remove once the
      Threads tool is live. EXEMPT_IDS = people excused for now (upper-case contractor IDs). */
@@ -16938,6 +16939,22 @@ async function sendEodReport(){
       if(o.board || String(o.task||'')==='📋 Board Completion'){ var bp=String(o.project||'').toLowerCase(); if(bp) _boardProj[bp]=1; }
     });
     var _ents = (window._trkTodayEntries||[]).filter(function(e){ return e && e.status!=='running' && e.status!=='paused' && e.end && !(typeof isIdleProject==='function' && isIdleProject(e.project)); });
+    /* Oct 9: ALTR Studio keeps its posting/sourcing in its OWN backend — it never writes the portal's output rows,
+       so this check told every ALTR VA (Andrea, after a full day in the Studio) that the tool had nothing. The
+       Studio's heartbeat (Supabase tool_beat, tool "altr") says whether they worked in it today: if they did,
+       ALTR tasks count as updated; if the Studio wasn't opened at all, the reminder still shows. */
+    var _altrUsed = false;
+    try{
+      var _altrE = _ents.filter(function(e){ return /altr/i.test(String(e.project||'')); });
+      if (_altrE.length && typeof TOOLG!=='undefined') {
+        // "today" = since this VA's first ALTR timer of the shift started (30 min early allowed); unknown → last 16 h
+        var _from = Infinity; _altrE.forEach(function(e){ var t=NaN; try{ t=parseTrkTime(e.start); }catch(_p){} if(!isNaN(t) && t<_from) _from=t; });
+        if (!isFinite(_from)) _from = Date.now()-16*3600*1000; _from -= 30*60*1000;
+        var _tb = await TOOLG.row(String(chatEmpId||'').toUpperCase(), 'altr');
+        if (!_tb || !_tb.ok) _altrUsed = true;                          // can't tell (no table / offline) → never block on it
+        else if (_tb.row) { var _act = Math.max(Date.parse(_tb.row.last_active||'')||0, Date.parse(_tb.row.open_at||'')||0); _altrUsed = _act >= _from; }
+      }
+    }catch(_ta){ _altrUsed = true; }
     var _missing = {}, _ord = [];
     _ents.forEach(function(e){
       var proj=String(e.project||'').toLowerCase();
@@ -16953,6 +16970,7 @@ async function sendEodReport(){
       });
       // completed CRM board today = the tool WAS updated for this project's tasks
       if(!hit){ hit=Object.keys(_boardProj).some(function(bp){ return proj.indexOf(bp)>=0 || bp.indexOf(proj)>=0; }); }
+      if(!hit && _altrUsed && proj.indexOf('altr')>=0) hit=true;   // worked in ALTR Studio today (see above)
       if(!hit){ var k=(e.task||e.description||'Task')+(e.project?(' ('+e.project+')'):''); if(!_missing[k]){ _missing[k]=1; _ord.push(k); } }
     });
     if(_ord.length){
