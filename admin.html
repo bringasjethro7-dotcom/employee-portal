@@ -1019,6 +1019,7 @@ body{background-attachment:initial !important}
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
+            <option value="duplicate">Duplicates (collapsed)</option>
           </select>
           <select class="sinp" id="ltype" onchange="filterLeave()" style="width:160px;">
             <option value="">All types</option>
@@ -5055,13 +5056,23 @@ function _optiHeaderTick(container){ try{                       // "Pending appe
   var hd=container&&container.querySelector&&container.querySelector('[data-opti-count]');
   if(!hd) return; var m=hd.textContent.match(/\((\d+)\)/);
   if(m){ var v=Math.max(0,parseInt(m[1],10)-1); hd.textContent=hd.textContent.replace(/\(\d+\)/,'('+v+')'); } }catch(_h){} }
-async function resolveAppeal(entryId, decision){
+async function resolveAppeal(entryId, decision, _force){
   if(decision==='reject' && !confirm('Reject this appeal?')) return;
+  if(decision==='approve' && !_force && typeof window._appealBlockMsg==='function'){
+    var _bm=window._appealBlockMsg(_apCache[entryId]);
+    if(_bm){
+      if(!confirm('This appeal can’t be approved as it is:\n\n'+_bm+'\n\nReject it instead? (OK = Reject · Cancel = leave it)')){
+        if(confirm('Approve ANYWAY? This would pay time that is already tracked/approved. Only do this if you’ve checked the tracked entry is wrong.')) return resolveAppeal(entryId, 'approve', true);
+        return;
+      }
+      decision='reject';
+    }
+  }
   var _sel='[data-ap="'+entryId+'"]';
   _optiPending(_sel);
   try{
     var _rw=(_apCache[entryId]&&_apCache[entryId].row)?('&row='+encodeURIComponent(_apCache[entryId].row)):'';   // lets the backend skip the 10k-row scan
-    var _url=API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+_rw;
+    var _url=API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+_rw+(_force?'&force=1':'');
     var d=null;
     for(var _try=1;_try<=3;_try++){   // a non-JSON reply (Apps Script error page / dropped connection) used to surface as a bare "Network error." — retry, then say what to do
       try{ var r=await fetch(_url+'&_='+Date.now()); d=await r.json(); break; }
@@ -5721,16 +5732,20 @@ function fmtLeaveDate(val) {
 
 function filterLeave(){
   var s=document.getElementById('lstatus').value, t=document.getElementById('ltype').value;
-  var f=leaveRecs.filter(function(r){return(!s||r.status===s)&&(!t||r.type===t);});
+  // Copies of the same request (same VA, type and dates) are marked "duplicate" by the server and
+  // kept out of every view unless you pick "Duplicates" — they're not deleted, just collapsed.
+  var nDup=leaveRecs.filter(function(r){ return r.status==='duplicate'; }).length;
+  var f=leaveRecs.filter(function(r){return(s?r.status===s:r.status!=='duplicate')&&(!t||r.type===t);});
   var tb=document.getElementById('ltbody');
-  if(!f.length){tb.innerHTML='<tr><td colspan="8" class="es">No leave requests found.</td></tr>';return;}
+  var dupRow=(nDup&&s!=='duplicate')?'<tr><td colspan="8" style="font-size:11.5px;color:var(--t3);padding:8px 12px;">'+nDup+' duplicate submission'+(nDup===1?'':'s')+' collapsed (same VA, same type, same dates) — <a href="#" onclick="document.getElementById(\'lstatus\').value=\'duplicate\';filterLeave();return false;">show</a></td></tr>':'';
+  if(!f.length){tb.innerHTML='<tr><td colspan="8" class="es">No leave requests found.</td></tr>'+dupRow;return;}
   tb.innerHTML=f.map(function(r){
     var tl={vacation:'Vacation',sick:'Sick',emergency:'Emergency'}[r.type]||r.type;
     var startVal = r.start || r.start_date || r.startDate || '';
     var endVal   = r.end   || r.end_date   || r.endDate   || '';
     var sf = fmtLeaveDate(startVal);
     var ef = fmtLeaveDate(endVal);
-    var badge=r.status==='approved'?'<span class="lbapp">Approved</span>':r.status==='rejected'?'<span class="lbrej">Rejected</span>':'<span class="lbpend">Pending</span>';
+    var badge=r.status==='approved'?'<span class="lbapp">Approved</span>':r.status==='rejected'?'<span class="lbrej">Rejected</span>':r.status==='duplicate'?'<span class="lbrej" style="opacity:.6" title="Same request was already in the queue">Duplicate</span>':'<span class="lbpend">Pending</span>';
     var acts=r.status==='pending'
       ?('<div style="display:flex;gap:6px;"><button class="bsm edit" onclick="updLeave(\'' + r._row + '\',\'approved\')">Approve</button><button class="bsm danger" onclick="updLeave(\'' + r._row + '\',\'rejected\')">Reject</button></div>')
       :'—';
@@ -5744,7 +5759,7 @@ function filterLeave(){
       '<td>'+badge+'</td>'+
       '<td>'+acts+'</td>'+
     '</tr>';
-  }).join('');
+  }).join('')+dupRow;
 }
 
 function updLeave(row, status) {
@@ -11311,6 +11326,13 @@ var ADMAURA = (function(){
 .aptl-list .r .t{ width:150px; flex:none; font-variant-numeric:tabular-nums; color:#6b7086; } .aptl-list .r .h{ width:52px; flex:none; font-weight:800; }
 .aptl-list .r.idle{ color:#94a3b8; } .aptl-list .r.me{ background:rgba(124,58,237,.06); }
 </style>
+<style id="appeal-io-css">
+.aptl-io{position:absolute;top:-3px;bottom:-3px;width:0;border-left:2px solid #0f172a;z-index:3;pointer-events:auto}
+.aptl-io.out{border-left-color:#e11d48}
+.aptl-io span{position:absolute;top:-15px;left:-1px;transform:translateX(-50%);font-size:9.5px;font-weight:800;letter-spacing:.02em;color:#0f172a;background:#fff;border:1px solid rgba(15,23,42,.15);border-radius:5px;padding:0 4px;white-space:nowrap}
+.aptl-io.out span{color:#e11d48}
+.aptl-b.op{background:repeating-linear-gradient(135deg,#fbbf24 0 4px,#fef3c7 4px 8px);opacity:.9}
+</style>
 <script id="appeal-tl-js">
 /* Hour appeal review: draws the VA's whole day — work (green), idle (grey), lunch (amber),
    and the GAPS where nothing was tracked (red dashed) — then lays the requested window over it
@@ -11365,7 +11387,11 @@ var ADMAURA = (function(){
         rq={ s:rs, e:re };
       }
     }
-    if(!blocks.length && !rq && !me) return '';
+    /* Oct 9: the server measured the window, the time-in/out and the gaps — trust those when present */
+    var G=x.gap||null, io=[];
+    if(G && G.window){ var ws=ts(G.window.s), we=ts(G.window.e); if(ws!=null && we!=null && we>ws) rq={ s:ws, e:we }; }
+    if(G) (G.blocks||[]).forEach(function(b){ var a=ts(b.in), o=ts(b.out); if(a!=null) io.push({ t:a, k:'in' }); if(o!=null) io.push({ t:o, k:'out' }); });
+    if(!blocks.length && !rq && !me && !io.length) return '';
 
     /* lunch: use the recorded lunch block; if none, assume the auto-lunch hour so it never reads as a gap */
     var all=blocks.slice();
@@ -11379,7 +11405,7 @@ var ADMAURA = (function(){
     }
     /* axis */
     var pts=[]; all.forEach(function(b){ if(b.auto && !hasLunch && blocks.length && (b.e<blocks[0].s || b.s>blocks[blocks.length-1].e)) return; pts.push(b.s,b.e); });
-    if(rq) pts.push(rq.s, rq.e); if(me) pts.push(me.s, me.e);
+    if(rq) pts.push(rq.s, rq.e); if(me) pts.push(me.s, me.e); io.forEach(function(m){ pts.push(m.t); });
     var lo=Math.min.apply(null,pts), hi=Math.max.apply(null,pts);
     lo=Math.floor((lo-30*M)/H)*H; hi=Math.ceil((hi+30*M)/H)*H; if(hi-lo<4*H) hi=lo+4*H;
     var span=hi-lo, hrs=Math.round(span/H);
@@ -11390,6 +11416,7 @@ var ADMAURA = (function(){
     var shown=all.filter(function(b){ return b.s<hi && b.e>lo; });
     var gaps=[], cur=null;
     shown.forEach(function(b){ if(cur!=null && b.s-cur>=GAP_MIN*M) gaps.push({ s:cur, e:b.s }); cur=(cur==null)?b.e:Math.max(cur,b.e); });
+    if(G && G.gaps){ gaps=(G.gaps||[]).map(function(g){ return { s:ts(g.s), e:ts(g.e) }; }).filter(function(g){ return g.s!=null && g.e>g.s; }); }
 
     /* recorded row */
     var rec='';
@@ -11399,6 +11426,8 @@ var ADMAURA = (function(){
       rec+='<div class="aptl-b '+b.k+(b.me?' me':'')+'" style="left:'+pct(b.s)+';width:'+wid(b.s,b.e)+'" title="'+E(nm)+' · '+clockL(b.s)+' – '+clockL(b.e)+(b.proj&&b.k==='w'?' · '+E(b.proj):'')+'">'+(b.k==='w' && (b.e-b.s)/span>0.12 ? '<span>'+E(b.lab)+'</span>' : '')+'</div>';
     });
     if(me && !blocks.some(function(b){ return b.me; })) rec+='<div class="aptl-b w me" style="left:'+pct(me.s)+';width:'+wid(me.s,me.e)+'" title="The entry being corrected"></div>';
+    (G&&G.others||[]).forEach(function(o){ var a=ts(o.s), b2=ts(o.e); if(a==null||b2==null) return; rec+='<div class="aptl-b op" style="left:'+pct(a)+';width:'+wid(a,b2)+'" title="Another appeal pending · '+clockL(a)+' – '+clockL(b2)+'"></div>'; });
+    io.forEach(function(m){ rec+='<div class="aptl-io '+m.k+'" style="left:'+pct(m.t)+'" title="Time '+m.k+' · '+clockL(m.t)+'"><span>'+(m.k==='in'?'IN ':'OUT ')+clock(m.t)+'</span></div>'; });
     var band=rq ? '<div class="aptl-band" style="left:'+pct(rq.s)+';width:'+wid(rq.s,rq.e)+'"></div>' : '';
 
     /* verdict */
@@ -11425,6 +11454,13 @@ var ADMAURA = (function(){
       if(claimH!=null && blocks.length && claimH*60>gapMin+10){ vk='warn'; ic='⚠️'; }
     }
 
+    if(G && !retag){
+      var gv=String(G.verdict||'');
+      if(!G.has_time_in){ vk='bad'; ic='⛔'; v='<b>No time-in that day.</b> Only time between time-in and time-out can be appealed.'; }
+      else if(gv==='gap'){ vk='ok'; ic='✅'; v='<b>Fills a gap</b> inside the time-in/out — '+(rq?clockL(rq.s)+' – '+clockL(rq.e)+' · ':'')+'<b>'+(G.window?G.window.hours:'?')+'h</b> (the hours are the window).'+(G.ended?'':' <br>Note: the day has no time-out yet.'); }
+      else if(gv==='OVERLAPS_TRACKED' || gv==='DUPLICATE_APPROVED'){ vk='bad'; ic='⛔'; v='<b>'+(gv==='OVERLAPS_TRACKED'?'Overlaps tracked time':'Duplicate — that time is already approved')+'.</b> '+E(G.message||'')+' Approve is blocked.'; }
+      else if(gv){ vk='warn'; ic='⚠️'; v='<b>Check before approving.</b> '+E(G.message||gv); }
+    }
     /* axis labels: every hour, or every 2 on long days */
     var step=hrs>14?2:1, ax='';
     for(var t=lo; t<=hi; t+=step*H) ax+='<span style="left:'+pct(t)+'">'+clock(t)+'</span>';
@@ -11443,6 +11479,8 @@ var ADMAURA = (function(){
       '<div class="aptl-v '+vk+'"><span class="ic">'+ic+'</span><span>'+v+'</span></div>'+(list||'')+'</div>';
   }
   window._appealTimelineHtml=timeline;
+  /* Approve is blocked when the server says the window overlaps tracked time or is already approved. */
+  window._appealBlockMsg=function(x){ var G=x&&x.gap; if(!G) return ''; var v=String(G.verdict||''); return (v==='OVERLAPS_TRACKED'||v==='DUPLICATE_APPROVED') ? (G.message||v) : ''; };
   window._appealDayHtml=function(x){
     var day=x.day_entries||[];
     if(!day.length && !(x.claim_start && x.claim_end) && !x.entry_start){ try{ return orig ? orig(x) : ''; }catch(e){ return ''; } }

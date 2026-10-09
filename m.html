@@ -1017,22 +1017,39 @@ function lvDays(a,b){
   var d1=new Date(a), d2=new Date(b||a);
   return Math.max(1,Math.round((d2-d1)/86400000)+1);
 }
+function lvNote(kind, title, msg){
+  var b=$('lv-btn'), n=$('lv-note');
+  if(!n && b){ n=document.createElement('div'); n.id='lv-note'; b.parentNode.insertBefore(n, b.nextSibling); }
+  if(!n) return;
+  if(!title){ n.style.display='none'; return; }
+  var c = kind==='ok' ? '52,211,153' : (kind==='err' ? '248,113,113' : '251,191,36');
+  n.style.cssText='display:block;margin-top:10px;padding:10px 12px;border-radius:12px;font-size:12.5px;line-height:1.5;color:var(--t2);background:rgba('+c+',.09);border:1px solid rgba('+c+',.38);';
+  n.innerHTML='<b style="display:block;color:inherit;font-size:13px;margin-bottom:2px;">'+esc(title)+'</b>'+esc(msg||'');
+}
 async function submitLeave(){
   var s=$('lv-start').value, e=$('lv-end').value||s, rs=($('lv-reason').value||'').trim();
   if(!_lvType){ toast('Pick a leave type.'); return; }
   if(!s){ toast('Pick a start date.'); return; }
   if(!rs){ toast('Add a short reason.'); return; }
-  var b=$('lv-btn'); b.disabled=true; b.textContent='Submitting…';
+  var b=$('lv-btn'); if(b.disabled) return; b.disabled=true; b.textContent='Submitting…'; lvNote();
   try{
-    await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},mode:'no-cors',
+    /* readable POST (no no-cors) — the server refuses a copy of a request already in the admin's queue */
+    var d=await (await fetch(API,{method:'POST',
       body:JSON.stringify({action:'submit_leave',employee_id:ME.employee_id,full_name:ME.full_name,
         type:_lvType,start:s,end:e,days:lvDays(s,e),reason:rs,status:'pending',
-        submitted:new Date().toISOString()})});
-    toast('Leave request sent ✅');
-    $('lv-start').value=''; $('lv-end').value=''; $('lv-reason').value='';
-    _lvType=null; LV_TYPES.forEach(function(_,j){ $('lt-'+j).classList.remove('on'); });
-    setTimeout(loadLeave,1500);
-  }catch(err){ toast('Could not submit — try again.'); }
+        submitted:new Date().toISOString()})})).json();
+    if(d&&(d.success||d.ok)){
+      toast('Leave request sent ✅');
+      lvNote('ok','Sent — it’s in the admin’s queue','You’ll get an email once it’s decided. No need to send it again.');
+      $('lv-start').value=''; $('lv-end').value=''; $('lv-reason').value='';
+      _lvType=null; LV_TYPES.forEach(function(_,j){ $('lt-'+j).classList.remove('on'); });
+      setTimeout(loadLeave,1500);
+    } else if(d&&d.error==='DUPLICATE'){
+      lvNote('dup','Already sent — nothing new was added', d.message||'You already have this request in the admin’s queue.');
+    } else {
+      lvNote('err','Not sent', (d&&d.message)||('The portal answered: '+((d&&d.error)||'error')+'. Try again in a moment.'));
+    }
+  }catch(err){ lvNote('err','Couldn’t confirm it was received','Check your connection and tap Submit again — if it already went through, the portal will tell you instead of sending a copy.'); }
   b.disabled=false; b.textContent='Submit request';
 }
 async function loadLeave(){
@@ -1042,7 +1059,7 @@ async function loadLeave(){
     var ctrl=new AbortController(); setTimeout(function(){ ctrl.abort(); },15000);
     var d=await (await fetch(API+'?action=get_leave_requests&id='+encodeURIComponent(ME.employee_id)+'&_='+Date.now(),{signal:ctrl.signal})).json();
     var rows=(d&&(d.requests||d.leaves))||[];
-    rows=rows.filter(function(r){ return String(r.employee_id||'').toUpperCase()===String(ME.employee_id).toUpperCase(); });
+    rows=rows.filter(function(r){ return String(r.employee_id||'').toUpperCase()===String(ME.employee_id).toUpperCase() && String(r.status||'').toLowerCase()!=='duplicate'; });
     if(!rows.length){ el.innerHTML='<div style="color:var(--t3);font-size:13px;padding:8px 2px;">No requests yet.</div>'; return; }
     rows.sort(function(a,b){ return String(b.submitted||b.start||'').localeCompare(String(a.submitted||a.start||'')); });
     el.innerHTML=rows.map(function(r){
