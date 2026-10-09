@@ -10511,6 +10511,7 @@ function migrateToSessions(rec) {
   return rec;
 }
 
+function _attRetry(){ var n=(window._attRetryN||0)+1; if(n>6) return; window._attRetryN=n; clearTimeout(window._attRetryT); window._attRetryT=setTimeout(function(){ try{ loadAttendanceLogs(); }catch(e){} }, Math.min(120000, 15000*n)); }
 function loadAttendanceLogs() {
   // attToday is already set correctly by resolveAttToday() in initAttendance
   // Re-resolve on tab switch to handle midnight crossover
@@ -10584,9 +10585,10 @@ function loadAttendanceLogs() {
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.records && data.records.length) {
-        attRecords = data.records;
+        attRecords = data.records; window._attRetryN = 0;
         localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
       } else {
+        if (!data || data.error || !data.records) _attRetry();   // an error, not an empty history — try again soon
         // Try localStorage records as fallback
         var saved = localStorage.getItem('att_' + attEmpId);
         if (saved) { try { attRecords = JSON.parse(saved); } catch(e) { attRecords = []; } }
@@ -10601,10 +10603,11 @@ function loadAttendanceLogs() {
       finalize(serverRec);
     })
     .catch(function() {
-      // Offline — use localStorage only
+      // Offline / server overloaded — use localStorage now, and ask again shortly (Oct 9: Recent logs stayed empty)
       var saved = localStorage.getItem('att_' + attEmpId);
       if (saved) { try { attRecords = JSON.parse(saved); } catch(e) { attRecords = []; } }
       finalize(null);
+      _attRetry();
     });
 }
 
@@ -10791,7 +10794,7 @@ function _apgState(kind, title, msg){
 }
 function _apgShow(on){ ['ap-gap-win','ap-desc-field','ap-proj-fields','ap-reason-wrap'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display=on?'block':'none'; }); var sb=document.getElementById('ap-submit'); if(sb){ sb.disabled=!on; sb.style.opacity=on?'':'.5'; } }
 function apGapShift(n){ var el=document.getElementById('ap-gdate'); if(!el||!el.value) return; var d=new Date(el.value+'T12:00:00'); d.setDate(d.getDate()+n);
-  var v=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); if(v>_apToday()||v<_apMinDate()) return; el.value=v; apGapLoad(); }
+  var v=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); if(v>_apToday()||v<_apMinDate()) return; el.value=v; clearTimeout(window._apGT); window._apGT=setTimeout(apGapLoad, 350); }   // debounced: flipping days fast is one read, not five
 function apGapLoad(){
   var dEl=document.getElementById('ap-gdate'), date=dEl.value||_apToday(), st=document.getElementById('ap-gap-state'),
       tl=document.getElementById('ap-gap-tl'), ch=document.getElementById('ap-gap-chips');
@@ -10799,8 +10802,11 @@ function apGapLoad(){
   document.getElementById('ap-err').style.display='none';
   st.innerHTML='<div class="apg-state"><span class="ic"></span><div><b>Checking '+escapeHtml(_rwlDayLabel(date))+'…</b>Looking for gaps between your time-in and time-out.</div></div>';
   var id=(typeof attEmpId!=='undefined'&&attEmpId)?attEmpId:'';
-  jGet(APPS_SCRIPT_URL+'?action=appeal_gaps&employee_id='+encodeURIComponent(id)+'&date='+date+'&_='+Date.now())
-    .then(function(r){ return r.json(); }).then(function(d){
+  var _ck=(window._apGC=window._apGC||{})[id+'|'+date];
+  var _get=(_ck && Date.now()-_ck.t<60000 && _ck.d && _ck.d.ok) ? Promise.resolve(_ck.d)
+    : jGet(APPS_SCRIPT_URL+'?action=appeal_gaps&employee_id='+encodeURIComponent(id)+'&date='+date+'&_='+Date.now()).then(function(r){ return r.json(); })
+        .then(function(d){ if(d && d.ok) window._apGC[id+'|'+date]={ t:Date.now(), d:d }; return d; });
+  _get.then(function(d){
       if(_apG.date!==date) return;                       // the VA already picked another day
       if(d && d.error==='UNKNOWN_ACTION'){ st.innerHTML=_apgState('wait','Gap appeals are being switched on', 'The new appeal check isn’t live on the server yet. Try again a little later — your admin has been told.'); return; }
       if(!d || !d.ok){ st.innerHTML=_apgState('err','Couldn’t check that day', escapeHtml((d&&d.message)||'The portal didn’t answer. Try again in a moment.')); return; }
@@ -11061,27 +11067,43 @@ function loadMyAppeals(){
 }
 /* After EOD: if the day just ended has untracked gaps (between time-in and time-out, nothing tracked),
    offer — once, gently — to appeal them. Gaps can only be appealed after the day ends. */
+/* Oct 9 (incident): this used to call appeal_gaps up to 3× right after EVERY EOD — a full WorkLog read each time, all at
+   5 PM when the whole team ends the day. That pile-up helped choke the backend. The nudge is now worked out on the
+   device from what the portal already holds (today's sessions + entries); the server is only asked when the VA opens
+   the gap box. */
+function _gapLocal(date){
+  try{
+    if(!todayLog || todayLog.date!==date) return [];
+    var ses=(todayLog.sessions||[]).filter(function(x){ return x && x.time_in && x.time_out; });
+    if(!ses.length) return [];
+    var by={}; try{ _loadTodayCache().forEach(function(e){ if(e&&e.entry_id) by[e.entry_id]=e; }); }catch(_c){}
+    (window._trkTodayEntries||[]).forEach(function(e){ if(e&&e.entry_id) by[e.entry_id]=e; });
+    var busy=Object.keys(by).map(function(k){ var e=by[k], s0=parseTrkTime(e.start), e0=e.end?parseTrkTime(e.end):NaN; if(isNaN(s0)) return null;
+      if(isNaN(e0)||e0<=s0) e0=s0+Math.max(60000,(parseFloat(e.active_secs)||0)*1000); return { s:s0, e:e0 }; }).filter(Boolean);
+    try{ if(window.AUL && AUL.enabled===true){ var w=AUL.win(); if(w&&w.start) busy.push({ s:+w.start, e:+w.end }); } }catch(_l){}
+    busy.sort(function(a,b){ return a.s-b.s; });
+    var gaps=[];
+    ses.forEach(function(x){ var bi=new Date(x.time_in).getTime(), bo=new Date(x.time_out).getTime(); if(!(bo>bi)) return; var cur=bi;
+      busy.forEach(function(b){ if(b.e<=cur||b.s>=bo) return; if(b.s>cur) gaps.push({ s:cur, e:Math.min(b.s,bo) }); cur=Math.max(cur,b.e); });
+      if(cur<bo) gaps.push({ s:cur, e:bo }); });
+    return gaps.filter(function(g){ return g.e-g.s>=5*60000; }).map(function(g){ return { s_hm:_apgHM(g.s), e_hm:_apgHM(g.e), mins:Math.round((g.e-g.s)/60000) }; });
+  }catch(e){ return []; }
+}
 function _gapNudgeAfterEod(date, n){
   setTimeout(function(){
-    var id=(typeof attEmpId!=='undefined'&&attEmpId)?attEmpId:''; if(!id) return;
-    jGet(APPS_SCRIPT_URL+'?action=appeal_gaps&employee_id='+encodeURIComponent(id)+'&date='+date+'&_='+Date.now())
-      .then(function(r){ return r.json(); }).then(function(d){
-        if(!d || !d.ok || !d.has_time_in) return;
-        if(!d.ended){ if(n<2) _gapNudgeAfterEod(date, n+1); return; }   // the time-out write is still landing
-        var g=d.gaps||[]; if(!g.length) return;
-        var tot=g.reduce(function(a,x){ return a+x.mins; },0);
-        var old=document.getElementById('gap-nudge'); if(old) old.remove();
-        var el=document.createElement('div'); el.id='gap-nudge'; el.className='gap-nudge';
-        el.innerHTML='<b class="t">'+g.length+' untracked gap'+(g.length>1?'s':'')+' today · '+_apgDur(tot)+'</b>'+
-          'Time between your time-in and time-out with nothing tracked: '+g.slice(0,3).map(function(x){ return escapeHtml(x.s_hm)+'–'+escapeHtml(x.e_hm); }).join(', ')+(g.length>3?'…':'')+
-          '. If you were working then (timer/system error, or you forgot to start it), you can appeal it now.'+
-          '<div class="bars">'+g.slice(0,12).map(function(x){ return '<span style="flex:'+Math.max(1,x.mins)+'"></span>'; }).join('')+'</div>'+
-          '<div class="row"><button class="go">Review gaps</button><button class="no">Not now</button></div>';
-        el.querySelector('.go').onclick=function(){ el.remove(); appealGapOn(date); };
-        el.querySelector('.no').onclick=function(){ el.remove(); };
-        document.body.appendChild(el);
-      }).catch(function(){});
-  }, n ? 7000 : 4500);
+    var g=_gapLocal(date); if(!g.length) return;
+    var tot=g.reduce(function(a,x){ return a+x.mins; },0);
+    var old=document.getElementById('gap-nudge'); if(old) old.remove();
+    var el=document.createElement('div'); el.id='gap-nudge'; el.className='gap-nudge';
+    el.innerHTML='<b class="t">'+g.length+' untracked gap'+(g.length>1?'s':'')+' today · '+_apgDur(tot)+'</b>'+
+      'Time between your time-in and time-out with nothing tracked: '+g.slice(0,3).map(function(x){ return escapeHtml(x.s_hm)+'–'+escapeHtml(x.e_hm); }).join(', ')+(g.length>3?'…':'')+
+      '. If you were working then (timer/system error, or you forgot to start it), you can appeal it.'+
+      '<div class="bars">'+g.slice(0,12).map(function(x){ return '<span style="flex:'+Math.max(1,x.mins)+'"></span>'; }).join('')+'</div>'+
+      '<div class="row"><button class="go">Review gaps</button><button class="no">Not now</button></div>';
+    el.querySelector('.go').onclick=function(){ el.remove(); appealGapOn(date); };
+    el.querySelector('.no').onclick=function(){ el.remove(); };
+    document.body.appendChild(el);
+  }, 2500);
 }
 function submitEOD() {
   /* No output entry at EOD — the tools already counted it. The entries still need their status
@@ -11109,7 +11131,8 @@ function submitEOD() {
       fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
         if (d && (d.success || d.ok)) return;                                     // statuses flipped — done
         if (n < 8) setTimeout(function(){ attempt(n+1); }, Math.min(8000, 1200*n)); // keep retrying quietly under load
-      }).catch(function(){ if (n < 8) setTimeout(function(){ attempt(n+1); }, Math.min(8000, 1200*n)); });
+        else WOB.push(url, 'eod_volumes');                                          // still not through → the outbox keeps at it
+      }).catch(function(){ if (n < 8) setTimeout(function(){ attempt(n+1); }, Math.min(8000, 1200*n)); else WOB.push(url, 'eod_volumes'); });
     })(1);
   }
 }
@@ -11538,12 +11561,15 @@ function logTime(type) {
   localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
   localStorage.setItem('att_today_' + attEmpId + '_' + attToday, JSON.stringify(todayLog));
 
-  attConfirmed({
-    action: 'log_attendance', employee_id: attEmpId,
+  var _attP = { action: 'log_attendance', employee_id: attEmpId,
     date: attToday, type: type, timestamp: isoNow,
-    shift: todayLog.shift, session_num: todayLog.sessions.length
-  }).catch(function(){
-    showToast('Your ' + typeLabel(type) + ' didn\'t save to the server — please tap the button again.', 'error');
+    shift: todayLog.shift, session_num: todayLog.sessions.length };
+  attConfirmed(_attP).catch(function(){
+    /* Oct 9: overloaded backend → keep the punch on this device and keep sending it (the punch carries its own
+       timestamp, so it lands with the right time whenever it gets through). No "tap again" — that only adds load. */
+    var _q = Object.keys(_attP).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(_attP[k] == null ? '' : _attP[k]); }).join('&');
+    WOB.push(APPS_SCRIPT_URL + '?' + _q, 'att_' + type);
+    WOB.note(typeLabel(type));
   });
 
   // (Volume entry + work-log submission now happen in the EOD receipt, not on time-out.)
@@ -12633,20 +12659,64 @@ var trkSessionId = (function(){
   } catch(e) { return 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
 })();
 var trkOwns = true;   // does this session own the currently-running timer?
+/* ── 📮 WRITE OUTBOX (Oct 9, 2026 incident) ─────────────────────────────────────────────────────────
+   When the backend is overloaded, a Stop / Pause / Start that ran out of retries used to be DROPPED: the server kept
+   the old task open, the next Start paused it, and it surfaced later as a second bar with 1 minute on it. A Time Out
+   (EOD) that didn't land just said "tap again" — more load. Now any undelivered timer or attendance write is kept on
+   this device, in order, and re-sent with backoff until the server takes it (it survives a reload). Each replay
+   carries q_delay = how long it waited on the device, so the server can date it to when it really happened. */
+var WOB = {
+  busy:false, t:null,
+  key: function(){ return 'wob_' + String(attEmpId || '').toUpperCase(); },
+  load: function(){ if(!attEmpId) return []; try{ return JSON.parse(localStorage.getItem(this.key())||'[]')||[]; }catch(e){ return []; } },
+  save: function(L){ if(!attEmpId) return; try{ if(L.length) localStorage.setItem(this.key(), JSON.stringify(L.slice(-80))); else localStorage.removeItem(this.key()); }catch(e){} },
+  pending: function(){ return this.load().length; },
+  push: function(url, kind){ var L=this.load(); L.push({ id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), url:String(url).replace(/&_=\d+$/,''), kind:kind||'', at:Date.now(), n:0 }); this.save(L); this.kick(3000); },
+  kick: function(ms){ var s=this; clearTimeout(s.t); s.t=setTimeout(function(){ s.t=null; s.flush(); }, ms==null?0:ms); },
+  retryable: function(d){ if(!d) return true; var e=String(d.error||''); return e==='BUSY' || /service|timed out|timeout|exception|too many|unavailable|internal/i.test(e); },
+  /* re-read the list around every change — a new write may have been queued while we were waiting on the server */
+  _drop: function(id){ this.save(this.load().filter(function(x){ return x.id!==id; })); },
+  _bump: function(id){ var L=this.load(); L.forEach(function(x){ if(x.id===id) x.n=(x.n||0)+1; }); this.save(L); },
+  flush: async function(){
+    if(this.busy) return; this.busy=true; var did=0;
+    try{
+      for(var guard=0; guard<100; guard++){
+        var it=this.load()[0]; if(!it) break;
+        if(!it.id){ it.id='x'+guard+Date.now(); var L0=this.load(); L0[0].id=it.id; this.save(L0); }
+        if(Date.now()-it.at > 12*3600*1000){ this._drop(it.id); continue; }       // half a day old — let it go
+        var d=null; try{ var r=await fetch(it.url+'&q_delay='+Math.max(0, Date.now()-it.at)+'&_='+Date.now()); d=await r.json(); }catch(e){ d=null; }
+        if(d && (d.success || d.ok)){ this._drop(it.id); did++; continue; }
+        if(d && d.error && !this.retryable(d)){ this._drop(it.id); continue; }      // a definite "no" (NOT_FOUND, LOCKED, LUNCH…)
+        this._bump(it.id);
+        this.busy=false; this.kick(Math.min(120000, Math.round(4000*Math.pow(1.6, Math.min((it.n||0)+1, 9))))); return;
+      }
+      if(did){ try{ showToast('✅ Synced '+did+' saved change'+(did>1?'s':'')+' with the server.'); }catch(_t){} try{ loadTodayEntries(); }catch(_l){} try{ loadAttendanceLogs(); }catch(_a){} }
+    } finally { this.busy=false; }
+  },
+  note: function(what){ try{ showToast('📮 The server is busy — your '+what+' is saved on this device and will sync by itself. No need to tap again.'); }catch(e){} }
+};
+window.addEventListener('online', function(){ WOB.kick(600); });
+document.addEventListener('visibilitychange', function(){ if(!document.hidden) WOB.kick(900); });
+setInterval(function(){ if(WOB.pending() && !WOB.busy && !WOB.t) WOB.kick(0); }, 45000);
+setTimeout(function(){ WOB.kick(6000); }, 0);
+
 function _trkPost(action, extra) {
   // Confirmed write via GET (Apps Script returns a readable JSON response) with retry,
   // so a Stop/Pause/Start never silently fails and leaves an orphaned/incorrect timer.
-  // Runs in the background; only warns the user if every attempt fails.
+  // Runs in the background; anything that still doesn't land goes to the outbox (above).
   var params = Object.assign({ action: action, employee_id: attEmpId, session: trkSessionId }, extra || {});
   var qs = Object.keys(params).map(function(k){
     var v = params[k]; if (v && typeof v === 'object') v = JSON.stringify(v);
     return encodeURIComponent(k) + '=' + encodeURIComponent(v == null ? '' : v);
   }).join('&');
   var url = APPS_SCRIPT_URL + '?' + qs;
+  var queueable = action !== 'tracker_heartbeat';
+  if (queueable && WOB.pending()) { WOB.push(url, action); WOB.kick(0); return; }   // keep the order: never jump ahead of a queued write
   (function attempt(n){
     fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
       if (d && (d.success || d.ok)) return;                                  // confirmed saved
-      if (d && d.error === 'BUSY' && n < 5) { setTimeout(function(){ attempt(n+1); }, 600*n); return; }
+      if (d && WOB.retryable(d) && n < 5) { setTimeout(function(){ attempt(n+1); }, 700*n); return; }
+      if (d && WOB.retryable(d) && queueable) { WOB.push(url, action); WOB.note(action === 'tracker_stop' ? 'Stop' : 'timer change'); return; }
       if (d && d.error === 'LOCKED') showToast('That month is locked — timer changes aren’t allowed.');
       /* The server refused a start/resume because of lunch. Never leave a timer ticking on
          screen that the server did not accept — roll it back and let the lunch screen take over. */
@@ -12661,8 +12731,8 @@ function _trkPost(action, extra) {
         try { if (window.AUL) { AUL._synced = 0; AUL.sync(true); } } catch(e){}
       }
     }).catch(function(){
-      if (n < 5) setTimeout(function(){ attempt(n+1); }, 700*n);
-      else if (action !== 'tracker_heartbeat') showToast('Couldn’t save your timer change — check your connection and retry.');
+      if (n < 5) setTimeout(function(){ attempt(n+1); }, 800*n);
+      else if (queueable) { WOB.push(url, action); WOB.note(action === 'tracker_stop' ? 'Stop' : 'timer change'); }
     });
   })(1);
 }
