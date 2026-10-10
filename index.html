@@ -6799,10 +6799,16 @@ function _wfhReqPending(where, v, already){
 }
 function _wfhReqPoll(where, emp, v){
   if(WFHREQ.timer) clearInterval(WFHREQ.timer);
-  var started=Date.now();
+  var started=Date.now(), lastAsk=0;
+  /* Oct 10: keep asking while the screen stays open — every 25 s for the first 45 min, then every 2 min for up
+     to 14 h. A request sent before the weekend window (Sat 07:00) is now approved by the server on one of these
+     checks, so the VA gets the code without waiting for the admin to wake up. */
   var tick=async function(){
-    if(Date.now()-started > 45*60*1000){ clearInterval(WFHREQ.timer); WFHREQ.timer=null; return; }
+    var age=Date.now()-started;
+    if(age > 14*3600*1000){ clearInterval(WFHREQ.timer); WFHREQ.timer=null; return; }
     if(document.hidden) return;
+    if(age > 45*60*1000 && Date.now()-lastAsk < 115*1000) return;
+    lastAsk=Date.now();
     try{
       var r=await fetch(APPS_SCRIPT_URL+'?action=wfh_code_request_status&employee_id='+encodeURIComponent(emp)+'&request_id='+encodeURIComponent(v.id)+'&_='+Date.now());
       var d=await r.json(); if(!d || !d.ok){ if(d && d.error==='NOT_FOUND'){ clearInterval(WFHREQ.timer); WFHREQ.timer=null; _wfhReqStore(emp, null); _wfhReqBtn(where, wfhReqLabel(), false); } return; }
@@ -10496,9 +10502,37 @@ function updateClock() {
 }
 
 // ── Load logs from Apps Script ──
+/* Oct 10 — JMB001's empty Recent logs: a day with a second Time In (split shift / "Time In Again") stores its work
+   blocks in the Attendance sheet's `sessions` column as JSON TEXT, e.g. [{"in":"…","out":"…"}]. The server hands it
+   over as a string; the page treated it as a list → sessions.forEach threw → the whole Recent-logs table stayed
+   blank (and the day's buttons read the string's last character as an open session). Every record now goes
+   through here: the JSON becomes real sessions ({time_in,time_out,…}); anything unreadable is dropped so the
+   plain time_in / time_out columns are used instead. */
+function _attNorm(rec) {
+  if (!rec || typeof rec !== 'object') return rec;
+  var s = rec.sessions;
+  if (s == null || s === '') { if ('sessions' in rec) delete rec.sessions; return rec; }
+  var arr = s;
+  if (typeof s === 'string') { try { arr = JSON.parse(s); } catch (e) { arr = null; } }
+  if (!Array.isArray(arr)) { delete rec.sessions; return rec; }
+  var lo = rec.lunch_out || null, li = rec.lunch_in || null, loT = lo ? parseTrkTime(lo) : NaN, home = -1;
+  var out = arr.filter(function (b) { return b && typeof b === 'object'; }).map(function (b) {
+    return { time_in: b.time_in || b.in || null, time_out: b.time_out || b.out || null,
+             lunch_out: b.lunch_out || null, lunch_in: b.lunch_in || null, shift: b.shift || rec.shift || 'morning' };
+  }).filter(function (b) { return !!b.time_in; });
+  if (!out.length) { delete rec.sessions; return rec; }
+  // the day's lunch (one pair of columns) belongs to the block it falls in — else the first block
+  if (lo && !out.some(function (b) { return b.lunch_out; })) {
+    out.forEach(function (b, i) { var a = parseTrkTime(b.time_in), z = b.time_out ? parseTrkTime(b.time_out) : Infinity; if (home < 0 && !isNaN(loT) && loT >= a && loT <= z) home = i; });
+    if (home < 0) home = 0; out[home].lunch_out = lo; out[home].lunch_in = li;
+  }
+  rec.sessions = out;
+  return rec;
+}
 function migrateToSessions(rec) {
   // Convert flat time_in/time_out fields to sessions array
   if (!rec) return { sessions: [] };
+  _attNorm(rec);
   if (rec.sessions && rec.sessions.length) return rec; // already migrated
   if (rec.time_in) {
     rec.sessions = [{
@@ -10528,7 +10562,7 @@ function loadAttendanceLogs() {
     if (localStr) {
       try {
         var p = JSON.parse(localStr);
-        if (p.date === attToday) localRec = p;
+        if (p.date === attToday) localRec = _attNorm(p);
       } catch(e) {}
     }
 
@@ -10588,13 +10622,13 @@ function loadAttendanceLogs() {
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.records && data.records.length) {
-        attRecords = data.records; window._attRetryN = 0;
+        attRecords = data.records.map(_attNorm); window._attRetryN = 0;
         localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
       } else {
         if (!data || data.error || !data.records) _attRetry();   // an error, not an empty history — try again soon
         // Try localStorage records as fallback
         var saved = localStorage.getItem('att_' + attEmpId);
-        if (saved) { try { attRecords = JSON.parse(saved); } catch(e) { attRecords = []; } }
+        if (saved) { try { attRecords = (JSON.parse(saved) || []).map(_attNorm); } catch(e) { attRecords = []; } }
       }
       // Find today — server may use different date formats, normalize
       var serverRec = null;
@@ -10608,7 +10642,7 @@ function loadAttendanceLogs() {
     .catch(function() {
       // Offline / server overloaded — use localStorage now, and ask again shortly (Oct 9: Recent logs stayed empty)
       var saved = localStorage.getItem('att_' + attEmpId);
-      if (saved) { try { attRecords = JSON.parse(saved); } catch(e) { attRecords = []; } }
+      if (saved) { try { attRecords = (JSON.parse(saved) || []).map(_attNorm); } catch(e) { attRecords = []; } }
       finalize(null);
       _attRetry();
     });
@@ -11589,10 +11623,11 @@ function typeLabel(t) {
 
 // ── Render attendance UI ──
 function renderAttendance() {
-  updateButtons();
-  updateStatusBar();
-  updateTodaySummary();
-  renderAttTable();
+  // each part on its own — one bad record can no longer blank the Recent-logs table (Oct 10)
+  try { updateButtons(); } catch (e) { try { console.warn('att buttons', e); } catch (_) {} }
+  try { updateStatusBar(); } catch (e) { try { console.warn('att status', e); } catch (_) {} }
+  try { updateTodaySummary(); } catch (e) {}
+  try { renderAttTable(); } catch (e) { try { console.warn('att table', e); } catch (_) {} }
 }
 
 function updateStatusBar() {
@@ -11748,9 +11783,10 @@ function renderAttTable() {
     body.innerHTML = '<div class="empty-state"><div class="ei"></div><div class="et">No logs this cutoff yet</div><div class="es">Records for ' + _cc.label + ' will appear here.</div></div>';
     return;
   }
-  var sorted = _inCut.sort(function(a,b){ return b.date.localeCompare(a.date); }).slice(0, 30);
-  body.innerHTML = sorted.map(function(rec) {
-    var sessions = rec.sessions || [];
+  var sorted = _inCut.sort(function(a,b){ return String(b.date).localeCompare(String(a.date)); }).slice(0, 30);
+  body.innerHTML = sorted.map(function(rec) { try {
+    _attNorm(rec);
+    var sessions = Array.isArray(rec.sessions) ? rec.sessions : [];
     if (!sessions.length && rec.time_in) {
       sessions = [{ time_in: rec.time_in, time_out: rec.time_out, lunch_out: rec.lunch_out, lunch_in: rec.lunch_in }];
     }
@@ -11794,7 +11830,9 @@ function renderAttTable() {
       '<span>' + fmtHours(trackedMinsForDate(rec.date)) + '</span>' +
       '<span>' + status + '</span>' +
     '</div>';
-  }).join('');
+  } catch (_row) {   // never lose the whole list to one odd row — show the plain columns
+    return '<div class="att-row"><span class="date-col">' + fmtDateShort(rec.date) + '</span><span>' + (rec.shift === 'night' ? '🌙 Night' : '🌅 Morning') + '</span><span>' + fmtTime(rec.time_in) + '</span><span>—</span><span>' + fmtTime(rec.time_out) + '</span><span>' + (rec.hours_worked ? rec.hours_worked + 'h' : '—') + '</span><span></span></div>';
+  } }).join('');
 }
 
 // ══════════════════════════════════════════

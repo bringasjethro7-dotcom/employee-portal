@@ -3328,7 +3328,9 @@ function minsWorkedAdmin(rec){
   var hw=parseFloat(rec.hours_worked);
   if(!isNaN(hw) && hw>0) return Math.round(hw*60);
   // FALLBACK: derive from time_in/out only when no stored hours (PHT-aware, midnight-safe).
-  var ss=(rec.sessions&&rec.sessions.length)?rec.sessions:[{time_in:rec.time_in,time_out:rec.time_out,lunch_out:rec.lunch_out,lunch_in:rec.lunch_in}];
+  var ss0=rec.sessions; if(typeof ss0==='string'){ try{ ss0=JSON.parse(ss0); }catch(_j){ ss0=null; } }   // split-shift blocks arrive as JSON text [{in,out}] (Oct 10)
+  ss0=Array.isArray(ss0)?ss0.filter(function(b){ return b&&typeof b==='object'; }).map(function(b,i){ return { time_in:b.time_in||b.in, time_out:b.time_out||b.out, lunch_out:i===0?rec.lunch_out:null, lunch_in:i===0?rec.lunch_in:null }; }):null;
+  var ss=(ss0&&ss0.length)?ss0:[{time_in:rec.time_in,time_out:rec.time_out,lunch_out:rec.lunch_out,lunch_in:rec.lunch_in}];
   var total=0, any=false;
   ss.forEach(function(s){
     if(!s.time_in||!s.time_out) return;
