@@ -10336,6 +10336,15 @@ var clockTimer = null;
 /* SPLIT SHIFT (Oct 6, 2026): a VA whose day is two blocks — an evening block (e.g. 8 PM–12 MN) and a morning block
    (e.g. 6 AM–1 PM). Admin sets Work schedule = "Split shift" on the contractor. Both blocks belong to ONE business day
    (the date the evening block started), Time In Again starts block 2, and End of Day closes the whole day. */
+/* DOUBLE SHIFT PASS (Jeth, Oct 12): Florence (JMB014) and Nicole (JMB010) work a night client and a morning client — they
+   time in twice and send EOD twice a day. Each EOD lists only the shift it closes (tasks started at/after the latest
+   Time In). Everyone else's EOD is unchanged. The backend keeps both EODs and skips overwork/early auto-demerits for them. */
+var DOUBLE_SHIFT_IDS = ['JMB014','JMB010'];
+function isDoubleShift(){ try{ var id=String((window._currentEmpData&&window._currentEmpData.employee_id)||(typeof attEmpId!=='undefined'&&attEmpId)||'').trim().toUpperCase(); return DOUBLE_SHIFT_IDS.indexOf(id)>=0; }catch(e){ return false; } }
+function _dsShiftFrom(){   // ms of the latest Time In today, when this is a double-shift VA's second (or later) shift — else 0
+  try{ if(!isDoubleShift()) return 0; var ss=(todayLog && todayLog.sessions) || []; if(ss.length<2) return 0;
+    var t=parseTrkTime(ss[ss.length-1].time_in); return isNaN(t)?0:t; }catch(e){ return 0; }
+}
 function isSplitSched(){ try{ var d=window._currentEmpData||{}; return /split/i.test(String(d.work_schedule||d.shift||'')); }catch(e){ return false; } }
 function detectShift(hour, minute) {
   // Morning: clock in between 05:00–14:00
@@ -10760,6 +10769,7 @@ function buildEodReceipt() {
   (window._trkTodayEntries || []).forEach(function(e){ if (e && e.entry_id) _byId[e.entry_id] = e; });
   var ents = Object.keys(_byId).map(function(k){ return _byId[k]; })
     .filter(function(e){ return e && e.status !== 'running' && e.status !== 'paused' && e.end; });
+  var _dsF = _dsShiftFrom(); if (_dsF) ents = ents.filter(function(e){ return parseTrkTime(e.start) >= _dsF - 60000; });   // double-shift pass: this shift only
   // Still empty? Refetch from the server ONCE before concluding there's nothing.
   if (!ents.length && !_eodRefetched) {
     _eodRefetched = true;
@@ -16923,6 +16933,8 @@ async function sendMessage() {
 // Aggregates today's tracked productive tasks + outputs into a formatted report.
 function buildMyEodText(){
   var ents = (window._trkTodayEntries || []).filter(function(e){ return e && e.status !== 'running' && e.status !== 'paused' && e.end; });
+  var _dsF = _dsShiftFrom(), _dsN = _dsF ? ((todayLog && todayLog.sessions) || []).length : 0;
+  if (_dsF) ents = ents.filter(function(e){ return parseTrkTime(e.start) >= _dsF - 60000; });   // double-shift pass: this shift only
   var map = {}, order = [];
   ents.forEach(function(e){
     if ((typeof isIdleProject === 'function') && isIdleProject(e.project)) return;   // skip idle/internal
@@ -16940,6 +16952,7 @@ function buildMyEodText(){
   });
   var d = new Date().toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
   var tmTotal = (typeof fmtMins === 'function') ? fmtMins(totalMins) : (totalMins+'m');
+  if (_dsN) d += ' · Shift ' + _dsN;
   return 'EOD REPORT — ' + (chatEmpName||'') + '\n' + d + '\n\n' +
     lines.join('\n') + '\n\n' +
     'Total tasks: ' + totalTasks + '   ·   ⏱ ' + tmTotal + ' productive';
@@ -34354,7 +34367,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-12-D';
+var PORTAL_BUILD='2026-10-12-E';
 (function(){
   var pending=false;
   setInterval(function(){
