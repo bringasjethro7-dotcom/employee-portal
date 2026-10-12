@@ -34354,7 +34354,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-12-C';
+var PORTAL_BUILD='2026-10-12-D';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -38884,10 +38884,48 @@ var QADV = {
 (function(){
   var _orig = window.loadMyQA;
   window.loadMyQA = function(){
-    try { if (monthKeyPHT() >= '2026-10') { QADV.load(); return; } } catch(e){}
+    try { if (monthKeyPHT() >= '2026-10') { QADV.load(); try{ QATOOL.load(); }catch(_t){} return; } } catch(e){}
     if (typeof _orig === 'function') return _orig.apply(this, arguments);
   };
 })();
+/* QA FROM YOUR TOOLS (Jeth, Oct 12): the daily scores Reddit Central and ALTR Studio give you show here as soon as
+   they're given — no month-end wait, no approval. Its own card under My QA; hidden when you have no tool days this month
+   (or until the backend has the qa_tool_get route). */
+var QATOOL = {
+  data: null, month: '', open: {},
+  card: function(){
+    var c=document.getElementById('mytoolqa-card'); if(c) return c;
+    var qa=document.getElementById('myqa-card'); if(!qa || !qa.parentNode) return null;
+    c=document.createElement('div'); c.className='card'; c.id='mytoolqa-card'; c.style.cssText='padding:1rem 1.15rem;margin-bottom:1rem;display:none;';
+    qa.parentNode.insertBefore(c, qa.nextSibling); return c;
+  },
+  load: function(){
+    var id=_myQaEmpId(); if(!id) return; var mk=monthKeyPHT(), self=this; this.month=mk;
+    fetch(APPS_SCRIPT_URL+'?action=qa_tool_get&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)+'&_='+Date.now())
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if(d && d.ok){ self.data=d; self.render(); } else { var c=self.card(); if(c) c.style.display='none'; } })
+      .catch(function(){});
+  },
+  day: function(dk){ try{ return new Date(dk+'T00:00:00Z').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }catch(e){ return dk; } },
+  render: function(){
+    var c=this.card(); if(!c) return; var d=this.data||{}, tools=d.tools||[], self=this, E=QADV.esc, C=function(v){ return QADV.cls(v); };
+    if(!tools.length){ c.style.display='none'; return; }
+    var h='<div class="qt-top"><span class="qt-eb">QA from your tools — '+QADV.monthName(this.month)+'</span><span class="qt-sub">Shows here as soon as it’s given</span></div>';
+    tools.forEach(function(t){
+      var keys=Object.keys(t.days||{}).sort().reverse(), all=!!self.open[t.key], vis=all?keys:keys.slice(0,6);
+      h+='<div class="qt-tool"><div class="qt-th"><div class="qt-tn"><b>'+E(t.name)+'</b><span>'+t.scored+' day'+(t.scored===1?'':'s')+' scored this month</span></div>'+
+         '<div class="qt-avg"><b class="'+(t.avg==null?'':C(t.avg))+'">'+(t.avg==null?'—':t.avg)+'</b><span>/ 10 average</span></div></div>';
+      if(!keys.length) h+='<div class="qt-none">No scores yet this month.</div>';
+      else {
+        h+='<div class="qt-list">'+vis.map(function(k){ var x=t.days[k];
+          return '<div class="qt-row"><span class="qt-d">'+E(self.day(k))+'</span><span class="qt-s '+C(x.score)+'">'+x.score+'</span><span class="qt-n">'+(x.note?E(x.note):'<i>No note</i>')+'</span></div>'; }).join('')+'</div>';
+        if(keys.length>6) h+='<button type="button" class="qt-more" onclick="QATOOL.open[\''+t.key+'\']='+(all?'false':'true')+';QATOOL.render()">'+(all?'Show fewer':'Show all '+keys.length+' days')+'</button>';
+      }
+      h+='</div>';
+    });
+    c.innerHTML=h; c.style.display='';
+  }
+};
 </script>
 <style id="qa-daily-va-css">
 #myqa-card #qadv{ display:block; }
@@ -38921,6 +38959,28 @@ var QADV = {
 #qadv .qadv-c.q7,  #qadv .qadv-legend .q7{ background:rgba(245,158,11,.14); border-color:rgba(245,158,11,.42); color:#d97706; }
 #qadv .qadv-c.qlow,#qadv .qadv-legend .qlow{ background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.4); color:#dc2626; }
 @media (max-width:760px){ #qadv .qadv-body{ grid-template-columns:1fr; } #qadv .qadv-c{ height:38px; } }
+/* QA from your tools */
+#mytoolqa-card .qt-top{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+#mytoolqa-card .qt-eb{ font-size:10.5px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; color:var(--au-ink3,var(--text-3,#8a90a8)); }
+#mytoolqa-card .qt-sub{ font-size:12px; color:var(--au-ink3,var(--text-3,#8a90a8)); }
+#mytoolqa-card .qt-tool{ padding:12px 0; border-top:1px solid rgba(127,127,150,.16); }
+#mytoolqa-card .qt-tool:first-of-type{ border-top:0; padding-top:4px; }
+#mytoolqa-card .qt-th{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+#mytoolqa-card .qt-tn b{ display:block; font-size:14px; color:var(--au-ink,var(--text-1,#f5f6fa)); }
+#mytoolqa-card .qt-tn span{ font-size:11.5px; color:var(--au-ink3,var(--text-3,#8a90a8)); }
+#mytoolqa-card .qt-avg{ text-align:right; line-height:1.1; }
+#mytoolqa-card .qt-avg b{ font-size:26px; font-weight:800; letter-spacing:-.02em; font-variant-numeric:tabular-nums; color:var(--au-ink,var(--text-1,#f5f6fa)); }
+#mytoolqa-card .qt-avg span{ display:block; font-size:11px; color:var(--au-ink3,var(--text-3,#8a90a8)); }
+#mytoolqa-card .q10{ color:#059669 !important; } #mytoolqa-card .q9{ color:#0d9488 !important; } #mytoolqa-card .q7{ color:#d97706 !important; } #mytoolqa-card .qlow{ color:#dc2626 !important; }
+#mytoolqa-card .qt-list{ display:grid; gap:6px; }
+#mytoolqa-card .qt-row{ display:grid; grid-template-columns:110px 44px minmax(0,1fr); gap:10px; align-items:baseline; font-size:12.5px; padding:6px 8px; border-radius:9px; background:rgba(127,127,150,.06); }
+#mytoolqa-card .qt-d{ color:var(--au-ink3,var(--text-3,#8a90a8)); font-weight:600; white-space:nowrap; }
+#mytoolqa-card .qt-s{ font-weight:800; font-variant-numeric:tabular-nums; }
+#mytoolqa-card .qt-n{ color:var(--au-ink2,var(--text-2,#b8bccc)); overflow-wrap:anywhere; }
+#mytoolqa-card .qt-n i{ opacity:.6; }
+#mytoolqa-card .qt-none{ font-size:12.5px; color:var(--au-ink3,var(--text-3,#8a90a8)); padding:4px 0; }
+#mytoolqa-card .qt-more{ margin-top:8px; border:0; background:none; padding:2px 0; font-size:12px; font-weight:700; color:#7c3aed; cursor:pointer; }
+@media (max-width:560px){ #mytoolqa-card .qt-row{ grid-template-columns:86px 38px minmax(0,1fr); } }
 </style>
 
 <style id="aura-hero-v3">
