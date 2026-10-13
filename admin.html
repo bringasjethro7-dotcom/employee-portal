@@ -11548,6 +11548,19 @@ var ADMAURA = (function(){
       else if(gv==='OVERLAPS_TRACKED' || gv==='DUPLICATE_APPROVED'){ vk='bad'; ic='⛔'; v='<b>'+(gv==='OVERLAPS_TRACKED'?'Overlaps tracked time':'Duplicate — that time is already approved')+'.</b> '+E(G.message||'')+' Approve is blocked.'; }
       else if(gv){ vk='warn'; ic='⚠️'; v='<b>Check before approving.</b> '+E(G.message||gv); }
     }
+    /* Oct 13 (Jeth: "what are the main issues") — WHY the time is missing, from the entries already on this card */
+    try{
+      var diag='', day2=(x.day_entries||[]).filter(function(e){ return !isIdle(e); }), asleep=[];
+      day2.forEach(function(e){ var s0=ts(e.start), e0=ts(e.end), h=Number(e.hours)||0; if(s0==null||e0==null||e0<=s0) return; var spanM=(e0-s0)/M, paidM=h*60; if(spanM-paidM>=15 && paidM<spanM*0.6) asleep.push({ s:s0, e:e0, lab:e.task||e.project||'timer', paid:paidM, span:spanM }); });
+      var hit=rq ? asleep.filter(function(a2){ return overlap(rq.s,rq.e,a2.s,a2.e) >= Math.min(10*M,(rq.e-rq.s)/2); })[0] : asleep[0];
+      var rs=String(x.reason||'');
+      if(/auto-detected by the portal/i.test(rs)) diag='<b>Detected by the portal itself</b> — the timer was running and this computer stopped sending the portal\u2019s signal. Not typed by the VA.';
+      else if(retag && hit) diag='<b>This looks like lost time, not a wrong task:</b> the entry ran '+clockL(hit.s)+' – '+clockL(hit.e)+' but paid only '+dur(hit.paid)+'. If a gap appeal for the same time is also pending, this one is a duplicate.';
+      else if(hit) diag='<b>Why it\u2019s missing:</b> the timer <b>was running</b> ('+E(hit.lab)+', '+clockL(hit.s)+' – '+clockL(hit.e)+') but only <b>'+dur(hit.paid)+'</b> of '+dur(hit.span)+' was paid — the computer stopped sending the portal\u2019s signal (tab asleep, lid closed or tab closed). A portal problem, not a typed claim; likely real work.';
+      else if(rq && !retag) diag='<b>Why it\u2019s missing:</b> no timer was running here — it was stopped (by the VA or automatically) or never started.';
+      if(/\b(uwi|bahay|home|offline|labas|outside)\b/i.test(rs)) diag+=(diag?'<br>':'')+'<b>Says the work was done outside the portal</b> (offline / at home). That needs your OK in advance — appeals are for system errors.';
+      if(diag) v+='<div style="margin-top:6px;padding-top:6px;border-top:1px dashed rgba(15,23,42,.12)">'+diag+'</div>';
+    }catch(_dg){}
     /* axis labels: every hour, or every 2 on long days */
     var step=hrs>14?2:1, ax='';
     for(var t=lo; t<=hi; t+=step*H) ax+='<span style="left:'+pct(t)+'">'+clock(t)+'</span>';

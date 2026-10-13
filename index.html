@@ -5236,6 +5236,7 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
                 <button type="button" data-why="Forgot to start the timer">Forgot to start the timer</button>
                 <button type="button" data-why="Other">Other</button>
               </div>
+              <div style="font-size:11.5px;color:var(--text-3);margin-top:6px;line-height:1.45">Worked somewhere the portal couldn’t see (at home, offline, after you left)? That isn’t an appeal — ask your admin <b>before</b> you leave.</div>
             </div>
           </div>
           <div id="ap-desc-field">
@@ -11307,6 +11308,7 @@ function submitEOD() {
   logTime('time_out');                 // record the clock-out (the important, hours-critical write)
   closeEodReceipt();
   _gapNudgeAfterEod(_eodDay, 0);
+  try { PZ.afterEod(_eodDay); } catch(_pz) {}   // 💤 asleep-while-running windows → one-tap approval (Oct 13)
   showToast('Day ended — work logs submitted. ✅');
   setTimeout(function(){ try{ loadTodayEntries(); loadTrackerHistory(); }catch(_e){} }, 1000);
   if (items.length) {
@@ -12990,6 +12992,7 @@ function _clearActiveMarker() { try { localStorage.removeItem(_trkKey()); } catc
 function sbBeat(entryId){
   try{
     if (!entryId) return;
+    try { if (typeof PZ !== 'undefined') PZ.onBeat(entryId); } catch(_pz) {}   // 💤 sleep guard (Oct 13)
     // Append-only: one plain INSERT per beat (anon can insert, reads nothing). The backend
     // trigger keeps only the newest per entry and prunes the rest.
     fetch(SUPA_URL + '/rest/v1/tracker_beat', {
@@ -13004,13 +13007,14 @@ function startHeartbeat() {
   stopHeartbeat();
   if (trkRunning && trkOwns) sbBeat(trkRunning.entry_id);   // beat immediately so a fresh restore isn't swept
   trkHeartbeatTick = setInterval(function(){
-    if (trkRunning && trkOwns) sbBeat(trkRunning.entry_id);
+    if (trkRunning && (trkOwns || (typeof PZ !== 'undefined' && PZ.viewerActive()))) sbBeat(trkRunning.entry_id);   // Oct 13: an active viewing device keeps the time alive too
   }, 60000);
 }
 function stopHeartbeat() { if (trkHeartbeatTick) { clearInterval(trkHeartbeatTick); trkHeartbeatTick = null; } }
 document.addEventListener('visibilitychange', function(){
-  if (!document.hidden && trkRunning && trkOwns) sbBeat(trkRunning.entry_id);
+  if (!document.hidden && trkRunning && (trkOwns || (typeof PZ !== 'undefined' && PZ.viewerActive()))) sbBeat(trkRunning.entry_id);
 });
+try { document.addEventListener('resume', function(){ if (trkRunning && trkOwns) sbBeat(trkRunning.entry_id); }); } catch(_r) {}   // Chrome un-froze the tab
 /* Last-gasp beat (timer-theft fix): stamp last_beat as the page unloads — forced
    refresh, tab close, navigation. sendBeacon survives teardown; fetch doesn't.
    Also re-save the marker so the restore has the freshest possible snapshot. */
@@ -13879,7 +13883,7 @@ function startTimerDisplay() {
   if (cfyTimerTick) clearInterval(cfyTimerTick);
   updateTimerDisplay();
   cfyTimerTick = setInterval(updateTimerDisplay, 1000);
-  if (trkOwns) startHeartbeat();   // only the owning device beats
+  startHeartbeat();   // the owning device beats; a viewing device beats only while the VA is active on it (Oct 13)
   var disp = document.getElementById('cfy-timer-display');
   if (disp) disp.classList.add('running');
   try { pcStart(); } catch(e){}   // begin random presence checks for this run
@@ -14165,6 +14169,141 @@ function closeIdleStopped(){
   if (_idleStopBeat) { clearInterval(_idleStopBeat); _idleStopBeat = null; }
   if (typeof showToast === 'function') showToast('Pick your task and tap Start to resume tracking.');
 }
+/* ══════════ 💤 SLEEP GUARD + LOUD STOPS (Jeth, Oct 13 — the 9 hour appeals) ══════════
+   What the appeals showed: the portal pays for time while THIS page keeps sending its once-a-minute signal. When
+   Chrome puts the tab to sleep (memory/energy saver), the laptop sleeps or the tab is closed, the signal stops — the
+   clock on screen keeps going, but if the entry is then closed (auto-lunch, time out, a Start on another device) the
+   server only pays up to the last signal + 2 minutes. Querin 7:53 AM–12:00 PM → 5 minutes paid; Hazel 8:33 PM–12:06 AM
+   → 2 minutes; Kiana three entries → about a minute each. The VA never knew until days later.
+   Now:
+   • every beat stamps the time in this browser; when the page wakes up (or reloads) with a timer still running and
+     5+ minutes without a beat, the VA is told at once — the exact window — with the fix (pop the timer out / keep
+     the portal awake in Chrome) and "I was working" / "I wasn't";
+   • right after EOD the portal asks the SERVER which minutes inside the time-in/out were never paid, matches them to
+     those windows and sends them for approval in one tap, pre-filled (task, window, "auto-detected" reason) — no
+     screenshots on Telegram, no guessing times, no duplicates;
+   • any other unpaid gap is listed in the same card with "Review" (the normal appeal);
+   • while the VA is active on a second device/browser that only shows the timer, that browser beats too;
+   • when the portal stops a timer by itself (inactivity, tool rule, 30-minute rule) the VA gets a system
+     notification, a flashing tab title and the chime until they come back;
+   • on tool projects, real work in Reddit Central / ALTR Studio / Client Hub counts as activity for the 3-minute
+     inactivity stop (phone work no longer gets the timer stopped). */
+var PZ = {
+  GAP: 5 * 60000,
+  k: function(n){ return 'pz_' + n + '_' + String(attEmpId || '').toUpperCase(); },
+  get: function(n, d){ try { var v = localStorage.getItem(this.k(n)); return v == null ? d : JSON.parse(v); } catch(e){ return d; } },
+  put: function(n, v){ try { localStorage.setItem(this.k(n), JSON.stringify(v)); } catch(e){} },
+  hm: function(ms){ var d = new Date(ms + 8*3600e3), h = d.getUTCHours(), m = d.getUTCMinutes(); return ((h % 12) || 12) + ':' + (m < 10 ? '0' : '') + m + ' ' + (h < 12 ? 'AM' : 'PM'); },
+  dur: function(min){ min = Math.round(min); var h = Math.floor(min / 60), m = min % 60; return (h ? h + 'h ' : '') + (m || !h ? m + 'm' : '').trim(); },
+  viewerActive: function(){ try { return !document.hidden && (Date.now() - (trkLastActivity || 0)) < 180000; } catch(e){ return false; } },
+  /* every beat this browser sends passes here first — the previous stamp tells how long the page was asleep */
+  onBeat: function(entryId){
+    if (!attEmpId || !entryId) return;
+    var now = Date.now(), lb = this.get('lb', null);
+    this.put('lb', { id: String(entryId), t: now });
+    if (!trkOwns || !lb || String(lb.id) !== String(entryId) || !trkRunning) return;
+    var seg = Number(trkRunning.segStart) || 0, from = Math.max(Number(lb.t) || 0, seg > lb.t && seg < now ? seg : 0);
+    if (now - from < this.GAP) return;
+    if (typeof isIdleProject === 'function' && isIdleProject(trkRunning.project)) return;
+    var it = { id: 'pz' + now.toString(36), entry_id: String(entryId), s: from, e: now,
+      date: (typeof shiftDate === 'function' ? shiftDate() : ''), project: trkRunning.project || '', category: trkRunning.category || '',
+      task: trkRunning.task || '', st: 'new', disc: !!document.wasDiscarded };
+    var L = this.get('list', []).filter(function(x){ return now - (x.e || 0) < 3 * 864e5; });   // keep 3 days
+    L.push(it); this.put('list', L.slice(-30));
+    setTimeout(function(){ PZ.wake(it); }, 600);
+  },
+  /* the "you were asleep" card */
+  wake: function(it){
+    var old = document.getElementById('pz-card'); if (old) old.remove();
+    var mins = (it.e - it.s) / 60000, el = document.createElement('div'); el.id = 'pz-card';
+    el.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9960;width:min(420px,calc(100vw - 36px));background:#fff;color:#0f172a;border-radius:18px;box-shadow:0 24px 60px -24px rgba(15,23,42,.55);border:1px solid rgba(245,158,11,.45);padding:18px 18px 16px;font-family:inherit;';
+    el.innerHTML = '<div style="display:flex;gap:10px;align-items:flex-start"><div style="font-size:24px;line-height:1">💤</div><div style="flex:1">' +
+      '<div style="font-weight:800;font-size:15px;margin-bottom:4px">The portal was asleep for ' + this.dur(mins) + '</div>' +
+      '<div style="font-size:13px;color:#475569;line-height:1.5">From <b>' + this.hm(it.s) + '</b> to <b>' + this.hm(it.e) + '</b> ' + (it.disc ? 'Chrome closed this tab to save memory' : 'this computer stopped running the portal (tab asleep, lid closed or the tab closed)') +
+      ' while your timer was on <b>' + escapeHtml(it.task || it.project || 'your task') + '</b>. If that time ends up unpaid, the portal will send it for approval for you right after your EOD — already filled in.</div>' +
+      '<div style="font-size:12.5px;color:#475569;line-height:1.5;margin-top:8px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:8px 10px"><b>Stop it happening:</b> keep the timer popped out while you work in other apps, and in Chrome go to ⋮ → Settings → Performance → “Always keep these sites active” → Add → <b>portal.jmbvirtuals.com</b>. Keep the laptop plugged in with the lid open.</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+      ('documentPictureInPicture' in window ? '<button type="button" data-a="pop" style="flex:1;min-width:150px;border:0;border-radius:11px;padding:11px;font-weight:800;color:#fff;background:linear-gradient(135deg,#ff6b1a,#f1560f);cursor:pointer">⧉ Pop out the timer</button>' : '') +
+      '<button type="button" data-a="yes" style="flex:1;min-width:120px;border:1px solid rgba(15,23,42,.14);background:#fff;border-radius:11px;padding:11px;font-weight:700;cursor:pointer">I was working ✓</button>' +
+      '<button type="button" data-a="no" style="border:1px solid rgba(15,23,42,.14);background:#fff;border-radius:11px;padding:11px 12px;font-weight:600;color:#64748b;cursor:pointer">I wasn’t</button></div></div></div>';
+    el.addEventListener('click', function(ev){ var b = ev.target.closest && ev.target.closest('button[data-a]'); if (!b) return; var a = b.getAttribute('data-a');
+      if (a === 'pop'){ try { MINI.popout(); } catch(e){} PZ.mark(it.id, 'yes'); el.remove(); }
+      else if (a === 'yes'){ PZ.mark(it.id, 'yes'); el.remove(); try { showToast('Noted — if it ends up unpaid, it goes for approval right after your EOD.'); } catch(e){} }
+      else { PZ.mark(it.id, 'no'); el.remove(); } });
+    document.body.appendChild(el);
+  },
+  mark: function(id, st){ var L = this.get('list', []); L.forEach(function(x){ if (x.id === id) x.st = st; }); this.put('list', L); },
+  /* right after EOD: ask the server for the unpaid minutes, match the asleep windows, one tap sends them */
+  afterEod: function(date, n){
+    n = n || 0; if (!attEmpId || !date) return;
+    var L = this.get('list', []).filter(function(x){ return x.date === date && x.st !== 'no' && x.st !== 'sent'; });
+    jGet(APPS_SCRIPT_URL + '?action=appeal_gaps&employee_id=' + encodeURIComponent(attEmpId) + '&date=' + date + '&_=' + Date.now())
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (!d || !d.ok) return;
+        if (!d.ended){ if (n < 6) setTimeout(function(){ PZ.afterEod(date, n + 1); }, 8000); return; }   // the time-out is still landing
+        var min = (d.min_mins || 5) * 60000, gaps = (d.gaps || []).map(function(g){ return { s: _apgMs(g.s), e: _apgMs(g.e) }; }).filter(function(g){ return g.s && g.e > g.s; });
+        var auto = [], used = [];
+        L.forEach(function(it){ gaps.forEach(function(g, gi){ var s = Math.max(it.s, g.s), e = Math.min(it.e, g.e); if (e - s >= min){ auto.push({ it: it, s: s, e: e }); used.push(gi); } }); });
+        var other = gaps.filter(function(g, gi){ return used.indexOf(gi) < 0 && g.e - g.s >= min; });
+        if (!auto.length && !other.length) return;
+        PZ.eodCard(date, auto, other);
+      }).catch(function(){ if (n < 6) setTimeout(function(){ PZ.afterEod(date, n + 1); }, 8000); });
+  },
+  eodCard: function(date, auto, other){
+    var nudge = document.getElementById('gap-nudge'); if (nudge) nudge.remove();   // this card replaces the local gap nudge
+    var old = document.getElementById('pz-eod'); if (old) old.remove();
+    var el = document.createElement('div'); el.id = 'pz-eod';
+    el.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9961;width:min(440px,calc(100vw - 36px));background:#fff;color:#0f172a;border-radius:18px;box-shadow:0 24px 60px -24px rgba(15,23,42,.55);border:1px solid rgba(15,23,42,.1);padding:18px;font-family:inherit;';
+    var tot = auto.reduce(function(a, x){ return a + (x.e - x.s) / 60000; }, 0), ot = other.reduce(function(a, g){ return a + (g.e - g.s) / 60000; }, 0);
+    el.innerHTML = '<div style="font-weight:800;font-size:15px;margin-bottom:6px">⏱ Unpaid time today</div>' +
+      (auto.length ? '<div style="font-size:13px;color:#475569;line-height:1.5;margin-bottom:8px"><b>' + PZ.dur(tot) + '</b> wasn’t paid because the portal was asleep while your timer ran:</div>' +
+        auto.map(function(x){ return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 10px;border-radius:9px;background:#f1f5f9;margin-bottom:4px"><span><b>' + PZ.hm(x.s) + ' – ' + PZ.hm(x.e) + '</b> · ' + escapeHtml(x.it.task || x.it.project) + '</span><span>' + PZ.dur((x.e - x.s) / 60000) + '</span></div>'; }).join('') +
+        '<button type="button" data-a="send" style="width:100%;margin-top:8px;border:0;border-radius:11px;padding:12px;font-weight:800;color:#fff;background:linear-gradient(135deg,#ff6b1a,#f1560f);cursor:pointer">Send for approval (one tap)</button>' : '') +
+      (other.length ? '<div style="font-size:12.5px;color:#64748b;line-height:1.5;margin-top:10px">' + (auto.length ? 'Also ' : '') + other.length + ' other untracked gap' + (other.length > 1 ? 's' : '') + ' (' + PZ.dur(ot) + '): ' + other.slice(0, 3).map(function(g){ return PZ.hm(g.s) + '–' + PZ.hm(g.e); }).join(', ') + (other.length > 3 ? '…' : '') + '. If you were working, appeal it.</div>' +
+        '<button type="button" data-a="review" style="width:100%;margin-top:8px;border:1px solid rgba(15,23,42,.14);background:#fff;border-radius:11px;padding:11px;font-weight:700;cursor:pointer">Review gaps</button>' : '') +
+      '<button type="button" data-a="later" style="width:100%;margin-top:6px;border:0;background:none;padding:8px;font-weight:600;color:#64748b;cursor:pointer">Not now</button>';
+    el.addEventListener('click', function(ev){ var b = ev.target.closest && ev.target.closest('button[data-a]'); if (!b) return; var a = b.getAttribute('data-a');
+      if (a === 'send'){ b.disabled = true; b.textContent = 'Sending…'; PZ.sendAll(date, auto, function(ok, n2){ el.remove(); try { showToast(ok ? ('Sent ' + n2 + ' for approval ✅') : 'Some could not be sent — open Appeals to try again.'); } catch(e){} }); }
+      else if (a === 'review'){ el.remove(); try { appealGapOn(date); } catch(e){} }
+      else el.remove(); });
+    document.body.appendChild(el);
+  },
+  sendAll: function(date, auto, cb){
+    var i = 0, ok = 0;
+    var next = function(){
+      if (i >= auto.length){ cb(ok === auto.length, ok); return; }
+      var x = auto[i++], mins = Math.round((x.e - x.s) / 60000);
+      var p = { date: date, task: x.it.task || 'Work', project: x.it.project || 'Untracked', category: x.it.category || '',
+        claim_hours: Math.round(mins / 60 * 100) / 100, claim_start: _apgHHMM(x.s), claim_end: _apgHHMM(x.e), claim_start_ts: _apgStamp(x.s), claim_end_ts: _apgStamp(x.e),
+        reason: "System error (timer/portal didn't record) — Auto-detected by the portal: the timer was running but this computer stopped sending the portal's signal from " + PZ.hm(x.it.s) + ' to ' + PZ.hm(x.it.e) + (x.it.disc ? ' (Chrome closed the tab to save memory)' : ' (tab asleep or closed)') };
+      _postAppeal(p, function(good){ if (good){ ok++; PZ.mark(x.it.id, 'sent'); } next(); });
+    };
+    next();
+  },
+  /* 🔔 a stop the VA can't miss */
+  _flash: null, _title: '',
+  askNotify: function(){ try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch(e){} },
+  alert: function(title, body){
+    try { if ('Notification' in window && Notification.permission === 'granted'){ var n = new Notification(title, { body: body, tag: 'jmb-timer-stop', requireInteraction: true, renotify: true }); n.onclick = function(){ try { window.focus(); n.close(); } catch(e){} }; } } catch(e){}
+    if (this._flash) return;
+    this._title = document.title; var on = false, self = this, t0 = Date.now();
+    this._flash = setInterval(function(){
+      on = !on; document.title = on ? '⏸ TIMER STOPPED' : self._title;
+      if (!document.hidden && document.hasFocus && document.hasFocus() && Date.now() - t0 > 3000){ clearInterval(self._flash); self._flash = null; document.title = self._title; }
+      else if ((Date.now() - t0) % 30000 < 1000){ try { _beepCountdown(5); } catch(e){} }
+    }, 1000);
+  }
+};
+/* hooks: notification permission on Start (a real click), loud alerts on every automatic stop */
+(function(){
+  try {
+    var _st = startTimer; startTimer = async function(){ try { PZ.askNotify(); } catch(e){} return _st.apply(this, arguments); };
+    var _is = showIdleStopped; showIdleStopped = function(){ var r = _is.apply(this, arguments); try { PZ.alert('Your timer stopped', 'No activity for 3 minutes — open the portal and press Start to keep counting.'); } catch(e){} return r; };
+    var _tb = TOOLG.block; TOOLG.block = function(tool){ var r = _tb.apply(this, arguments); try { PZ.alert('Your timer stopped', 'No work in ' + (TOOLG.NAME[tool] || 'the tool') + ' for 10 minutes — open it and work there, then press Resume.'); } catch(e){} return r; };
+    var _gb = TOOLG.gapBlock; if (_gb) TOOLG.gapBlock = function(){ var r = _gb.apply(this, arguments); try { PZ.alert('Your timer stopped', 'The portal was more than 30 minutes ahead of your tool time — start a task timer in the tool, then Resume.'); } catch(e){} return r; };
+  } catch(e){}
+})();
+
 // ── July-1 month-reset reminder (8 AM & 8 PM PHT, once per window) ──
 function closeResetReminder(){ var m=document.getElementById('reset-reminder'); if(m) m.classList.remove('show'); }
 function maybeResetReminder(){
@@ -14231,6 +14370,10 @@ function trkCheckInactivity() {
     trkLastActivity = Date.now();
   }
   if (trkInBioBreak()) { trkLastActivity = Date.now(); hideInactiveWarn(); return; }   // bio breaks are exempt
+  /* Oct 13: on a tool project, real work in Reddit Central / ALTR Studio / Client Hub (its heartbeat) counts as
+     activity — phone work there no longer gets the portal timer stopped for "no mouse or keyboard". */
+  try { if (typeof TOOLG !== 'undefined' && TOOLG.cur && TOOLG.cur.row && TOOLG.applies(trkRunning) === TOOLG.cur.tool) {
+    var _tla = Date.parse(TOOLG.cur.row.last_active || ''); if (_tla && Date.now() - _tla < 150000 && _tla > trkLastActivity) trkLastActivity = _tla; } } catch(_tg) {}
   // Idle (Internal) tasks — Lunch / Microbreak / No task — are intentional time away,
   // so don't auto-stop them; only productive tasks are watched.
   if (isIdleProject(trkRunning.project)) { hideInactiveWarn(); return; }
@@ -24921,7 +25064,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-13-D';
+var PORTAL_BUILD='2026-10-13-E';
 (function(){
   var pending=false;
   setInterval(function(){
