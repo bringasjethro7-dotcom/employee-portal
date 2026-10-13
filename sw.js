@@ -16,7 +16,7 @@
 
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE = 'jmb-portal-v9';
+const CACHE = 'jmb-portal-v11';   // v11 (Oct 13): purges the old stored update-check copies
 const ASSETS = [
   '/icons/icon-192-v2.png',
   '/icons/icon-512-v2.png',
@@ -51,6 +51,9 @@ self.addEventListener('fetch', function (e) {
   var url;
   try { url = new URL(req.url); } catch (err) { return; }
   if (url.origin !== self.location.origin) return;   // never touch Apps Script / CDN / Supabase traffic
+  // Update checks (build.json, ?upd=…) always go straight to the network and are never stored —
+  // before Oct 13 each check stored another 3 MB copy of the page.
+  if (url.pathname === '/build.json' || url.searchParams.has('upd')) return;
 
   var isHTML = req.mode === 'navigate' ||
                (req.headers.get('accept') || '').indexOf('text/html') !== -1;

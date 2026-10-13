@@ -428,6 +428,29 @@ img{max-width:100%}
 
 <script>
 var API='https://script.google.com/macros/s/AKfycbwK8rVJlkv5YLgNLe7cGIz73KJc0hedmZcutoiRviDEowiZPglzBnznswBaZ0TVIV8t/exec';
+/* SESSION TOKEN (Oct 13): signed by the backend at sign-in, sent with every backend call so personal data is only
+   served to its owner. Missing (older sign-in) → fetched once with the stored ID + PIN. */
+var M_SESS=(function(){ try{ return localStorage.getItem('jmbc_tok')||''; }catch(e){ return ''; } })();
+function setMSess(t){ M_SESS=String(t||''); try{ if(M_SESS) localStorage.setItem('jmbc_tok', M_SESS); else localStorage.removeItem('jmbc_tok'); }catch(e){} }
+function mSessEnsure(){
+  try{ if(M_SESS || typeof ME==='undefined' || !ME || !ME.employee_id || !ME.pin) return;
+    fetch(API, { method:'POST', body:JSON.stringify({ action:'sess_new', id:ME.employee_id, pin:ME.pin }) }).then(function(r){ return r.json(); }).then(function(d){ if(d && d.sess) setMSess(d.sess); }).catch(function(){}); }catch(e){}
+}
+(function(){
+  if(window.__mSessWrap) return; window.__mSessWrap=1;
+  var f0=window.fetch.bind(window);
+  window.fetch=function(u, o){
+    try{
+      if(M_SESS && typeof u==='string' && u.indexOf(API)===0){
+        var get=!o || !o.method || String(o.method).toUpperCase()==='GET';
+        if(get){ if(!/[?&]sess=/.test(u)) u=u+(u.indexOf('?')>=0?'&':'?')+'sess='+encodeURIComponent(M_SESS); }
+        else if(o && typeof o.body==='string' && o.body.charAt(0)==='{'){ var b=JSON.parse(o.body); if(b && typeof b==='object' && !b.sess){ b.sess=M_SESS; o=Object.assign({}, o, { body:JSON.stringify(b) }); } }
+      }
+    }catch(e){}
+    return f0(u, o);
+  };
+})();
+setTimeout(function(){ mSessEnsure(); }, 5000);
 var SUPA_URL='https://rvyrnkjqxnijxydloujk.supabase.co';
 var SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2eXJua2pxeG5panh5ZGxvdWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NzAwODQsImV4cCI6MjA5NzE0NjA4NH0.SwkSkmbeWrhm5PZZDSZ1Z4hbjpQ0L2CRtuKQmpHshBE';
 
@@ -455,6 +478,7 @@ async function doLogin(){
     b.disabled=false; b.textContent='Sign in';
     if(!d||d.error){ $('li-err').textContent=(d&&d.error==='WRONG_PIN')?'Incorrect PIN.':'Employee not found.'; return; }
     ME={employee_id:d.employee_id,full_name:d.full_name||d.employee_id,photo:d.photo||'',pin:pin,client:d.client||d.project||'',start_date:d.start_date||'',career_level:d.career_level||d.cl||'',email:d.email||'',payslips:d.payslips||[]};
+    try{ setMSess(d.sess||''); }catch(_ms){}
     saveSess(); boot();
   }catch(e){ b.disabled=false; b.textContent='Sign in'; $('li-err').textContent='Network error — try again.'; }
 }
@@ -781,7 +805,7 @@ async function loadMore(){
     navRender();
   }catch(e){ nl.innerHTML='<div style="color:var(--t3);font-size:13px;">Could not load.</div>'; }
 }
-function signOut(){ if(!confirm('Sign out of JMB Chat Aura on this phone?')) return; try{ localStorage.removeItem('jmbc_sess'); }catch(e){} location.reload(); }
+function signOut(){ if(!confirm('Sign out of JMB Chat Aura on this phone?')) return; try{ localStorage.removeItem('jmbc_sess'); localStorage.removeItem('jmbc_tok'); }catch(e){} location.reload(); }
 function showList(){ _tab='chats'; goTab('chats'); }
 
 /* ── CHAT THREAD ── */
