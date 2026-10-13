@@ -7449,6 +7449,7 @@ var TOOLG = {
     }
     var sub=E(rw.run_label || (run?'task timer':(tool==='reddit'?'open · no task timer':'open')));
     var warn=quiet>=5*60000?'<span style="color:#f59e0b;font-weight:700">'+(tool==='clients'?'No task pressed in the Client Hub for '+Math.floor(quiet/60000)+' min — the timer stops at 10. Press a task button there (log, comment, scroll, karma, move a card…).':'No activity in '+E(nm)+' for '+Math.floor(quiet/60000)+' min — the timer stops at 10.')+'</span>':'';
+    if(!warn && this.gap && Date.now()-this.gap.at<3*60000 && this.gap.gap>20*60) warn='<span style="color:'+(this.gap.gap>30*60?'#f43f5e':'#f59e0b')+';font-weight:700">Portal '+this._hm(this.gap.gap)+' ahead of your tool time — keep a task timer running (limit: 30 min)</span>';
     return { tool:tool, nm:nm, state:'linked', tSince:run, tSubH:sub, footH:warn||today };
   },
   paint: function(){
@@ -7477,9 +7478,65 @@ var TOOLG = {
   },
   hint: function(r){ var t=this.applies(r); if(!t || this._hinted===r.entry_id) return; this._hinted=r.entry_id;
     try{ showToast('🔗 Open '+this.NAME[t]+' and work there — this timer stops if '+this.NAME[t]+' shows no activity for 10 minutes.'); }catch(e){} },
+  /* ⏱ THE 30-MINUTE RULE (Jeth, Oct 13): on tool projects the portal may not run more than 30 minutes ahead of the
+     VA's tool time today — every tool together (Reddit Central + ALTR Studio + Client Hub, from tool_beat.today_secs).
+     Past 30 minutes the tool time has to keep moving with the portal: if it stalls for 2 minutes (no task timer, no
+     ticking) the portal timer stops and a box explains why. Supabase unreachable → nobody is stopped (fail-open). */
+  GAP: 30*60, GAP_WIN: 2*60*1000, _gapS: [], gap: null, _gapWarned: '',
+  rowsAll: async function(id){
+    try{ var ctl=(typeof AbortController!=='undefined')?new AbortController():null, tm=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(_e){} },10000):null;
+      var r=await fetch(SUPA_URL+'/rest/v1/tool_beat?select=tool,today_secs,run_since,open_at,last_active&employee_id=eq.'+encodeURIComponent(id), { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY }, signal:ctl?ctl.signal:undefined });
+      if(tm) clearTimeout(tm); if(!r.ok) return null; return await r.json(); }catch(e){ return null; }
+  },
+  trackedLinked: function(){
+    var tot=0, seen={}, self=this;
+    try{
+      (window._trkTodayEntries||[]).forEach(function(e){ if(!e || !e.entry_id || seen[e.entry_id]) return; seen[e.entry_id]=1;
+        if(e.status==='running' || e.status==='rejected') return; if(typeof isIdleProject==='function' && isIdleProject(e.project)) return; if(!self.applies(e)) return; tot+=Number(e.active_secs)||0; });
+      var r=(typeof trkRunning!=='undefined')?trkRunning:null;
+      if(r && !(typeof isIdle!=='undefined' && isIdle) && self.applies(r)) tot+=(Number(r.baseSecs)||0)+(r.segStart?Math.max(0,(Date.now()-r.segStart)/1000):0);
+    }catch(e){}
+    return Math.round(tot);
+  },
+  gapCheck: async function(r, tool){
+    var id=this.me(); if(!id) return;
+    var rows=await this.rowsAll(id); if(!rows) return;
+    var now=Date.now(), toolSecs=0;
+    rows.forEach(function(x){ var t=Date.parse(x.open_at||'')||Date.parse(x.last_active||'')||0; if(!t || now-t>14*3600*1000) return; toolSecs+=Math.max(0, +x.today_secs||0); });
+    var tracked=this.trackedLinked(), gap=tracked-toolSecs;
+    this.gap={ tracked:tracked, tool:toolSecs, gap:gap, at:now };
+    this._gapS.push({ at:now, gap:gap, id:r.entry_id }); this._gapS=this._gapS.filter(function(x){ return now-x.at<10*60*1000 && x.id===r.entry_id; });
+    if(gap<=this.GAP) return;
+    var old=null; for(var i=this._gapS.length-1;i>=0;i--){ if(now-this._gapS[i].at>=this.GAP_WIN){ old=this._gapS[i]; break; } }
+    if(old && gap-old.gap>60){                      // tool time stalled while the portal kept running
+      if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
+      try{ await stopTimer(); }catch(e){}
+      this._gapS=[]; this.gapBlock(tool, tracked, toolSecs, r.project); return;
+    }
+    var k=r.entry_id+'|'+Math.floor(gap/600);
+    if(this._gapWarned!==k){ this._gapWarned=k; try{ showToast('⚠ Your portal time is '+this._hm(gap)+' ahead of your tool time today — keep a task timer running in '+this.NAME[tool]+', or the portal timer stops in 2 minutes.'); }catch(e){} }
+  },
+  gapBlock: function(tool, tracked, toolSecs, proj){
+    var el=document.getElementById('toolg-box');
+    if(!el){ el=document.createElement('div'); el.id='toolg-box';
+      el.style.cssText='position:fixed;inset:0;z-index:9950;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:18px;';
+      document.body.appendChild(el); }
+    var nm=this.NAME[tool];
+    el.innerHTML='<div style="width:100%;max-width:440px;background:#fff;color:#0f172a;border-radius:20px;padding:24px 22px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);font-family:inherit;">'+
+      '<div style="font-size:19px;font-weight:800;margin-bottom:8px;">⏱ Timer stopped — portal ahead of your tool time</div>'+
+      '<div style="font-size:13.5px;color:#475569;line-height:1.55;margin-bottom:14px;">Today your portal timer shows <b>'+this._hm(tracked)+'</b> on tool projects, but your tool timers show <b>'+this._hm(toolSecs)+'</b>. '+
+      'The portal can\'t run more than <b>30 minutes</b> ahead of your tool time — time only counts while you are timing your work in the tool. Start a task timer in '+nm+', then press <b>Resume</b>.</div>'+
+      '<div style="display:flex;gap:8px;"><a href="'+this.link(tool, proj)+'" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;">Open '+nm+' ↗</a>'+
+      '<button type="button" id="toolg-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">OK</button></div></div>';
+    el.style.display='flex';
+    document.getElementById('toolg-x').onclick=function(){ el.style.display='none'; };
+    try{ showToast('⏸ Timer stopped — the portal was more than 30 minutes ahead of your tool time.'); }catch(e){}
+  },
   watch: async function(){
     var r=(typeof trkRunning!=='undefined')?trkRunning:null; if(!r || (typeof isIdle!=='undefined' && isIdle)) return;
     var tool=this.applies(r); if(!tool) return;
+    try{ await this.gapCheck(r, tool); }catch(_g){}
+    if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
     var since=Number(r.segStart)||Date.now();
     if(Date.now()-since < this.WARN) return;                // still inside the grace window — no need to ask
     var la=await this.last(this.me(), tool); if(!la.ok) return;
@@ -24864,7 +24921,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-13-C';
+var PORTAL_BUILD='2026-10-13-D';
 (function(){
   var pending=false;
   setInterval(function(){
