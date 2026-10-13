@@ -5455,6 +5455,25 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
           <div class="kpi"><div class="kpi-top"><div class="kpi-ic" style="background:#f0edff;color:#7c5cff;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17l-6.2 3.7 1.6-6.8L2.2 8.9l6.9-.6z"/></svg></div></div><div class="kpi-l">Assessment</div><div class="kpi-v" id="kpi-assess">—</div></div>
           <div class="kpi"><div class="kpi-top"><div class="kpi-ic" style="background:#fdf3e2;color:#d98a00;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div></div><div class="kpi-l">JMB Points</div><div class="kpi-v" id="kpi-points">—</div></div>
         </div>
+        <!-- 🔋 ATTENDANCE BATTERY (Jeth, Oct 13): the month's attendance score as a vertical charging bar — full = clean, it drains with every late and absence -->
+        <div class="card" id="attbat-card" style="display:none;padding:1rem 1.15rem;margin-bottom:1rem;">
+          <div class="ab-wrap">
+            <div class="ab-bat" id="ab-bat" title="Attendance score this month">
+              <div class="ab-cap"></div>
+              <div class="ab-body">
+                <div class="ab-fill" id="ab-fill"><i class="ab-wave"></i><i class="ab-shine"></i></div>
+                <div class="ab-ticks"><i></i><i></i><i></i></div>
+                <div class="ab-num"><b id="ab-score">—</b><small>/100</small></div>
+              </div>
+            </div>
+            <div class="ab-info">
+              <div class="ab-top"><p class="ab-eyebrow" id="ab-month">Attendance — this month</p><span class="ab-pill" id="ab-pill">—</span></div>
+              <div class="ab-head" id="ab-head">Loading…</div>
+              <div class="ab-rows" id="ab-rows"></div>
+              <div class="ab-next" id="ab-next"></div>
+            </div>
+          </div>
+        </div>
         <div class="card" id="myqa-card" style="padding:1rem 1.15rem;margin-bottom:1rem;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
             <p style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin:0;">My QA — this month</p>
@@ -8156,6 +8175,7 @@ async function renderKPIs(data) {
     // Overall/final score is hidden on the dashboard too — it's the current month, revealed at the meeting.
     var kEl = document.getElementById('kpi-score'); if (kEl) { kEl.textContent = '🔒'; kEl.title = 'Revealed at the monthly meeting'; kEl.style.filter = ''; }
     set('kpi-att', (ab.expected != null) ? ((ab.present != null ? ab.present : 0) + '/' + ab.expected) : '—');
+    try { ATTBAT.render((j.attendance != null ? j.attendance : ab.score), ab, id); } catch(_ab) {}   // 🔋 attendance battery (Oct 13)
     if (sc.assessment != null && sc.assessment !== '') countUp(document.getElementById('kpi-assess'), Math.round(parseFloat(sc.assessment)), { suffix: '%' }); else set('kpi-assess', '—');
   } catch (e) {}
 }
@@ -25064,7 +25084,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-13-E';
+var PORTAL_BUILD='2026-10-13-F';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -29274,7 +29294,11 @@ html body.app-authed #tab-attendance .at-card #trkx-state.s-lunch{ color:#0d9488
 @keyframes trkxPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(16,185,129,.55); } 50%{ box-shadow:0 0 0 6px rgba(16,185,129,0); } }
 
 /* 3-step guide */
-html body.app-authed #tab-attendance .at-card .trkx-steps{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 18px; }
+html body.app-authed #tab-attendance .at-card .trkx-steps{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:0 0 18px; }
+@media (max-width:1100px){ html body.app-authed #tab-attendance .at-card .trkx-steps{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+html body.app-authed #tab-attendance .at-card .trkx-step small a{ color:inherit; font-weight:800; text-decoration:underline; text-underline-offset:2px; }
+html body.app-authed #tab-attendance .at-card .trkx-step.wait .n{ animation:trkxPairPulse 1.4s ease-in-out infinite; }
+@keyframes trkxPairPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(255,107,26,.45); } 50%{ box-shadow:0 0 0 6px rgba(255,107,26,0); } }
 html body.app-authed #tab-attendance .at-card .trkx-step{ display:flex; align-items:center; gap:11px; padding:11px 13px; border-radius:16px; background:var(--tx-soft); border:1px solid var(--tx-line); transition:all .3s ease; min-width:0; }
 html body.app-authed #tab-attendance .at-card .trkx-step .n{ flex:none; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800;
   background:rgba(127,127,150,.14); color:var(--au-ink3,#8a90a8); transition:all .3s ease; }
@@ -29404,14 +29428,14 @@ var TRKUI = {
       var eb = title.querySelector('.at-eyebrow'), badge = document.getElementById('shift-badge');
       var L = document.createElement('div'); L.className = 'trkx-left';
       if (eb) L.appendChild(eb);
-      L.insertAdjacentHTML('beforeend', '<div class="trkx-title">Time tracker</div><div class="trkx-sub">Time in, choose your laptop and task, then press Start.</div>');
+      L.insertAdjacentHTML('beforeend', '<div class="trkx-title">Time tracker</div><div class="trkx-sub">Time in, choose your laptop and task, pair your tool, then press Start.</div>');
       var R = document.createElement('div'); R.className = 'trkx-right';
       if (badge) R.appendChild(badge);
       R.insertAdjacentHTML('beforeend', '<span id="trkx-state"><i></i><b>Not timed in</b></span>');
       title.style.display = 'none';
       top.insertBefore(L, top.firstChild); top.insertBefore(R, L.nextSibling);
       var st = document.createElement('div'); st.className = 'trkx-steps';
-      st.innerHTML = [['1','Time in','Start your shift'],['2','Laptop & task','Pick what you are working on'],['3','Track','Press Start']].map(function(x){
+      st.innerHTML = [['1','Time in','Start your shift'],['2','Laptop & task','Pick what you are working on'],['3','Pair the tool','Open your tool and sign in'],['4','Track','Press Start']].map(function(x){
         return '<div class="trkx-step" data-s="'+x[0]+'"><span class="n">'+x[0]+'</span><span style="min-width:0"><b>'+x[1]+'</b><small>'+x[2]+'</small></span></div>'; }).join('');
       top.parentNode.insertBefore(st, top.nextSibling);
     }
@@ -29442,19 +29466,28 @@ var TRKUI = {
     try { lunch = !!(window.AUL && AUL.active && AUL.active()); } catch(e){}
     try { var d = document.getElementById('trk-device'); laptop = d ? d.value : ''; } catch(e){}
     var s2 = ready && !!laptop;
+    /* 🔗 STEP 3 — PAIR THE TOOL (Jeth, Oct 13). A task tracked in Reddit Central / ALTR Studio / Client Hub can only start
+       once that tool is open and signed in as this VA (TOOLG.pair enforces it on Start and Resume). This step shows it
+       live: the tool is checked every 4 s while it isn't paired (15 s once it is), and a fresh "paired" result lets Start
+       go through instantly. A task with no tool: nothing to pair — the step is done by itself. */
+    var pr = TRKPAIR.state(timedIn && s2 && !running);
+    var s3 = pr.ok;
     card.classList.toggle('trkx-running', running);
     var steps = card.querySelectorAll('.trkx-step');
-    var state = [timedIn || running, s2 || running, running];
+    var state = [timedIn || running, s2 || running, (s2 && s3) || running, running];
     var cur = state.indexOf(false);
     steps.forEach(function(el, i){
       el.classList.toggle('done', !!state[i]); el.classList.toggle('on', i === cur);
       var n = el.querySelector('.n'); if (n) n.textContent = state[i] ? '✓' : String(i+1);
     });
     var sm = card.querySelectorAll('.trkx-step small');
-    if (sm.length === 3){
+    if (sm.length === 4){
       sm[0].textContent = (timedIn || running) ? 'You are on the clock' : 'Start your shift';
       sm[1].textContent = s2 ? 'Ready' : (!laptop ? 'Choose your laptop first' : 'Pick project, category, task');
-      sm[2].textContent = running ? 'Tracking now' : 'Press Start';
+      var p3 = running ? (pr.tool ? 'Paired with ' + pr.name : 'No tool needed') : (!s2 ? 'After your task' : pr.html);
+      if (sm[2].__h !== p3){ sm[2].innerHTML = p3; sm[2].__h = p3; }
+      sm[3].textContent = running ? 'Tracking now' : (s2 && !s3 ? 'Unlocks when paired' : 'Press Start');
+      if (steps[2]) steps[2].classList.toggle('wait', !running && s2 && !!pr.tool && !s3);
     }
     var lapF = card.querySelector('.trkx-f[data-f="trk-device"]'); if (lapF) lapF.classList.toggle('need', timedIn && !laptop && !running);
     var pill = document.getElementById('trkx-state');
@@ -29481,6 +29514,41 @@ var TRKUI = {
     try { self.build(); self.paint(); } catch(e){}
   }
 };
+/* the live pairing check behind step 3 */
+var TRKPAIR = {
+  tool:'', row:null, at:0, busy:false, okAt:0,
+  sel: function(){ var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; }; return { project:g('cfy-project'), category:g('cfy-category'), task:g('cfy-task'), description:g('cfy-desc') }; },
+  fresh: function(tool){ return this.tool === tool && this.row && (Date.now() - this.at) < 8000 && TOOLG.isOpen(this.row); },
+  state: function(want){
+    var out = { ok:true, tool:'', name:'', html:'No tool needed for this task' };
+    try {
+      var r = this.sel(), tool = (typeof TOOLG !== 'undefined') ? TOOLG.applies(r) : '';
+      if (!tool) return out;
+      var nm = TOOLG.NAME[tool] || 'your tool'; out.tool = tool; out.name = nm;
+      if (want) this.probe(tool);
+      var ok = this.tool === tool && this.row && TOOLG.isOpen(this.row);
+      if (this.tool === tool && this.failOpen) ok = true;                 // Supabase unreachable → never block (same as Start)
+      out.ok = !!ok;
+      out.html = ok ? ('Paired with <b>' + nm + '</b> ✓') : ('<a href="' + TOOLG.link(tool, r.project) + '" target="_blank" rel="noopener">Open ' + nm + ' ↗</a> and sign in as ' + escapeHtml(TOOLG.me()));
+    } catch(e){}
+    return out;
+  },
+  probe: function(tool){
+    var self = this, age = Date.now() - this.at, okNow = this.tool === tool && this.row && TOOLG.isOpen(this.row);
+    if (this.busy || document.hidden) return;
+    if (this.tool === tool && age < (okNow ? 15000 : 4000)) return;
+    this.busy = true;
+    TOOLG.row(TOOLG.me(), tool).then(function(x){
+      self.busy = false;
+      if (self.tool !== tool){ self.row = null; }
+      self.tool = tool; self.at = Date.now(); self.failOpen = !x.ok;
+      if (x.ok) self.row = x.row;
+      try { TRKUI.paint(); } catch(e){}
+    }).catch(function(){ self.busy = false; });
+  }
+};
+/* Start right after the step shows "Paired": use that fresh check instead of asking the server again (no wait) */
+try { var _tgRow = TOOLG.row; TOOLG.row = function(id, tool){ if (typeof TRKPAIR !== 'undefined' && TRKPAIR.fresh(tool) && !(typeof trkRunning !== 'undefined' && trkRunning)) return Promise.resolve({ ok:true, row:TRKPAIR.row }); return _tgRow.apply(this, arguments); }; } catch(_tr) {}
 if (document.readyState !== 'loading') TRKUI.start(); else document.addEventListener('DOMContentLoaded', function(){ TRKUI.start(); });
 </script>
 
@@ -32692,5 +32760,103 @@ html body:not(.au-light) #au-reveal .au-reveal-sub{color:rgba(255,255,255,.5) !i
   html body.app-authed #dashboard-screen .tabs.tabs{ top:0 !important; bottom:0 !important; margin-bottom:0 !important; height:auto !important; padding-bottom:16px !important; }
 }
 </style>
+<style id="attbat-css">
+/* ── 🔋 Attendance battery (Oct 13) ── */
+#attbat-card .ab-wrap{ display:flex; gap:20px; align-items:center; }
+#attbat-card .ab-bat{ position:relative; flex:0 0 auto; width:84px; padding-top:9px; }
+#attbat-card .ab-cap{ position:absolute; top:0; left:50%; transform:translateX(-50%); width:32px; height:10px; border-radius:6px 6px 2px 2px; background:var(--ab-rim,rgba(15,23,42,.18)); }
+#attbat-card .ab-body{ position:relative; height:184px; border-radius:20px; border:3px solid var(--ab-rim,rgba(15,23,42,.18)); background:var(--ab-bg,rgba(15,23,42,.04)); overflow:hidden; box-shadow:inset 0 2px 10px rgba(15,23,42,.08); }
+#attbat-card .ab-fill{ position:absolute; left:0; right:0; bottom:0; height:0%; background:linear-gradient(0deg,var(--ab-c1,#10b981),var(--ab-c2,#34d399)); transition:height 1.5s cubic-bezier(.22,1,.36,1), background .6s; box-shadow:0 -6px 18px -6px var(--ab-c1,#10b981); }
+#attbat-card .ab-wave{ position:absolute; left:-50%; top:-7px; width:200%; height:14px; background:radial-gradient(12px 7px at 12px 7px, var(--ab-c2,#34d399) 98%, transparent 100%) 0 0/24px 14px repeat-x; opacity:.95; animation:abWave 2.6s linear infinite; }
+#attbat-card .ab-shine{ position:absolute; top:0; bottom:0; left:12%; width:16%; background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.38),rgba(255,255,255,0)); border-radius:8px; }
+#attbat-card .ab-fill.charging::before{ content:""; position:absolute; inset:0; background:linear-gradient(0deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.45) 50%,rgba(255,255,255,0) 100%); background-size:100% 60%; background-repeat:no-repeat; animation:abCharge 1.6s ease-in-out infinite; }
+#attbat-card .ab-fill.hit{ animation:abHit .5s ease-in-out 3; }
+#attbat-card .ab-ticks{ position:absolute; inset:0; display:flex; flex-direction:column; justify-content:space-evenly; pointer-events:none; }
+#attbat-card .ab-ticks i{ display:block; height:2px; margin:0 10px; background:rgba(255,255,255,.35); border-radius:2px; }
+#attbat-card .ab-num{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; pointer-events:none; }
+#attbat-card .ab-num b{ font:800 26px/1 'Sora','Inter',sans-serif; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.35); font-variant-numeric:tabular-nums; }
+#attbat-card .ab-num small{ font-size:10.5px; font-weight:700; color:rgba(255,255,255,.9); text-shadow:0 1px 2px rgba(0,0,0,.3); margin-top:2px; }
+#attbat-card .ab-num.dark b, #attbat-card .ab-num.dark small{ color:var(--text-1,#0f172a); text-shadow:none; }
+#attbat-card .ab-info{ flex:1; min-width:0; }
+#attbat-card .ab-top{ display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+#attbat-card .ab-eyebrow{ font-size:10px; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; margin:0; }
+#attbat-card .ab-pill{ font-size:11.5px; font-weight:800; padding:4px 11px; border-radius:999px; background:var(--ab-pillbg,rgba(16,185,129,.12)); color:var(--ab-pillc,#047857); }
+#attbat-card .ab-head{ font:800 19px/1.3 'Sora','Inter',sans-serif; color:var(--text-1); margin:8px 0 10px; }
+#attbat-card .ab-head .drop{ display:inline-block; margin-left:8px; font:700 12px/1 Inter,sans-serif; color:#ef4444; background:rgba(239,68,68,.1); padding:4px 8px; border-radius:8px; vertical-align:middle; }
+#attbat-card .ab-rows{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+#attbat-card .ab-row{ border:1px solid rgba(15,23,42,.08); border-radius:12px; padding:9px 11px; }
+#attbat-card .ab-row .l{ font-size:11px; color:var(--text-3); font-weight:600; }
+#attbat-card .ab-row .v{ font:800 17px/1.2 'Sora','Inter',sans-serif; color:var(--text-1); margin-top:2px; font-variant-numeric:tabular-nums; }
+#attbat-card .ab-row .p{ font-size:11.5px; font-weight:700; margin-top:1px; }
+#attbat-card .ab-next{ font-size:12px; color:var(--text-3); line-height:1.5; margin-top:10px; }
+@keyframes abWave{ from{ transform:translateX(0); } to{ transform:translateX(24px); } }
+@keyframes abCharge{ 0%{ background-position:0 160%; } 100%{ background-position:0 -60%; } }
+@keyframes abHit{ 0%,100%{ filter:none; } 50%{ filter:brightness(1.35) saturate(1.4); } }
+html body.app-authed:not(.light) #attbat-card .ab-row{ border-color:rgba(255,255,255,.1); }
+html body.app-authed:not(.light) #attbat-card{ --ab-rim:rgba(255,255,255,.22); --ab-bg:rgba(255,255,255,.04); }
+@media (max-width:640px){ #attbat-card .ab-rows{ grid-template-columns:1fr; } #attbat-card .ab-body{ height:200px; } }
+@media (prefers-reduced-motion:reduce){ #attbat-card .ab-wave, #attbat-card .ab-fill.charging::before, #attbat-card .ab-fill.hit{ animation:none; } #attbat-card .ab-fill{ transition:none; } }
+</style>
+<script id="attbat-js">
+/* ══════════ 🔋 ATTENDANCE BATTERY (Jeth, Oct 13) ══════════
+   "An attendance score bar on the Overview — vertical, like a charging bar — that goes down whenever they get hit by
+   lates and absences." The number is the same running attendance score the scorecard uses (getAttendanceForMonth on
+   the server: 100 − lates (capped at 15) − absences), surfaced live by get_scorecard. Full and green = clean. Every
+   hit drains it; when it dropped since the VA last looked, it starts at the old level and drains down so they see it.
+   Colours: 100 clean · 90+ good · 75+ hit · 60+ low · under 60 critical. */
+var ATTBAT = {
+  band: function(s){
+    if (s >= 100) return { c1:'#10b981', c2:'#34d399', pill:'Clean ✓', pc:'#047857', pb:'rgba(16,185,129,.14)' };
+    if (s >= 90)  return { c1:'#22c55e', c2:'#86efac', pill:'Good',    pc:'#15803d', pb:'rgba(34,197,94,.14)' };
+    if (s >= 75)  return { c1:'#f59e0b', c2:'#fcd34d', pill:'Hit',     pc:'#b45309', pb:'rgba(245,158,11,.16)' };
+    if (s >= 60)  return { c1:'#f97316', c2:'#fdba74', pill:'Low',     pc:'#c2410c', pb:'rgba(249,115,22,.16)' };
+    return { c1:'#ef4444', c2:'#fca5a5', pill:'Critical', pc:'#b91c1c', pb:'rgba(239,68,68,.14)' };
+  },
+  fmt: function(n){ n = Math.round(n * 10) / 10; return (n % 1 ? n.toFixed(1) : String(n)); },
+  render: function(score, ab, empId){
+    var card = document.getElementById('attbat-card'); if (!card) return;
+    ab = ab || {};
+    var exp = +ab.expected || 0, s = (score == null || score === '' || isNaN(+score)) ? (exp ? null : 100) : Math.max(0, Math.min(100, +score));
+    if (s == null) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    var B = this.band(s), set = function(id, h){ var e = document.getElementById(id); if (e) e.innerHTML = h; };
+    ['--ab-c1','--ab-c2'].forEach(function(k, i){ card.style.setProperty(k, i ? B.c2 : B.c1); });
+    card.style.setProperty('--ab-pillc', B.pc); card.style.setProperty('--ab-pillbg', B.pb);
+    var mk = (typeof monthKeyPHT === 'function') ? monthKeyPHT() : new Date().toISOString().slice(0, 7);
+    var mName = new Date(mk + '-01T12:00:00').toLocaleDateString('en-US', { month: 'long' });
+    set('ab-month', 'Attendance — ' + mName);
+    set('ab-pill', B.pill);
+    set('ab-score', this.fmt(s));
+    var num = card.querySelector('.ab-num'); if (num) num.classList.toggle('dark', s < 42);
+    /* drop since the VA last looked: start at the old level, drain to the new one */
+    var key = 'attbat_' + String(empId || '').toUpperCase() + '_' + mk, last = null;
+    try { var lv = localStorage.getItem(key); if (lv != null && lv !== '') last = parseFloat(lv); localStorage.setItem(key, String(s)); } catch(e){}
+    var lost = Math.round((100 - s) * 10) / 10, dropped = (last != null && !isNaN(last) && s < last - 0.05) ? Math.round((last - s) * 10) / 10 : 0;
+    set('ab-head', (lost <= 0 ? 'Fully charged — clean so far' : ('−' + this.fmt(lost) + ' point' + (lost === 1 ? '' : 's') + ' this month')) +
+      (dropped ? '<span class="drop">−' + this.fmt(dropped) + ' since you last looked</span>' : ''));
+    var late = +ab.late || 0, absent = +ab.absent || 0, onTime = (ab.on_time != null ? +ab.on_time : Math.max(0, (+ab.present || 0) - late));
+    var lp = +ab.late_pen_applied || 0, ap = +ab.absent_pen || 0;
+    var row = function(l, v, p, col){ return '<div class="ab-row"><div class="l">' + l + '</div><div class="v">' + v + '</div>' + (p ? '<div class="p" style="color:' + col + '">' + p + '</div>' : '') + '</div>'; };
+    set('ab-rows',
+      row('On time', onTime + '<small style="font-size:12px;color:var(--text-3);font-weight:700">/' + exp + ' days</small>', exp && onTime === exp ? 'perfect' : '', '#059669') +
+      row('Late', late + ' day' + (late === 1 ? '' : 's'), late ? ('−' + this.fmt(lp) + ' pts' + (ab.late_capped ? ' · capped' : '')) : 'no hits', late ? '#d97706' : '#059669') +
+      row('Absent', absent + ' day' + (absent === 1 ? '' : 's'), absent ? ('−' + this.fmt(ap) + ' pts') : 'no hits', absent ? '#dc2626' : '#059669'));
+    set('ab-next', ab.late_capped
+      ? 'Lates are already at the −15 cap for this month — more lates won’t drain it further, but an absence still costs <b>−10</b> (−4 with an approved leave).'
+      : 'Each late costs <b>−1</b> (up to 15 min), <b>−1.5</b> (16–30 min) or <b>−2</b> (30+ min), up to −15 a month. An absence costs <b>−10</b>, or <b>−4</b> with an approved leave.');
+    /* the fill: charge up on first view, drain on a drop */
+    var fill = document.getElementById('ab-fill'); if (!fill) return;
+    var reduce = false; try { reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){}
+    var startAt = dropped ? last : (this._shown ? s : 0);
+    fill.style.transition = 'none'; fill.style.height = Math.max(0, Math.min(100, startAt)) + '%';
+    void fill.offsetHeight;
+    fill.style.transition = reduce ? 'none' : '';
+    fill.classList.toggle('charging', !dropped && !this._shown && !reduce);
+    setTimeout(function(){ fill.style.height = s + '%'; }, 60);
+    setTimeout(function(){ fill.classList.remove('charging'); if (dropped && !reduce){ fill.classList.add('hit'); setTimeout(function(){ fill.classList.remove('hit'); }, 1600); } }, 1700);
+    this._shown = true;
+  }
+};
+</script>
 </body>
 </html>
