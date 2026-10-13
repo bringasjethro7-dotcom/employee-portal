@@ -2766,6 +2766,12 @@
   .tl-now { position:absolute; top:0; bottom:0; width:2px; background:var(--orange-1); box-shadow:0 0 8px rgba(255,107,26,.6); }
   /* lane-stacked, tappable timeline blocks */
   .tl-seg.appealable { cursor:pointer; }
+  /* 💤 automatic idle (Oct 13): hatched grey, a dashed edge while it is still growing */
+  .tl-seg.idle-auto { background-color: transparent; background-image: repeating-linear-gradient(135deg, rgba(148,163,184,.30) 0 6px, rgba(148,163,184,.12) 6px 12px); box-shadow: inset 0 0 0 1px rgba(148,163,184,.45); }
+  .tl-seg.idle-auto:hover { background-color: rgba(148,163,184,.12); }
+  .tl-seg.idle-auto.open { box-shadow: inset 0 0 0 1px rgba(148,163,184,.45), inset -2px 0 0 rgba(148,163,184,.9); }
+  .tl-seg.idle-auto .tl-lbl { color: var(--text-3); font-weight:600; }
+  .tbar-lg i.idle { background-image: repeating-linear-gradient(135deg, rgba(148,163,184,.9) 0 3px, rgba(148,163,184,.35) 3px 6px) !important; }
   .tl-seg.appealable:hover { background-color: color-mix(in srgb, var(--c,#888) 55%, transparent); box-shadow: inset 0 0 0 1px var(--c,#888), inset 0 2px 0 var(--c,#888), 0 3px 12px -3px color-mix(in srgb, var(--c,#888) 65%, transparent); }
   .tl-seg .tl-lbl { position:absolute; inset:0; display:flex; align-items:center; padding:0 7px; font-size:11px; font-weight:700; color:var(--text-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none; }
   .tl-appeal-note { font-size:11px; color:var(--text-3); margin:6px 0 8px; }
@@ -7530,7 +7536,7 @@ var TOOLG = {
     var old=null; for(var i=this._gapS.length-1;i>=0;i--){ if(now-this._gapS[i].at>=this.GAP_WIN){ old=this._gapS[i]; break; } }
     if(old && gap-old.gap>60){                      // tool time stalled while the portal kept running
       if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
-      try{ await stopTimer(); }catch(e){}
+      try{ IDLE_AUTO.cut(now-Math.max(0,(gap-old.gap))*1000, 'your tool time stopped moving'); }catch(e){ try{ await stopTimer(); }catch(_e){} }   // Oct 13: cut where the tool time stalled
       this._gapS=[]; this.gapBlock(tool, tracked, toolSecs, r.project); return;
     }
     var k=r.entry_id+'|'+Math.floor(gap/600);
@@ -7563,7 +7569,7 @@ var TOOLG = {
     if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;   // it changed while we were asking
     var ref=Math.max(since, la.at||0), quiet=Date.now()-ref;
     if(quiet >= this.GRACE){
-      try{ await stopTimer(); }catch(e){}
+      try{ IDLE_AUTO.cut(ref, 'no activity in '+this.NAME[tool]); }catch(e){ try{ await stopTimer(); }catch(_e){} }   // Oct 13: cut at the tool's last activity — the rest is Idle
       this.block(tool, la.at, r.project);
       return;
     }
@@ -12014,7 +12020,54 @@ var nativeProjects = [];     // [{project, task, active}] from the admin-managed
 // Internal idle categories tracked through the timer (not productive)
 var IDLE_PROJECT = 'Idle (Internal)';
 var IDLE_TYPES   = ['Lunch Break', 'Microbreak', 'No task'];
-var TIME_CAT_COLORS = { 'Working':'#22c55e', 'Lunch Break':'#f59e0b', 'Microbreak':'#38bdf8', 'No task':'#94a3b8' };
+var TIME_CAT_COLORS = { 'Working':'#22c55e', 'Lunch Break':'#f59e0b', 'Microbreak':'#38bdf8', 'No task':'#94a3b8', 'Idle':'#94a3b8' };
+/* ══════════ 💤 AUTOMATIC IDLE (Jeth, Oct 13) ══════════
+   "Remove Idle / Internal from the project picker … if they timed in and no tool is running, or they stop doing
+   anything in the tool while the timer runs, cut the time and record it as idle on the bar."
+   • Every minute between time-in and time-out (or now) with no task running is Idle on the timeline — nothing to
+     press. Not paid, same as before; worked offline? the hours appeal after End of day covers it.
+   • When a timer is stopped for no activity (no activity in the tool for 10 min, no input for 3 min, or the portal
+     running 30+ min ahead of the tool), the entry is cut at the last real activity — the server is told to credit
+     only up to then (credit_until_ms) — and the rest shows as Idle. The cut is remembered on this device so the bar
+     is right at once, even before the server answers. */
+var IDLE_AUTO = {
+  key: function(){ return 'trk_cuts_' + (attEmpId || '') + '_' + (typeof shiftDate === 'function' ? shiftDate() : ''); },
+  cuts: function(){ try { return JSON.parse(localStorage.getItem(this.key()) || '{}') || {}; } catch(e){ return {}; } },
+  put: function(eid, ms){ try { var o = this.cuts(); o[eid] = ms; localStorage.setItem(this.key(), JSON.stringify(o)); } catch(e){} },
+  /* the gaps: inside each session (time-in → time-out or now), minus every block and the lunch hour */
+  gaps: function(blocks){
+    var out = [];
+    try {
+      var ses = ((typeof todayLog !== 'undefined' && todayLog && todayLog.sessions) || []).filter(function(x){ return x && x.time_in; });
+      if (!ses.length) return out;
+      var busy = (blocks || []).map(function(b){ return { s:b.s, e:b.e }; });
+      try { if (window.AUL && AUL.enabled === true) { var w = AUL.win(); if (w && w.start) busy.push({ s:+w.start, e:+w.end }); } } catch(_l){}
+      busy.sort(function(a, b){ return a.s - b.s; });
+      var now = Date.now();
+      ses.forEach(function(x){
+        var bi = new Date(x.time_in).getTime(), bo = x.time_out ? new Date(x.time_out).getTime() : now;
+        if (!(bo > bi)) return; if (bo > now) bo = now;
+        var cur = bi;
+        busy.forEach(function(b){ if (b.e <= cur || b.s >= bo) return; if (b.s > cur) out.push({ s:cur, e:Math.min(b.s, bo), open:false }); cur = Math.max(cur, b.e); });
+        if (cur < bo) out.push({ s:cur, e:bo, open:!x.time_out });
+      });
+    } catch(e){}
+    return out.filter(function(g){ return g.e - g.s >= 60000; });
+  },
+  /* stop the running timer, crediting only up to `atMs` (never before this run started) */
+  cut: function(atMs, why){
+    if (typeof trkRunning === 'undefined' || !trkRunning) return false;
+    var seg = Number(trkRunning.segStart) || Date.now(), now = Date.now();
+    var at = Math.max(seg, Math.min(now, Number(atMs) || now));
+    if (now - at < 60000 || typeof presenceStopTimer !== 'function') { try { stopTimer(); } catch(e){} return true; }
+    var eid = trkRunning.entry_id;
+    this.put(eid, at);
+    try { presenceStopTimer(at); } catch(e){ try { stopTimer(); } catch(_e){} return true; }
+    try { var t = new Date(at).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+      showToast('⏸ Timer stopped at ' + t + ' — ' + (why || 'no activity') + '. The time after that shows as Idle on your timeline.'); } catch(e){}
+    return true;
+  }
+};
 function isIdleProject(p){ return String(p) === IDLE_PROJECT; }
 function lightenHex(hex, amt){
   hex = String(hex).replace('#',''); if (hex.length === 3) hex = hex.split('').map(function(c){ return c+c; }).join('');
@@ -12109,7 +12162,10 @@ async function loadProjects() {
     nativeProjects = (json.projects || []).filter(function(p){ return String(p.active || 'yes').toLowerCase() !== 'no'; });
   } catch(e) { nativeProjects = []; }
   // Internal idle "projects" — tracked but NOT productive (shown distinctly in the bar)
-  var idleRows = IDLE_TYPES.map(function(c){ return { project: IDLE_PROJECT, category: c, task: '', active: 'yes' }; });
+  /* Oct 13 (Jeth): "Idle (Internal)" is no longer picked by hand. Idle is automatic: time-in with no task running,
+     and time a tool shows no activity, show as Idle on the timeline. Old idle rows (and the auto-lunch hour) still
+     read as idle everywhere through isIdleProject(). */
+  var idleRows = [];
   nativeProjects = idleRows.concat(nativeProjects);
   var sel = document.getElementById('cfy-project');
   var seen = {}; var opts = '<option value="">Select project…</option>';
@@ -12355,6 +12411,8 @@ function renderTimeBar(entries) {
       idle: (typeof isIdleProject === 'function' && isIdleProject(e.project)),
       worked: (parseFloat(e.active_secs) || 0) * 1000 });
   });
+  /* 💤 automatic idle (Oct 13): every gap since time-in with no task running */
+  try { IDLE_AUTO.gaps(blocks).forEach(function(g){ blocks.push({ s:g.s, e:g.e, cat:'Idle', live:false, open:g.open, auto:true, label:'Idle', eid:'', idle:true, worked:(g.e - g.s) }); }); } catch(_ig) {}
   if (!blocks.length) { box.style.display = 'none'; return; }
   blocks.sort(function(a, b){ return a.s - b.s; });
 
@@ -12398,10 +12456,12 @@ function renderTimeBar(entries) {
     var vars = '--c:' + col + (b.live ? (';--glow:' + lightenHex(col, .62)) : '');
     var workLbl = hm(b.worked > 0 ? b.worked : (b.e - b.s));   // real worked time (not the paused envelope)
     var canAppeal = b.eid && !b.idle;
-    var tip = escapeHtml(b.label) + ' · ' + st + '–' + (b.live ? 'now' : et) + ' · ' + workLbl + (canAppeal ? ' · tap if it’s the wrong task' : '');
+    var tip = b.auto
+      ? 'Idle (automatic) · ' + st + '–' + (b.open ? 'now' : et) + ' · ' + workLbl + ' · no task running in this time, so it is not paid. Worked offline? Appeal it after End of day.'
+      : escapeHtml(b.label) + ' · ' + st + '–' + (b.live ? 'now' : et) + ' · ' + workLbl + (canAppeal ? ' · tap if it’s the wrong task' : '');
     var onclick = canAppeal ? ' onclick="appealRetag(\'' + encodeURIComponent(b.eid) + '\',\'' + encodeURIComponent(b.label) + '\')"' : '';
     var inner = w > 46 ? '<span class="tl-lbl">' + escapeHtml(b.label) + '</span>' : '';
-    return '<div class="tl-seg' + (b.live ? ' live' : '') + (canAppeal ? ' appealable' : '') +
+    return '<div class="tl-seg' + (b.live ? ' live' : '') + (b.auto ? ' idle-auto' + (b.open ? ' open' : '') : '') + (canAppeal ? ' appealable' : '') +
       '" style="left:' + left + 'px;width:' + w + 'px;top:' + top + 'px;height:' + LANE_H + 'px;bottom:auto;' + vars + ';"' +
       onclick + ' title="' + tip + '">' + inner + '</div>';
   }).join('');
@@ -12412,20 +12472,21 @@ function renderTimeBar(entries) {
   var dstr = d0.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   if (d0.toDateString() !== d1.toDateString()) dstr += ' → ' + d1.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-  var secs = { 'Working':0, 'Lunch Break':0, 'Microbreak':0, 'No task':0 };
-  blocks.forEach(function(b){ secs[b.cat] += (b.worked > 0 ? b.worked : (b.e - b.s)) / 1000; });
-  var total = Object.keys(secs).reduce(function(a, k){ return a + secs[k]; }, 0);
-  var order = ['Working','Lunch Break','Microbreak','No task'];
-  var legend = order.map(function(k){ return '<span class="tbar-lg"><i style="background:' + TIME_CAT_COLORS[k] + '"></i>' + k + ' <b>' + hm(secs[k]*1000) + '</b></span>'; }).join('');
+  /* Oct 13: Idle = the automatic gaps + any old hand-picked "No task" / "Microbreak" rows. Lunch is its own colour and
+     stays out of the percentage (it's the scheduled hour, not idle). */
+  var secs = { 'Working':0, 'Lunch Break':0, 'Idle':0 };
+  blocks.forEach(function(b){ var k = (b.cat === 'No task' || b.cat === 'Microbreak') ? 'Idle' : b.cat; if (secs[k] === undefined) k = 'Working'; secs[k] += (b.worked > 0 ? b.worked : (b.e - b.s)) / 1000; });
+  var order = ['Working','Lunch Break','Idle'];
+  var legend = order.filter(function(k){ return k !== 'Lunch Break' || secs[k] > 0; }).map(function(k){ return '<span class="tbar-lg"><i' + (k === 'Idle' ? ' class="idle"' : '') + ' style="background:' + TIME_CAT_COLORS[k] + '"></i>' + k + ' <b>' + hm(secs[k]*1000) + '</b></span>'; }).join('');
   var prodSecs = secs['Working'] || 0;
-  var unprodSecs = Math.max(0, total - prodSecs);
-  var prodPct = total > 0 ? Math.round(prodSecs/total*100) : 0;
+  var unprodSecs = secs['Idle'] || 0;
+  var prodPct = (prodSecs + unprodSecs) > 0 ? Math.round(prodSecs/(prodSecs + unprodSecs)*100) : 0;
 
   var prevScroll = (function(){ var w = document.getElementById('tl-wrap'); return w ? w.scrollLeft : null; })();
   box.innerHTML =
     '<div class="tbar-head"><span class="section-eyebrow" style="margin:0">Timeline · ' + dstr + '</span>' +
-      '<span class="tbar-prod"><b style="color:#22c55e">' + hm(prodSecs*1000) + '</b> productive · <b style="color:#94a3b8">' + hm(unprodSecs*1000) + '</b> unproductive · ' + prodPct + '%</span></div>' +
-    '<div class="tl-appeal-note">Tap any task block to appeal its time.</div>' +
+      '<span class="tbar-prod"><b style="color:#22c55e">' + hm(prodSecs*1000) + '</b> productive · <b style="color:#94a3b8">' + hm(unprodSecs*1000) + '</b> idle · ' + prodPct + '%</span></div>' +
+    '<div class="tl-appeal-note">Tap any task block to appeal its time. Grey striped = Idle, recorded automatically when no task is running.</div>' +
     '<div class="tl-wrap" id="tl-wrap"><div class="tl-track" style="width:' + totalW + 'px;height:' + trackH + 'px">' + hours + segs + nowM + '</div></div>' +
     '<div class="tbar-legend">' + legend + '</div>';
   box.style.display = 'block';
@@ -13932,6 +13993,9 @@ function _barEntries() {
   _loadTodayCache().forEach(function(e){ if (e && e.entry_id) byId[e.entry_id] = e; });
   (window._trkTodayEntries || []).forEach(function(e){ if (e && e.entry_id) byId[e.entry_id] = e; else if (e) loose.push(e); });   // server data wins
   var base = Object.keys(byId).map(function(k){ return byId[k]; }).concat(loose);
+  try { var _cuts = IDLE_AUTO.cuts(); base = base.map(function(e){ var c = e && e.entry_id && _cuts[e.entry_id]; if (!c || e.status === 'running') return e;
+    var en = e.end ? parseTrkTime(e.end) : NaN, st = parseTrkTime(e.start); if (isNaN(st) || (!isNaN(en) && en <= c)) return e;
+    var x = Object.assign({}, e); x.end = new Date(Math.max(c, st + 60000)).toISOString(); return x; }); } catch(_c) {}   // auto-idle cut (Oct 13)
   if (trkRunning) {
     var startMs = (Number(trkRunning.segStart) || Date.now()) - (Number(trkRunning.baseSecs) || 0) * 1000;
     var live = {
@@ -14398,9 +14462,9 @@ function trkCheckInactivity() {
   // so don't auto-stop them; only productive tasks are watched.
   if (isIdleProject(trkRunning.project)) { hideInactiveWarn(); return; }
   var idleMs = Date.now() - trkLastActivity;
-  if (idleMs >= INACTIVITY_MS) {
+    if (idleMs >= INACTIVITY_MS) {
     hideInactiveWarn();
-    try { stopTimer(); } catch(e) {}                       // still inactive → stop the timer (NO demerit)
+    try { IDLE_AUTO.cut(trkLastActivity, 'no mouse or keyboard'); } catch(e) { try { stopTimer(); } catch(_e) {} }   // still inactive → stop, cut at the last activity (Oct 13), NO demerit
     showIdleStopped();                                     // pulsing notice; reminds them to Start again
     return;
   }
@@ -25084,7 +25148,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-13-G';
+var PORTAL_BUILD='2026-10-13-H';
 (function(){
   var pending=false;
   setInterval(function(){
