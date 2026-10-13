@@ -14665,17 +14665,23 @@ function actCard(title,sub,btn,onclick,color,bg,ico){
     '<button class="prod-open-btn" style="margin:0;justify-content:center;font-weight:700;" onclick="'+onclick+'">'+btn+'</button></div>';
 }
 /* Games & JMB Points pause (Oct 5, 2026): the backend's get_triggers carries paused:1 while the admin has
-   the switch off. The two game cards say so and their Play buttons stop; nothing else changes. */
+   the switch off. Trivia's card stops; the Tetris card stays playable (only tournaments + JMB Points pause — Jeth, Oct 13). */
 window.GAMES_PAUSED=false;
 function applyGamesPaused(on){
   on=!!on; var was=window.GAMES_PAUSED; window.GAMES_PAUSED=on;
   var cards=document.querySelectorAll('#tab-activities .card[data-game]');
   for(var i=0;i<cards.length;i++){ var c=cards[i], sub=c.querySelector('[data-sub]'), btn=c.querySelector('button');
     if(!sub||!btn) continue;
-    if(on){ if(!sub.dataset.orig) sub.dataset.orig=sub.innerHTML; sub.innerHTML='<b style="color:#be123c;">Paused for now.</b> No sessions and no JMB Points until further notice.'; btn.textContent='Paused'; btn.disabled=true; btn.style.opacity='.55'; btn.style.cursor='not-allowed'; }
+    var isTet=(c.getAttribute('data-game')==='tetris');
+    if(on){ if(!sub.dataset.orig) sub.dataset.orig=sub.innerHTML;
+      if(isTet){   /* Oct 13 (Jeth): only tournaments and JMB Points are paused — Tetris stays open to play */
+        sub.innerHTML='Play anytime \u2014 Solo Arcade, 1v1 and the Locker are open. <b style="color:#be123c;">Tournaments and JMB Points are paused.</b>';
+        btn.textContent='Play now'; btn.disabled=false; btn.style.opacity=''; btn.style.cursor='';
+      } else { sub.innerHTML='<b style="color:#be123c;">Paused for now.</b> No sessions and no JMB Points until further notice.'; btn.textContent='Paused'; btn.disabled=true; btn.style.opacity='.55'; btn.style.cursor='not-allowed'; }
+    }
     else { if(sub.dataset.orig) sub.innerHTML=sub.dataset.orig; btn.textContent='Play now'; btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; }
   }
-  if(was!==on && on){ try{ showToast('Games and JMB Points are paused for now.'); }catch(e){} }
+  if(was!==on && on){ try{ showToast('Tournaments, trivia and JMB Points are paused for now \u2014 Tetris is still open to play.'); }catch(e){} }
 }
 /* Redemption queue "full" (admin switch): the server refuses new requests; this just says so up front. */
 window.REDEEM_CLOSED=false;
@@ -22402,7 +22408,7 @@ function loadMyRedemptions(){
   @media(prefers-reduced-motion:reduce){
     #tet-overlay .arc-cab::before, #tet-overlay .arc-cab::after, .arc-frame::before{ animation:none } }
 </style>
-<script src="/g-games.b9dee99052.js"></script>
+<script src="/g-games.2fcd4a7dc8.js"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════
      MOBILE LAYER — loaded last so it wins the cascade.
@@ -24858,7 +24864,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-13-B';
+var PORTAL_BUILD='2026-10-13-C';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -32477,5 +32483,14 @@ html body:not(.au-light) #au-reveal .au-reveal-sub{color:rgba(255,255,255,.5) !i
 })();
 </script>
 <!-- JMB REVEAL END -->
+<style id="sb-foot-fix">
+/* Oct 13 (Jeth): the sign-in footer (photo, name, role, sign out) sat on a ~50px empty strip at the bottom of the
+   sidebar. Cause: the rail is position:fixed with top+bottom, and an old ".tabs{margin-bottom:2rem}" shrank it, which a
+   "bottom:-48px + padding-bottom:62-70px" patch then over-compensated. The rail now fills the window exactly and the
+   footer sits 16px from the bottom edge. Desktop only — the phone bottom bar is untouched. */
+@media (min-width:1000px){
+  html body.app-authed #dashboard-screen .tabs.tabs{ top:0 !important; bottom:0 !important; margin-bottom:0 !important; height:auto !important; padding-bottom:16px !important; }
+}
+</style>
 </body>
 </html>
