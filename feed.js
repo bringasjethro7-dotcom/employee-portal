@@ -78,12 +78,28 @@
   /* Scene films on internals tell us when they were watched to the end (postMessage from the iframe). */
   function wkey(url){ return 'jf_w_'+String(url||'').replace(/[?#].*$/,''); }
   function watched(url){ try{ return !!localStorage.getItem(wkey(url)); }catch(e){ return false; } }
+  /* Oct 15 (Jeth): on a post with a film, the "I've read this" / "Mark as done" / quiz button shows only after the
+     film was watched to its last scene — in the post or full screen (the film window tells its opener). A film that
+     reports complete:false (scenes skipped) does not unlock it. */
+  var FILM_RX=/^https?:\/\/(internals\.jmbvirtuals\.com|portal\.jmbvirtuals\.com)\//;
+  function isFilm(url){ return FILM_RX.test(String(url||'').trim()); }
+  function filmPath(url){ try{ return new URL(String(url||'').trim()).pathname; }catch(e){ return ''; } }
+  function unlockFilm(url){
+    try{ localStorage.setItem(wkey(url), new Date().toISOString()); }catch(e){}
+    $$('.jf-vid[data-film]').forEach(function(box){ if(wkey(box.getAttribute('data-film'))!==wkey(url)) return;
+      if(!box.querySelector('.jf-watched')){ var b=document.createElement('span'); b.className='jf-watched'; b.textContent='✓ Watched to the end'; box.appendChild(b); } });
+    S.posts.forEach(function(p){ if(!p.video_url || wkey(p.video_url)!==wkey(url)) return;
+      var act=$('#jfp-'+CSS.escape(p.id)+' .jf-act'); if(act) act.innerHTML=actionHtml(p);
+      if(needsMe(p) && !C.admin) try{ toast('✓ Video watched — you can confirm the post now.'); }catch(e){} });
+  }
   if(window.addEventListener) window.addEventListener('message', function(ev){
     var d=ev&&ev.data; if(!d || !d.jmbFilm) return;
-    var box=null; $$('.jf-vid[data-film] iframe').forEach(function(f){ if(f.contentWindow===ev.source) box=f.parentNode; });
-    if(!box) return;
-    var url=box.getAttribute('data-film');
-    if(d.jmbFilm==='ended'){ try{ localStorage.setItem(wkey(url), new Date().toISOString()); }catch(e){} if(!box.querySelector('.jf-watched')){ var b=document.createElement('span'); b.className='jf-watched'; b.textContent='✓ Watched to the end'; box.appendChild(b); } }
+    if(!/^https:\/\/(internals|portal)\.jmbvirtuals\.com$/.test(String(ev.origin||''))) return;   // only our own films
+    var url=null;
+    $$('.jf-vid[data-film] iframe').forEach(function(f){ if(f.contentWindow===ev.source) url=f.parentNode.getAttribute('data-film'); });
+    if(!url && d.src){ $$('.jf-vid[data-film]').forEach(function(b){ var u=b.getAttribute('data-film'); if(!url && filmPath(u)===String(d.src)) url=u; }); }   // full-screen window
+    if(!url) return;
+    if(d.jmbFilm==='ended' && d.complete!==false) unlockFilm(url);
   });
   function embed(url){
     url=String(url||'').trim(); if(!url) return '';
@@ -92,7 +108,7 @@
     if((m=url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([A-Za-z0-9_-]{10,})/))) return '<div class="jf-vid"><iframe src="https://drive.google.com/file/d/'+m[1]+'/preview" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe></div>';
     if((m=url.match(/loom\.com\/(?:share|embed)\/([A-Za-z0-9]{10,})/))) return '<div class="jf-vid"><iframe src="https://www.loom.com/embed/'+m[1]+'" allow="fullscreen" allowfullscreen loading="lazy"></iframe></div>';
     if((m=url.match(/vimeo\.com\/(\d{6,})/))) return '<div class="jf-vid"><iframe src="https://player.vimeo.com/video/'+m[1]+'" allow="fullscreen" allowfullscreen loading="lazy"></iframe></div>';
-    if(/^https?:\/\/(internals\.jmbvirtuals\.com|portal\.jmbvirtuals\.com)\//.test(url)) return '<div class="jf-vid tall" data-film="'+E(url)+'"><iframe src="'+E(url)+'" allow="fullscreen" allowfullscreen loading="lazy"></iframe><a class="jf-open" href="'+E(url)+'" target="_blank" rel="noopener">Open full screen ↗</a>'+(watched(url)?'<span class="jf-watched">✓ Watched to the end</span>':'')+'</div>';
+    if(/^https?:\/\/(internals\.jmbvirtuals\.com|portal\.jmbvirtuals\.com)\//.test(url)) return '<div class="jf-vid tall" data-film="'+E(url)+'"><iframe src="'+E(url)+'" allow="fullscreen" allowfullscreen loading="lazy"></iframe><a class="jf-open" href="'+E(url)+'" target="_blank" rel="opener">Open full screen ↗</a>'+(watched(url)?'<span class="jf-watched">✓ Watched to the end</span>':'')+'</div>';
     if(/\.(mp4|webm|mov)(\?|$)/i.test(url)) return '<div class="jf-vid"><video src="'+E(url)+'" controls playsinline preload="metadata"></video></div>';
     return '<a class="jf-link" href="'+E(url)+'" target="_blank" rel="noopener">🔗 '+E(url.replace(/^https?:\/\//,'').slice(0,80))+'</a>';
   }
@@ -124,6 +140,8 @@
     var a=myAck(p), closed=p.required_open===false;
     if(a && a.passed!==false) return '<div class="jf-done">✓ '+({ ack:'You read this', react:'You reacted', done:'Marked as done', quiz:'Quiz passed'+(a.score!=null?' · '+a.score+'%':'') }[a.kind]||'Done')+' · '+when(a.at)+'</div>';
     if(closed) return '<div class="jf-done muted">This item is closed — no action needed any more.</div>';
+    if(p.required!=='react' && isFilm(p.video_url) && !watched(p.video_url))
+      return '<div class="jf-lock">🔒 Watch the video above to the last scene — the <b>'+(p.required==='quiz'?'quiz':(p.required==='done'?'Mark as done':'I’ve read this'))+'</b> button appears when it ends.</div>';
     if(p.required==='quiz') return '<button type="button" class="jf-btn req" onclick="JMBFeed._quiz(\''+p.id+'\')">📝 Take the quiz'+(a&&a.attempts?' (attempt '+(a.attempts+1)+')':'')+'</button><div class="jf-req-note">You need to pass before your tracker can start.'+(p.quiz&&p.quiz.pass_pct?' Pass mark '+p.quiz.pass_pct+'%.':'')+'</div>';
     if(p.required==='react') return '<div class="jf-req-note">👆 React to this post to confirm you saw it.</div>';
     if(p.required==='done') return '<button type="button" class="jf-btn req" onclick="JMBFeed._ack(\''+p.id+'\',\'done\',this)">✓ Mark as done</button>';
@@ -464,7 +482,7 @@
   '.jf-files{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}.jf-file{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:9px 12px;color:var(--ink)}.jf-ext{background:#0f172a;color:#fff;border-radius:7px;padding:3px 7px;font-size:10.5px;font-weight:800;text-transform:uppercase;flex:none}.jf-fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;font-size:13.5px}.jf-fs{color:var(--ink3);font-size:12px}'+
   '.jf-vid{position:relative;border-radius:12px;overflow:hidden;background:#000;aspect-ratio:16/9;margin-bottom:10px}.jf-vid.tall{aspect-ratio:4/3;background:#fff;border:1px solid var(--line)}.jf-vid iframe,.jf-vid video{position:absolute;inset:0;width:100%;height:100%;border:0}.jf-watched{position:absolute;left:10px;top:10px;background:#16a34a;color:#fff;font-size:11.5px;font-weight:800;padding:4px 9px;border-radius:999px;box-shadow:0 4px 14px -6px rgba(0,0,0,.5);pointer-events:none}.jf-open{position:absolute;right:8px;bottom:8px;background:#0f172a;color:#fff;border-radius:8px;padding:5px 9px;font-size:11.5px;font-weight:800}.jf-link{display:block;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
   '.jf-poll{border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;background:#fbfbfd}.jf-pq{font-weight:800;margin-bottom:8px}.jf-po{position:relative;display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:6px;font:600 14px Inter,sans-serif;cursor:pointer;overflow:hidden}.jf-po.sel{border-color:var(--jv);background:#f5f3ff}.jf-cb{width:16px;height:16px;border:2px solid var(--ink3);border-radius:5px;flex:none}.jf-po.sel .jf-cb{background:var(--jv);border-color:var(--jv)}.jf-po.res{cursor:default}.jf-po.res.mine{border-color:var(--jv)}.jf-bar{position:absolute;left:0;top:0;bottom:0;background:#ede9fe;z-index:0}.jf-pot,.jf-pop{position:relative;z-index:1}.jf-pot{flex:1}.jf-pop{font-weight:800;color:var(--jv)}.jf-pn{font-size:12px;color:var(--ink3);margin-top:4px}'+
-  '.jf-quizinfo{font-size:12.5px;color:var(--ink2);background:#f8fafc;border-radius:10px;padding:8px 10px;margin-bottom:10px}.jf-act{margin:4px 0 8px}.jf-done{display:inline-block;background:#ecfdf5;color:#047857;border-radius:10px;padding:8px 12px;font-weight:800;font-size:13px}.jf-done.muted{background:#f1f5f9;color:#64748b}.jf-req-note{font-size:12.5px;color:#be123c;font-weight:700;margin-top:6px}'+
+  '.jf-quizinfo{font-size:12.5px;color:var(--ink2);background:#f8fafc;border-radius:10px;padding:8px 10px;margin-bottom:10px}.jf-act{margin:4px 0 8px}.jf-lock{display:inline-block;background:#fff7ed;color:#9a3412;border:1px dashed #fdba74;border-radius:10px;padding:9px 12px;font-weight:700;font-size:13px;line-height:1.45}.jf-done{display:inline-block;background:#ecfdf5;color:#047857;border-radius:10px;padding:8px 12px;font-weight:800;font-size:13px}.jf-done.muted{background:#f1f5f9;color:#64748b}.jf-req-note{font-size:12.5px;color:#be123c;font-weight:700;margin-top:6px}'+
   '.jf-rxbar{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--line);padding-top:8px;flex-wrap:wrap}.jf-rxsum{display:flex;align-items:center;gap:2px;font-size:14px;cursor:pointer;color:var(--ink2)}.jf-rxsum b{margin-left:6px;font-size:13px}.jf-rxpick{display:flex;gap:2px}.jf-rx{border:none;background:none;font-size:20px;padding:4px 6px;border-radius:10px;cursor:pointer;line-height:1;position:relative;transition:transform .12s}.jf-rx:hover{transform:scale(1.25)}.jf-rx.on{background:#fff1e9;box-shadow:inset 0 0 0 2px rgba(241,86,15,.5)}.jf-rx i{position:absolute;right:-2px;top:-4px;font-style:normal;font-size:10px;font-weight:800;background:#0f172a;color:#fff;border-radius:8px;padding:0 4px}'+
   '.jf-cwrap{border-top:1px solid var(--line);margin-top:8px;padding-top:6px}.jf-ctog{border:none;background:none;color:var(--ink2);font:700 13px Inter,sans-serif;cursor:pointer;padding:6px 0}.jf-clist{margin:6px 0}.jf-cload{color:var(--ink3);font-size:13px;padding:6px 0}.jf-c{display:flex;gap:8px;margin:8px 0}.jf-c.reply{margin-left:38px}.jf-cb2{flex:1;min-width:0}.jf-cbub{background:#f1f5f9;border-radius:14px;padding:8px 12px;font-size:14px;line-height:1.45;display:inline-block;max-width:100%;word-break:break-word}.jf-cbub b{display:block;font-size:12.5px;margin-bottom:1px}.jf-cmeta{display:flex;gap:12px;font-size:12px;color:var(--ink3);padding:3px 10px}.jf-cmeta a{font-weight:700;color:var(--ink3)}.jf-cmeta a.on{color:var(--jo2)}'+
   '.jf-compose{display:flex;gap:8px;align-items:flex-end;margin-top:8px}.jf-cin{flex:1;background:#f1f5f9;border-radius:16px;padding:6px 12px}.jf-cin textarea{width:100%;border:none;background:none;resize:none;font:14px/1.4 Inter,sans-serif;outline:none;padding:4px 0;max-height:140px}.jf-replying{font-size:11.5px;color:var(--ink3);padding-bottom:4px}.jf-sendc{border:none;background:var(--jo2);color:#fff;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:15px;flex:none}'+
