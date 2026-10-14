@@ -7371,11 +7371,11 @@ var TOOLG = {
   SHORT:{ reddit:'Reddit Central', altr:'Studio', clients:'Client Hub' },
   EXEMPT: /meeting|huddle|training|coaching|onboarding|interview/i,
   /* Client Hub (Oct 9): small clients share one tool page. Every client whose tool is LIVE in the hub is linked —
-     no pairing, no timer. Design & Shopify + Imperium (SOP-02) + Ember (Snapchat) + Skyvern (Project 3) now; add Project 2 when its tab goes live
+     no pairing, no timer. Design & Shopify + Imperium (SOP-02) + Ember (Snapchat) + Skyvern (Project 3) + Project 2 (Ricardo · IG Reels, Oct 14)
      (a placeholder tab can't show work, so pairing it would lock those VAs out). */
-  toolOf: function(proj){ proj=String(proj||''); if(/skyvern|project\s*3\b/i.test(proj)) return 'clients'; if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; if(/shopify|torchlight|imperium|\bember\b|snapchat|skyvern|project\s*3\b/i.test(proj)) return 'clients'; return ''; },
+  toolOf: function(proj){ proj=String(proj||''); if(/skyvern|project\s*[23]\b|ricardo/i.test(proj)) return 'clients'; if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; if(/shopify|torchlight|imperium|\bember\b|snapchat|skyvern|project\s*3\b/i.test(proj)) return 'clients'; return ''; },
   /* Oct 9: links into the Client Hub open the VA's own client tab (?c=…), not the hub's front page */
-  link: function(tool, proj){ var u=this.URL[tool]||''; if(tool==='clients'){ var p=String(proj||''), c=/imperium/i.test(p)?'imperium':(/\bember\b|snapchat/i.test(p)?'ember':(/skyvern|project\s*3\b/i.test(p)?'skyvern':(/shopify|torchlight/i.test(p)?'design-shopify':''))); if(c) u+='?c='+c; } return u; },
+  link: function(tool, proj){ var u=this.URL[tool]||''; if(tool==='clients'){ var p=String(proj||''), c=/imperium/i.test(p)?'imperium':(/\bember\b|snapchat/i.test(p)?'ember':(/skyvern|project\s*3\b/i.test(p)?'skyvern':(/project\s*2\b|ricardo/i.test(p)?'project2':(/shopify|torchlight/i.test(p)?'design-shopify':'')))); if(c) u+='?c='+c; } return u; },
   me: function(){ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); },
   /* Oct 8 (Jeth): Threads work sits under the Alts project but has no tool yet — never stop it. Remove once the
      Threads tool is live. EXEMPT_IDS = people excused for now (upper-case contractor IDs). */
@@ -7529,7 +7529,10 @@ var TOOLG = {
      without tool time, so every hand-over chopped the day into slivers that are hard to appeal. Now the portal only
      acts when NO tool task has been running for 2 full minutes: a warning (toast + beep) from 45 s, the stop at 2 min,
      and the hand-over itself is always credited — Idle starts after it. Checked every 20 s. */
-  TRANS: 2*60*1000, TRANS_WARN: 45*1000, _mv: null, _transWarned: '',
+  /* Oct 14 (ALTR timelines in slivers): after a stop, Resume → the tool's own timer was still off → 2 minutes later the portal
+     cut again, over and over. The first hand-over after every Start / Resume is now 3 minutes (TRANS + TRANS_RESUME), and
+     ALTR Studio turns its work timer back on by itself when the portal resumes. */
+  TRANS: 2*60*1000, TRANS_WARN: 45*1000, TRANS_RESUME: 60*1000, _mv: null, _transWarned: '',
   gapCheck: async function(r, tool){
     var id=this.me(); if(!id) return;
     var rows=await this.rowsAll(id); if(!rows) return;
@@ -7538,7 +7541,7 @@ var TOOLG = {
     rows.forEach(function(x){ var t=Date.parse(x.open_at||'')||Date.parse(x.last_active||'')||0; if(!t || now-t>14*3600*1000) return; toolSecs+=Math.max(0, +x.today_secs||0);
       if(x.run_since && now-(Date.parse(x.open_at||'')||0)<3*60000) live=true; });   // a task timer running in a tool that is still open
     var seg=Number(r.segStart)||now, mv=this._mv;
-    if(!mv || mv.id!==r.entry_id || mv.seg!==seg) mv=this._mv={ id:r.entry_id, seg:seg, tool:toolSecs, at:now };   // every Start / Resume gets its own hand-over
+    if(!mv || mv.id!==r.entry_id || mv.seg!==seg) mv=this._mv={ id:r.entry_id, seg:seg, tool:toolSecs, at:now+this.TRANS_RESUME };   // every Start / Resume gets its own hand-over — 3 min for the first (the tool's timer needs a moment to come back)
     if(live || toolSecs>mv.tool+5) mv.at=now;
     mv.tool=Math.max(mv.tool, toolSecs);
     var tracked=this.trackedLinked(), gap=tracked-toolSecs;
@@ -25167,7 +25170,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-14-I';
+var PORTAL_BUILD='2026-10-14-J';
 (function(){
   var pending=false;
   setInterval(function(){
