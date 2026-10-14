@@ -7381,7 +7381,7 @@ var TOOLG = {
      Threads tool is live. EXEMPT_IDS = people excused for now (upper-case contractor IDs). */
   NO_TOOL: /thread/i, EXEMPT_IDS: ['JMB014'],   // JMB014 — Threads on Alts, no tool yet (Jeth, Oct 8)
   applies: function(r){ var id=this.me(); if(!r || !id || id==='ADMIN' || id==='JMBEAST') return ''; if(this.EXEMPT_IDS.indexOf(id)>=0) return ''; var t=this.toolOf(r.project); if(!t) return ''; var lbl=(r.project||'')+' '+(r.category||'')+' '+(r.task||'')+' '+(r.description||''); if(this.EXEMPT.test(lbl) || this.NO_TOOL.test(lbl)) return ''; return t; },
-  start: function(){ var s=this; if(s._t) return; s._t=setInterval(function(){ s.watch(); }, 60*1000); setInterval(function(){ s.poll(); }, 20*1000); setInterval(function(){ try{ s.paint(); }catch(e){} }, 1000); setTimeout(function(){ s.poll(); }, 2500); },
+  start: function(){ var s=this; if(s._t) return; s._t=setInterval(function(){ s.watch(); }, 60*1000); setInterval(function(){ s.poll(); }, 20*1000); setInterval(function(){ s.gapTick(); }, 20*1000); setInterval(function(){ try{ s.paint(); }catch(e){} }, 1000); setTimeout(function(){ s.poll(); }, 2500); },
   /* the tool's row: last_active (real work), open_at (open + signed in), run_since / run_label (its timer), today_secs */
   cur: null,
   row: async function(id, tool){
@@ -7524,23 +7524,37 @@ var TOOLG = {
     }catch(e){}
     return Math.round(tot);
   },
+  /* ⏳ THE 2-MINUTE HAND-OVER (Jeth, Oct 14 — JMB003's timeline): ending one task in the tool and starting the next
+     takes a few seconds to a minute or two. Past the 30-minute line the old check stopped the portal on any minute
+     without tool time, so every hand-over chopped the day into slivers that are hard to appeal. Now the portal only
+     acts when NO tool task has been running for 2 full minutes: a warning (toast + beep) from 45 s, the stop at 2 min,
+     and the hand-over itself is always credited — Idle starts after it. Checked every 20 s. */
+  TRANS: 2*60*1000, TRANS_WARN: 45*1000, _mv: null, _transWarned: '',
   gapCheck: async function(r, tool){
     var id=this.me(); if(!id) return;
     var rows=await this.rowsAll(id); if(!rows) return;
-    var now=Date.now(), toolSecs=0;
-    rows.forEach(function(x){ var t=Date.parse(x.open_at||'')||Date.parse(x.last_active||'')||0; if(!t || now-t>14*3600*1000) return; toolSecs+=Math.max(0, +x.today_secs||0); });
+    if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
+    var now=Date.now(), toolSecs=0, live=false;
+    rows.forEach(function(x){ var t=Date.parse(x.open_at||'')||Date.parse(x.last_active||'')||0; if(!t || now-t>14*3600*1000) return; toolSecs+=Math.max(0, +x.today_secs||0);
+      if(x.run_since && now-(Date.parse(x.open_at||'')||0)<3*60000) live=true; });   // a task timer running in a tool that is still open
+    var seg=Number(r.segStart)||now, mv=this._mv;
+    if(!mv || mv.id!==r.entry_id || mv.seg!==seg) mv=this._mv={ id:r.entry_id, seg:seg, tool:toolSecs, at:now };   // every Start / Resume gets its own hand-over
+    if(live || toolSecs>mv.tool+5) mv.at=now;
+    mv.tool=Math.max(mv.tool, toolSecs);
     var tracked=this.trackedLinked(), gap=tracked-toolSecs;
     this.gap={ tracked:tracked, tool:toolSecs, gap:gap, at:now };
-    this._gapS.push({ at:now, gap:gap, id:r.entry_id }); this._gapS=this._gapS.filter(function(x){ return now-x.at<10*60*1000 && x.id===r.entry_id; });
-    if(gap<=this.GAP) return;
-    var old=null; for(var i=this._gapS.length-1;i>=0;i--){ if(now-this._gapS[i].at>=this.GAP_WIN){ old=this._gapS[i]; break; } }
-    if(old && gap-old.gap>60){                      // tool time stalled while the portal kept running
-      if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
-      try{ IDLE_AUTO.cut(now-Math.max(0,(gap-old.gap))*1000, 'your tool time stopped moving'); }catch(e){ try{ await stopTimer(); }catch(_e){} }   // Oct 13: cut where the tool time stalled
-      this._gapS=[]; this.gapBlock(tool, tracked, toolSecs, r.project); return;
+    if(gap<=this.GAP){ return; }
+    var stall=now-mv.at;
+    if(stall>=this.TRANS){                           // no tool task for 2 full minutes → Idle from the end of the hand-over
+      try{ IDLE_AUTO.cut(mv.at+this.TRANS, 'no task running in '+this.NAME[tool]+' for 2 minutes'); }catch(e){ try{ await stopTimer(); }catch(_e){} }
+      this._mv=null; this.gapBlock(tool, tracked, toolSecs, r.project); return;
     }
-    var k=r.entry_id+'|'+Math.floor(gap/600);
-    if(this._gapWarned!==k){ this._gapWarned=k; try{ showToast('⚠ Your portal time is '+this._hm(gap)+' ahead of your tool time today — keep a task timer running in '+this.NAME[tool]+', or the portal timer stops in 2 minutes.'); }catch(e){} }
+    if(stall>=this.TRANS_WARN){
+      var wk=r.entry_id+'|'+mv.at;
+      if(this._transWarned!==wk){ this._transWarned=wk;
+        try{ showToast('⏳ Start your next task in '+this.NAME[tool]+' — your portal timer stops in '+Math.max(10, Math.round((this.TRANS-stall)/1000))+' s if no task is running (2-minute hand-over between tasks).'); }catch(e){}
+        try{ _beepCountdown(10); }catch(e){} }
+    }
   },
   gapBlock: function(tool, tracked, toolSecs, proj){
     var el=document.getElementById('toolg-box');
@@ -7558,10 +7572,15 @@ var TOOLG = {
     document.getElementById('toolg-x').onclick=function(){ el.style.display='none'; };
     try{ showToast('⏸ Timer stopped — the portal was more than 30 minutes ahead of your tool time.'); }catch(e){}
   },
+  _gapBusy: false,
+  gapTick: async function(){
+    var r=(typeof trkRunning!=='undefined')?trkRunning:null; if(!r || (typeof isIdle!=='undefined' && isIdle) || this._gapBusy) return;
+    var tool=this.applies(r); if(!tool) return;
+    this._gapBusy=true; try{ await this.gapCheck(r, tool); }catch(_g){} this._gapBusy=false;
+  },
   watch: async function(){
     var r=(typeof trkRunning!=='undefined')?trkRunning:null; if(!r || (typeof isIdle!=='undefined' && isIdle)) return;
     var tool=this.applies(r); if(!tool) return;
-    try{ await this.gapCheck(r, tool); }catch(_g){}
     if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
     var since=Number(r.segStart)||Date.now();
     if(Date.now()-since < this.WARN) return;                // still inside the grace window — no need to ask
@@ -25148,7 +25167,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-13-H';
+var PORTAL_BUILD='2026-10-14-I';
 (function(){
   var pending=false;
   setInterval(function(){
