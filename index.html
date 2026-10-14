@@ -12186,7 +12186,12 @@ async function initClockify(empData) {
   trkEmpData = empData || window._currentEmpData || {};
   // Time Tracker is DESKTOP-ONLY. On phones/tablets, don't mount the timer at all — show a
   // notice instead. (Mobile taps are unreliable for accurate time capture.)
-  if (isMobileDevice()) { try { disableTrackerOnMobile(); } catch(e){} return; }
+  /* Oct 15: VAs on the owner's "Phone work mode" pass keep the tracker on a phone (PHONEWORK — timer + tool on one screen) */
+  if (isMobileDevice()) {
+    var _pwOk = false; try { _pwOk = await PHONEWORK.allowed(); } catch(e){}
+    if (!_pwOk) { try { disableTrackerOnMobile(); } catch(e){} return; }
+    try { PHONEWORK.enableTracker(trkEmpData); } catch(e){}
+  }
   var nk = document.getElementById('cfy-no-key'); if (nk) nk.style.display = 'none';
   var ld = document.getElementById('cfy-loading'); if (ld) ld.style.display = 'none';
   var mn = document.getElementById('cfy-main'); if (mn) mn.style.display = 'block';
@@ -14662,6 +14667,315 @@ var STOPAL = {
     if (trkActivityTick) STOPAL.start();
   } catch(e){}
 })();
+
+/* ══════════ 📱 PHONE WORK MODE (Jeth, Oct 15) ══════════
+   "A VA works with me in my room on the phones, but her laptop is in the office — so her time isn't running. Make it run
+   on the phone: the portal timer and the tool timer together, like a split screen, and she taps the buttons there."
+   The tracker stays desktop-only for everyone else. A VA the owner puts on the "Phone work mode" pass (admin console →
+   Settings → Exceptions & access) gets, on a phone:
+   • the time tracker (instead of the "desktop only" note) — the phone counts as her device, no laptop to pick;
+   • 📱 Work mode: one full-screen page — the PORTAL TIMER on top (status, clock, task, Start/Stop, the tool link) and the
+     project's TOOL underneath (Client Hub tab, Reddit Central or ALTR Studio), live: Add account, Log reel, Post, Scroll
+     are tapped right there. One page on purpose — a phone freezes background tabs, so a tool in another tab (or the portal
+     behind it) would stop counting;
+   • the tool signs in by itself (the portal hands its own frame the VA's sign-in — no PIN typed again);
+   • every tap in the tool counts as activity for the 3-minute rule (a tap inside a frame never reaches the portal page);
+   • the screen is kept awake while work mode is open, and a phone buzz joins the stop alarm.
+   Desktop and VAs without the pass: nothing changes. */
+var PHONEWORK = {
+  ok: null, on: false, wl: null, tool: '', url: '', _t: null, _emp: null, _booted: false, _runId: null,
+  TOOL_ORIGIN: 'https://internals.jmbvirtuals.com',
+  mobile: function(){ try { return typeof isMobileDevice === 'function' && isMobileDevice(); } catch(e){ return false; } },
+  me: function(){
+    var d = window._currentEmpData || this._emp || {};
+    try { if (!d.employee_id) d = JSON.parse(sessionStorage.getItem('emp_data') || '{}'); } catch(e){}
+    return { id: String(d.employee_id || d.id || '').toUpperCase(), name: String(d.full_name || d.employee_id || '') };
+  },
+  /* the owner's pass list (Settings → vapasses.phone_work), remembered 10 minutes */
+  allowed: async function(){
+    if (!this.mobile()) return (this.ok = false);
+    var id = this.me().id; if (!id) return false;
+    var key = 'pw_ok_' + id;
+    try { var c = JSON.parse(sessionStorage.getItem(key) || 'null'); if (c && Date.now() - c.t < 600000) return (this.ok = !!c.ok); } catch(e){}
+    var ok = false, got = false;
+    try {
+      var r = await fetch(APPS_SCRIPT_URL + '?action=vapasses_get&_=' + Date.now()); var d = await r.json();
+      if (d && d.ok && d.passes) { got = true; ok = (d.passes.phone_work || []).map(function(x){ return String(x).toUpperCase(); }).indexOf(id) >= 0; }
+    } catch(e){}
+    if (got) { try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), ok: ok })); } catch(e){} }
+    return (this.ok = ok);
+  },
+  /* after sign-in on a phone: ask once, and show the Work mode button to pass holders */
+  boot: function(){
+    var self = this; if (self._booted || !self.mobile()) return; self._booted = true;
+    var n = 0, iv = setInterval(async function(){
+      if (++n > 400) { clearInterval(iv); return; }
+      if (!self.me().id || !document.body.classList.contains('app-authed')) return;
+      clearInterval(iv);
+      if (await self.allowed()) { self.css(); self.fab(); }
+    }, 2500);
+  },
+  fab: function(){
+    var self = this; if (document.getElementById('pw-fab')) return;
+    var b = document.createElement('button'); b.id = 'pw-fab'; b.type = 'button';
+    b.innerHTML = '<span class="pw-fab-dot"></span>📱 Work mode';
+    b.onclick = function(){ self.launch(); }; document.body.appendChild(b);
+  },
+  /* from anywhere: make sure the tracker is set up (it lives on Attendance & Time), then open work mode */
+  launch: function(tool, href){
+    var self = this;
+    var ready = function(){ return !!(typeof cfyInited !== 'undefined' && cfyInited && document.getElementById('cfy-project')); };
+    if (ready()) { self.open(tool, href); return; }
+    try { var tb = document.getElementById('tabbtn-attendance'); if (tb) tb.click(); } catch(e){}
+    var n = 0, iv = setInterval(function(){ if (ready() || ++n > 40) { clearInterval(iv); self.open(tool, href); } }, 250);
+  },
+  /* the tracker on a phone (called from initClockify for pass holders) */
+  enableTracker: function(empData){
+    this._emp = empData || this._emp; this.ok = true; this.css();
+    document.body.classList.add('pw-allowed');
+    try { var me = this.me(), cur = TRKDEV.current();
+      if (!cur) { var hold = { device_id: 'phone-' + me.id.toLowerCase(), holder_id: me.id.toLowerCase(), holder_name: me.name, label: '📱 Phone (work mode)', epoch: Date.now() };
+        sessionStorage.setItem(TRKDEV.KEY, JSON.stringify(hold)); window._devHold = hold; }
+      setTimeout(function(){ try { TRKDEV.render(); } catch(e){} }, 400); } catch(e){}
+    this.fab();
+    var self = this;
+    setTimeout(function(){ try { var m = document.getElementById('trk-mount'); if (m && !document.getElementById('pw-cta')) {
+      var c = document.createElement('div'); c.id = 'pw-cta';
+      c.innerHTML = '<div class="pw-cta-t"><b>📱 Phone work mode</b><span>Your portal timer and your tool on one screen. Keep that screen open while you work the phones.</span></div><button type="button">Open</button>';
+      c.querySelector('button').onclick = function(){ self.open(); }; m.insertBefore(c, m.firstChild); } } catch(e){} }, 1200);
+  },
+  projectNow: function(){ try { if (trkRunning) return trkRunning.project || ''; } catch(e){} try { return document.getElementById('cfy-project').value || ''; } catch(e){ return ''; } },
+  toolOf: function(proj){ try { return TOOLG.toolOf(proj) || ''; } catch(e){ return ''; } },
+  open: function(tool, href){
+    var self = this; this.css();
+    if (!document.getElementById('pw')) {
+      var el = document.createElement('div'); el.id = 'pw'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Phone work mode');
+      el.innerHTML =
+        '<div class="pw-top">' +
+          '<div class="pw-r1"><span class="pw-pill idle" id="pw-pill"><i></i><b id="pw-state">—</b></span><span class="pw-task" id="pw-task"></span>' +
+            '<button type="button" class="pw-ic" id="pw-size" title="Bigger tool" aria-label="Bigger tool">⇕</button><button type="button" class="pw-ic" id="pw-x" title="Leave work mode" aria-label="Leave work mode">✕</button></div>' +
+          '<div class="pw-r2"><div class="pw-clock" id="pw-clock">00:00:00</div><button type="button" class="pw-go" id="pw-go">Start</button></div>' +
+          '<div class="pw-r3"><span class="pw-link" id="pw-link"></span><button type="button" class="pw-sm" id="pw-task-btn">Task ▾</button></div>' +
+        '</div>' +
+        '<div class="pw-sheet" id="pw-sheet" style="display:none">' +
+          '<label>Project<select id="pw-s-proj"></select></label><label>Category<select id="pw-s-cat"></select></label><label>Task<select id="pw-s-task"></select></label>' +
+          '<div class="pw-s-foot"><span id="pw-s-note"></span><button type="button" class="pw-sm pw-s-done" id="pw-s-done">Done</button></div>' +
+        '</div>' +
+        '<div class="pw-tool" id="pw-tool"><div class="pw-pick" id="pw-pick"></div><iframe id="pw-frame" title="Your tool" allow="clipboard-read; clipboard-write; fullscreen"></iframe></div>';
+      document.body.appendChild(el);
+      document.getElementById('pw-x').onclick = function(){ self.close(); };
+      document.getElementById('pw-go').onclick = function(){ self.go(this); };
+      document.getElementById('pw-task-btn').onclick = function(){ self.sheet(); };
+      document.getElementById('pw-s-done').onclick = function(){ self.sheet(false); };
+      document.getElementById('pw-size').onclick = function(){ document.getElementById('pw').classList.toggle('big'); };
+      ['pw-s-proj', 'pw-s-cat', 'pw-s-task'].forEach(function(id){ document.getElementById(id).onchange = function(){ self.pick(id); }; });
+    }
+    document.getElementById('pw').style.display = 'flex';
+    document.body.classList.add('pw-on'); this.on = true;
+    var back = document.getElementById('pw-back'); if (back) back.style.display = 'none';
+    var p = this.projectNow();
+    this.ensureTool(tool || this.toolOf(p), p, href);
+    this.wake(true); this.paint();
+    try { if (!this.projectNow()) this.sheet(true); } catch(e){}
+    if (!this._t) this._t = setInterval(function(){ self.paint(); }, 1000);
+  },
+  close: function(){
+    var el = document.getElementById('pw'); if (el) el.style.display = 'none';
+    document.body.classList.remove('pw-on'); this.on = false; this.wake(false);
+    if (this._t) { clearInterval(this._t); this._t = null; }
+    var running = false; try { running = !!trkRunning; } catch(e){}
+    if (running) { this.backPill(); try { showToast('Work mode closed — your timer is still running. Keep the portal open on this phone.'); } catch(e){} }
+  },
+  /* leave the overlay for a moment (Time In, a box from the portal) with a pill to come back */
+  backPill: function(){
+    var self = this, back = document.getElementById('pw-back');
+    if (!back) { back = document.createElement('button'); back.id = 'pw-back'; back.type = 'button'; back.textContent = '↩ Back to work mode'; back.onclick = function(){ self.open(); }; document.body.appendChild(back); }
+    back.style.display = 'block';
+  },
+  step: function(){
+    var el = document.getElementById('pw'); if (el) el.style.display = 'none';
+    document.body.classList.remove('pw-on'); this.on = false;
+    try { var m = document.getElementById('trk-mount'); if (m) m.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e){}
+    this.backPill();
+  },
+  /* the big button: Time in → Start → Stop */
+  go: async function(btn){
+    var st = {}; try { st = MINI.state(); } catch(e){}
+    if (btn) btn.disabled = true;
+    try {
+      if (st.running) { await toggleTimer(); }
+      else if (!st.timedIn) {
+        var ti = document.getElementById('btn-time-in');
+        if (ti && !ti.disabled) { this.step(); ti.click(); }
+        else showToast('Time in first (Attendance & Time).');
+      }
+      else if (typeof trkRequirementsMet === 'function' && !trkRequirementsMet()) { this.sheet(true); showToast('Pick your project and task first.'); }
+      else { await toggleTimer(); }
+    } catch(e){}
+    if (btn) btn.disabled = false;
+    this.paint();
+  },
+  /* task picker inside work mode — mirrors the tracker's own Project / Category / Task boxes */
+  MAP: { 'pw-s-proj': 'cfy-project', 'pw-s-cat': 'cfy-category', 'pw-s-task': 'cfy-task' },
+  sheet: function(show){
+    var sh = document.getElementById('pw-sheet'); if (!sh) return;
+    if (show === undefined) show = sh.style.display === 'none';
+    sh.style.display = show ? 'block' : 'none';
+    if (show) this.sync();
+  },
+  sync: function(){
+    var self = this, running = false; try { running = !!trkRunning; } catch(e){}
+    Object.keys(this.MAP).forEach(function(mid){
+      var m = document.getElementById(mid), r = document.getElementById(self.MAP[mid]); if (!m || !r) return;
+      if (m.innerHTML !== r.innerHTML) m.innerHTML = r.innerHTML;
+      m.value = r.value; m.disabled = !!(r.disabled || running);
+    });
+    var n = document.getElementById('pw-s-note'); if (n) n.textContent = running ? 'Stop the timer to change the task.' : '';
+  },
+  pick: function(mid){
+    var m = document.getElementById(mid), r = document.getElementById(this.MAP[mid]); if (!m || !r) return;
+    r.value = m.value;
+    try { r.dispatchEvent(new Event('change', { bubbles: true })); } catch(e){ try { if (r.onchange) r.onchange(); } catch(_e){} }
+    this.sync();
+    if (mid === 'pw-s-proj') { var p = r.value, t = this.toolOf(p); if (t) this.ensureTool(t, p); }
+    this.paint();
+  },
+  /* the project's tool underneath (or a chooser when the project has none) */
+  ensureTool: function(tool, proj, href){
+    var pick = document.getElementById('pw-pick'), fr = document.getElementById('pw-frame'); if (!fr) return;
+    var self = this;
+    if (!tool) {
+      if (this.tool) return;   // keep whatever is already open
+      pick.style.display = 'flex'; fr.style.display = 'none';
+      pick.innerHTML = '<b>Your tool shows here</b><span>Pick your project with <i>Task ▾</i> and its tool opens by itself — or open one now:</span>' +
+        '<div class="pw-pick-b">' + [['clients', 'Client Hub'], ['reddit', 'Reddit Central'], ['altr', 'ALTR Studio']].map(function(t){ return '<button type="button" data-t="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>';
+      pick.onclick = function(ev){ var b = ev.target.closest && ev.target.closest('button[data-t]'); if (b) self.ensureTool(b.getAttribute('data-t'), self.projectNow()); };
+      return;
+    }
+    var url = href || ''; if (!url) { try { url = TOOLG.link(tool, proj); } catch(e){} } if (!url) return;
+    pick.style.display = 'none'; fr.style.display = 'block';
+    if (this.tool === tool && this.url === url) return;
+    this.tool = tool; this.url = url;
+    fr.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'pw=1';
+  },
+  paint: function(){
+    if (!this.on) return;
+    var st = {}; try { st = MINI.state(); } catch(e){}
+    var set = function(id, v){ var e = document.getElementById(id); if (e && e.textContent !== v) e.textContent = v; };
+    var p = this.projectNow();
+    set('pw-state', st.lunch ? 'On lunch' : st.running ? 'Tracking' : st.timedIn ? 'Ready' : 'Not timed in');
+    set('pw-clock', st.running ? st.time : '00:00:00');
+    set('pw-task', st.running ? (st.task || 'Working') : (st.lunch ? 'Lunch break' : (p ? 'Next: ' + p : 'Pick your task — Task ▾')));
+    var L = st.tool;
+    set('pw-link', L ? L.a : (st.running ? 'Timer running — keep this screen open' : (st.timedIn ? 'Pick a task, then Start' : 'Time in to begin')));
+    var lk = document.getElementById('pw-link'); if (lk) lk.classList.toggle('warn', !!(L && L.warn));
+    var pill = document.getElementById('pw-pill'); if (pill) { var pc = 'pw-pill ' + (st.running ? 'run' : (st.lunch ? 'lunch' : (st.timedIn ? 'ready' : 'idle'))); if (pill.className !== pc) pill.className = pc; }
+    var pw = document.getElementById('pw'); if (pw) pw.classList.toggle('running', !!st.running);
+    var go = document.getElementById('pw-go');
+    if (go) { var t = st.running ? 'Stop' : (st.timedIn ? 'Start' : 'Time in'); if (go.textContent !== t) go.textContent = t; go.classList.toggle('stop', !!st.running); }
+    var sh = document.getElementById('pw-sheet'); if (sh && sh.style.display !== 'none') this.sync();
+    /* a newly started task decides the tool underneath (once per task, so a tool picked by hand isn't fought over) */
+    try { var r = trkRunning; if (r && r.entry_id !== this._runId) { this._runId = r.entry_id; var tl = this.toolOf(r.project); if (tl) this.ensureTool(tl, r.project); } else if (!r) this._runId = null; } catch(e){}
+  },
+  /* keep the screen on — a phone that sleeps stops the portal's signal, and unsent time isn't paid */
+  wake: async function(on){
+    try {
+      if (!on) { if (this.wl) { var w = this.wl; this.wl = null; await w.release(); } return; }
+      if (!('wakeLock' in navigator) || this.wl || document.hidden) return;
+      this.wl = await navigator.wakeLock.request('screen');
+      var self = this; this.wl.addEventListener('release', function(){ self.wl = null; });
+    } catch(e){ this.wl = null; }
+  },
+  buzz: function(p){ try { if (this.ok === true && navigator.vibrate) navigator.vibrate(p); } catch(e){} },
+  css: function(){
+    if (document.getElementById('pw-css')) return;
+    var s = document.createElement('style'); s.id = 'pw-css';
+    s.textContent = [
+      '#pw{position:fixed;inset:0;z-index:2900;display:none;flex-direction:column;height:100vh;height:100dvh;background:#0b0914;color:#f5f3ff;font-family:Inter,-apple-system,"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}',
+      'body.pw-on{overflow:hidden!important}',
+      '.pw-top{flex:none;position:relative;overflow:hidden;padding:max(10px,env(safe-area-inset-top)) 14px 10px;background:radial-gradient(120% 140% at 0% 0%,rgba(255,107,26,.30),transparent 55%),radial-gradient(110% 140% at 100% 0%,rgba(139,92,246,.32),transparent 60%),#0f0b1c;border-bottom:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px -18px rgba(0,0,0,.9)}',
+      '.pw-r1{display:flex;align-items:center;gap:8px}',
+      '.pw-pill{flex:none;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;font-size:11.5px;font-weight:800;background:rgba(255,255,255,.08);color:rgba(255,255,255,.72);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}',
+      '.pw-pill i{width:7px;height:7px;border-radius:50%;background:currentColor}',
+      '.pw-pill.run{color:#6ee7b7;background:rgba(16,185,129,.16);box-shadow:inset 0 0 0 1px rgba(52,211,153,.38)}.pw-pill.run i{animation:pwPulse 1.4s ease-out infinite}',
+      '.pw-pill.ready{color:#fcd34d;background:rgba(245,158,11,.13);box-shadow:inset 0 0 0 1px rgba(245,158,11,.32)}',
+      '.pw-pill.lunch{color:#5eead4;background:rgba(20,184,166,.15);box-shadow:inset 0 0 0 1px rgba(20,184,166,.36)}',
+      '@keyframes pwPulse{0%{box-shadow:0 0 0 0 rgba(110,231,183,.7)}100%{box-shadow:0 0 0 7px rgba(110,231,183,0)}}',
+      '.pw-task{flex:1;min-width:0;font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(255,255,255,.82)}',
+      '.pw-ic{flex:none;width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.1);color:#fff;font-size:14px;font-weight:800;cursor:pointer;-webkit-tap-highlight-color:transparent}',
+      '.pw-r2{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px}',
+      '.pw-clock{font-size:42px;font-weight:800;line-height:1;letter-spacing:-.035em;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.42)}',
+      '#pw.running .pw-clock{background:linear-gradient(90deg,#FFB067,#FF6B1A 32%,#c4b5fd 64%,#5eead4);-webkit-background-clip:text;background-clip:text;color:transparent}',
+      '.pw-go{flex:none;min-width:116px;height:50px;padding:0 18px;border-radius:15px;border:0;font:800 17px Inter,system-ui,sans-serif;color:#fff;cursor:pointer;background:linear-gradient(135deg,#FF9A4D,#FF6B1A 50%,#E8452A);box-shadow:0 12px 26px -12px rgba(255,107,26,.95);-webkit-tap-highlight-color:transparent}',
+      '.pw-go.stop{background:linear-gradient(135deg,#fb7185,#e11d48 55%,#be123c);box-shadow:0 12px 26px -12px rgba(225,29,72,.95)}',
+      '.pw-go:disabled{opacity:.6}',
+      '.pw-r3{display:flex;align-items:center;gap:8px;margin-top:9px}',
+      '.pw-link{flex:1;min-width:0;font-size:12px;font-weight:700;color:#a7f3d0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.pw-link.warn{color:#fda4af}',
+      '.pw-sm{flex:none;height:32px;padding:0 13px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);color:#fff;font:700 12.5px Inter,system-ui,sans-serif;cursor:pointer}',
+      '#pw.big .pw-r3{display:none}#pw.big .pw-r2{margin-top:6px}#pw.big .pw-clock{font-size:24px}#pw.big .pw-go{height:38px;min-width:88px;font-size:14.5px;border-radius:12px}',
+      '.pw-sheet{flex:none;padding:10px 14px 12px;background:#141026;border-bottom:1px solid rgba(255,255,255,.08)}',
+      '.pw-sheet label{display:block;font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-bottom:8px}',
+      '.pw-sheet select{display:block;width:100%;margin-top:4px;height:42px;border-radius:11px;border:1px solid rgba(255,255,255,.16);background:#1d1834;color:#fff;font:600 15px Inter,system-ui,sans-serif;padding:0 10px}',
+      '.pw-sheet select:disabled{opacity:.5}',
+      '.pw-s-foot{display:flex;align-items:center;gap:10px}.pw-s-foot span{flex:1;font-size:12px;color:#fcd34d;font-weight:700}',
+      '.pw-s-done{background:linear-gradient(135deg,#8B5CF6,#6d28d9);border:0}',
+      '.pw-tool{flex:1;min-height:0;position:relative;background:#f4f5f9}',
+      '#pw-frame{display:block;width:100%;height:100%;border:0;background:#f4f5f9}',
+      '.pw-pick{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;color:#0f172a;font-size:14px}',
+      '.pw-pick b{font-size:17px}.pw-pick span{color:#475569;max-width:320px}.pw-pick-b{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:6px}',
+      '.pw-pick-b button{height:40px;padding:0 16px;border-radius:12px;border:1px solid rgba(15,23,42,.14);background:#fff;font:700 14px Inter,system-ui,sans-serif;color:#0f172a;cursor:pointer}',
+      '#pw-fab{position:fixed;right:14px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:2800;display:flex;align-items:center;gap:8px;height:46px;padding:0 18px 0 14px;border-radius:999px;border:0;cursor:pointer;color:#fff;font:800 14.5px Inter,system-ui,sans-serif;background:linear-gradient(135deg,#FF9A4D,#FF6B1A 45%,#8B5CF6);box-shadow:0 14px 30px -12px rgba(255,107,26,.9)}',
+      '.pw-fab-dot{width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.3)}',
+      'body.pw-on #pw-fab,body:not(.app-authed) #pw-fab,body:not(.app-authed) #pw-back{display:none!important}',
+      '#pw-back{position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top));transform:translateX(-50%);z-index:2800;display:none;height:40px;padding:0 18px;border-radius:999px;border:0;cursor:pointer;color:#fff;font:800 13.5px Inter,system-ui,sans-serif;background:#0f0b1c;box-shadow:0 12px 26px -10px rgba(0,0,0,.7),inset 0 0 0 1px rgba(255,255,255,.14)}',
+      '#pw-cta{display:flex;align-items:center;gap:12px;margin:0 0 12px;padding:12px 14px;border-radius:16px;color:#fff;background:linear-gradient(135deg,#1b1233,#2a1550);box-shadow:inset 0 0 0 1px rgba(139,92,246,.35)}',
+      '#pw-cta .pw-cta-t{flex:1;min-width:0}#pw-cta b{display:block;font-size:14px}#pw-cta span{display:block;font-size:12px;color:rgba(255,255,255,.72);margin-top:2px}',
+      '#pw-cta button{flex:none;height:38px;padding:0 16px;border-radius:12px;border:0;font:800 14px Inter,system-ui,sans-serif;color:#fff;background:linear-gradient(135deg,#FF9A4D,#FF6B1A);cursor:pointer}',
+      '@media (prefers-reduced-motion:reduce){.pw-pill.run i{animation:none}}'
+    ].join('\n');
+    document.head.appendChild(s);
+  }
+};
+/* the tool inside work mode: activity pings and the sign-in hand-off — only from the frame this page opened */
+window.addEventListener('message', function(ev){
+  if (ev.origin !== PHONEWORK.TOOL_ORIGIN) return;
+  var d = ev.data || {}; if (!d || typeof d !== 'object' || !d.jmbTool) return;
+  var fr = document.getElementById('pw-frame'); if (!fr || ev.source !== fr.contentWindow) return;
+  if (d.jmbTool === 'activity') { try { trkLastActivity = Date.now(); } catch(e){} }
+  else if (d.jmbTool === 'sso?') {
+    var me = PHONEWORK.me(); if (!me.id || PHONEWORK.ok !== true) return;
+    try { ev.source.postMessage({ jmbSSO: { id: me.id, name: me.name, sess: (typeof JMB_SESS !== 'undefined' ? JMB_SESS : '') } }, PHONEWORK.TOOL_ORIGIN); } catch(e){}
+  }
+});
+document.addEventListener('visibilitychange', function(){ if (!document.hidden && PHONEWORK.on) PHONEWORK.wake(true); });
+/* on the phone, "Open Reddit Central ↗ / Client Hub ↗ / ALTR Studio ↗" links open the tool in work mode, not a new tab
+   (a new tab would freeze this page and its timer) */
+document.addEventListener('click', function(e){
+  if (PHONEWORK.ok !== true) return;
+  var a = e.target && e.target.closest && e.target.closest('a[href^="https://internals.jmbvirtuals.com/"]'); if (!a) return;
+  var href = a.getAttribute('href') || '', tool = /\/reddit\.html/.test(href) ? 'reddit' : (/\/altr-studio\.html/.test(href) ? 'altr' : (/\/clients\.html/.test(href) ? 'clients' : ''));
+  if (!tool) return;
+  e.preventDefault();
+  PHONEWORK.open(tool, href);   // a pairing box stays on top; the tool loads underneath, signs in and pairs by itself
+}, true);
+/* Start on a tool project from a phone: open work mode with that tool first, so it signs in and pairs right here */
+(function(){
+  try {
+    var _pair = TOOLG.pair;
+    TOOLG.pair = async function(f){
+      try { if (PHONEWORK.ok === true) { var p = (f && (f.proj || f.project)) || '', t = TOOLG.applies({ project: p, category: f.cat || f.category, task: f.task, description: f.desc || f.description });
+        if (t) { if (!PHONEWORK.on) PHONEWORK.open(t); PHONEWORK.ensureTool(t, p); } } } catch(e){}
+      return _pair.apply(this, arguments);
+    };
+  } catch(e){}
+  /* a buzz with the stop warnings and the stop alarm */
+  try {
+    var _w = STOPAL.warn; STOPAL.warn = function(kind){ var nw = !STOPAL.stopKind && STOPAL.running() && STOPAL.warnKind !== kind; var r = _w.apply(this, arguments); if (nw) PHONEWORK.buzz([180, 120, 180]); return r; };
+    var _s = STOPAL.stopped; STOPAL.stopped = function(){ var r = _s.apply(this, arguments); PHONEWORK.buzz([500, 200, 500, 200, 900]); return r; };
+  } catch(e){}
+})();
+PHONEWORK.boot();
 
 // ── July-1 month-reset reminder (8 AM & 8 PM PHT, once per window) ──
 function closeResetReminder(){ var m=document.getElementById('reset-reminder'); if(m) m.classList.remove('show'); }
@@ -25423,7 +25737,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-15-A';
+var PORTAL_BUILD='2026-10-15-B';
 (function(){
   var pending=false;
   setInterval(function(){
