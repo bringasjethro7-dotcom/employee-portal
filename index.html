@@ -9978,8 +9978,41 @@ async function assessFinish(){
 // is a provisional read, not a verdict — and the blank cards are what's still missing.
 /* Sep 2026 model (mirrors the backend): Results replaces CSAT at 10%, funded by Assessment
    15→10 and CSAT 5→0; Productivity 20→25 and Attendance 20→15. Sum = 100. */
-var SC_WEIGHTS = { productivity:25, quality:20, attendance:15, assessment:10, team_sales:5, demerit:10, innovation:5, results:10 };
+var SC_WEIGHTS = { productivity:20, quality:17.5, attendance:17.5, assessment:10, team_sales:7.5, demerit:10, innovation:10, results:7.5 };   // Sep 2026 (locked) — the server's own weights win when it sends them
+/* Oct 14 (Jeth): October onward the tool is half the scorecard — Productivity 20 · QA 20 · Results 10 — Attendance 10,
+   Demerit 15, Assessment 10, Innovation 7.5, Team Sales 7.5. The server sends the weights in force with the scorecard
+   (sc.weights, 0–1); every card's "NN% weight" line and the coverage note are drawn from them, so the numbers on the
+   page are always the ones the overall is computed with. */
+function scWeightsPct(sc){
+  var w = sc && sc.weights, out = {};
+  if (w && typeof w === 'object'){ Object.keys(w).forEach(function(k){ out[k] = Math.round(Number(w[k]) * 1000) / 10; }); return out; }
+  return SC_WEIGHTS;
+}
+function scWeightNotes(sc){
+  try {
+    var W = scWeightsPct(sc), hasRes = sc && sc.results !== undefined && sc.results !== null;
+    var tools = []; try { Object.keys((sc && sc.ext) || {}).forEach(function(k){ var x = sc.ext[k]; if (x && x.share > 0) tools.push({ reddit:'Reddit Central', altr:'ALTR Studio', clients:'Client Hub' }[k] || k); }); } catch(_t){}
+    var map = { prod:'productivity', qual:'quality', att:'attendance', assess:'assessment', sales:'team_sales', csat: (hasRes || W.results != null) ? 'results' : 'csat', inno:'innovation', dem:'demerit' };
+    var fromTool = { productivity:1, quality:1, results:1 };
+    Object.keys(map).forEach(function(id){
+      var num = document.getElementById('sc-' + id + '-num'); if (!num || !num.closest) return;
+      var card = num.closest('.card'); if (!card) return;
+      var k = map[id], pct = W[k]; if (pct == null) return;
+      var ps = card.querySelectorAll('p');
+      for (var i = 0; i < ps.length; i++){
+        var t = ps[i].textContent;
+        if (!/^\s*\d+(\.\d+)?% weight/.test(t)) continue;
+        if (ps[i].__orig == null) ps[i].__orig = t.replace(/^\s*\d+(\.\d+)?% weight\s*·?\s*/, '');
+        var tail = (fromTool[k] && tools.length) ? 'From ' + tools.join(' + ') : ps[i].__orig;
+        ps[i].textContent = pct + '% weight' + (tail ? ' · ' + tail : '');
+        break;
+      }
+    });
+  } catch(e){}
+}
 function setScCoverage(sc, liveAtt, liveDem) {
+  try { scWeightNotes(sc); } catch(_n){}
+  var SC_WEIGHTS = scWeightsPct(sc);
   var el = document.getElementById('sc-coverage'); if (!el) return;
   var has = function(v){ return v !== null && v !== undefined && v !== ''; };
   var vals = {
@@ -10000,7 +10033,8 @@ function setScCoverage(sc, liveAtt, liveDem) {
     if (has(vals[k])) covered += SC_WEIGHTS[k];
     else missing.push(LABEL[k]);
   });
-  if (covered >= 100 || !missing.length) { el.style.display = 'none'; return; }
+  covered = Math.round(covered * 10) / 10;
+  if (covered >= 99.9 || !missing.length) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   el.innerHTML = 'Based on <b>' + covered + '%</b> of the weighting — still to come: ' + missing.join(' · ');
 }
@@ -25389,7 +25423,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-14-L';
+var PORTAL_BUILD='2026-10-14-M';
 (function(){
   var pending=false;
   setInterval(function(){
