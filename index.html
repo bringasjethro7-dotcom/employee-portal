@@ -6962,7 +6962,7 @@ var NETG = {
     try{ if(typeof trkRunning==='undefined' ? !document.querySelector('.cfy-start-btn.running, #cfy-start-btn.stop') : !trkRunning) return; }catch(e){ return; }
     if(Date.now()-this._last < (this._graceUntil ? 60*1000 : this.EVERY)) return;
     var ok=await this.check();
-    if(ok===false){ try{ showToast('⛔ You are not on the office network — the timer was stopped. Enter a work-from-home code to continue.'); }catch(e){} try{ await stopTimer(); }catch(e){} this.ask(); }
+    if(ok===false){ try{ showToast('⛔ You are not on the office network — the timer was stopped. Enter a work-from-home code to continue.'); }catch(e){} try{ await stopTimer(); }catch(e){} try{ STOPAL.stopped('net', 'Your timer stopped', 'You are not on the office network — enter a work-from-home code to continue.'); }catch(e){} this.ask(); }
   },
   ask: function(){
     var self=this; var el=document.getElementById('netg-gate');
@@ -7546,8 +7546,9 @@ var TOOLG = {
     mv.tool=Math.max(mv.tool, toolSecs);
     var tracked=this.trackedLinked(), gap=tracked-toolSecs;
     this.gap={ tracked:tracked, tool:toolSecs, gap:gap, at:now };
-    if(gap<=this.GAP){ return; }
+    if(gap<=this.GAP){ try{ STOPAL.warnEnd('hand'); }catch(_w){} return; }
     var stall=now-mv.at;
+    if(stall<this.TRANS_WARN){ try{ STOPAL.warnEnd('hand'); }catch(_w){} }
     if(stall>=this.TRANS){                           // no tool task for 2 full minutes → Idle from the end of the hand-over
       try{ IDLE_AUTO.cut(mv.at+this.TRANS, 'no task running in '+this.NAME[tool]+' for 2 minutes'); }catch(e){ try{ await stopTimer(); }catch(_e){} }
       this._mv=null; this.gapBlock(tool, tracked, toolSecs, r.project); return;
@@ -7557,6 +7558,7 @@ var TOOLG = {
       if(this._transWarned!==wk){ this._transWarned=wk;
         try{ showToast('⏳ Start your next task in '+this.NAME[tool]+' — your portal timer stops in '+Math.max(10, Math.round((this.TRANS-stall)/1000))+' s if no task is running (2-minute hand-over between tasks).'); }catch(e){}
         try{ _beepCountdown(10); }catch(e){} }
+      try{ STOPAL.warn('hand', mv.at+this.TRANS, 'No task timer running in '+this.NAME[tool]+' — start your next task there.'); }catch(_w){}
     }
   },
   gapBlock: function(tool, tracked, toolSecs, proj){
@@ -7586,15 +7588,17 @@ var TOOLG = {
     var tool=this.applies(r); if(!tool) return;
     if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
     var since=Number(r.segStart)||Date.now();
-    if(Date.now()-since < this.WARN) return;                // still inside the grace window — no need to ask
+    if(Date.now()-since < this.WARN){ try{ STOPAL.warnEnd('tool'); }catch(_w){} return; }   // still inside the grace window — no need to ask
     var la=await this.last(this.me(), tool); if(!la.ok) return;
     if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;   // it changed while we were asking
     var ref=Math.max(since, la.at||0), quiet=Date.now()-ref;
+    if(quiet < this.WARN){ try{ STOPAL.warnEnd('tool'); }catch(_w){} }
     if(quiet >= this.GRACE){
       try{ IDLE_AUTO.cut(ref, 'no activity in '+this.NAME[tool]); }catch(e){ try{ await stopTimer(); }catch(_e){} }   // Oct 13: cut at the tool's last activity — the rest is Idle
       this.block(tool, la.at, r.project);
       return;
     }
+    if(quiet >= this.WARN){ try{ STOPAL.warn('tool', ref+this.GRACE, tool==='clients' ? 'No task pressed in the Client Hub — press a task button in your client tab (or keep its timer running).' : 'No work in '+this.NAME[tool]+' — go back to it and keep working.'); }catch(_w){} }
     if(quiet >= this.WARN && this._warned!==r.entry_id+'|'+ref){ this._warned=r.entry_id+'|'+ref;
       try{ showToast(tool==='clients'
         ? '⚠ No task pressed in the Client Hub for '+Math.floor(quiet/60000)+' minutes — your timer stops at 10. Press a task button in your client tab (log, comment, scroll, karma, move a card…).'
@@ -12111,7 +12115,7 @@ var trkActivityTick = null;
 // if still inactive, the running task is STOPPED automatically. No demerit is applied.
 var TRACK_INACTIVITY = true;
 var INACTIVITY_MS   = 3 * 60 * 1000;
-var WARN_LEAD_MS    = 10 * 1000;               // show a countdown for the last 10 seconds
+var WARN_LEAD_MS    = 60 * 1000;               // Oct 14: a full minute of warning (was 10 s) — STOPAL chimes + desktop alert
 var WARN_MS         = INACTIVITY_MS - WARN_LEAD_MS;
 var trkWarnLastSec  = -1;                       // last second rendered/beeped (-1 = warning hidden)
 var trkIdleDetector = null;   // system-wide idle detection (Chrome/Edge)
@@ -14221,6 +14225,7 @@ function showInactiveWarn(secLeft){
 function hideInactiveWarn(){
   var m=document.getElementById('inactive-warn-modal'); if(m) m.classList.remove('show');
   trkWarnLastSec=-1;
+  try { if (typeof STOPAL !== 'undefined') STOPAL.warnEnd('idle'); } catch(e){}
 }
 function _beepCountdown(secLeft){
   if(!_ensureAudio()) return;
@@ -14266,9 +14271,7 @@ function showIdleStopped(){
   var m = document.getElementById('idle-stopped'); if (!m) return;
   if (m.classList.contains('show')) return;
   m.classList.add('show');
-  try { _beepCountdown(5); } catch(e) {}
-  if (_idleStopBeat) clearInterval(_idleStopBeat);
-  _idleStopBeat = setInterval(function(){ try { _beepCountdown(5); } catch(e) {} }, 2500);   // keep beating until closed
+  if (_idleStopBeat) { clearInterval(_idleStopBeat); _idleStopBeat = null; }   // Oct 14: STOPAL rings the alarm (PZ.alert hook)
 }
 function closeIdleStopped(){
   var m = document.getElementById('idle-stopped'); if (m) m.classList.remove('show');
@@ -14410,6 +14413,222 @@ var PZ = {
   } catch(e){}
 })();
 
+/* ══════════ 🚨 STOP ALARM (Jeth, Oct 14 — "the portal timer doesn't alarm when it stops … their graph is broken") ══════════
+   What was wrong: the warnings before a stop and the alarm after it were too quiet and too easy to miss.
+   • 3-minute inactivity: only a 10-second countdown made of soft blips — and when the portal tab sits in the background
+     (the VA works on the phone or in another app), Chrome only runs the page's timers about once a minute, so the
+     10 seconds were usually skipped: the timer just stopped. The beep after the stop was the same soft blip.
+   • Tool rule (10 min without work in Reddit Central / ALTR Studio / Client Hub): the warning was a toast nobody in
+     another app can see; the alarm after the stop rang only when a 1-second window happened to line up (≈ never).
+   • 30-minute rule hand-over: a toast + one blip. Office-network stop: a toast.
+   Now, for every automatic stop:
+   • BEFORE: a warning at least 1 minute ahead (inactivity: from 2:00 idle; tool: from 8:00; hand-over: from 0:45) —
+     a desktop notification, a chime every 5 s (every second in the last 10 s), the tab title counting down and the
+     pop-out timer turning amber;
+   • AFTER: a desktop notification that stays until clicked, a loud alarm right away and again every 5 s for the first
+     minute, then every 15 s (to 5 min), 30 s (to 30 min) and 60 s (to 2 h), the tab title flashing "TIMER STOPPED" and
+     the pop-out timer turning red — until the VA presses Start/Resume, closes the stop box or clicks the notification;
+   • the clock that drives all this runs in a Web Worker, which Chrome does not slow down in background tabs, so the
+     3-minute check, the warning and the alarm keep their timing while the VA is in another app;
+   • a strip in the tracker turns on desktop alerts and has "Test the alarm" so a VA can check the sound once. */
+var STOPAL = {
+  warnKind: '', warnUntil: 0, warnMsg: '', warnAt: 0, _lastChirp: 0, _wn: null,
+  stopKind: '', stopAt: 0, stopTitle: '', stopMsg: '', _lastRing: 0, _sn: null,
+  _title: '', _flip: false, _w: null, _iv: null, _lastTick: 0,
+  vol: function(){ var v = NaN; try { v = parseFloat(localStorage.getItem('stopal_vol')); } catch(e){} return isNaN(v) ? 1 : Math.max(0.2, Math.min(1, v)); },
+  tone: function(seq, gain){
+    try { if (typeof _ensureAudio !== 'function' || !_ensureAudio()) return; } catch(e){ return; }
+    try {
+      var t = _ac.currentTime + 0.02;
+      seq.forEach(function(n){
+        var o = _ac.createOscillator(), g = _ac.createGain(), a = t + n.at, d = n.d;
+        o.type = n.w || 'square'; o.frequency.setValueAtTime(n.f, a);
+        g.gain.setValueAtTime(0.0001, a); g.gain.exponentialRampToValueAtTime(gain, a + 0.015);
+        g.gain.setValueAtTime(gain, a + Math.max(0.02, d - 0.04)); g.gain.exponentialRampToValueAtTime(0.0001, a + d);
+        o.connect(g); g.connect(_ac.destination); o.start(a); o.stop(a + d + 0.03);
+      });
+    } catch(e){}
+  },
+  /* the alarm after a stop — loud, five notes, about a second */
+  ring: function(){ this.tone([{f:988,at:0,d:0.15},{f:1319,at:0.17,d:0.15},{f:988,at:0.34,d:0.15},{f:1319,at:0.51,d:0.15},{f:1760,at:0.70,d:0.34}], 0.30 * this.vol()); },
+  /* the warning chime before a stop */
+  chirp: function(urgent){ if (urgent) this.tone([{f:1397,at:0,d:0.13}], 0.30 * this.vol());
+    else this.tone([{f:880,at:0,d:0.12,w:'triangle'},{f:1175,at:0.15,d:0.18,w:'triangle'}], 0.40 * this.vol()); },
+  notify: function(title, body, tag){
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return null;
+      var opt = { body: body, tag: tag, requireInteraction: true, renotify: true, icon: '/icons/icon-192-v2.png', badge: '/icons/badge-96-v2.png' };
+      try {
+        var n = new Notification(title, opt);
+        n.onclick = function(){ try { window.focus(); } catch(e){} try { n.close(); } catch(e){} if (tag === 'jmb-timer-stop') STOPAL.ack(); };
+        return n;
+      } catch(e) {   // some browsers only allow notifications through the service worker
+        try { navigator.serviceWorker.ready.then(function(reg){ reg.showNotification(title, opt); }); } catch(_e){}
+        return { close: function(){ try { navigator.serviceWorker.ready.then(function(reg){ reg.getNotifications({ tag: tag }).then(function(L){ L.forEach(function(x){ x.close(); }); }); }); } catch(_c){} } };
+      }
+    } catch(e){ return null; }
+  },
+  left: function(){ var s = Math.max(0, Math.ceil((this.warnUntil - Date.now()) / 1000)); return Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60); },
+  running: function(){ try { return typeof trkRunning !== 'undefined' && !!trkRunning; } catch(e){ return false; } },
+  /* a stop is coming at `until` (ms) */
+  warn: function(kind, until, msg){
+    if (this.stopKind || !this.running()) return;
+    var fresh = this.warnKind !== kind;
+    this.warnKind = kind; this.warnUntil = until; this.warnMsg = msg || '';
+    if (fresh){
+      this.warnAt = Date.now();
+      try { this._wn && this._wn.close(); } catch(e){}
+      this._wn = this.notify('⚠ Your timer stops in ' + this.left(), this.warnMsg, 'jmb-timer-warn');
+      this._lastChirp = Date.now(); this.chirp(false);
+    }
+    this.paint();
+  },
+  warnEnd: function(kind){
+    if (!this.warnKind || (kind && this.warnKind !== kind)) return;
+    this.warnKind = ''; this.warnUntil = 0;
+    try { this._wn && this._wn.close(); } catch(e){} this._wn = null;
+    if (!this.stopKind) this.title(false);
+    this.paint();
+  },
+  /* the timer was stopped by the portal */
+  stopped: function(kind, title, body){
+    this.warnEnd();
+    this.stopKind = kind || 'stop'; this.stopAt = Date.now(); this.stopTitle = title || 'Your timer stopped'; this.stopMsg = body || '';
+    try { this._sn && this._sn.close(); } catch(e){}
+    this._sn = this.notify('⏸ ' + this.stopTitle, this.stopMsg + ' Press Start / Resume in the portal to keep counting.', 'jmb-timer-stop');
+    this._lastRing = Date.now(); this.ring();
+    this.paint();
+  },
+  /* answered: Start/Resume, the stop box closed, the notification clicked, or the VA timed out */
+  ack: function(){
+    if (!this.stopKind) return;
+    this.stopKind = ''; this.stopAt = 0;
+    try { this._sn && this._sn.close(); } catch(e){} this._sn = null;
+    this.title(false); this.paint();
+  },
+  title: function(on){
+    try {
+      if (!on){
+        if (this._title){ if (/^(⏸|⚠)/.test(document.title)) document.title = this._title; this._title = ''; }
+        return;
+      }
+      if (!this._title || !/^(⏸|⚠)/.test(document.title)) this._title = document.title;
+      this._flip = !this._flip;
+      document.title = this._flip ? (this.stopKind ? '⏸ TIMER STOPPED' : '⚠ Timer stops in ' + this.left()) : this._title;
+    } catch(e){}
+  },
+  /* one tick a second, from the worker (or a plain interval where workers aren't available) */
+  tick: function(){
+    var now = Date.now();
+    if (now - this._lastTick < 700) return; this._lastTick = now;
+    try { trkCheckInactivity(); } catch(e){}
+    if (this.stopKind){
+      var r = null; try { r = trkRunning; } catch(e){}
+      var timedOut = false; try { timedOut = typeof getActiveSession === 'function' && !getActiveSession(); } catch(e){}
+      if ((r && (Number(r.segStart) || 0) > this.stopAt) || timedOut){ this.ack(); return; }   // a Start/Resume after the stop
+      var age = now - this.stopAt, every = age < 60e3 ? 5e3 : (age < 5*60e3 ? 15e3 : (age < 30*60e3 ? 30e3 : (age < 120*60e3 ? 60e3 : 0)));
+      if (!every){ this.ack(); return; }
+      if (now - this._lastRing >= every - 100){ this._lastRing = now; this.ring(); }
+      this.title(true); this.pip();
+      return;
+    }
+    if (this.warnKind){
+      if (!this.running() || now > this.warnUntil + 20000){ this.warnEnd(); return; }
+      if (this.warnKind === 'tool'){   // work showed up in the tool → the warning is over
+        try { var la = Date.parse((TOOLG.cur && TOOLG.cur.row && TOOLG.cur.row.last_active) || '') || 0; if (la > this.warnAt) { this.warnEnd('tool'); return; } } catch(e){}
+      }
+      var left = Math.ceil((this.warnUntil - now) / 1000), urgent = left <= 10, every2 = urgent ? 1000 : 5000;
+      if (left > 0 && now - this._lastChirp >= every2 - 100){ this._lastChirp = now; this.chirp(urgent); }
+      this.title(true); this.pip();
+    }
+  },
+  /* the pop-out timer (always on top) turns amber before a stop and red after it */
+  pip: function(){
+    try {
+      var w = (typeof MINI !== 'undefined') && MINI.pip; if (!w || w.closed || !w.document || !w.document.body) return;
+      var d = w.document, el = d.getElementById('stopal-pip');
+      if (!this.stopKind && !this.warnKind){ if (el) el.remove(); return; }
+      if (!el){ el = d.createElement('div'); el.id = 'stopal-pip';
+        el.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:12px;font:800 15px/1.3 system-ui,sans-serif;color:#fff;cursor:pointer';
+        el.onclick = function(){ try { window.focus(); } catch(e){} if (STOPAL.stopKind) STOPAL.ack(); else STOPAL.paint(); };
+        d.body.appendChild(el); }
+      var on = this._flip;
+      el.style.background = this.stopKind ? (on ? '#dc2626' : '#991b1b') : (on ? '#f59e0b' : '#b45309');
+      el.innerHTML = this.stopKind ? '<div style="font-size:22px">⏸ TIMER STOPPED</div><div style="font-weight:600;font-size:12.5px;margin-top:6px;opacity:.95">' + escapeHtml(this.stopTitle) + ' — open the portal and press Start</div>'
+                                   : '<div style="font-size:20px">⚠ Stops in ' + this.left() + '</div><div style="font-weight:600;font-size:12.5px;margin-top:6px;opacity:.95">' + escapeHtml(this.warnMsg) + '</div>';
+    } catch(e){}
+  },
+  paint: function(){ this.pip(); this.banner(); },
+  /* the strip in the tracker: desktop alerts + a test button */
+  banner: function(){
+    try {
+      var b = document.getElementById('stopal-banner');
+      if (!b){
+        var ib = document.getElementById('idle-perm-banner'); if (!ib || !ib.parentNode) return;
+        b = document.createElement('div'); b.id = 'stopal-banner';
+        b.style.cssText = 'display:none;align-items:center;gap:12px;flex-wrap:wrap;background:rgba(220,38,38,0.07);border:1px solid rgba(220,38,38,0.3);border-radius:12px;padding:12px 14px;margin-bottom:14px;';
+        ib.parentNode.insertBefore(b, ib.nextSibling);
+      }
+      var perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+      var hidden = false; try { hidden = localStorage.getItem('stopal_ok') === '1' && perm === 'granted'; } catch(e){}
+      if (hidden){ b.style.display = 'none'; return; }
+      var msg = perm === 'granted' ? '<b>Stop alarm is on.</b> The portal rings and shows a desktop alert a minute before your timer stops and keeps ringing after it stops. Test it once with your speakers or headphones on.'
+              : (perm === 'denied' ? '<b>Desktop alerts are blocked.</b> You will only hear the alarm. To also get a pop-up: click the lock icon in the address bar → Notifications → Allow, then reload.'
+              : (perm === 'unsupported' ? '<b>Stop alarm:</b> this browser can\'t show desktop alerts — you will hear the alarm only. Use Google Chrome for pop-ups.'
+              : '<b>Turn on stop alerts.</b> When your timer is about to stop (no activity) or stops, the portal pops up a desktop alert and rings — even while you work in other apps.'));
+      var html = '<span style="font-size:18px;flex-shrink:0">🔔</span><div style="flex:1;min-width:220px;font-size:13px;color:var(--text-1);line-height:1.45">' + msg + '</div>' +
+        (perm === 'default' ? '<button type="button" data-a="on" style="flex-shrink:0;background:#dc2626;color:#fff;border:none;border-radius:9px;padding:9px 14px;font:700 13px/1 inherit;cursor:pointer">Turn on</button>' : '') +
+        '<button type="button" data-a="test" style="flex-shrink:0;background:#fff;color:#991b1b;border:1px solid rgba(220,38,38,.35);border-radius:9px;padding:9px 14px;font:700 13px/1 inherit;cursor:pointer">🔊 Test the alarm</button>' +
+        (perm === 'granted' ? '<button type="button" data-a="hide" style="flex-shrink:0;background:none;border:none;color:var(--text-3);font:600 12px/1 inherit;cursor:pointer">Hide</button>' : '');
+      if (b.__h !== html){ b.innerHTML = html; b.__h = html;
+        b.onclick = function(ev){ var x = ev.target.closest && ev.target.closest('button[data-a]'); if (!x) return; var a = x.getAttribute('data-a');
+          if (a === 'on'){ try { Notification.requestPermission().then(function(){ STOPAL.banner(); STOPAL.test(); }); } catch(e){} }
+          else if (a === 'test') STOPAL.test();
+          else if (a === 'hide'){ try { localStorage.setItem('stopal_ok', '1'); } catch(e){} STOPAL.banner(); } }; }
+      b.style.display = 'flex';
+    } catch(e){}
+  },
+  test: function(){
+    this.ring();
+    var n = this.notify('⏸ Test — this is how a timer stop looks', 'You will get this pop-up and the alarm when the portal stops your timer. Click to close.', 'jmb-timer-test');
+    setTimeout(function(){ try { n && n.close(); } catch(e){} }, 8000);
+    try { showToast(n ? '🔔 Alarm + desktop alert sent. Didn\'t hear it? Check your volume and that this tab isn\'t muted.' : '🔔 Alarm played. Didn\'t hear it? Check your volume and that this tab isn\'t muted.'); } catch(e){}
+  },
+  /* the clock: a Web Worker keeps ticking every second even when Chrome slows the page's own timers */
+  start: function(){
+    if (this._w || this._iv) return;
+    var self = this;
+    try {
+      var src = 'setInterval(function(){ postMessage(0); }, 1000);';
+      this._w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+      this._w.onmessage = function(){ self.tick(); };
+    } catch(e){ this._w = null; }
+    this._iv = setInterval(function(){ self.tick(); }, 1000);   // backup — tick() ignores calls closer than 0.7 s
+    setInterval(function(){ self.banner(); }, 30000);
+    setTimeout(function(){ self.banner(); }, 1500);
+  }
+};
+/* hooks */
+(function(){
+  try {
+    /* every automatic stop already calls PZ.alert — it now rings the alarm */
+    PZ.alert = function(title, body){ try { STOPAL.stopped('stop', title, body); } catch(e){} };
+    /* the stop boxes: closing one answers the alarm */
+    var _ci = closeIdleStopped; closeIdleStopped = function(){ var r = _ci.apply(this, arguments); try { STOPAL.ack(); } catch(e){} return r; };
+    ['block', 'gapBlock'].forEach(function(fn){
+      var _f = TOOLG[fn]; if (!_f) return;
+      TOOLG[fn] = function(){ var r = _f.apply(this, arguments);
+        try { var x = document.getElementById('toolg-x'); if (x){ var o = x.onclick; x.onclick = function(ev){ try { o && o.call(this, ev); } catch(e){} STOPAL.ack(); }; } } catch(e){}
+        return r; };
+    });
+    /* the inactivity check moves onto the worker clock — at most one run per 0.7 s, whichever clock calls it */
+    var _tci = trkCheckInactivity, _tciAt = 0;
+    trkCheckInactivity = function(){ var n = Date.now(); if (n - _tciAt < 700) return; _tciAt = n; return _tci.apply(this, arguments); };
+    var _ia = trkInitActivityWatch; trkInitActivityWatch = function(){ var r = _ia.apply(this, arguments); try { STOPAL.start(); } catch(e){} return r; };
+    if (trkActivityTick) STOPAL.start();
+  } catch(e){}
+})();
+
 // ── July-1 month-reset reminder (8 AM & 8 PM PHT, once per window) ──
 function closeResetReminder(){ var m=document.getElementById('reset-reminder'); if(m) m.classList.remove('show'); }
 function maybeResetReminder(){
@@ -14493,7 +14712,7 @@ function trkCheckInactivity() {
   if (idleMs >= WARN_MS) {                                        // last 10s → countdown + ring
     var secLeft = Math.max(0, Math.ceil((INACTIVITY_MS - idleMs) / 1000));
     showInactiveWarn(secLeft);
-    if (secLeft !== trkWarnLastSec) { trkWarnLastSec = secLeft; _beepCountdown(secLeft); }
+    if (secLeft !== trkWarnLastSec) { trkWarnLastSec = secLeft; try { STOPAL.warn('idle', trkLastActivity + INACTIVITY_MS, 'No mouse or keyboard activity on this computer — move your mouse or press a key to keep your timer running.'); } catch(e) { _beepCountdown(secLeft); } }
   } else {
     hideInactiveWarn();
   }
@@ -25170,7 +25389,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-14-K';
+var PORTAL_BUILD='2026-10-14-L';
 (function(){
   var pending=false;
   setInterval(function(){
