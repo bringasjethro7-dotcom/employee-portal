@@ -11881,7 +11881,7 @@ var ADMAURA = (function(){
 .admx-add select{background:#eef2f8;border:1px solid rgba(15,23,42,.13);border-radius:8px;color:#0f172a;padding:7px 9px;font-family:inherit;font-size:12.5px;min-width:220px}
 .admx-pill{display:inline-block;border-radius:100px;padding:2px 9px;font-size:11px;font-weight:800}
 .admx-ok{background:#ecfdf3;color:#067647}.admx-bad{background:#fef3f2;color:#b42318}.admx-warn{background:#fffaeb;color:#b54708}.admx-mute{background:#f2f4f7;color:#475467}
-.admx-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.admx-tbl{width:100%;min-width:0!important;border-collapse:collapse;font-size:12.5px}.admx-tbl td{word-break:break-word}.admx-tbl th{white-space:normal!important}.admx-tbl .admx-pill{white-space:normal;line-height:1.35}
 .admx-tbl th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);padding:6px 8px;border-bottom:1px solid rgba(15,23,42,.1)}
 .admx-tbl td{padding:8px;border-bottom:1px solid rgba(15,23,42,.06);vertical-align:top}
 .admx-tbl td small{display:block;color:var(--t3);font-size:11px}
@@ -11892,7 +11892,7 @@ var ADMAURA = (function(){
 <script id="admx-js">
 /* ═══ ADMIN EXTRAS (Oct 13): Exceptions & access · Backend builds · Link health ═══ */
 var ADMX = {
-  EXPECT: { portal:'2026-10-15a', reddit:'rc-2026-10-13b', altr:'2026-10-13-ins', login:'2026-10-13-dspass', client:'cl-2026-10-12b' },
+  EXPECT: { portal:'2026-10-15a', reddit:'rc-2026-10-13b', altr:'2026-10-13-ins', login:'2026-10-13-dspass', client:'cl-2026-10-14b' },
   RC:'https://script.google.com/macros/s/AKfycbwc0seQ11rMc_9GeAE34jVPYDDsFkMqNhpGCiW8D1qIFu9bZ_e6Aa3SHR8vt8Fq04g5mA/exec',
   ALTR:'https://script.google.com/macros/s/AKfycbxp7wcIf48urxm2DcPoNgdmQreYUGia-YNnXwIXfyMqOLkyWpaqI3hoMZa4VPmjZa9_Mg/exec',
   CLIENT:'https://script.google.com/macros/s/AKfycbzHo-Im9ABUJ1pyi6oFtnUD0IilvPniNe5E10ad90L3TkjhH_12WnzwRSe21cfZJEIa/exec',
@@ -11907,11 +11907,11 @@ var ADMX = {
   /* ── backend builds ── */
   backends: function(){ var L=(typeof LOGIN_API!=='undefined')?LOGIN_API:'';
     return [
-      { k:'portal', n:'Portal backend', url:API+'?action=build', pick:function(d){ return d&&d.build; }, file:'portal-apps-script.gs' },
+      { k:'portal', n:'Portal backend', url:API+'?action=build', pick:function(d){ return d&&d.build; }, file:'portal-apps-script_2026-10-15a.txt' },
       { k:'reddit', n:'Reddit Central backend', url:this.RC+'?action=rc_build', pick:function(d){ return d&&d.build; }, file:'reddit-apps-script.gs' },
       { k:'altr', n:'ALTR Studio backend', url:this.ALTR+'?action=ping', pick:function(d){ return d&&d.version; }, file:'altr-apps-script.gs' },
       { k:'login', n:'Sign-in backend (login lane)', url:L?(L+'?action=ping'):'', pick:function(d){ return d&&d.version; }, file:'login-apps-script.gs' },
-      { k:'client', n:'Client portal API', url:this.CLIENT+'?action=ping', pick:function(d){ return d&&d.build; }, file:'reddit-client-api_cl-2026-10-12b.gs' }
+      { k:'client', n:'Client portal API', url:this.CLIENT+'?action=ping', pick:function(d){ return d&&d.build; }, file:'reddit-client-api_cl-2026-10-14b.txt' }
     ]; },
   buildCheck: async function(show){
     var self=this, B=this.backends(), out=[];
@@ -11985,7 +11985,16 @@ var ADMX = {
   },
 
   /* ── link health ── */
-  toolOf: function(task){ var p=String(task||'').split(' · ')[0]; if(/skyvern|project\s*3\b/i.test(p)) return 'clients'; if(/reddit/i.test(p)) return 'reddit'; if(/altr/i.test(p)) return 'altr'; if(/shopify|torchlight|imperium|\bember\b|snapchat/i.test(p)) return 'clients'; return ''; },
+  /* Oct 15: the same project → tool map as the portal timer (Slaybae, Project 2 / Ricardo were missing) */
+  toolOf: function(task){ var p=String(task||'').split(' · ')[0]; if(/skyvern|project\s*[23]\b|ricardo|slay\s*bae/i.test(p)) return 'clients'; if(/reddit/i.test(p)) return 'reddit'; if(/altr/i.test(p)) return 'altr'; if(/shopify|torchlight|imperium|\bember\b|snapchat/i.test(p)) return 'clients'; return ''; },
+  /* …and the same exemptions: the portal never ties these timers to a tool (Threads has no tool yet; meetings / training;
+     VAs on the tool-exempt pass), so they must not show as "not open" here */
+  LH_NOTOOL: /thread|meeting|huddle|training|coaching|onboarding|interview/i, _ex: null, _exAt: 0,
+  exemptIds: async function(){
+    if(this._ex && Date.now()-this._exAt<10*60000) return this._ex;
+    var L=['JMB014']; try{ var vp=await this.get(API+'?action=vapasses_get', 12000); if(vp && vp.passes) L=L.concat(vp.passes.tool_exempt||[], (vp.floor&&vp.floor.tool_exempt)||[]); }catch(e){}
+    this._ex=L.map(function(x){ return String(x).toUpperCase(); }); this._exAt=Date.now(); return this._ex;
+  },
   TOOLN: { reddit:'Reddit Central', altr:'ALTR Studio', clients:'Client Hub' },
   sb: function(path){ return fetch(SUPA_URL+'/rest/v1/'+path, { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } }).then(function(r){ if(!r.ok) throw new Error('sb '+r.status); return r.json(); }); },
   lhLoad: async function(){
@@ -11994,12 +12003,14 @@ var ADMX = {
     try{ pres=await this.sb('presence?select=employee_id,employee_name,status,last_seen,task,task_since,is_online'); }catch(e){ el.innerHTML='<span class="admx-pill admx-bad">Couldn\'t read presence</span>'; return; }
     try{ beats=await this.sb('tool_beat?select=*'); }catch(e){ beats=[]; }
     var now=Date.now(), B={}; beats.forEach(function(r){ B[String(r.employee_id||'').toUpperCase()+'|'+r.tool]=r; });
+    var EX=await this.exemptIds();
     var rows=pres.filter(function(p){ var id=String(p.employee_id||'').toUpperCase(); return id && id!=='ADMIN' && id!=='JMBEAST' && (now-(Date.parse(p.last_seen||'')||0))<10*60000; })
       .map(function(p){
         var id=String(p.employee_id).toUpperCase(), task=String(p.task||''), tool=task?self.toolOf(task):'', rw=tool?B[id+'|'+tool]:null, v, cls;
         var openAt=rw&&rw.open_at?Date.parse(rw.open_at):0, actAt=rw&&rw.last_active?Date.parse(rw.last_active):0;
         if(!task){ v=p.status==='paused'?'Timer paused':(p.status==='idle'?'Idle':'No timer running'); cls='admx-mute'; }
         else if(!tool){ v='Timer on a project with no tool'; cls='admx-mute'; }
+        else if(EX.indexOf(id)>=0 || self.LH_NOTOOL.test(task)){ v='No tool needed ('+(EX.indexOf(id)>=0?'tool-exempt pass':'no tool for this task')+')'; cls='admx-mute'; tool=''; }
         else if(!rw || (openAt && now-openAt>2*60000 && (!actAt || now-actAt>3*60000)) || (!openAt && (!actAt || now-actAt>3*60000))){ v=self.TOOLN[tool]+' not open — the timer stops after 10 min'; cls='admx-bad'; }
         else if(!actAt || now-actAt>8*60000){ v='No work in '+self.TOOLN[tool]+' for '+(actAt?Math.round((now-actAt)/60000)+' min':'a while'); cls='admx-warn'; }
         else { v='Linked'; cls='admx-ok'; }
