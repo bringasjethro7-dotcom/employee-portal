@@ -2634,6 +2634,7 @@ async function loadDashboard(opts){
     var demq=(R[3].requests||[]);
     setDashCount('dc-leave', leave.length);
     setDashCount('dc-coe', coe.length);
+    redeem=[];   // Oct 14 (Jeth): points redemptions are archived out of the approvals — they live in Rewards → Redeem queue
     var total=leave.length+coe.length+redeem.length+demq.length;
     var totEl=document.getElementById('dash-total'); if(totEl) totEl.textContent = total ? '· '+total+' pending' : '';
     var badge=document.getElementById('dash-badge'); if(badge){ if(total){ badge.style.display='block'; badge.textContent=total; } else badge.style.display='none'; }
@@ -11177,7 +11178,10 @@ var ADMAURA = (function(){
     });
     var lw=api('lunch_work_list').catch(function(){ return {}; });
     var rc=fetch(RC_API+'?action=rc_off_today&with_accounts=1&by=admin&_='+Date.now()).then(function(r){ return r.json(); }).catch(function(){ return {}; });
-    return Promise.all([boot, lw, rc]).then(function(R){
+    var wn=(function(){ var pw=''; try{ pw=admPass(); }catch(e){} if(!pw) return Promise.resolve({});
+      var g=function(a){ return fetch(API+'?action='+a+'&pass='+encodeURIComponent(pw)+'&_='+Date.now()).then(function(r){ return r.json(); }).catch(function(){ return {}; }); };
+      return Promise.all([g('wfh_req_list'), g('office_net_status')]).then(function(x){ return { list:x[0]||{}, net:x[1]||{} }; }).catch(function(){ return {}; }); })();
+    return Promise.all([boot, lw, rc, wn]).then(function(R){
       var b=R[0]||{}, items=[];
       (((R[2]||{}).delreqs)||[]).forEach(function(q){
         items.push({ t:'rcdel', name:q.by_name||q.by, date:String(q.at||'').slice(0,10),
@@ -11192,10 +11196,29 @@ var ADMAURA = (function(){
           ac:'<button class="bsm edit" onclick="window.open(\''+RC_URL+'\',\'_blank\')">Decide in Reddit Central</button>' });
       });
       var pend=function(r){ return String(r.status||'pending').toLowerCase()==='pending'; };
+      /* Oct 14 (Jeth: "even though they are at the office they still get this"): each request now shows the network
+         it came from and what that network is — the office (already recognised → no code needed any more), the same
+         network that person used from home before, or a network several people are asking from at once (likely a
+         new office line). A request from an earlier shift is folded away: that shift is over, nobody is waiting. */
+      var WN=R[3]||{}, offIps={}, ipOf={}, hist={};
+      ((WN.net&&WN.net.ips)||[]).forEach(function(x){ if(x&&x.ip) offIps[String(x.ip)]=x; });
+      ((WN.list&&WN.list.pending)||[]).forEach(function(x){ if(x&&x.id) ipOf[x.id]=String(x.ip||''); });
+      (((WN.list&&WN.list.pending)||[]).concat((WN.list&&WN.list.recent)||[])).forEach(function(x){ if(!x||!x.ip) return; (hist[x.ip]=hist[x.ip]||[]).push(x); });
+      var wfhOld=0, STALE=16*3600*1000;
       (((b.wfh_reqs||{}).requests)||[]).forEach(function(q){
+        if(Date.now()-(+q.at||0) > STALE){ wfhOld++; return; }
         var when=''; try{ when=new Date(q.at).toLocaleTimeString('en-US',{ timeZone:'Asia/Manila', hour:'numeric', minute:'2-digit' }); }catch(e){}
+        var ip=ipOf[q.id]||'', net='';
+        if(ip){
+          var H=(hist[ip]||[]).filter(function(x){ return x.id!==q.id; }), mine=H.filter(function(x){ return x.employee_id===q.employee_id && (+x.at||0)<(+q.at||0); }).sort(function(a,b){ return b.at-a.at; })[0];
+          var others={}; H.forEach(function(x){ if(x.employee_id!==q.employee_id && Math.abs((+x.at||0)-(+q.at||0))<8*3600*1000) others[x.name||x.employee_id]=1; });
+          if(offIps[ip]) net='🏢 <b>Office network</b> ('+E(ip)+') — it is recognised now, so they can sign in without a code. Ask them to try again.';
+          else if(mine) net='🏠 Network '+E(ip)+' — the same one '+E(String(q.name||'').split(',').slice(-1)[0].trim()||'they')+' used on '+E(new Date(mine.at).toLocaleString('en-US',{ timeZone:'Asia/Manila', weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }))+(mine.by&&/weekend/i.test(mine.by)?' (weekend work-from-home)':'')+' — not the office.';
+          else if(Object.keys(others).length) net='📶 Network '+E(ip)+' — '+Object.keys(others).length+' other'+(Object.keys(others).length===1?'':'s')+' asked from it too ('+E(Object.keys(others).join(', '))+'). If they are all at the office, the office is on a new connection.';
+          else net='🌐 Network '+E(ip)+' — not an office network we know.';
+        }
         items.push({ t:'wfh', name:q.name||q.employee_id, date:when,
-          dt:'Not on the office network'+(q.where==='shift'?' (mid-shift)':' (at sign-in)')+' — wants a work-from-home code.'+(q.note?'<br><q>'+E(q.note)+'</q>':'')+
+          dt:'Not on the office network'+(q.where==='shift'?' (mid-shift)':' (at sign-in)')+' — wants a work-from-home code.'+(net?'<br><span style="display:inline-block;margin-top:4px;font-size:12px">'+net+'</span>':'')+(q.note?'<br><q>'+E(q.note)+'</q>':'')+
              (q.hold?'<br><span style="display:inline-block;margin-top:4px;background:#fff7ed;color:#c2410c;border:1px solid rgba(241,86,15,.3);border-radius:8px;padding:2px 8px;font-weight:700">⏸ Not auto-approved: '+E(q.hold)+'</span>':'')+
              '<br><span style="opacity:.75">Approve → the code is emailed to them.</span>',
           ac:'<button class="bsm edit" onclick="wfhReqDecide(\''+E(q.id)+'\',\'approve\',1,this)">Approve · today</button><button class="bsm" onclick="wfhReqDecide(\''+E(q.id)+'\',\'approve\',7,this)">Approve · this week</button><button class="bsm danger" onclick="wfhReqDecide(\''+E(q.id)+'\',\'reject\',0,this)">Reject</button>' });
@@ -11236,10 +11259,14 @@ var ADMAURA = (function(){
         items.push({ t:'dem', k:'Lead demerit', name:r.full_name||r.employee_id, date:'', dt:'<b>'+E(r.infraction||'')+'</b> · '+E(r.points||0)+' pt'+((r.points==1)?'':'s')+' · by '+E(r.by||'lead')+(r.note?'<br><q>'+E(r.note)+'</q>':''),
           ac:'<button class="bsm edit" onclick="dashLeadDem(this,\''+E(r.id)+'\',\''+encodeURIComponent(r.employee_id||'')+'\',\'approve\')">Approve</button><button class="bsm danger" onclick="dashLeadDem(this,\''+E(r.id)+'\',\''+encodeURIComponent(r.employee_id||'')+'\',\'reject\')">Reject</button>' });
       });
-      (((b.redeem||{}).requests)||[]).filter(pend).forEach(function(r){
+      /* Oct 14 (Jeth): "don't include the redeem points here — archive that". Redemptions stay in Rewards → Redeem queue. */
+      ([]).filter(pend).forEach(function(r){
         items.push({ t:'pts', name:r.full_name||r.employee_id, date:'', dt:'<b>'+E(r.points||0)+' pts</b> · '+E(r.type||'')+(r.detail?' · '+E(r.detail):''),
           ac:'<button class="bsm edit" onclick="dashRedeem(this,\''+E(r.id)+'\',\'approve\')">Approve</button><button class="bsm danger" onclick="dashRedeem(this,\''+E(r.id)+'\',\'reject\')">Reject</button>' });
       });
+      if(wfhOld) items.push({ t:'wfh', k:'Work-from-home code · earlier shifts', name:wfhOld+' old request'+(wfhOld===1?'':'s'), date:'',
+        dt:'From shifts that are already over — nobody is waiting on these any more, so they are folded away here and don\'t count. A new request from today shows above as usual.',
+        ac:'' , old:true });
       S.ib=items; S.ibAt=Date.now();
       if(!quiet || S.cur==='inbox') inboxRender(); else recount();
     }).catch(function(){ if(!quiet){ var bd=document.getElementById('aa-i-body'); if(bd) bd.innerHTML='<div class="es" style="color:#e11d48">Could not load requests. Try Refresh.</div>'; } });
@@ -11252,7 +11279,7 @@ var ADMAURA = (function(){
     } else {
       body.innerHTML=L.map(function(x, i){
         var meta=IB[x.t];
-        return '<div class="dash-item aa-ib t-'+x.t+'" '+(x.at||'')+' style="--i:'+i+'"><span class="ib-ic">'+SV[meta.ic]+'</span>'+
+        return '<div class="dash-item aa-ib t-'+x.t+(x.old?' ib-old':'')+'" '+(x.at||'')+' style="--i:'+i+(x.old?';opacity:.6':'')+'"><span class="ib-ic">'+SV[meta.ic]+'</span>'+
           '<div class="ib-tx"><div class="ib-k">'+E(x.k||meta.l)+'</div><div class="ib-nm">'+E(x.name)+(x.date?'<small>'+E(x.date)+'</small>':'')+'</div><div class="ib-dt">'+x.dt+'</div></div>'+
           '<div class="ib-ac dash-item-actions">'+x.ac+'</div></div>';
       }).join('');
@@ -11262,8 +11289,8 @@ var ADMAURA = (function(){
   function recount(){
     var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 };
     var live=!!document.getElementById('aa-i-body') && S.cur==='inbox';
-    if(live){ rows.forEach(function(r){ if(r.style.opacity==='0' || r.style.display==='none') return; var m=(r.className.match(/t-(\w+)/)||[])[1]; if(m){ c[m]++; c.all++; } }); }
-    if(!live || S.iff!=='all'){ c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ c[x.t]++; c.all++; }); }
+    if(live){ rows.forEach(function(r){ if(r.style.opacity==='0' || r.style.display==='none' || r.classList.contains('ib-old')) return; var m=(r.className.match(/t-(\w+)/)||[])[1]; if(m){ c[m]++; c.all++; } }); }
+    if(!live || S.iff!=='all'){ c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ if(x.old) return; c[x.t]++; c.all++; }); }
     var ch=document.getElementById('aa-i-chips');
     if(ch) ch.innerHTML=[['all','Everything'],['wfh','WFH codes'],['rcdel','Reddit deletions'],['rc','Reddit coverage'],['lunch','Working lunch'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
       .filter(function(k){ return k[0]==='all' || c[k[0]]; })
