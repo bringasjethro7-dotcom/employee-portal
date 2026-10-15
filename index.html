@@ -7546,6 +7546,7 @@ var TOOLG = {
   TRANS: 2*60*1000, TRANS_WARN: 45*1000, TRANS_RESUME: 60*1000, _mv: null, _transWarned: '',
   gapCheck: async function(r, tool){
     var id=this.me(); if(!id) return;
+    if(typeof trkOwns!=='undefined' && !trkOwns) return;   // Oct 15: only the tab that owns the timer applies the tool rules
     var rows=await this.rowsAll(id); if(!rows) return;
     if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
     var now=Date.now(), toolSecs=0, live=false;
@@ -7561,7 +7562,7 @@ var TOOLG = {
     var stall=now-mv.at;
     if(stall<this.TRANS_WARN){ try{ STOPAL.warnEnd('hand'); }catch(_w){} }
     if(stall>=this.TRANS){                           // no tool task for 2 full minutes → Idle from the end of the hand-over
-      try{ IDLE_AUTO.cut(mv.at+this.TRANS, 'no task running in '+this.NAME[tool]+' for 2 minutes'); }catch(e){ try{ await stopTimer(); }catch(_e){} }
+      try{ IDLE_AUTO.cut(mv.at+this.TRANS, 'no task running in '+this.NAME[tool]+' for 2 minutes', 'handover'); }catch(e){ try{ await stopTimer(); }catch(_e){} }
       this._mv=null; this.gapBlock(tool, tracked, toolSecs, this.lbl(r)); return;
     }
     if(stall>=this.TRANS_WARN){
@@ -7596,6 +7597,7 @@ var TOOLG = {
   },
   watch: async function(){
     var r=(typeof trkRunning!=='undefined')?trkRunning:null; if(!r || (typeof isIdle!=='undefined' && isIdle)) return;
+    if(typeof trkOwns!=='undefined' && !trkOwns) return;   // Oct 15: only the tab that owns the timer applies the tool rules
     var tool=this.applies(r); if(!tool) return;
     if(!trkRunning || trkRunning.entry_id!==r.entry_id) return;
     var since=Number(r.segStart)||Date.now();
@@ -7605,7 +7607,7 @@ var TOOLG = {
     var ref=Math.max(since, la.at||0), quiet=Date.now()-ref;
     if(quiet < this.WARN){ try{ STOPAL.warnEnd('tool'); }catch(_w){} }
     if(quiet >= this.GRACE){
-      try{ IDLE_AUTO.cut(ref, 'no activity in '+this.NAME[tool]); }catch(e){ try{ await stopTimer(); }catch(_e){} }   // Oct 13: cut at the tool's last activity — the rest is Idle
+      try{ IDLE_AUTO.cut(ref, 'no activity in '+this.NAME[tool], 'tool'); }catch(e){ try{ await stopTimer(); }catch(_e){} }   // Oct 13: cut at the tool's last activity — the rest is Idle
       this.block(tool, la.at, this.lbl(r));
       return;
     }
@@ -8607,7 +8609,7 @@ function doLogout() {
   try{ if(window._devChan){ try{ window._devChan.untrack(); }catch(_u){} try{ window._devChan.unsubscribe(); }catch(_s){} window._devChan=null; } window._devHold=null; }catch(_pr){}
   try{ sessionStorage.removeItem('jmb_device'); if(window.TRKDEV){ TRKDEV.reset(); } }catch(_td){}
   try{ var _ed=JSON.parse(sessionStorage.getItem('emp_data')||'{}'); var _id=_ed.employee_id||_ed.id;
-    if(_id) fetch(APPS_SCRIPT_URL+'?action=device_release&employee_id='+encodeURIComponent(_id)+'&_='+Date.now()); }catch(_rl){}
+    if(_id) fetch(APPS_SCRIPT_URL+'?action=device_release&employee_id='+encodeURIComponent(_id)+'&_='+Date.now(), { keepalive:true }); }catch(_rl){}
   sessionStorage.removeItem('emp_data');
   try{ setJmbSess(''); }catch(_ss){}
   document.getElementById('dashboard-screen').style.display = 'none';
@@ -8623,6 +8625,9 @@ function doLogout() {
   var localLabel = document.getElementById('local-captcha-label');
   if (localCb) { localCb.checked = false; }
   if (localLabel) { localLabel.textContent = 'I am human'; localLabel.style.color = '#333'; }
+  /* Oct 15: a fresh page after sign-out. The previous VA's running timer stayed in memory, and on a shared PC the next
+     VA's page ran the inactivity rule on it and stopped it (Querin's 7:53 entry, stopped from JMB006's sign-in). */
+  try { setTimeout(function(){ try { location.reload(); } catch(e){} }, 350); } catch(_rl2) {}
 }
 
 // ─────────────────────────────────────────────
@@ -12126,14 +12131,16 @@ var IDLE_AUTO = {
     return out.filter(function(g){ return g.e - g.s >= 60000; });
   },
   /* stop the running timer, crediting only up to `atMs` (never before this run started) */
-  cut: function(atMs, why){
+  cut: function(atMs, why, code){
     if (typeof trkRunning === 'undefined' || !trkRunning) return false;
+    if (typeof trkOwns !== 'undefined' && !trkOwns) return false;   // Oct 15: only the tab that owns the timer stops it by itself
     var seg = Number(trkRunning.segStart) || Date.now(), now = Date.now();
     var at = Math.max(seg, Math.min(now, Number(atMs) || now));
+    try { if (TRKLEAD.since) at = Math.max(at, Math.min(now, TRKLEAD.since)); } catch(_l) {}   // never cut time this tab did not watch
     if (now - at < 60000 || typeof presenceStopTimer !== 'function') { try { stopTimer(); } catch(e){} return true; }
     var eid = trkRunning.entry_id;
     this.put(eid, at);
-    try { presenceStopTimer(at); } catch(e){ try { stopTimer(); } catch(_e){} return true; }
+    try { presenceStopTimer(at, code || 'idle'); } catch(e){ try { stopTimer(); } catch(_e){} return true; }
     try { var t = new Date(at).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
       showToast('⏸ Timer stopped at ' + t + ' — ' + (why || 'no activity') + '. The time after that shows as Idle on your timeline.'); } catch(e){}
     return true;
@@ -12187,10 +12194,99 @@ function trkSetRunning(r) {
   if (newId !== cfyRunningId) { try{ _entryCapReset(); }catch(e){} }
   var _was = trkRunning ? trkRunning.entry_id : null;
   trkRunning = r; cfyRunningId = newId;
+  if (!r && _was) { window.__lastTrkStop = Date.now(); try { TRKSYNC.bad = null; } catch(_b) {} }
   // tell the tools at once (presence row) — they gate their own timers on the portal timer (Oct 6)
   if (_was !== newId) { try { setTimeout(function(){ updatePresence(true); }, 300); } catch(e) {} }
   if (r && _was !== newId) { try { TOOLG.hint(r); TOOLG.cur=null; setTimeout(function(){ TOOLG.poll(); }, 400); } catch(e) {} }
 }
+
+
+/* ══ IS MY TIMER STILL RUNNING ON THE SERVER? (Oct 15 — the 4-hour idle bars) ═══════════════════════════════════
+   The portal never asked. When the server ended an entry (auto lunch, time out, a stop from another tab or device),
+   the clock on screen kept going, the tools kept seeing a live portal timer, and only after End of day did the whole
+   stretch turn Idle. Every 2 minutes (and right after the page wakes) the owner tab asks the server — one cached row
+   lookup — and if the entry is no longer running, the timer stops here at once with the loud stop alarm, the time
+   and the reason, and one tap starts the same task again. Asks twice, 20 s apart, before acting; an old backend
+   without tracker_state, a network error or our own queued writes → it does nothing (never stops a good timer). */
+var TRKSYNC = {
+  EVERY: 120000, at: 0, busy: false, bad: null,
+  tick: function(force){
+    if (typeof trkRunning === 'undefined' || !trkRunning || this.busy || !attEmpId) return;
+    if (!force && typeof trkOwns !== 'undefined' && !trkOwns) return;
+    var now = Date.now(); if (!force && now - this.at < this.EVERY) return;
+    this.at = now; this.check(trkRunning.entry_id);
+  },
+  check: async function(eid){
+    this.busy = true;
+    try {
+      var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null, tm = ctl ? setTimeout(function(){ try { ctl.abort(); } catch(_a){} }, 20000) : null;
+      var r = await fetch(APPS_SCRIPT_URL + '?action=tracker_state&employee_id=' + encodeURIComponent(attEmpId) + '&entry_id=' + encodeURIComponent(eid) + '&_=' + Date.now(), { signal: ctl ? ctl.signal : undefined });
+      if (tm) clearTimeout(tm);
+      var d = await r.json();
+      if (!d || d.ok !== true || d.found === undefined) return;                       // older backend / error → never act
+      if (typeof trkRunning === 'undefined' || !trkRunning || trkRunning.entry_id !== eid) return;
+      var st = String(d.status || '').toLowerCase();
+      if (d.found && st === 'running') { this.bad = null; return; }
+      if (!d.found && Date.now() - (Number(trkRunning.segStart) || 0) < 3 * 60000) return;   // the Start may not have landed yet
+      try { if (WOB.pending()) return; } catch(_w) {}                                  // our own queued writes explain it
+      if (!this.bad || this.bad.eid !== eid) { this.bad = { eid: eid, at: Date.now() }; var self = this; setTimeout(function(){ self.at = 0; self.tick(true); }, 20000); return; }
+      if (Date.now() - this.bad.at < 15000) return;
+      this.bad = null; this.dead(eid, d);
+    } catch(e) {} finally { this.busy = false; }
+  },
+  why: function(d){
+    var w = String(d && d.why || '');
+    if (/auto_close_lunch/.test(w)) return 'the lunch hour started (auto lunch)';
+    if (/auto_close_timeout/.test(w)) return 'your day was ended (time out)';
+    if (/auto_close_maxrun/.test(w)) return 'it had run for 16 hours';
+    if (/^stop_idle:tool/.test(w)) return 'your tool showed no activity';
+    if (/^stop_idle:handover/.test(w)) return 'no task was running in your tool';
+    if (/^stop_idle/.test(w)) return 'no mouse or keyboard activity was seen';
+    if (/^stop/.test(w)) return 'it was stopped in another portal tab or device';
+    if (/^pause/.test(w)) return 'it was paused in another portal tab or device';
+    if (/^repair/.test(w)) return 'admin corrected it';
+    if (d && d.found === false) return 'the server has no record of it';
+    return 'it was ended on the server';
+  },
+  _hm: function(v){
+    try { var t = String(v || ''); if (!t) return ''; var d = new Date(/T/.test(t) ? t : t.replace(' ', 'T') + '+08:00'); if (isNaN(d)) return '';
+      return d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZone:'Asia/Manila' }); } catch(e){ return ''; }
+  },
+  /* the server says this entry is not running: stop showing it, alarm, offer the same task again */
+  dead: function(eid, d, info, quiet){
+    info = info || (trkRunning ? { project:trkRunning.project, category:trkRunning.category, task:trkRunning.task, description:trkRunning.description } : {});
+    if (trkRunning && trkRunning.entry_id === eid) {
+      try { stopDisplayTick(); } catch(e){}
+      try { _clearActiveMarker(); } catch(e){}
+      trkSetRunning(null);
+      try { renderTimerButtons(); renderPausedList(); updateButtons(); refreshTimeBar(); } catch(e){}
+      try { setTimeout(function(){ loadTodayEntries(); }, 600); } catch(e){}
+    }
+    var reason = this.why(d), at = this._hm(d && d.end);
+    var msg = 'Your timer had stopped' + (at ? ' at ' + at : '') + ' — ' + reason + '. Time after that is not counted until you start again.';
+    try { if (!quiet && typeof STOPAL !== 'undefined') STOPAL.stopped('sync', 'Your timer is not running', msg); } catch(e){}
+    this.box(info, msg);
+  },
+  box: function(info, msg){
+    var old = document.getElementById('trksync-box'); if (old) old.remove();
+    var el = document.createElement('div'); el.id = 'trksync-box';
+    el.style.cssText = 'position:fixed;inset:0;z-index:9955;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:18px;';
+    var task = [info.project, info.category, info.task].filter(function(x){ return x; }).join(' › ');
+    el.innerHTML = '<div style="width:100%;max-width:440px;background:#fff;color:#0f172a;border-radius:20px;padding:24px 22px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);font-family:inherit;">' +
+      '<div style="font-size:19px;font-weight:800;margin-bottom:8px;">⏸ Your timer is not running</div>' +
+      '<div style="font-size:13.5px;color:#475569;line-height:1.55;margin-bottom:14px;">' + escapeHtml(msg) + (task ? '<br><br>Task: <b>' + escapeHtml(task) + '</b>' : '') + '</div>' +
+      '<div style="display:flex;gap:8px;">' + (info.project ? '<button type="button" id="trksync-go" style="flex:1;border:0;border-radius:12px;padding:13px;font-weight:800;font-size:14px;background:linear-gradient(135deg,#ff6b1a,#f1560f);color:#fff;cursor:pointer;">▶ Start this task again</button>' : '') +
+      '<button type="button" id="trksync-x" style="border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:12px;padding:13px 16px;font-weight:700;cursor:pointer;">OK</button></div></div>';
+    document.body.appendChild(el);
+    document.getElementById('trksync-x').onclick = function(){ el.remove(); try { STOPAL.ack(); } catch(e){} };
+    var go = document.getElementById('trksync-go');
+    if (go) go.onclick = function(){ el.remove(); try { STOPAL.ack(); } catch(e){}
+      try { if (typeof switchTab === 'function') switchTab('attendance'); } catch(e){}
+      try { trkRestoreFields(info); } catch(e){}
+      setTimeout(function(){ try { startTimer(); } catch(e){} }, 400); };
+  }
+};
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) { try { TRKSYNC.tick(true); } catch(e){} } });
 
 // Init when the Time Tracker tab is first opened
 async function initClockify(empData) {
@@ -12372,7 +12468,9 @@ async function loadTodayEntries() {
       if (isNaN(segMs)) segMs = Date.now();
       trkSetRunning({ entry_id:running.entry_id, project:running.project, category:running.category, task:running.task, description:running.description, baseSecs: Number(running.active_secs)||0, segStart: segMs });
       // Only the owning session runs the inactivity check; others view it read-only.
-      trkOwns = (!running.owner || running.owner === trkSessionId);
+      /* Oct 15: owner = this browser (server) AND this tab (TRKLEAD) — another portal tab of the same browser is a viewer */
+      TRKLEAD.devOk = (!running.owner || running.owner === trkSessionId);
+      trkOwns = TRKLEAD.devOk && TRKLEAD.adopt();
       trkRestoreFields(running);
       if (trkOwns) _saveActiveMarker();
       startTimerDisplay();
@@ -12386,6 +12484,15 @@ async function loadTodayEntries() {
       // then re-assert it server-side. This guarantees a refresh never drops the task.
       var mk = _readActiveMarker();
       var resumed = false;
+      /* Oct 15: the server ENDED this entry (auto lunch, time out, a stop elsewhere) → do NOT bring it back to life on
+         screen: that ticked for hours on a dead entry and the whole stretch turned Idle after End of day. Say so instead. */
+      var _mkSrv = mk && mk.entry_id ? entries.filter(function(e){ return String(e.entry_id) === String(mk.entry_id); })[0] : null;
+      if (_mkSrv && !/^(running|paused)$/i.test(String(_mkSrv.status || ''))) {
+        try { _clearActiveMarker(); } catch(_c) {}
+        try { TRKSYNC.dead(mk.entry_id, { found:true, status:_mkSrv.status, end:_mkSrv.end, why:'' }, { project:mk.project, category:mk.category, task:mk.task, description:mk.description }, true); } catch(_d) {}
+        mk = null;
+      }
+      if (mk && !TRKLEAD.free()) mk = null;   // another tab of this browser is running it — that tab restores it
       if (mk && mk.entry_id && (Date.now() - mk.ts) < TRK_RESUME_WINDOW_MS &&
           (!mk.date || mk.date === shiftDate())) {
         // Remove a paused/duplicate copy of the same entry if the server returned one.
@@ -12393,7 +12500,7 @@ async function loadTodayEntries() {
         // Accumulated time carries forward: banked seconds + the segment that was live.
         var carriedSecs = (Number(mk.baseSecs) || 0) + Math.max(0, (Date.now() - (Number(mk.segStartMs) || Date.now())) / 1000);
         trkSetRunning({ entry_id: mk.entry_id, project: mk.project, category: mk.category, task: mk.task, description: mk.description, baseSecs: carriedSecs, segStart: Date.now() });
-        trkOwns = true;
+        trkOwns = true; TRKLEAD.claim();
         trkRestoreFields({ project: mk.project, category: mk.category, task: mk.task, description: mk.description });
         _trkPost('tracker_resume', { entry_id: mk.entry_id });   // re-assert live on the server (harmless if already running)
         _saveActiveMarker();
@@ -12419,10 +12526,10 @@ async function loadTodayEntries() {
     try{
       if (!trkRunning) {
         var _fmk = _readActiveMarker();
-        if (_fmk && _fmk.entry_id && (Date.now() - _fmk.ts) < TRK_RESUME_WINDOW_MS && (!_fmk.date || _fmk.date === shiftDate())) {
+        if (_fmk && _fmk.entry_id && (Date.now() - _fmk.ts) < TRK_RESUME_WINDOW_MS && (!_fmk.date || _fmk.date === shiftDate()) && TRKLEAD.free()) {
           var _fcarried = (Number(_fmk.baseSecs) || 0) + Math.max(0, (Date.now() - (Number(_fmk.segStartMs) || Date.now())) / 1000);
           trkSetRunning({ entry_id: _fmk.entry_id, project: _fmk.project, category: _fmk.category, task: _fmk.task, description: _fmk.description, baseSecs: _fcarried, segStart: Date.now() });
-          trkOwns = true;
+          trkOwns = true; TRKLEAD.claim();
           trkRestoreFields({ project: _fmk.project, category: _fmk.category, task: _fmk.task, description: _fmk.description });
           _trkPost('tracker_resume', { entry_id: _fmk.entry_id });
           _saveActiveMarker();
@@ -13014,6 +13121,52 @@ var trkSessionId = (function(){
   } catch(e) { return 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
 })();
 var trkOwns = true;   // does this session own the currently-running timer?
+/* ══ ONE TAB OWNS THE RUNNING TIMER (Oct 15 — the 4-hour idle bars) ══════════════════════════════════════════
+   trkSessionId is per BROWSER, so every portal tab in it "owned" the timer — and every tab ran the 3-minute
+   no-activity rule and the tool rules on it. A forgotten background tab (or a second tab opened from the Client Hub's
+   "Open the portal ↗") saw no mouse or keyboard of its own and stopped the entry on the server — paid from its own
+   stale "last activity", often 0 — while the tab the VA was using kept showing a healthy timer for hours.
+   Now ONE tab owns it: the tab where Start / Resume was pressed (or that picked up a running timer nobody else was
+   watching). It renews a lease every second; other tabs only show the timer and never stop it by themselves. If the
+   owner tab is closed or frozen for 90 s, a tab the VA is really using (visible + real input in the last minute) takes
+   over; a hidden tab never does. And a tab can only cut time it watched: never further back than when it took over. */
+var TRKLEAD = {
+  TTL: 90000, since: 0, input: 0, devOk: true, _w: 0,
+  tab: (function(){ try { var s = sessionStorage.getItem('trk_tab_id'); if (!s) { s = 'tab-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7); sessionStorage.setItem('trk_tab_id', s); } return s; } catch(e){ return 'tab-' + Math.random().toString(36).slice(2, 9); } })(),
+  key: function(){ return 'trk_lead_' + String((typeof attEmpId !== 'undefined' && attEmpId) || '').toUpperCase(); },
+  read: function(){ try { return JSON.parse(localStorage.getItem(this.key()) || 'null'); } catch(e){ return null; } },
+  write: function(c){ try { var now = Date.now(); localStorage.setItem(this.key(), JSON.stringify({ tab:this.tab, t:now, c:c || now })); this._w = now; } catch(e){} },
+  free: function(){ var L = this.read(); return !L || L.tab === this.tab || (Date.now() - (+L.t || 0)) > this.TTL; },
+  /* Start / Resume pressed here, or a timer restored here */
+  claim: function(){ var now = Date.now(); this.write(now); this.since = now; this.devOk = true; },
+  /* a page (re)load found the server running a timer of this browser: keep it if this tab owned it (a refresh) or nobody else watches it */
+  adopt: function(){
+    var L = this.read();
+    if (L && L.tab === this.tab) { this.write(+L.c || Date.now()); this.since = +L.c || Date.now(); return true; }
+    if (this.free()) { this.claim(); return true; }
+    this.since = 0; return false;
+  },
+  stepDown: function(){
+    trkOwns = false;
+    try { hideInactiveWarn(); } catch(e){}
+    try { if (typeof STOPAL !== 'undefined') STOPAL.warnEnd(); } catch(e){}
+    try { updateOwnershipUI(); } catch(e){}
+  },
+  /* every second (from trkCheckInactivity) */
+  tick: function(){
+    if (typeof trkRunning === 'undefined' || !trkRunning || !attEmpId) return;
+    var L = this.read(), now = Date.now();
+    if (trkOwns) {
+      if (L && L.tab !== this.tab && now - (+L.t || 0) <= this.TTL) { this.stepDown(); return; }   // Start / Resume was pressed in another tab
+      if (!L || L.tab !== this.tab || now - this._w > 3000) this.write(L && L.tab === this.tab ? L.c : (this.since || now));
+    } else if (this.devOk && this.free() && !document.hidden && now - this.input < 60000) {
+      this.claim(); trkOwns = true; trkLastActivity = now;
+      try { updateOwnershipUI(); } catch(e){}
+      try { showToast('⏱ This tab runs your timer now — the other portal tab was closed or asleep.'); } catch(e){}
+    }
+  }
+};
+try { window.addEventListener('storage', function(ev){ try { if (ev.key === TRKLEAD.key() && trkOwns && trkRunning) { var L = JSON.parse(ev.newValue || 'null'); if (L && L.tab !== TRKLEAD.tab) TRKLEAD.stepDown(); } } catch(e){} }); } catch(_st) {}
 /* ── 📮 WRITE OUTBOX (Oct 9, 2026 incident) ─────────────────────────────────────────────────────────
    When the backend is overloaded, a Stop / Pause / Start that ran out of retries used to be DROPPED: the server kept
    the old task open, the next Start paused it, and it surfaced later as a second bar with 1 minute on it. A Time Out
@@ -13073,6 +13226,12 @@ function _trkPost(action, extra) {
       if (d && WOB.retryable(d) && n < 5) { setTimeout(function(){ attempt(n+1); }, 700*n); return; }
       if (d && WOB.retryable(d) && queueable) { WOB.push(url, action); WOB.note(action === 'tracker_stop' ? 'Stop' : 'timer change'); return; }
       if (d && d.error === 'LOCKED') showToast('That month is locked — timer changes aren’t allowed.');
+      /* Oct 15: the server refused a resume (the entry was already ended) or the entry belongs to another account →
+         ask the server about the running entry now instead of ticking on a dead one */
+      if (d && (d.error === 'NOT_FOUND' || d.error === 'NOT_YOURS') && (action === 'tracker_resume' || action === 'tracker_pause' || action === 'tracker_stop')) {
+        if (d.error === 'NOT_YOURS') showToast('That timer belongs to another account on this computer — sign out and sign in again.');
+        try { TRKSYNC.at = 0; TRKSYNC.bad = null; TRKSYNC.tick(true); } catch(_s) {}
+      }
       /* The server refused a start/resume because of lunch. Never leave a timer ticking on
          screen that the server did not accept — roll it back and let the lunch screen take over. */
       if (d && (d.error === 'LUNCH' || d.error === 'AUTO_LUNCH') && (action === 'tracker_start' || action === 'tracker_resume')) {
@@ -13840,6 +13999,10 @@ async function toggleTimer() {
 
 async function startTimer() {
   ensureIdleDetector();   // request system-wide activity permission on this user gesture (before any early return)
+  /* Oct 15: never start a timer on an outdated portal — a newer build is waiting and nothing is running or queued */
+  try { if (!trkRunning && window.__portalUpdPending && window.__portalUpdPending() && !(typeof WOB !== 'undefined' && WOB.pending())) {
+    try { saveTrkSelection(); } catch(_s) {}
+    showToast('🔄 Updating the portal first — press Start again in a moment.'); setTimeout(function(){ location.reload(); }, 700); return; } } catch(_u) {}
   if (!getActiveSession()) { showToast('Please Time In before tracking time.'); return; }
   if (!TRKDEV.required()) return;   // 💻 company laptop must be chosen first (no personal laptops)
   if (AUL.blocked()) return;   // 🍽 AUTO-LUNCH: the hour is not workable (unless admin approved)
@@ -13877,7 +14040,7 @@ async function startTimer() {
     if (_gmk && _gmk.entry_id && (Date.now() - _gmk.ts) < TRK_RESUME_WINDOW_MS && (!_gmk.date || _gmk.date === shiftDate())) {
       var _gcarried = (Number(_gmk.baseSecs) || 0) + Math.max(0, (Date.now() - (Number(_gmk.segStartMs) || Date.now())) / 1000);
       trkSetRunning({ entry_id: _gmk.entry_id, project: _gmk.project, category: _gmk.category, task: _gmk.task, description: _gmk.description, baseSecs: _gcarried, segStart: Date.now() });
-      trkOwns = true;
+      trkOwns = true; TRKLEAD.claim();
       trkRestoreFields({ project: _gmk.project, category: _gmk.category, task: _gmk.task, description: _gmk.description });
       _trkPost('tracker_resume', { entry_id: _gmk.entry_id });
       _saveActiveMarker();
@@ -13892,7 +14055,7 @@ async function startTimer() {
   trkSetRunning({ entry_id:entryId, project:f.proj, category:f.cat, task:f.task, description:f.desc, baseSecs:0, segStart: Date.now() });
   var data = trkEmpData || window._currentEmpData || {};
   _trkPost('tracker_start', { full_name: data.full_name || attEmpId, date: shiftDate(), project:f.proj, category:f.cat, task:f.task, description:f.desc, start: startIso, entry_id: entryId });
-  trkOwns = true;   // this device now owns the running timer
+  trkOwns = true; TRKLEAD.claim();   // this device — and THIS tab (Oct 15) — now owns the running timer
   trkLastActivity = Date.now(); trkAutoPausedId = null;
   _saveActiveMarker();
   startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI();
@@ -13928,7 +14091,7 @@ async function resumeTask(entryId) {
   trkSetRunning({ entry_id:e.entry_id, project:e.project, category:e.category, task:e.task, description:e.description, baseSecs: e.secs, segStart: Date.now() });
   trkRestoreFields(e);
   _trkPost('tracker_resume', { entry_id: entryId });
-  trkOwns = true;   // resuming here claims ownership for this device
+  trkOwns = true; TRKLEAD.claim();   // resuming here claims ownership for this device and tab
   trkLastActivity = Date.now(); trkAutoPausedId = null;
   _saveActiveMarker();
   startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI();
@@ -13947,7 +14110,7 @@ function updateOwnershipUI() {
       note = document.createElement('div');
       note.id = 'trk-readonly-note';
       note.style.cssText = 'margin-top:8px;font-size:12px;color:var(--orange-3,#FF6B1A);display:none;align-items:center;gap:6px;';
-      note.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>Running on another device — view only here (no inactivity check).';
+      note.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>Running in another portal tab or device — this tab only shows it.';
       host.parentNode.insertBefore(note, host.nextSibling);
     }
   }
@@ -14214,6 +14377,7 @@ function trkInBioBreak() {
 }
 function trkMarkActivity() {
   trkLastActivity = Date.now();
+  try { TRKLEAD.input = trkLastActivity; } catch(_l) {}   // real input in THIS tab (lets it take over a dead owner tab)
   window._bioLastReal = Date.now();   // real input — the bio-break overstay guard trusts only this + the system idle detector
   if (trkWarnLastSec !== -1) hideInactiveWarn();   // any activity cancels the countdown instantly
   if (trkAutoPausedId) { var id = trkAutoPausedId; trkAutoPausedId = null; resumeTask(id); }
@@ -15043,8 +15207,15 @@ function applyJuly4(){
 }
 try { if (document.readyState !== 'loading') applyJuly4(); else document.addEventListener('DOMContentLoaded', applyJuly4); } catch(e) {}
 function trkCheckInactivity() {
+  try { TRKLEAD.tick(); } catch(_l) {}   // Oct 15: one tab owns the timer
+  try { TRKSYNC.tick(); } catch(_s) {}   // Oct 15: is it still running on the server?
   if (!TRACK_INACTIVITY) { hideInactiveWarn(); return; }   // inactivity enforcement turned off
   if (!trkRunning || !trkOwns) { hideInactiveWarn(); return; }   // not running / not owner → no warning
+  /* Oct 15: the page slept (frozen tab, closed lid) → the tool's last activity on screen is stale too. Ask the tool and
+     the server again and wait a few seconds before judging, so work done in the tool meanwhile is seen. */
+  var _tnow = Date.now(), _tgap = _tnow - (trkCheckInactivity._last || _tnow);
+  trkCheckInactivity._last = _tnow;
+  if (_tgap > 90000) { trkCheckInactivity._wake = _tnow; try { TOOLG.poll(); } catch(_p) {} try { TRKSYNC.tick(true); } catch(_q) {} }
   // Activity ANYWHERE on the computer (with permission granted) keeps the timer alive — so working
   // in another app counts as active, not just interacting with this tab.
   /* HELD-KEY GUARD: the system detector only speaks for time spent in OTHER apps. While
@@ -15064,8 +15235,12 @@ function trkCheckInactivity() {
   if (isIdleProject(trkRunning.project)) { hideInactiveWarn(); return; }
   var idleMs = Date.now() - trkLastActivity;
     if (idleMs >= INACTIVITY_MS) {
+    if (trkCheckInactivity._wake && Date.now() - trkCheckInactivity._wake < 8000) { showInactiveWarn(Math.max(1, Math.ceil((8000 - (Date.now() - trkCheckInactivity._wake)) / 1000))); return; }   // just woke: fresh tool proof first
     hideInactiveWarn();
-    try { IDLE_AUTO.cut(trkLastActivity, 'no mouse or keyboard'); } catch(e) { try { stopTimer(); } catch(_e) {} }   // still inactive → stop, cut at the last activity (Oct 13), NO demerit
+    /* cut at the LATEST proof of work — this tab's input/system activity or the tool's own last activity */
+    var _ref = trkLastActivity;
+    try { if (TOOLG.cur && TOOLG.cur.row && TOOLG.applies(trkRunning) === TOOLG.cur.tool) { var _tl2 = Date.parse(TOOLG.cur.row.last_active || ''); if (_tl2 && _tl2 > _ref && _tl2 <= Date.now()) _ref = _tl2; } } catch(_r) {}
+    try { IDLE_AUTO.cut(_ref, 'no mouse or keyboard', 'idle'); } catch(e) { try { stopTimer(); } catch(_e) {} }   // still inactive → stop, cut at the last activity (Oct 13), NO demerit
     showIdleStopped();                                     // pulsing notice; reminds them to Start again
     return;
   }
@@ -15185,8 +15360,9 @@ function pcLog(outcome, uncreditedSecs){
 }
 // Stop the running timer but tell the server to credit only up to `creditUntilMs`
 // (the last verified presence), so the idle / jiggled window is never billed.
-function presenceStopTimer(creditUntilMs){
+function presenceStopTimer(creditUntilMs, why){
   if (!trkRunning) return;
+  if (typeof trkOwns !== 'undefined' && !trkOwns) return;   // Oct 15: a viewing tab never stops the timer by itself
   var entryId = trkRunning.entry_id;
   var endMs   = Math.min(Date.now(), creditUntilMs);
   var startMs = (Number(trkRunning.segStart) || Date.now()) - (Number(trkRunning.baseSecs) || 0) * 1000;
@@ -15202,7 +15378,7 @@ function presenceStopTimer(creditUntilMs){
   try { renderTodayEntries(window._trkTodayEntries); } catch(_e){}
   var stopUrl = APPS_SCRIPT_URL + '?action=tracker_stop&employee_id=' + encodeURIComponent(attEmpId) +
                 '&session=' + encodeURIComponent(trkSessionId) + '&entry_id=' + encodeURIComponent(entryId) +
-                '&credit_until_ms=' + encodeURIComponent(creditUntilMs);
+                '&credit_until_ms=' + encodeURIComponent(creditUntilMs) + (why ? '&why=' + encodeURIComponent(why) : '');
   var items  = encodeURIComponent(JSON.stringify([{ entry_id: entryId }]));
   var recUrl = APPS_SCRIPT_URL + '?action=tracker_set_volumes&employee_id=' + encodeURIComponent(attEmpId) + '&pending=false&items=' + items;
   (function stopThen(n){
@@ -25750,7 +25926,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-15-E';
+var PORTAL_BUILD='2026-10-15-F';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -25798,6 +25974,12 @@ var PORTAL_BUILD='2026-10-15-E';
     document.body.appendChild(d);
   }
   document.addEventListener('visibilitychange', function(){ if(!document.hidden && !pending && Date.now()-lastCheck>2*60*1000) check(); });
+  /* Oct 15: an update waited for "the timer stopped" — checked every 10 min — so a VA who stopped and started again
+     within minutes stayed on an old build all day (Project 2 kept refusing to pair for Hamto). Now: Start itself
+     applies a waiting update first, and an idle tab with nothing left to send reloads within half a minute. */
+  window.__portalUpdPending = function(){ return pending; };
+  setInterval(function(){ try{ if(!pending) return; var running=(typeof trkRunning!=='undefined')&&!!trkRunning; var q=(typeof WOB!=='undefined')?WOB.pending():0;
+    if(!running && !q && Date.now()-(window.__lastTrkStop||0) > 20000) location.reload(); }catch(e){} }, 30000);
 })();
 </script>
 <style id="jmb-v2-theme">

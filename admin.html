@@ -1389,6 +1389,8 @@ body{background-attachment:initial !important}
            not an hours appeal after the fact. Approving releases that VA's lunch hour. -->
       <div id="lunchwork-panel"></div>
       <div id="appeals-panel"></div>
+      <!-- ⏱ LOST-TIME REPAIR (Oct 15) — minutes the portal itself proves were worked but were never paid -->
+      <div id="lostfix-panel"></div>
       <div class="tw">
         <table id="wl-table">
           <thead><tr>
@@ -1813,7 +1815,7 @@ setTimeout(function(){ try{ admSessEnsure(); }catch(e){} }, 1500);
 /* ── ADMIN-ONLY READS (Oct 15) ── get_appeals, admin_bootstrap and resolve_appeal now answer only the admin (owner token or
    admin password). A console restored from "keep me signed in" with neither shows ONE bar to unlock it — never a surprise
    prompt on load. Typing the password there mints the owner token, which is kept on this device for 14 days. */
-var ADM_LOCKED_RE=/[?&]action=(admin_bootstrap|get_appeals|resolve_appeal)\b/;
+var ADM_LOCKED_RE=/[?&]action=(admin_bootstrap|get_appeals|resolve_appeal|trk_repair|trk_events)\b/;
 var _admLockRetry=0;
 function admLocked(){
   if(ADM_SESS){ ADM_SESS=''; try{ sessionStorage.removeItem('adm_sess'); localStorage.removeItem('adm_sess_keep'); }catch(_e){} }   // expired or rotated token
@@ -5338,7 +5340,74 @@ async function markInvoicePaid(id, project, label){
     else { if(typeof toast==='function') toast('Could not mark paid'+(d&&d.error?(': '+d.error):'.')); }
   }catch(e){ if(typeof toast==='function') toast('Action failed.'); }
 }
+/* ══ ⏱ LOST-TIME REPAIR (Oct 15 — the 4-hour idle bars) ══════════════════════════════════════════════════════════
+   While a timer runs, the portal writes one activity row per minute. Entries paid far less than the minutes the
+   portal itself ran them lost that time to the bugs fixed in backend 15d / portal 2026-10-15-F (stale-heartbeat
+   auto-closes, capped pauses, a second tab or another account stopping the entry while the VA's tab kept running).
+   Scan shows them; nothing changes until you press Restore. Minutes already paid elsewhere (another entry, lunch,
+   an approved OR pending appeal) are never added twice. */
+var LOSTFIX = { items: [] };
+function lostfixDefaults(){
+  var d = new Date(Date.now() + 8*3600e3), y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate(), p = function(n){ return (n < 10 ? '0' : '') + n; };
+  return { from: y + '-' + p(m) + '-' + (day <= 15 ? '01' : '16'), to: y + '-' + p(m) + '-' + p(day) };
+}
+function lostfixRender(){
+  var box = document.getElementById('lostfix-panel'); if (!box || box.getAttribute('data-ready')) return;
+  var df = lostfixDefaults(); box.setAttribute('data-ready', '1');
+  box.innerHTML = '<div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px;">' +
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><b style="font-size:13px;">⏱ Lost-time repair</b>' +
+    '<span style="font-size:12px;color:var(--t3);flex:1;min-width:220px;">Entries paid less than the minutes the portal itself ran them (proof: its per-minute activity rows). Preview first — nothing changes until you press Restore.</span>' +
+    '<input class="sinp" type="date" id="lf-from" value="' + df.from + '" style="width:140px;"> → <input class="sinp" type="date" id="lf-to" value="' + df.to + '" style="width:140px;">' +
+    '<button class="bsm" onclick="lostfixScan()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">Scan</button></div>' +
+    '<div id="lf-out" style="margin-top:8px;"></div></div>';
+}
+async function lostfixScan(apply){
+  var out = document.getElementById('lf-out'); if (!out) return;
+  var from = (document.getElementById('lf-from') || {}).value, to = (document.getElementById('lf-to') || {}).value;
+  if (!from || !to) { out.textContent = 'Pick the dates.'; return; }
+  var ids = '';
+  if (apply) {
+    ids = Array.prototype.slice.call(document.querySelectorAll('#lf-out input[data-lf]:checked')).map(function(x){ return x.getAttribute('data-lf'); }).join(',');
+    if (!ids) { if (typeof toast === 'function') toast('Tick the entries to restore.'); return; }
+    var mins = LOSTFIX.items.filter(function(x){ return (',' + ids + ',').indexOf(',' + x.entry_id + ',') >= 0; }).reduce(function(a, x){ return a + (x.add_mins || 0); }, 0);
+    if (!confirm('Restore ' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm to ' + ids.split(',').length + ' entr' + (ids.split(',').length > 1 ? 'ies' : 'y') + '? This adds paid hours.')) return;
+  }
+  out.innerHTML = '<span style="font-size:12px;color:var(--t3);">' + (apply ? 'Restoring…' : 'Scanning… (reads the activity rows — up to a minute)') + '</span>';
+  try {
+    var r = await jGet(API + '?action=trk_repair&from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + (apply ? '&apply=1&ids=' + encodeURIComponent(ids) : '') + '&_=' + Date.now(), 0, 170000);
+    var d = await r.json();
+    if (!d || !d.ok) { out.innerHTML = '<span style="color:#ef4444;font-size:12px;">' + escAdmin((d && (d.message || d.error)) || 'Failed') + (d && d.error === 'UNAUTHORIZED' ? ' — sign in to the admin console again.' : '') + (d && /unknown|invalid action/i.test(String(d.error || '')) ? ' — deploy backend 15d first.' : '') + '</span>'; return; }
+    LOSTFIX.items = (d.items || []).filter(function(x){ return !x.skipped || apply; });
+    if (apply) { try { jBust(); } catch(_b) {} try { loadWorkLog(); } catch(_l) {} }
+    var hm = function(m){ m = Math.round(m || 0); return (m >= 60 ? Math.floor(m / 60) + 'h ' : '') + (m % 60) + 'm'; };
+    if (!LOSTFIX.items.length) { out.innerHTML = '<span style="font-size:12px;color:#16a34a;">' + (apply ? 'Done.' : 'Nothing to restore in this range.') + '</span>'; return; }
+    var tot = LOSTFIX.items.reduce(function(a, x){ return a + (x.applied || !apply ? (x.add_mins || 0) : 0); }, 0);
+    out.innerHTML = (apply ? '<div style="font-size:12.5px;color:#16a34a;font-weight:700;margin-bottom:6px;">Restored ' + hm(tot) + '.</div>' : '<div style="font-size:12.5px;margin-bottom:6px;">' + LOSTFIX.items.length + ' entr' + (LOSTFIX.items.length > 1 ? 'ies' : 'y') + ' · <b>' + hm(tot) + '</b> the portal proves were worked but not paid</div>') +
+      '<div class="tw"><table><thead><tr>' + (apply ? '' : '<th><input type="checkbox" checked onclick="document.querySelectorAll(\'#lf-out input[data-lf]\').forEach(function(c){c.checked=event.target.checked;})"></th>') + '<th>VA</th><th>Day</th><th>Task</th><th>Started</th><th>Paid</th><th>Portal ran</th><th>Restore</th><th>Note</th><th></th></tr></thead><tbody>' +
+      LOSTFIX.items.map(function(x){
+        var note = x.skipped ? ('skipped: ' + x.skipped) : (x.applied ? '✓ restored' : (x.pending_appeals_overlap ? x.pending_appeals_overlap + ' pending appeal(s) in this window — left for you to decide' : ''));
+        return '<tr>' + (apply ? '' : '<td><input type="checkbox" data-lf="' + escAdmin(x.entry_id) + '" checked></td>') +
+          '<td><b>' + escAdmin(x.name || x.employee_id) + '</b><br><span style="font-size:11px;color:var(--t3)">' + escAdmin(x.employee_id) + '</span></td><td>' + escAdmin(x.date) + '</td>' +
+          '<td style="font-size:12px;">' + escAdmin(x.project || '') + (x.task ? ' · ' + escAdmin(x.task) : '') + '</td>' +
+          '<td style="font-size:12px;">' + escAdmin(String(x.start || '').slice(5, 16)) + '</td><td>' + hm(x.paid_mins) + '</td><td>' + hm(x.alive_mins) + '</td>' +
+          '<td><b style="color:#16a34a">+' + hm(x.add_mins) + '</b><br><span style="font-size:11px;color:var(--t3)">' + escAdmin(String(x.first_add || '').slice(11, 16)) + '–' + escAdmin(String(x.last_add || '').slice(11, 16)) + '</span></td>' +
+          '<td style="font-size:11.5px;color:var(--t3);max-width:220px;">' + escAdmin(note) + '</td>' +
+          '<td><a href="javascript:void 0" onclick="lostfixEvents(\'' + escAdmin(x.entry_id) + '\', this)" style="font-size:11.5px;">events</a></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      (apply ? '' : '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;"><button class="bsm" onclick="lostfixScan(true)" style="color:#fff;background:#16a34a;border-color:#16a34a;font-weight:700;">Restore selected</button><span style="font-size:11.5px;color:var(--t3);">Adds the minutes to each entry (its bar extends to the last proven minute) and logs it. Re-scanning afterwards finds nothing new.</span></div>');
+  } catch(e) { out.innerHTML = '<span style="color:#ef4444;font-size:12px;">Network error — try again.</span>'; }
+}
+async function lostfixEvents(eid, a){
+  var row = a && a.closest ? a.closest('tr') : null; if (!row) return;
+  var nx = row.nextSibling; if (nx && nx.getAttribute && nx.getAttribute('data-lfev')) { nx.remove(); return; }
+  var tr = document.createElement('tr'); tr.setAttribute('data-lfev', '1'); tr.innerHTML = '<td colspan="10" style="font-size:12px;color:var(--t3);">Loading…</td>'; row.parentNode.insertBefore(tr, row.nextSibling);
+  try {
+    var r = await jGet(API + '?action=trk_events&entry_id=' + encodeURIComponent(eid) + '&_=' + Date.now(), 0, 90000); var d = await r.json();
+    tr.firstChild.innerHTML = (d && d.ok && d.events && d.events.length) ? d.events.map(function(e){ return '<span style="display:inline-block;margin:2px 10px 2px 0;"><b>' + escAdmin(String(e.ts).slice(11, 19)) + '</b> ' + escAdmin(e.event) + (e.secs !== '' && e.secs != null ? ' (' + Math.round(e.secs / 60) + 'm)' : '') + (e.emp ? ' · ' + escAdmin(e.emp) : '') + '</span>'; }).join('') : 'No events found.';
+  } catch(e) { tr.firstChild.textContent = 'Could not load events.'; }
+}
 async function loadWorkLog(){
+  try{ lostfixRender(); }catch(e){}
   try{ loadAppeals(); }catch(e){}
   try{ loadLunchWork(); }catch(e){}   // 🍽 working-lunch requests sit above the appeals queue
   var empSel = document.getElementById('wl-emp-filter');
