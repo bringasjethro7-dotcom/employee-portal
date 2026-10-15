@@ -11516,15 +11516,22 @@ var ADMAURA = (function(){
     var ref=blocks.length ? blocks[0].s : (rq ? rq.s : me.s);
     if(!hasLunch){
       var startH=new Date(ref+8*H).getUTCHours(), night=(startH>=17 || startH<4);
-      var ls=onDay(dk, night?'00:00':'12:00'); if(night) ls+=24*H;
-      all.push({ s:ls, e:ls+H, k:'l', lab:'Lunch (auto)', auto:true });
+      var ls=onDay(dk, night?'00:00':'12:00');
+      if(ls!=null){ if(night) ls+=24*H; all.push({ s:ls, e:ls+H, k:'l', lab:'Lunch (auto)', auto:true }); }   // Oct 15: no date → no auto-lunch (it was landing in 1970)
       all.sort(function(a,b){ return a.s-b.s; });
     }
     /* axis */
     var pts=[]; all.forEach(function(b){ if(b.auto && !hasLunch && blocks.length && (b.e<blocks[0].s || b.s>blocks[blocks.length-1].e)) return; pts.push(b.s,b.e); });
     if(rq) pts.push(rq.s, rq.e); if(me) pts.push(me.s, me.e); io.forEach(function(m){ pts.push(m.t); });
+    /* Oct 15 — the admin console froze: one stray time (a sheet "time only" cell reads as 1899, a missing date as 1970)
+       stretched the axis across decades and the hour labels below ran hundreds of thousands of times. Keep the axis on
+       the appeal's own day (−12 h … +48 h around it) and cap it at 40 hours. */
+    pts=pts.filter(function(p){ return typeof p==='number' && isFinite(p); });
+    var anc=onDay(dk, '00:00'); if(anc==null && blocks.length) anc=blocks[Math.floor(blocks.length/2)].s; if(anc==null && rq) anc=rq.s;
+    if(anc!=null) pts=pts.filter(function(p){ return p>=anc-12*H && p<=anc+48*H; });
+    if(!pts.length) return '';
     var lo=Math.min.apply(null,pts), hi=Math.max.apply(null,pts);
-    lo=Math.floor((lo-30*M)/H)*H; hi=Math.ceil((hi+30*M)/H)*H; if(hi-lo<4*H) hi=lo+4*H;
+    lo=Math.floor((lo-30*M)/H)*H; hi=Math.ceil((hi+30*M)/H)*H; if(hi-lo<4*H) hi=lo+4*H; if(hi-lo>40*H) hi=lo+40*H;
     var span=hi-lo, hrs=Math.round(span/H);
     var pct=function(t){ return ((t-lo)/span*100).toFixed(3)+'%'; };
     var wid=function(a,b){ return Math.max(0.35,(b-a)/span*100).toFixed(3)+'%'; };
@@ -11597,7 +11604,7 @@ var ADMAURA = (function(){
     }catch(_dg){}
     /* axis labels: every hour, or every 2 on long days */
     var step=hrs>14?2:1, ax='';
-    for(var t=lo; t<=hi; t+=step*H) ax+='<span style="left:'+pct(t)+'">'+clock(t)+'</span>';
+    for(var t=lo, nAx=0; t<=hi && nAx<60; t+=step*H, nAx++) ax+='<span style="left:'+pct(t)+'">'+clock(t)+'</span>';
     return '<div class="aptl">'+
       '<div class="aptl-h">Day timeline · '+E(dk)+'<span class="sp"></span>'+
         '<span class="aptl-lg"><i style="background:linear-gradient(135deg,#34d399,#0d9488)"></i>Work</span>'+
