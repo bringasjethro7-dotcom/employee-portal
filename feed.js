@@ -169,11 +169,11 @@
   }
   function cHtml(p,c,isReply){
     var mine=S.mine.rx[c.id]||'', own=String(c.employee_id).toUpperCase()===myId();
-    return '<div class="jf-c'+(isReply?' reply':'')+'" id="jfc-'+E(c.id)+'">'+face(c.employee_id,c.name,'sm')+'<div class="jf-cb2"><div class="jf-cbub"><b>'+E(c.name||c.employee_id)+(String(c.employee_id).toUpperCase()==='ADMIN'?' <span class="jf-adm">Admin</span>':'')+'</b><div>'+rich(c.body)+'</div></div>'+
-      '<div class="jf-cmeta"><span>'+ago(c.created_at)+'</span><a onclick="JMBFeed._react(\''+p.id+'\',\''+c.id+'\',\'👍\')" class="'+(mine?'on':'')+'">'+(mine?mine+' Liked':'Like')+'</a>'+(isReply?'':'<a onclick="JMBFeed._replyTo(\''+p.id+'\',\''+c.id+'\',\''+E(c.name).replace(/'/g,'')+'\')">Reply</a>')+((own||C.admin)?'<a onclick="JMBFeed._delComment(\''+c.id+'\',\''+p.id+'\')">Delete</a>':'')+'</div></div></div>';
+    return '<div class="jf-c'+(isReply?' reply':'')+'" id="jfc-'+E(c.id)+'">'+face(c.employee_id,c.name,'sm')+'<div class="jf-cb2"><div class="jf-cbub"><b>'+E(c.name||c.employee_id)+(String(c.employee_id).toUpperCase()==='ADMIN'?' <span class="jf-adm">Admin</span>':'')+'</b><div>'+richC(c.body)+'</div></div>'+
+      '<div class="jf-cmeta"><span>'+ago(c.created_at)+'</span><a onclick="JMBFeed._react(\''+p.id+'\',\''+c.id+'\',\'👍\')" class="'+(mine?'on':'')+'">'+(mine?mine+' Liked':'Like')+'</a>'+'<a onclick="JMBFeed._replyTo(\''+p.id+'\',\''+E(isReply?(c.parent_id||c.id):c.id)+'\',\''+E(c.name).replace(/'/g,'')+'\',\''+E(c.id)+'\')">Reply</a>'+((own||C.admin)?'<a onclick="JMBFeed._delComment(\''+c.id+'\',\''+p.id+'\')">Delete</a>':'')+'</div></div></div>';
   }
   function composerHtml(p, parent){
-    return '<div class="jf-compose" data-post="'+E(p.id)+'">'+face(myId(), me().full_name, 'sm')+'<div class="jf-cin"><input type="hidden" class="jf-parent" value="'+E(parent||'')+'"><textarea rows="1" placeholder="Write a comment…" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();JMBFeed._send(this)}" oninput="this.style.height=\'auto\';this.style.height=Math.min(140,this.scrollHeight)+\'px\'"></textarea><div class="jf-replying" style="display:none"></div></div><button type="button" class="jf-sendc" onclick="JMBFeed._send(this.previousElementSibling.querySelector(\'textarea\'))" title="Send">➤</button></div>';
+    return '<div class="jf-compose" data-post="'+E(p.id)+'">'+face(myId(), me().full_name, 'sm')+'<div class="jf-cin"><input type="hidden" class="jf-parent" value="'+E(parent||'')+'"><div class="jf-hlw"><div class="jf-hl" aria-hidden="true"></div><textarea rows="1" placeholder="Write a comment… type @ to mention someone" onkeydown="JMBFeed._ckey(event,this)" oninput="JMBFeed._cin(this)" onscroll="JMBFeed._csync(this)" onblur="JMBFeed._mblur(this)"></textarea></div><div class="jf-replying" style="display:none"></div><div class="jf-mpop" style="display:none"></div></div><button type="button" class="jf-gifb" onclick="JMBFeed._gif(this)" title="Send a GIF">GIF</button><button type="button" class="jf-sendc" onclick="JMBFeed._send(this.parentNode.querySelector(\'textarea\'))" title="Send">➤</button></div>';
   }
   function adminBar(p){
     if(!C.admin) return '';
@@ -220,11 +220,180 @@
   var A={};
   A._filter=function(f){ S.filter=f; render(); };
   A._toggleComments=async function(pid){ S.open['c:'+pid]=!S.open['c:'+pid]; rerender(pid); if(S.open['c:'+pid]&&!S.comments[pid]){ await loadComments(pid); rerender(pid); } };
-  A._replyTo=function(pid, cid, name){ var box=$('#jfp-'+CSS.escape(pid)+' .jf-compose'); if(!box) return; box.querySelector('.jf-parent').value=cid; var r=box.querySelector('.jf-replying'); r.style.display=''; r.innerHTML='Replying to <b>'+E(name)+'</b> · <a onclick="JMBFeed._replyTo(\''+pid+'\',\'\',\'\')">cancel</a>'; if(!cid){ r.style.display='none'; } var ta=box.querySelector('textarea'); ta.focus(); };
-  A._send=async function(ta){ var box=ta.closest('.jf-compose'), pid=box.getAttribute('data-post'), parent=box.querySelector('.jf-parent').value||null, text=(ta.value||'').trim(); if(!text) return; ta.disabled=true;
-    var d=await post({ action:'feed_comment', post_id:pid, parent_id:parent, body:text }); ta.disabled=false;
-    if(d&&d.ok){ ta.value=''; ta.style.height='auto'; (S.comments[pid]=S.comments[pid]||[]).push(d.comment); var p=S.posts.filter(function(x){ return x.id===pid; })[0]; if(p){ p.counts=p.counts||{}; p.counts.comments=(p.counts.comments||0)+1; } rerender(pid); }
-    else toast(d&&d.error==='AUTH_FAILED'?'Sign in again to comment.':'Could not send — '+((d&&d.error)||'network')); };
+  A._replyTo=function(pid, cid, name, mcid){ var box=$('#jfp-'+CSS.escape(pid)+' .jf-compose'); if(!box) return; box.querySelector('.jf-parent').value=cid; var r=box.querySelector('.jf-replying'); r.style.display=''; r.innerHTML='Replying to <b>'+E(name)+'</b> · <a onclick="JMBFeed._replyTo(\''+pid+'\',\'\',\'\')">cancel</a>'; if(!cid){ r.style.display='none'; } var ta=box.querySelector('textarea');
+    if(cid){ var c=(S.comments[pid]||[]).filter(function(x){ return x.id===(mcid||cid); })[0], rid=c&&String(c.employee_id||'').toUpperCase();
+      if(c && rid && rid!==myId() && rid!=='ADMIN' && c.name && ta.value.indexOf('@'+c.name)<0){ ta.value='@'+c.name+' '+ta.value; ta._men=(ta._men||[]).filter(function(m){ return m.id!==rid; }); ta._men.push({ name:String(c.name), id:rid }); hlSync(ta); grow(ta); } }
+    ta.focus(); try{ var L=ta.value.length; ta.setSelectionRange(L,L); }catch(e){} };
+  A._send=async function(ta, gif){ var box=ta.closest('.jf-compose'), pid=box.getAttribute('data-post'), parent=box.querySelector('.jf-parent').value||null, text=(ta.value||'').trim(); if(!text && !gif) return null; if(ta._busy) return null; ta._busy=true; ta.disabled=true;
+    var d=await post({ action:'feed_comment', post_id:pid, parent_id:parent, body:withTokens(ta, text), gif:gif||'' }); ta.disabled=false; ta._busy=false;
+    if(d&&d.ok){ ta.value=''; ta._men=[]; ta.style.height='auto'; hlSync(ta); (S.comments[pid]=S.comments[pid]||[]).push(d.comment); var p=S.posts.filter(function(x){ return x.id===pid; })[0]; if(p){ p.counts=p.counts||{}; p.counts.comments=(p.counts.comments||0)+1; } rerender(pid); }
+    else toast(d&&d.error==='AUTH_FAILED'?'Sign in again to comment.':(d&&d.error==='BAD_GIF'?'That GIF can\u2019t be used \u2014 pick another one.':(d&&d.error==='EMPTY'&&gif?'GIFs need the latest portal update \u2014 ask the admin to deploy it.':'Could not send \u2014 '+((d&&d.error)||'network'))));
+    return d; };
+  /* ── @MENTIONS + GIFS IN COMMENTS (Oct 15, Jeth: "like how Facebook posts and comments work") ─────────────────
+     Type @ in a comment → the people who can see the post; pick one and the name is highlighted in the box and
+     sent as @[Name](JMB012). The server keeps it only if that person can see the post and notifies them; comments
+     show it as a highlighted name. A GIF (GIPHY search, or one uploaded from the device) is sent as [gif](url). */
+  var MEN_RE=/@\[([^\]\n]{1,80})\]\(([A-Za-z0-9_-]{2,24})\)|\[gif\]\((https:\/\/[^\s)]{8,600})\)/g;
+  function gifOk(u){
+    u=String(u||'');
+    if(/^https:\/\/(media[0-9]?\.giphy\.com|i\.giphy\.com)\/[A-Za-z0-9_\-\/.%]+(\?[A-Za-z0-9_\-=&.%]*)?$/.test(u)) return true;
+    var own=String(C.supaUrl||'')+'/storage/v1/object/public/feedmedia/';
+    return !!C.supaUrl && u.indexOf(own)===0 && /^[A-Za-z0-9_\-\/.%]+$/.test(u.slice(own.length));
+  }
+  function richC(t){
+    t=String(t||''); var out='', last=0, m, afterGif=false; MEN_RE.lastIndex=0;
+    while((m=MEN_RE.exec(t))){
+      var seg=t.slice(last, m.index); if(afterGif) seg=seg.replace(/^\n+/,'');
+      if(m[3]){ out+=rich(seg.replace(/\n+$/,'')); if(gifOk(m[3])) out+='<img class="jf-gif" src="'+E(m[3])+'" alt="GIF" loading="lazy" onclick="JMBFeed._zoom(this.src)">'; afterGif=true; }
+      else { out+=rich(seg); var id=String(m[2]).toUpperCase(); out+='<span class="jf-men'+(id===myId()?' me':'')+'">'+E(m[1])+'</span>'; afterGif=false; }
+      last=MEN_RE.lastIndex;
+    }
+    var tail=t.slice(last); if(afterGif) tail=tail.replace(/^\n+/,''); return out+rich(tail);
+  }
+  function escRe(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+  function grow(ta){ ta.style.height='auto'; ta.style.height=Math.min(140, ta.scrollHeight)+'px'; }
+
+  /* who can be mentioned on a post: the server's list for VAs (exactly who can see it); the public directory for
+     the admin console (no password prompt while typing). Either way the server has the final say. */
+  var PPL={}, PPLR={};
+  function cdnPeople(){
+    if(!cdnPeople._p) cdnPeople._p=fetch(C.supaUrl+'/storage/v1/object/public/feed/emp_dir.json?_='+Math.floor(Date.now()/300000), { cache:'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ return ((d&&d.employees)||[]).map(function(e){ return { id:String(e.employee_id||'').toUpperCase(), name:String(e.full_name||'') }; }).filter(function(x){ return /^[A-Z0-9_-]{2,24}$/.test(x.id) && x.name; }); })
+      .catch(function(){ cdnPeople._p=null; return []; });
+    return cdnPeople._p;
+  }
+  function peopleFor(pid){
+    if(PPL[pid]) return PPL[pid];
+    var p=S.posts.filter(function(x){ return x.id===pid; })[0]||{}, a=p.audience||{ type:'all' };
+    var ids=(String(a.type||'all')!=='all' && Array.isArray(a.ids) && a.ids.length)?a.ids.map(function(x){ return String(x).toUpperCase(); }):null;
+    var viaCdn=function(){ return cdnPeople().then(function(list){ return ids?list.filter(function(x){ return ids.indexOf(x.id)>=0; }):list; }); };
+    var src=C.admin?viaCdn():post({ action:'feed_people', post_id:pid }, 1).then(function(d){
+      return (d&&d.ok&&Array.isArray(d.people))?d.people.map(function(x){ return { id:String(x.id).toUpperCase(), name:String(x.name||x.id) }; }):viaCdn(); });
+    PPL[pid]=src.then(function(list){ var me0=myId(), seen={}; return list.filter(function(x){ if(x.id===me0||seen[x.id]) return false; seen[x.id]=1; return true; }).sort(function(a,b){ return a.name.localeCompare(b.name); }); })
+      .then(function(list){ PPLR[pid]=list; return list; })
+      .catch(function(){ delete PPL[pid]; return []; });
+    return PPL[pid];
+  }
+  function mPop(ta){ var cin=ta.closest('.jf-cin'); return cin&&cin.querySelector('.jf-mpop'); }
+  function mQuery(ta){
+    var v=ta.value, c=(ta.selectionStart==null)?v.length:ta.selectionStart, before=v.slice(0,c);
+    var m=before.match(/(^|[\s(])@([^\s@\[\]()]{0,24}(?: [^\s@\[\]()]{0,24})?)$/);
+    return m?{ q:m[2], start:c-m[2].length-1, end:c }:null;
+  }
+  function menRe(ta){ var names=(ta._men||[]).map(function(m){ return m.name; }).filter(Boolean).sort(function(a,b){ return b.length-a.length; });
+    return names.length?new RegExp('@('+names.map(escRe).join('|')+')(?![A-Za-z0-9])','g'):null; }
+  function hlSync(ta){
+    var wrap=ta.parentNode, hl=wrap&&wrap.querySelector('.jf-hl'); if(!hl) return;
+    var v=ta.value, re=menRe(ta), out='', last=0, m;
+    if(re){ while((m=re.exec(v))){ out+=E(v.slice(last, m.index))+'<mark>'+E(m[0])+'</mark>'; last=re.lastIndex; } }
+    out+=E(v.slice(last));
+    hl.innerHTML=out+'​'; hl.scrollTop=ta.scrollTop;
+  }
+  function withTokens(ta, text){
+    var men=ta._men||[]; if(!men.length) return text; var map={}; men.forEach(function(m){ map[m.name]=m.id; });
+    var re=menRe(ta); return re?text.replace(re, function(all, nm){ return map[nm]?'@['+nm+']('+map[nm]+')':all; }):text;
+  }
+  async function mShow(ta){
+    var pop=mPop(ta), q=mQuery(ta); if(!pop) return;
+    if(!q){ pop.style.display='none'; ta._mlist=null; return; }
+    var pid=ta.closest('.jf-compose').getAttribute('data-post');
+    if(!PPLR[pid]){ pop.innerHTML='<div class="jf-mempty">Loading people…</div>'; pop.style.display=''; }
+    var list=await peopleFor(pid), q2=mQuery(ta);
+    if(!q2){ pop.style.display='none'; ta._mlist=null; return; }
+    var needle=q2.q.toLowerCase().replace(/\s+$/,'');
+    var hits=list.filter(function(x){ if(!needle) return true; var n=x.name.toLowerCase(); return n.indexOf(needle)===0 || (' '+n).indexOf(' '+needle)>=0; }).slice(0,6);
+    if(!hits.length){ pop.style.display='none'; ta._mlist=null; return; }
+    ta._mlist=hits; if(!(ta._mi>=0 && ta._mi<hits.length)) ta._mi=0;
+    pop.innerHTML=hits.map(function(x,i){ return '<div class="jf-mopt'+(i===ta._mi?' on':'')+'" onmousedown="event.preventDefault();JMBFeed._mpick(this,'+i+')">'+face(x.id,x.name,'sm')+'<span>'+E(x.name)+'</span></div>'; }).join('');
+    pop.style.display='';
+  }
+  function mPick(ta, i){
+    var x=(ta._mlist||[])[i], q=mQuery(ta); if(!x||!q) return;
+    var v=ta.value, ins='@'+x.name+' ';
+    ta.value=v.slice(0,q.start)+ins+v.slice(q.end); var pos=q.start+ins.length; try{ ta.setSelectionRange(pos,pos); }catch(e){}
+    ta._men=(ta._men||[]).filter(function(m){ return m.id!==x.id; }); ta._men.push({ name:x.name, id:x.id });
+    ta._mlist=null; var pop=mPop(ta); if(pop) pop.style.display='none'; grow(ta); hlSync(ta); ta.focus();
+  }
+  A._mpick=function(el, i){ var ta=el.closest('.jf-cin').querySelector('textarea'); mPick(ta, i); };
+  A._ckey=function(ev, ta){
+    var pop=mPop(ta), open=!!(ta._mlist && ta._mlist.length && pop && pop.style.display!=='none');
+    if(open){
+      if(ev.key==='ArrowDown'||ev.key==='ArrowUp'){ ev.preventDefault(); var n=ta._mlist.length; ta._mi=((ta._mi||0)+(ev.key==='ArrowDown'?1:-1)+n)%n; $$('.jf-mopt', pop).forEach(function(el,k){ el.classList.toggle('on', k===ta._mi); }); return; }
+      if(ev.key==='Enter'||ev.key==='Tab'){ ev.preventDefault(); mPick(ta, ta._mi||0); return; }
+      if(ev.key==='Escape'){ ev.preventDefault(); pop.style.display='none'; ta._mlist=null; return; }
+    }
+    if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); A._send(ta); }
+  };
+  A._cin=function(ta){
+    grow(ta);
+    if((ta._men||[]).length) ta._men=ta._men.filter(function(mn){ return ta.value.indexOf('@'+mn.name)>=0; });
+    var q=mQuery(ta), qs=q?q.q:null; if(qs!==ta._mq) ta._mi=0; ta._mq=qs;
+    hlSync(ta); mShow(ta);
+  };
+  A._csync=function(ta){ var hl=ta.parentNode&&ta.parentNode.querySelector('.jf-hl'); if(hl) hl.scrollTop=ta.scrollTop; };
+  A._mblur=function(ta){ setTimeout(function(){ var p=mPop(ta); if(p) p.style.display='none'; ta._mlist=null; }, 160); };
+
+  /* ── GIFs: GIPHY search when the owner has added a key; uploading a GIF always works ── */
+  var GIF={ key:null, at:0, cache:{} };
+  function gifKey(){
+    if(GIF.key!==null && Date.now()-GIF.at<30*60000) return Promise.resolve(GIF.key);
+    try{ var c=JSON.parse(sessionStorage.getItem('jf_giphy')||'null'); if(c && Date.now()-c.at<30*60000){ GIF.key=c.k; GIF.at=c.at; return Promise.resolve(GIF.key); } }catch(e){}
+    return fetch(C.api, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body:JSON.stringify({ action:'feed_cfg' }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ GIF.key=String((d&&d.giphy)||''); GIF.at=Date.now(); try{ sessionStorage.setItem('jf_giphy', JSON.stringify({ k:GIF.key, at:GIF.at })); }catch(e){} return GIF.key; })
+      .catch(function(){ return ''; });
+  }
+  function gifBox(pn){ var pid=pn.getAttribute('data-post'); var box=pn.parentNode&&pn.parentNode.querySelector('.jf-compose[data-post="'+pid+'"]'); return box&&box.querySelector('textarea'); }
+  A._gif=async function(btn){
+    var box=btn.closest('.jf-compose'), pid=box.getAttribute('data-post');
+    var ex=box.parentNode.querySelector('.jf-gifp'); if(ex){ ex.remove(); return; }
+    var pn=document.createElement('div'); pn.className='jf-gifp'; pn.setAttribute('data-post', pid);
+    pn.innerHTML='<div class="jf-gifh"><input class="jf-gifq" placeholder="Search GIFs…" oninput="JMBFeed._gifq(this)" disabled><button type="button" class="jf-x" title="Close" onclick="this.closest(\'.jf-gifp\').remove()">✕</button></div>'+
+      '<div class="jf-gifg"><div class="jf-mempty">Loading…</div></div>'+
+      '<div class="jf-giff"><label class="jf-btn sm">⬆ Upload a GIF<input type="file" accept="image/gif" style="display:none" onchange="JMBFeed._gifUp(this)"></label><span class="jf-gifby"></span>'+(C.admin?'<a class="jf-gifk" onclick="JMBFeed._gifSetup()">⚙ GIF search key</a>':'')+'</div>';
+    box.parentNode.insertBefore(pn, box.nextSibling);
+    var k=await gifKey(), q=pn.querySelector('.jf-gifq');
+    if(k){ q.disabled=false; try{ q.focus(); }catch(e){} pn.querySelector('.jf-gifby').textContent='Powered by GIPHY'; gifLoad(pn, ''); }
+    else { q.style.display='none'; pn.querySelector('.jf-gifg').innerHTML='<div class="jf-mempty">GIF search isn’t switched on yet'+(C.admin?' — <a onclick="JMBFeed._gifSetup()">add a GIPHY key</a> to turn it on.':'. You can still upload a GIF from your device.')+'</div>'; }
+  };
+  var _gqT=null;
+  A._gifq=function(inp){ clearTimeout(_gqT); _gqT=setTimeout(function(){ var pn=inp.closest('.jf-gifp'); if(pn) gifLoad(pn, inp.value.trim()); }, 450); };
+  function gifLoad(pn, q){
+    var g=pn.querySelector('.jf-gifg'), key=q.toLowerCase();
+    var show=function(list){ if(!list.length){ g.innerHTML='<div class="jf-mempty">No GIFs found.</div>'; return; }
+      g.innerHTML=list.map(function(x){ return '<button type="button" class="jf-gifi" data-url="'+E(x.url)+'" title="'+E(x.title)+'" onclick="JMBFeed._gifPick(this)"><img src="'+E(x.thumb)+'" alt="'+E(x.title)+'" loading="lazy"></button>'; }).join(''); };
+    if(GIF.cache[key]) return show(GIF.cache[key]);
+    g.innerHTML='<div class="jf-mempty">Loading…</div>';
+    var u='https://api.giphy.com/v1/gifs/'+(q?'search':'trending')+'?api_key='+encodeURIComponent(GIF.key)+'&limit=24&rating=pg&bundle=messaging_non_clips'+(q?'&lang=en&q='+encodeURIComponent(q):'');
+    fetch(u).then(function(r){ if(r.status===429) throw new Error('busy'); if(!r.ok) throw new Error('giphy '+r.status); return r.json(); })
+      .then(function(d){ var list=((d&&d.data)||[]).map(function(it){ var im=it.images||{}; var full=(im.fixed_height||{}).url||(im.downsized||{}).url||''; var th=(im.fixed_height_small||im.fixed_width_small||im.fixed_height||{}).url||full; return { url:full, thumb:th, title:String(it.title||'GIF') }; }).filter(function(x){ return gifOk(x.url); });
+        GIF.cache[key]=list; show(list); })
+      .catch(function(e){ g.innerHTML='<div class="jf-mempty">'+(e&&e.message==='busy'?'GIF search is busy — try again in a minute.':'Couldn’t load GIFs right now.')+'</div>'; });
+  }
+  A._gifPick=function(btn){ var pn=btn.closest('.jf-gifp'), ta=gifBox(pn); if(!ta||pn.classList.contains('busy')) return; pn.classList.add('busy');
+    A._send(ta, btn.getAttribute('data-url')).then(function(d){ if(d&&d.ok) pn.remove(); else pn.classList.remove('busy'); }); };
+  A._gifUp=async function(inp){
+    var f=(inp.files||[])[0]; inp.value=''; if(!f) return;
+    if(!/^image\/gif$/i.test(f.type||'')){ toast('Pick a .gif file'); return; }
+    if(f.size>8*1048576){ toast('That GIF is over 8 MB — pick a smaller one'); return; }
+    var pn=inp.closest('.jf-gifp'), ta=gifBox(pn); if(!ta) return;
+    var lab=inp.parentNode, t0=lab.firstChild.nodeValue; lab.firstChild.nodeValue='Uploading… ';
+    try{
+      var safe=String(f.name||'gif').replace(/[^A-Za-z0-9._-]+/g,'_').slice(-60); if(!/\.gif$/i.test(safe)) safe+='.gif';
+      var path='comments/'+Date.now()+'-'+Math.random().toString(36).slice(2,6)+'-'+safe;
+      var r=await fetch(C.supaUrl+'/storage/v1/object/feedmedia/'+path, { method:'POST', headers:{ apikey:C.supaKey, Authorization:'Bearer '+C.supaKey, 'Content-Type':'image/gif', 'x-upsert':'false' }, body:f });
+      if(!r.ok) throw new Error('upload '+r.status);
+      var d=await A._send(ta, C.supaUrl+'/storage/v1/object/public/feedmedia/'+path); if(d&&d.ok) pn.remove();
+    }catch(e){ toast('Upload failed: '+e.message); }
+    try{ lab.firstChild.nodeValue=t0; }catch(_e){}
+  };
+  A._gifSetup=function(){ modal('<div class="jf-mt">GIF search (GIPHY)</div><div class="jf-qsub">Make a free API key at developers.giphy.com (Create an App → API), then paste it here. Leave it empty to switch GIF search off. Uploading GIFs works without a key.</div><input id="jf-gk" class="jf-in" placeholder="GIPHY API key" autocomplete="off" spellcheck="false"><button type="button" class="jf-btn pri w" onclick="JMBFeed._gifSave()">Save</button>'); };
+  A._gifSave=async function(){ var k=(($('#jf-gk')||{}).value||'').trim(); var d=await post({ action:'feed_cfg_set', giphy_key:k });
+    if(d&&d.ok){ GIF.key=null; try{ sessionStorage.removeItem('jf_giphy'); }catch(e){} closeModal(); toast(k?'GIF search is on':'GIF search is off'); $$('.jf-gifp').forEach(function(x){ x.remove(); }); }
+    else toast((d&&(d.message||d.error))||'Could not save'); };
+  A._richC=richC;   // for tests
+
   A._delComment=async function(cid, pid){ if(!confirm('Delete this comment?')) return; var d=await post({ action:'feed_comment_delete', id:cid }); if(d&&d.ok){ S.comments[pid]=(S.comments[pid]||[]).filter(function(c){ return c.id!==cid && c.parent_id!==cid; }); var p=S.posts.filter(function(x){ return x.id===pid; })[0]; if(p&&p.counts) p.counts.comments=Math.max(0,(p.counts.comments||1)-1); rerender(pid); } else toast('Could not delete'); };
   A._react=async function(pid, target, emoji){ var cur=S.mine.rx[target]||''; var next=(cur===emoji)?'':emoji; S.mine.rx[target]=next; var p=S.posts.filter(function(x){ return x.id===pid; })[0];
     if(p && target===pid){ p.counts=p.counts||{}; var c=p.counts.reactions=p.counts.reactions||{}; if(cur) c[cur]=Math.max(0,(c[cur]||1)-1); if(next) c[next]=(c[next]||0)+1; Object.keys(c).forEach(function(k){ if(!c[k]) delete c[k]; }); }
@@ -572,6 +741,8 @@
   '@keyframes jfNbO{0%{box-shadow:0 0 0 0 rgba(241,86,15,.6)}70%,100%{box-shadow:0 0 0 7px rgba(241,86,15,0)}}'+
   '@media (max-width:560px){#jf-ann{top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;right:10px;width:auto;max-width:none}#jf-ann .jfa-card{animation:jfaDrop .62s cubic-bezier(.16,1.16,.3,1) both,jfaFlow 8s linear infinite}#jf-ann .jfa-card.out{animation:jfaUp .32s ease-in both}#jf-ann .jfa-pill{margin:0 auto}}'+
   '@media (prefers-reduced-motion:reduce){#jf-ann *,#jf-ann *:before,#jf-ann *:after,.jf-nb,.jf-post.fresh{animation:none!important}}'+
+  '.jf-cin{position:relative}.jf-hlw{position:relative}.jf-hl{position:absolute;left:0;right:0;top:0;bottom:0;padding:4px 0;font:14px/1.4 Inter,sans-serif;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;color:transparent;pointer-events:none;overflow:hidden}.jf-hl mark{background:#dbeafe;color:transparent;border-radius:4px;box-shadow:0 0 0 1px #dbeafe}.jf-cin textarea{position:relative;z-index:1;background:transparent}.jf-men{color:#1d4ed8;font-weight:700;background:#eff6ff;border-radius:4px;padding:0 3px}.jf-men.me{background:#fff7ed;color:#c2410c}.jf-mpop{position:absolute;left:0;right:0;bottom:calc(100% + 6px);background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px -20px rgba(15,23,42,.45);padding:4px;z-index:30;max-height:260px;overflow:auto}.jf-mopt{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:9px;cursor:pointer;font-size:13.5px;font-weight:600;color:var(--ink)}.jf-mopt.on,.jf-mopt:hover{background:#f1f5f9}.jf-mempty{color:var(--ink3);font-size:12.5px;padding:8px}.jf-gifb{border:1px solid var(--line);background:#fff;color:var(--ink2);height:36px;min-width:42px;border-radius:12px;font:800 11.5px Inter,sans-serif;letter-spacing:.04em;cursor:pointer;flex:none}.jf-gifb:hover{color:var(--jv);border-color:rgba(124,58,237,.4)}.jf-gif{display:block;max-width:220px;max-height:220px;width:auto;border-radius:12px;margin-top:4px;cursor:zoom-in}.jf-gifp{border:1px solid var(--line);border-radius:14px;padding:8px;margin:8px 0 0 38px;background:#fff;box-shadow:0 16px 36px -26px rgba(15,23,42,.5)}.jf-gifp.busy{opacity:.6;pointer-events:none}.jf-gifh{display:flex;gap:6px;align-items:center;margin-bottom:6px}.jf-gifh .jf-x{margin-left:auto;flex:none}.jf-gifq{flex:1;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:14px Inter,sans-serif;outline:none;background:#fbfbfd}.jf-gifg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-height:280px;overflow:auto}.jf-gifg .jf-mempty{grid-column:1/-1}.jf-gifi{border:none;padding:0;background:#f1f5f9;border-radius:8px;overflow:hidden;cursor:pointer;aspect-ratio:1/1}.jf-gifi img{width:100%;height:100%;object-fit:cover;display:block}.jf-gifi:hover{outline:2px solid var(--jv)}.jf-giff{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}.jf-gifby{font-size:11px;color:var(--ink3);font-weight:700}.jf-gifk{font-size:12px;margin-left:auto}'+
+  '@media (max-width:640px){.jf-gifp{margin-left:0}.jf-gifg{grid-template-columns:repeat(2,1fr)}}'+
   '@media (max-width:640px){.jf-post{padding:12px 12px 8px;border-radius:14px}.jf-title{font-size:16.5px}.jf-body{font-size:14.5px}.jf-rx{font-size:18px;padding:4px 4px}.jf-c.reply{margin-left:28px}.jf-opts{flex-direction:column}}';
   window.JMBFeed=A;
 })();
