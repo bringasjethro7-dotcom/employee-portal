@@ -7378,7 +7378,13 @@ var TOOLG = {
   /* Oct 15: Threads work (Altz) is its own Client Hub tab, Threads Alts. It is tracked under the Reddit - Altz project
      (category Threads), so the TASK decides: anything Threads → Client Hub, not Reddit Central. */
   THR: /thread/i,
-  toolOfR: function(r){ r=r||{}; if(this.THR.test(String(r.project||'')+' '+String(r.category||'')+' '+String(r.task||''))) return 'clients'; return this.toolOf(r.project); },
+  toolOfR: function(r){ r=r||{}; if(this.THR.test(String(r.project||'')+' '+String(r.category||'')+' '+String(r.task||''))) return 'clients';
+    var t=this.toolOf(r.project); if(t) return t;
+    /* Oct 15: a client's work filed under another project — Project 2 (Ricardo) is tracked as JMB Internal › Project 2 (Ricardo)
+       — the CATEGORY names the client, so it pairs with that client's Client Hub tab */
+    if(/project\s*2\b|ricardo|slay\s*bae|imperium|\bember\b|snapchat|shopify|torchlight/i.test(String(r.category||''))) return 'clients';
+    return ''; },
+  lbl: function(r){ r=r||{}; return [r.project, r.category, r.task].filter(function(x){ return x; }).join(' · '); },
   link: function(tool, proj){ var u=this.URL[tool]||''; if(tool==='clients'){ var p=String(proj||''), c=/thread|\baltz\b/i.test(p)?'threads':/imperium/i.test(p)?'imperium':(/\bember\b|snapchat/i.test(p)?'ember':(/project\s*2\b|ricardo/i.test(p)?'project2':(/slay\s*bae/i.test(p)?'slaybae':(/shopify|torchlight/i.test(p)?'design-shopify':'')))); if(c) u+='?c='+c; } return u; },
   me: function(){ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); },
   /* Oct 8 → Oct 15: Threads had no tool, so it was never stopped and JMB014 (Threads on Alts) was excused. The Threads
@@ -7425,7 +7431,7 @@ var TOOLG = {
       title:'Pair '+nm+' to start',
       desc:'This project is tracked in '+E(nm)+'. Open it and sign in as <b>'+E(id)+'</b> — your portal timer starts by itself the moment they connect.',
       steps:['Open '+E(nm), 'Sign in as <b>'+E(id)+'</b>', 'Timer starts by itself'],
-      open:{ url:self.link(tool, r.project), label:'Open '+nm+' ↗' },
+      open:{ url:self.link(tool, self.lbl(r)), label:'Open '+nm+' ↗' },
       waitMsgs:['Looking for '+nm+'…', 'Sign in there as '+id, 'Keep this open — it connects by itself'],
       pName:'Portal timer', pSub:'ready', tName:nm, tSub:'waiting…',
       okTitle:'Paired with '+nm, okDesc:'Your portal timer is starting, linked to '+E(nm)+'. Keep working there — if '+E(nm)+' shows no activity for 10 minutes, the timer stops.',
@@ -7476,7 +7482,7 @@ var TOOLG = {
     if(!open){
       var s=Math.ceil(left/1000), mm=Math.floor(s/60)+':'+(s%60<10?'0':'')+(s%60);
       return { tool:tool, nm:nm, state:'broken', tSince:0, tSubH:'<span class="bad">not open</span>',
-        footH:'<span style="color:#f43f5e;font-weight:700">'+E(nm)+' is not open — your timer stops in <b class="pfx-clk">'+mm+'</b></span><span class="pfx-act"><a class="p" href="'+this.link(tool, r.project)+'" target="_blank" rel="noopener">Open '+E(nm)+' ↗</a></span>' };
+        footH:'<span style="color:#f43f5e;font-weight:700">'+E(nm)+' is not open — your timer stops in <b class="pfx-clk">'+mm+'</b></span><span class="pfx-act"><a class="p" href="'+this.link(tool, this.lbl(r))+'" target="_blank" rel="noopener">Open '+E(nm)+' ↗</a></span>' };
     }
     var sub=E(rw.run_label || (run?'task timer':(tool==='reddit'?'open · no task timer':'open')));
     var warn=quiet>=5*60000?'<span style="color:#f59e0b;font-weight:700">'+(tool==='clients'?'No task pressed in the Client Hub for '+Math.floor(quiet/60000)+' min — the timer stops at 10. Press a task button there (log, comment, scroll, karma, move a card…).':'No activity in '+E(nm)+' for '+Math.floor(quiet/60000)+' min — the timer stops at 10.')+'</span>':'';
@@ -7556,7 +7562,7 @@ var TOOLG = {
     if(stall<this.TRANS_WARN){ try{ STOPAL.warnEnd('hand'); }catch(_w){} }
     if(stall>=this.TRANS){                           // no tool task for 2 full minutes → Idle from the end of the hand-over
       try{ IDLE_AUTO.cut(mv.at+this.TRANS, 'no task running in '+this.NAME[tool]+' for 2 minutes'); }catch(e){ try{ await stopTimer(); }catch(_e){} }
-      this._mv=null; this.gapBlock(tool, tracked, toolSecs, r.project); return;
+      this._mv=null; this.gapBlock(tool, tracked, toolSecs, this.lbl(r)); return;
     }
     if(stall>=this.TRANS_WARN){
       var wk=r.entry_id+'|'+mv.at;
@@ -7600,7 +7606,7 @@ var TOOLG = {
     if(quiet < this.WARN){ try{ STOPAL.warnEnd('tool'); }catch(_w){} }
     if(quiet >= this.GRACE){
       try{ IDLE_AUTO.cut(ref, 'no activity in '+this.NAME[tool]); }catch(e){ try{ await stopTimer(); }catch(_e){} }   // Oct 13: cut at the tool's last activity — the rest is Idle
-      this.block(tool, la.at, r.project);
+      this.block(tool, la.at, this.lbl(r));
       return;
     }
     if(quiet >= this.WARN){ try{ STOPAL.warn('tool', ref+this.GRACE, tool==='clients' ? 'No task pressed in the Client Hub — press a task button in your client tab (or keep its timer running).' : 'No work in '+this.NAME[tool]+' — go back to it and keep working.'); }catch(_w){} }
@@ -14780,7 +14786,7 @@ var PHONEWORK = {
     document.body.classList.add('pw-on'); this.on = true;
     var back = document.getElementById('pw-back'); if (back) back.style.display = 'none';
     var p = this.projectNow();
-    this.ensureTool(tool || this.toolOf(this.rNow()), p, href);
+    this.ensureTool(tool || this.toolOf(this.rNow()), TOOLG.lbl(this.rNow()) || p, href);
     this.wake(true); this.paint();
     try { if (!this.projectNow()) this.sheet(true); } catch(e){}
     if (!this._t) this._t = setInterval(function(){ self.paint(); }, 1000);
@@ -14843,7 +14849,7 @@ var PHONEWORK = {
     r.value = m.value;
     try { r.dispatchEvent(new Event('change', { bubbles: true })); } catch(e){ try { if (r.onchange) r.onchange(); } catch(_e){} }
     this.sync();
-    var R = this.rNow(), t = this.toolOf(R); if (t && R.project) this.ensureTool(t, R.project);
+    var R = this.rNow(), t = this.toolOf(R); if (t && R.project) this.ensureTool(t, TOOLG.lbl(R));
     this.paint();
   },
   /* the project's tool underneath (or a chooser when the project has none) */
@@ -14881,7 +14887,7 @@ var PHONEWORK = {
     if (go) { var t = st.running ? 'Stop' : (st.timedIn ? 'Start' : 'Time in'); if (go.textContent !== t) go.textContent = t; go.classList.toggle('stop', !!st.running); }
     var sh = document.getElementById('pw-sheet'); if (sh && sh.style.display !== 'none') this.sync();
     /* a newly started task decides the tool underneath (once per task, so a tool picked by hand isn't fought over) */
-    try { var r = trkRunning; if (r && r.entry_id !== this._runId) { this._runId = r.entry_id; var tl = this.toolOf(r); if (tl) this.ensureTool(tl, r.project); } else if (!r) this._runId = null; } catch(e){}
+    try { var r = trkRunning; if (r && r.entry_id !== this._runId) { this._runId = r.entry_id; var tl = this.toolOf(r); if (tl) this.ensureTool(tl, TOOLG.lbl(r)); } else if (!r) this._runId = null; } catch(e){}
   },
   /* keep the screen on — a phone that sleeps stops the portal's signal, and unsent time isn't paid */
   wake: async function(on){
@@ -16434,7 +16440,7 @@ function trkLinkState(){
   var proj = running ? String(running.project || '') : '';
   var projRe = proj ? new RegExp('^' + proj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') : null;
   return {
-    task: running ? (proj + (running.task ? ' · ' + running.task : '')) : '',
+    task: running ? (proj + (running.category ? ' · ' + running.category : '') + (running.task ? ' · ' + running.task : '')) : '',   // Oct 15: + category (Project 2 is filed as JMB Internal › Project 2 (Ricardo))
     since: running && running.segStart ? new Date(Number(running.segStart)).toISOString() : '',
     tracked: trkTodaySecs(null),
     trackedProj: running ? trkTodaySecs(projRe) : 0
@@ -25744,7 +25750,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-15-D';
+var PORTAL_BUILD='2026-10-15-E';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -30189,7 +30195,7 @@ var TRKPAIR = {
       var ok = this.tool === tool && this.row && TOOLG.isOpen(this.row);
       if (this.tool === tool && this.failOpen) ok = true;                 // Supabase unreachable → never block (same as Start)
       out.ok = !!ok;
-      out.html = ok ? ('Paired with <b>' + nm + '</b> ✓') : ('<a href="' + TOOLG.link(tool, r.project) + '" target="_blank" rel="noopener">Open ' + nm + ' ↗</a> and sign in as ' + escapeHtml(TOOLG.me()));
+      out.html = ok ? ('Paired with <b>' + nm + '</b> ✓') : ('<a href="' + TOOLG.link(tool, TOOLG.lbl(r)) + '" target="_blank" rel="noopener">Open ' + nm + ' ↗</a> and sign in as ' + escapeHtml(TOOLG.me()));
     } catch(e){}
     return out;
   },
@@ -30411,7 +30417,7 @@ var FDC = {
       { t:'Time In', s:'Press <b>Time In</b> when your shift starts.', done:!!(active || ss.length) },
       { t:'Start a timer on your project', s:proj?('Pick <b>'+E(proj)+'</b> and a task, then press <b>Start</b>.'):'Pick your project and a task, then press <b>Start</b>.', done:running || (window._trkTodayEntries||[]).length>0 }
     ];
-    if(tool) L.push({ t:'Open '+E(TOOLG.NAME[tool]||'your tool'), s:'Keep it open while you work — your timer only counts while the tool shows work.', done:linked || eod, link:TOOLG.link(tool, proj), lt:'Open '+(TOOLG.SHORT[tool]||'tool')+' ↗' });
+    if(tool) L.push({ t:'Open '+E(TOOLG.NAME[tool]||'your tool'), s:'Keep it open while you work — your timer only counts while the tool shows work.', done:linked || eod, link:TOOLG.link(tool, (typeof trkRunning!=='undefined' && trkRunning && trkRunning.project===proj)?TOOLG.lbl(trkRunning):proj), lt:'Open '+(TOOLG.SHORT[tool]||'tool')+' ↗' });
     L.push({ t:'Send your EOD', s:'Before you log off: <b>End of Day</b> → check your tasks → submit.', done:eod });
     return L;
   },
@@ -32313,7 +32319,7 @@ var MINI = {
     D.body.innerHTML = '<div id="pipx-host"></div>';
     var p = PFX2.pip(D.getElementById('pipx-host'), { theme:'light', sound:true, beatSound:false,
       onGo:function(){ MINI.go(); },
-      openUrl:function(L){ try { return TOOLG.link(L.tool, (trkRunning || {}).project); } catch(e){ return (TOOLG.URL || {})[L.tool] || '#'; } } });
+      openUrl:function(L){ try { return TOOLG.link(L.tool, TOOLG.lbl(trkRunning || {})); } catch(e){ return (TOOLG.URL || {})[L.tool] || '#'; } } });
     MINI._pip2 = p;
     var tick = function(){ try { p.update(MINI.pipModel()); } catch(e){} };
     tick();
