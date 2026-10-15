@@ -1783,14 +1783,14 @@ const API  = (window.__AURA__ && window.__AURA__.EXEC) || "https://script.google
 /* OWNER SESSION TOKEN (Oct 13): the console swaps its admin password for a signed owner token once (POST sess_admin)
    and every call to our Apps Script backends (portal, Reddit Central, ALTR) carries it. That is what opens the held
    month-end scores and owner-only edits now — viewer_id=ADMIN on its own no longer does. Old backend → nothing changes. */
-var ADM_SESS = (function(){ try{ return sessionStorage.getItem('adm_sess')||''; }catch(e){ return ''; } })();
+var ADM_SESS = (function(){ try{ return sessionStorage.getItem('adm_sess')||localStorage.getItem('adm_sess_keep')||''; }catch(e){ return ''; } })();   /* Oct 15: adm_sess_keep — a kept-signed-in console keeps its 14-day owner token (never the password), so the locked admin reads keep working after a restart */
 var _admSessBusy=false;
 function admSessEnsure(force){
   if((ADM_SESS && !force) || _admSessBusy || !PASS) return Promise.resolve(ADM_SESS);
   _admSessBusy=true;
   return fetch(API, { method:'POST', body:JSON.stringify({ action:'sess_admin', pass:PASS }) })
     .then(function(r){ return r.json(); })
-    .then(function(d){ if(d && d.sess){ ADM_SESS=d.sess; try{ sessionStorage.setItem('adm_sess', ADM_SESS); }catch(_s){} } return ADM_SESS; })
+    .then(function(d){ if(d && d.sess){ ADM_SESS=d.sess; try{ sessionStorage.setItem('adm_sess', ADM_SESS); if(localStorage.getItem('admin_authed')==='1') localStorage.setItem('adm_sess_keep', ADM_SESS); }catch(_s){} try{ admLockHide(); }catch(_h){} } return ADM_SESS; })
     .catch(function(){ return ADM_SESS; }).then(function(v){ _admSessBusy=false; return v; });
 }
 (function(){
@@ -1798,16 +1798,43 @@ function admSessEnsure(force){
   var f0=window.fetch.bind(window);
   window.fetch=function(u, o){
     try{
+      var _lk=(typeof u==='string' && u.indexOf('script.google.com/macros')>=0 && ADM_LOCKED_RE.test(u));
       if(ADM_SESS && typeof u==='string' && u.indexOf('script.google.com/macros')>=0){
         var get=!o || !o.method || String(o.method).toUpperCase()==='GET';
         if(get){ if(!/[?&]sess=/.test(u)) u=u+(u.indexOf('?')>=0?'&':'?')+'sess='+encodeURIComponent(ADM_SESS); }
         else if(o && typeof o.body==='string' && o.body.charAt(0)==='{'){ var b=JSON.parse(o.body); if(b && typeof b==='object' && !b.sess && b.action!=='sess_admin'){ b.sess=ADM_SESS; o=Object.assign({}, o, { body:JSON.stringify(b) }); } }
-      }
+      } else if(_lk && PASS && !/[?&]pass=/.test(u)){ u=u+(u.indexOf('?')>=0?'&':'?')+'pass='+encodeURIComponent(PASS); }   // Oct 15: no token yet → the password proves it
+      if(_lk){ var _p=f0(u, o); _p.then(function(r){ try{ r.clone().text().then(function(t){ if(/"error"\s*:\s*"UNAUTHORIZED"/.test(String(t).slice(0,300))) admLocked(); }).catch(function(){}); }catch(_c){} }).catch(function(){}); return _p; }
     }catch(e){}
     return f0(u, o);
   };
 })();
 setTimeout(function(){ try{ admSessEnsure(); }catch(e){} }, 1500);
+/* ── ADMIN-ONLY READS (Oct 15) ── get_appeals, admin_bootstrap and resolve_appeal now answer only the admin (owner token or
+   admin password). A console restored from "keep me signed in" with neither shows ONE bar to unlock it — never a surprise
+   prompt on load. Typing the password there mints the owner token, which is kept on this device for 14 days. */
+var ADM_LOCKED_RE=/[?&]action=(admin_bootstrap|get_appeals|resolve_appeal)\b/;
+var _admLockRetry=0;
+function admLocked(){
+  if(ADM_SESS){ ADM_SESS=''; try{ sessionStorage.removeItem('adm_sess'); localStorage.removeItem('adm_sess_keep'); }catch(_e){} }   // expired or rotated token
+  if(PASS && _admLockRetry<1){ _admLockRetry++; admSessEnsure(true).then(function(t){ if(t){ try{ jBust(); }catch(_b){} try{ if(window.ADMAURA && ADMAURA.inboxLoad) ADMAURA.inboxLoad(true); }catch(_i){} } else admLockShow(); }); return; }
+  admLockShow();
+}
+function admLockShow(){
+  if(document.getElementById('adm-lock')) return;
+  var b=document.createElement('div'); b.id='adm-lock';
+  b.style.cssText='position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99990;display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:14px;background:#0f172a;color:#fff;font:600 13px Inter,system-ui,sans-serif;box-shadow:0 12px 32px rgba(15,23,42,.28);max-width:calc(100vw - 24px)';
+  b.innerHTML='<span>🔒 Requests and approvals are locked on this device. Sign in once to load them.</span><button type="button" onclick="admUnlock()" style="border:0;border-radius:10px;padding:8px 14px;background:linear-gradient(135deg,#fb923c,#ec4899);color:#fff;font:700 13px Inter,system-ui,sans-serif;cursor:pointer">Enter admin password</button>';
+  (document.body||document.documentElement).appendChild(b);
+}
+function admLockHide(){ var b=document.getElementById('adm-lock'); if(b) b.remove(); }
+async function admUnlock(){
+  var p=prompt('Admin password:'); if(!p) return;
+  if(!(await verifyAdminPass(p))){ alert('That password is not right.'); return; }
+  PASS=p; try{ sessionStorage.setItem('adm_pass', p); }catch(_s){}
+  _admLockRetry=0; await admSessEnsure(true); admLockHide();
+  try{ jBust(); }catch(_b){} try{ if(window.ADMAURA && ADMAURA.inboxLoad) ADMAURA.inboxLoad(true); }catch(_i){} try{ loadDashboard({ silent:true }); }catch(_d){} try{ adminFeedTick(); }catch(_f){}
+}
 
 /* ── GLOBAL API REQUEST GOVERNOR (Sep 2026) ──────────────────────────────────────────────
    Observed live in Chrome: on load the console fired EIGHT concurrent backend calls — with
@@ -2101,7 +2128,8 @@ var _adminEntered=false;
 var adminFeed={ url:'', exp:0, at:0, ok:0, fail:0, timer:null };
 function _afSeed(urlPart, obj){ try{ if(obj && !obj.error) _jCache[_jKey(API+'?action='+urlPart)]={ t:Date.now(), txt:JSON.stringify(obj), feed:true }; }catch(_e){} }
 async function adminFeedUrl(){
-  try{ var r=await jGet(API+'?action=admin_feed_url&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 30000); var d=await r.json();
+  if(!PASS && !ADM_SESS){ adminFeed.err='locked'; return false; }   /* Oct 15: never prompt from a background timer — the owner token works here too */
+  try{ var r=await jGet(API+'?action=admin_feed_url&pass='+encodeURIComponent(PASS||'')+'&_='+Date.now(), 0, 30000); var d=await r.json();
     if(d && d.ok && d.url){ adminFeed.url=d.url; adminFeed.exp=d.exp||0; try{ sessionStorage.setItem('adm_feed', JSON.stringify({ url:d.url, exp:d.exp })); }catch(_s){} return true; }
     adminFeed.err=(d&&d.error)||'no url'; return false;
   }catch(e){ adminFeed.err=String(e&&e.message||e); return false; }
@@ -2127,7 +2155,7 @@ async function adminFeedTick(){
     _afSeed('get_leave_requests', b.leave); _afSeed('get_coe_requests', b.coe);
     _afSeed('redeem_list&status=pending', b.redeem); _afSeed('lead_demerit_list', b.lead_demerits);
     _afSeed('lunch_work_list', snap.lunch); _afSeed('list_pending_invoices', snap.invoices);
-    _afSeed('toolreq_list&status=open&pass='+encodeURIComponent(admPass()), snap.toolreq);
+    if(PASS) _afSeed('toolreq_list&status=open&pass='+encodeURIComponent(PASS), snap.toolreq);
     try{ _afxPaintFeed(); }catch(_p){}
   }catch(e){ adminFeed.fail++; }
 }
@@ -2137,7 +2165,7 @@ function adminFeedStart(){
   adminFeedTick();
   adminFeed.timer=setInterval(adminFeedTick, 20000);
   // keep the backend publishing while this console is open (it stops 15 min after the last heartbeat)
-  setInterval(function(){ if(document.hidden) return; jGet(API+'?action=admin_watch&pass='+encodeURIComponent(admPass())+'&_='+Date.now(), 0, 20000).catch(function(){}); }, 5*60*1000);
+  setInterval(function(){ if(document.hidden || (!PASS && !ADM_SESS)) return; jGet(API+'?action=admin_watch&pass='+encodeURIComponent(PASS||'')+'&_='+Date.now(), 0, 20000).catch(function(){}); }, 5*60*1000);
   document.addEventListener('visibilitychange', function(){ if(!document.hidden) adminFeedTick(); });
 }
 function enterAdmin(){
@@ -2561,7 +2589,7 @@ function renderHoursChart(dates, byDate, incIdle){
 }
 function doLogout(){
   try { localStorage.removeItem('admin_authed'); localStorage.removeItem('adm_pass_keep'); sessionStorage.removeItem('adm_pass'); } catch(e) {}
-  try { sessionStorage.removeItem('adm_sess'); ADM_SESS=''; } catch(e) {}
+  try { sessionStorage.removeItem('adm_sess'); localStorage.removeItem('adm_sess_keep'); ADM_SESS=''; } catch(e) {}
   PASS='';
   document.getElementById('shell').style.display='none';
   document.getElementById('login').style.display='flex';
@@ -5130,6 +5158,7 @@ function _optiHeaderTick(container){ try{                       // "Pending appe
   if(m){ var v=Math.max(0,parseInt(m[1],10)-1); hd.textContent=hd.textContent.replace(/\(\d+\)/,'('+v+')'); } }catch(_h){} }
 async function resolveAppeal(entryId, decision, _force){
   if(decision==='reject' && !confirm('Reject this appeal?')) return;
+  if(!ADM_SESS && !PASS){ await admUnlock(); if(!ADM_SESS && !PASS) return; }   // Oct 15: approvals are admin-only on the server
   if(decision==='approve' && !_force && typeof window._appealBlockMsg==='function'){
     var _bm=window._appealBlockMsg(_apCache[entryId]);
     if(_bm){
@@ -5159,7 +5188,7 @@ async function resolveAppeal(entryId, decision, _force){
       if(typeof toast==='function') toast(decision==='approve'?'Appeal approved.':'Appeal rejected.');
       jBust();
       setTimeout(function(){ try{ loadWorkLog(); }catch(_w){} }, 600);   // quiet background sync — the visible list never repaints
-    } else { _optiRestore(_sel); alert((d&&(d.message||d.error)) ? ('Could not resolve: '+(d.message||d.error)) : 'Could not resolve the appeal.'); }
+    } else { _optiRestore(_sel); if(d&&d.error==='UNAUTHORIZED'){ admLocked(); alert('Your admin sign-in on this device has expired. Use “Enter admin password” at the top, then approve again.'); return; } alert((d&&(d.message||d.error)) ? ('Could not resolve: '+(d.message||d.error)) : 'Could not resolve the appeal.'); }
   }catch(e){ _optiRestore(_sel); alert('Could not reach the portal backend after 3 tries. Reload the inbox: if the appeal is gone, it went through; if it is still here, try again. If it keeps failing, check Apps Script → Executions for a red resolve_appeal row.'); }
 }
 // Cache of the current pending appeals, keyed by entry_id, so action buttons can read the
@@ -5171,6 +5200,7 @@ async function approveWithDemerit(entryId){
   var who=x.full_name||x.employee_id||'this contractor';
   if(!x.employee_id){ alert('Could not find that appeal — refresh and try again.'); return; }
   if(!confirm('Approve this appeal for '+who+' AND log a demerit?')) return;
+  if(!ADM_SESS && !PASS){ await admUnlock(); if(!ADM_SESS && !PASS) return; }
   var reason=prompt('Demerit reason / infraction:', 'Time-log discrepancy');
   if(reason===null) return;                 // cancelled → do nothing (appeal stays pending)
   reason=String(reason).trim(); if(!reason){ alert('A reason is required — nothing was changed.'); return; }
@@ -11582,6 +11612,7 @@ var ADMAURA = (function(){
       var gv=String(G.verdict||'');
       if(!G.has_time_in){ vk='bad'; ic='⛔'; v='<b>No time-in that day.</b> Only time between time-in and time-out can be appealed.'; }
       else if(gv==='gap'){ vk='ok'; ic='✅'; v='<b>Fills a gap</b> inside the time-in/out — '+(rq?clockL(rq.s)+' – '+clockL(rq.e)+' · ':'')+'<b>'+(G.window?G.window.hours:'?')+'h</b> (the hours are the window).'+(G.ended?'':' <br>Note: the day has no time-out yet.'); }
+      else if(gv==='CREDITED_ELSEWHERE'){ vk='bad'; ic='⛔'; v='<b>Already paid on this day.</b> '+E(G.message||'')+' <br>That earlier credit has no time on it, so it doesn\u2019t show on the bar above. Approve is blocked.'; }
       else if(gv==='OVERLAPS_TRACKED' || gv==='DUPLICATE_APPROVED'){ vk='bad'; ic='⛔'; v='<b>'+(gv==='OVERLAPS_TRACKED'?'Overlaps tracked time':'Duplicate — that time is already approved')+'.</b> '+E(G.message||'')+' Approve is blocked.'; }
       else if(gv){ vk='warn'; ic='⚠️'; v='<b>Check before approving.</b> '+E(G.message||gv); }
     }
@@ -11621,7 +11652,7 @@ var ADMAURA = (function(){
   }
   window._appealTimelineHtml=timeline;
   /* Approve is blocked when the server says the window overlaps tracked time or is already approved. */
-  window._appealBlockMsg=function(x){ var G=x&&x.gap; if(!G) return ''; var v=String(G.verdict||''); return (v==='OVERLAPS_TRACKED'||v==='DUPLICATE_APPROVED') ? (G.message||v) : ''; };
+  window._appealBlockMsg=function(x){ var G=x&&x.gap; if(!G) return ''; var v=String(G.verdict||''); return (v==='OVERLAPS_TRACKED'||v==='DUPLICATE_APPROVED'||v==='CREDITED_ELSEWHERE') ? (G.message||v) : ''; };
   window._appealDayHtml=function(x){
     var day=x.day_entries||[];
     if(!day.length && !(x.claim_start && x.claim_end) && !x.entry_start){ try{ return orig ? orig(x) : ''; }catch(e){ return ''; } }
@@ -11987,7 +12018,7 @@ var ADMX = {
   },
   rotate: async function(){
     if(!confirm('Make a new signing key?\n\nEvery VA, the tools and this console are signed out and must sign in again.')) return;
-    try{ var d=await this.get(API+'?action=sess_rotate'+this.pq()); if(d&&d.ok){ try{ sessionStorage.removeItem('adm_sess'); ADM_SESS=''; admSessEnsure(true); }catch(_r){} alert('Done — everyone signs in again.'); } else alert((d&&d.error)||'Could not rotate.'); }catch(e){ alert('Connection error.'); }
+    try{ var d=await this.get(API+'?action=sess_rotate'+this.pq()); if(d&&d.ok){ try{ sessionStorage.removeItem('adm_sess'); localStorage.removeItem('adm_sess_keep'); ADM_SESS=''; admSessEnsure(true); }catch(_r){} alert('Done — everyone signs in again.'); } else alert((d&&d.error)||'Could not rotate.'); }catch(e){ alert('Connection error.'); }
     this.excLoad(true);
   },
 

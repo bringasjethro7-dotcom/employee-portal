@@ -145,7 +145,7 @@ async function feedTick(force){
 var _fb=0;
 async function fallback(){   // no snapshot (cron asleep / bucket missing): read the bundle directly, at most once a minute
   if(Date.now()-_fb<60000) return; _fb=Date.now();
-  try{ var b=await api('action=admin_bootstrap', 90000); var l=await api('action=lunch_work_list', 45000).catch(function(){ return { rows:[] }; }); var inv=await api('action=list_pending_invoices', 45000).catch(function(){ return {}; }); var tr=await ap('action=toolreq_list&status=open', 45000).catch(function(){ return {}; });
+  try{ var b=await ap('action=admin_bootstrap', 90000);   /* Oct 15: admin-only on the server */ var l=await api('action=lunch_work_list', 45000).catch(function(){ return { rows:[] }; }); var inv=await api('action=list_pending_invoices', 45000).catch(function(){ return {}; }); var tr=await ap('action=toolreq_list&status=open', 45000).catch(function(){ return {}; });
     if(b&&b.ok){ SNAP={ ok:true, at:new Date().toISOString(), boot:b, running:b.running, lunch:l, invoices:inv, toolreq:tr, direct:true }; SNAP_AT=Date.now(); GONE={}; paintFeed(); render(); } }catch(e){ paintFeed(e.message); }
 }
 function feedStart(){ try{ var c=JSON.parse(sessionStorage.getItem('jmb_adm_feed')||'null'); if(c&&c.url&&c.exp>Date.now()+60000){ FEED.url=c.url; FEED.exp=c.exp; } }catch(e){} feedTick(true); setInterval(feedTick, 20000); document.addEventListener('visibilitychange', function(){ if(!document.hidden) feedTick(true); }); }
@@ -175,7 +175,7 @@ function items(){
   return out.filter(function(x){ return !GONE[x.key]; });
 }
 var enc=encodeURIComponent;
-function w(q){ return api('action='+q, 30000); }
+function w(q){ return ap('action='+q, 30000); }   // Oct 15: every decision carries the admin password (approvals are admin-only on the server)
 function wp(q){ return ap('action='+q, 30000); }
 var INF={ all:'All', wfh:'WFH codes', leave:'Leave', coe:'COE', redeem:'Redeem', appeal:'Appeals', dispute:'Disputes', demerit:'Demerits', lunch:'Lunch', tool:'Tools' }, IFILT='all';
 function vInbox(){
