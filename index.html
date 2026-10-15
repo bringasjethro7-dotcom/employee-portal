@@ -7371,16 +7371,21 @@ var TOOLG = {
   SHORT:{ reddit:'Reddit Central', altr:'Studio', clients:'Client Hub' },
   EXEMPT: /meeting|huddle|training|coaching|onboarding|interview/i,
   /* Client Hub (Oct 9): small clients share one tool page. Every client whose tool is LIVE in the hub is linked —
-     no pairing, no timer. Design & Shopify + Imperium (SOP-02) + Ember (Snapchat) + Project 2 (Ricardo · IG Reels, Oct 14) + Slaybae (Oct 14); Skyvern retired Oct 15
+     no pairing, no timer. Design & Shopify + Imperium (SOP-02) + Ember (Snapchat) + Project 2 (Ricardo · IG Reels, Oct 14) + Slaybae (Oct 14) + Threads Alts (Oct 15); Skyvern retired Oct 15
      (a placeholder tab can't show work, so pairing it would lock those VAs out). */
   toolOf: function(proj){ proj=String(proj||''); if(/project\s*2\b|ricardo|slay\s*bae/i.test(proj)) return 'clients'; if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; if(/shopify|torchlight|imperium|\bember\b|snapchat/i.test(proj)) return 'clients'; return ''; },   // Skyvern (Project 3) retired Oct 15
   /* Oct 9: links into the Client Hub open the VA's own client tab (?c=…), not the hub's front page */
-  link: function(tool, proj){ var u=this.URL[tool]||''; if(tool==='clients'){ var p=String(proj||''), c=/imperium/i.test(p)?'imperium':(/\bember\b|snapchat/i.test(p)?'ember':(/project\s*2\b|ricardo/i.test(p)?'project2':(/slay\s*bae/i.test(p)?'slaybae':(/shopify|torchlight/i.test(p)?'design-shopify':'')))); if(c) u+='?c='+c; } return u; },
+  /* Oct 15: Threads work (Altz) is its own Client Hub tab, Threads Alts. It is tracked under the Reddit - Altz project
+     (category Threads), so the TASK decides: anything Threads → Client Hub, not Reddit Central. */
+  THR: /thread/i,
+  toolOfR: function(r){ r=r||{}; if(this.THR.test(String(r.project||'')+' '+String(r.category||'')+' '+String(r.task||''))) return 'clients'; return this.toolOf(r.project); },
+  link: function(tool, proj){ var u=this.URL[tool]||''; if(tool==='clients'){ var p=String(proj||''), c=/thread|\baltz\b/i.test(p)?'threads':/imperium/i.test(p)?'imperium':(/\bember\b|snapchat/i.test(p)?'ember':(/project\s*2\b|ricardo/i.test(p)?'project2':(/slay\s*bae/i.test(p)?'slaybae':(/shopify|torchlight/i.test(p)?'design-shopify':'')))); if(c) u+='?c='+c; } return u; },
   me: function(){ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); },
-  /* Oct 8 (Jeth): Threads work sits under the Alts project but has no tool yet — never stop it. Remove once the
-     Threads tool is live. EXEMPT_IDS = people excused for now (upper-case contractor IDs). */
-  NO_TOOL: /thread/i, EXEMPT_IDS: ['JMB014'],   // JMB014 — Threads on Alts, no tool yet (Jeth, Oct 8)
-  applies: function(r){ var id=this.me(); if(!r || !id || id==='ADMIN' || id==='JMBEAST') return ''; if(this.EXEMPT_IDS.indexOf(id)>=0) return ''; var t=this.toolOf(r.project); if(!t) return ''; var lbl=(r.project||'')+' '+(r.category||'')+' '+(r.task||'')+' '+(r.description||''); if(this.EXEMPT.test(lbl) || this.NO_TOOL.test(lbl)) return ''; return t; },
+  /* Oct 8 → Oct 15: Threads had no tool, so it was never stopped and JMB014 (Threads on Alts) was excused. The Threads
+     Alts tab is live now — Threads timers link to it like every other tool, and nobody is excused by default.
+     EXEMPT_IDS = people excused (upper-case contractor IDs) — the admin console's tool-exempt pass adds to it. */
+  NO_TOOL: /$^/, EXEMPT_IDS: [],
+  applies: function(r){ var id=this.me(); if(!r || !id || id==='ADMIN' || id==='JMBEAST') return ''; if(this.EXEMPT_IDS.indexOf(id)>=0) return ''; var t=this.toolOfR(r); if(!t) return ''; var lbl=(r.project||'')+' '+(r.category||'')+' '+(r.task||'')+' '+(r.description||''); if(this.EXEMPT.test(lbl) || this.NO_TOOL.test(lbl)) return ''; return t; },
   start: function(){ var s=this; if(s._t) return; s._t=setInterval(function(){ s.watch(); }, 60*1000); setInterval(function(){ s.poll(); }, 20*1000); setInterval(function(){ s.gapTick(); }, 20*1000); setInterval(function(){ try{ s.paint(); }catch(e){} }, 1000); setTimeout(function(){ s.poll(); }, 2500); },
   /* the tool's row: last_active (real work), open_at (open + signed in), run_since / run_label (its timer), today_secs */
   cur: null,
@@ -14745,7 +14750,8 @@ var PHONEWORK = {
       c.querySelector('button').onclick = function(){ self.open(); }; m.insertBefore(c, m.firstChild); } } catch(e){} }, 1200);
   },
   projectNow: function(){ try { if (trkRunning) return trkRunning.project || ''; } catch(e){} try { return document.getElementById('cfy-project').value || ''; } catch(e){ return ''; } },
-  toolOf: function(proj){ try { return TOOLG.toolOf(proj) || ''; } catch(e){ return ''; } },
+  toolOf: function(x){ try { return (x && typeof x === 'object' ? TOOLG.toolOfR(x) : TOOLG.toolOf(x)) || ''; } catch(e){ return ''; } },
+  rNow: function(){ try { if (trkRunning) return trkRunning; } catch(e){} var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; }; return { project:g('cfy-project'), category:g('cfy-category'), task:g('cfy-task') }; },
   open: function(tool, href){
     var self = this; this.css();
     if (!document.getElementById('pw')) {
@@ -14774,7 +14780,7 @@ var PHONEWORK = {
     document.body.classList.add('pw-on'); this.on = true;
     var back = document.getElementById('pw-back'); if (back) back.style.display = 'none';
     var p = this.projectNow();
-    this.ensureTool(tool || this.toolOf(p), p, href);
+    this.ensureTool(tool || this.toolOf(this.rNow()), p, href);
     this.wake(true); this.paint();
     try { if (!this.projectNow()) this.sheet(true); } catch(e){}
     if (!this._t) this._t = setInterval(function(){ self.paint(); }, 1000);
@@ -14837,7 +14843,7 @@ var PHONEWORK = {
     r.value = m.value;
     try { r.dispatchEvent(new Event('change', { bubbles: true })); } catch(e){ try { if (r.onchange) r.onchange(); } catch(_e){} }
     this.sync();
-    if (mid === 'pw-s-proj') { var p = r.value, t = this.toolOf(p); if (t) this.ensureTool(t, p); }
+    var R = this.rNow(), t = this.toolOf(R); if (t && R.project) this.ensureTool(t, R.project);
     this.paint();
   },
   /* the project's tool underneath (or a chooser when the project has none) */
@@ -14875,7 +14881,7 @@ var PHONEWORK = {
     if (go) { var t = st.running ? 'Stop' : (st.timedIn ? 'Start' : 'Time in'); if (go.textContent !== t) go.textContent = t; go.classList.toggle('stop', !!st.running); }
     var sh = document.getElementById('pw-sheet'); if (sh && sh.style.display !== 'none') this.sync();
     /* a newly started task decides the tool underneath (once per task, so a tool picked by hand isn't fought over) */
-    try { var r = trkRunning; if (r && r.entry_id !== this._runId) { this._runId = r.entry_id; var tl = this.toolOf(r.project); if (tl) this.ensureTool(tl, r.project); } else if (!r) this._runId = null; } catch(e){}
+    try { var r = trkRunning; if (r && r.entry_id !== this._runId) { this._runId = r.entry_id; var tl = this.toolOf(r); if (tl) this.ensureTool(tl, r.project); } else if (!r) this._runId = null; } catch(e){}
   },
   /* keep the screen on — a phone that sleeps stops the portal's signal, and unsent time isn't paid */
   wake: async function(on){
@@ -17996,6 +18002,7 @@ async function sendEodReport(){
       // completed CRM board today = the tool WAS updated for this project's tasks
       if(!hit){ hit=Object.keys(_boardProj).some(function(bp){ return proj.indexOf(bp)>=0 || bp.indexOf(proj)>=0; }); }
       if(!hit && _altrUsed && proj.indexOf('altr')>=0) hit=true;   // worked in ALTR Studio today (see above)
+      if(!hit && /thread/.test(task+' '+String(e.category||'').toLowerCase()) && (_outs.some(function(o){ return /thread/i.test(String(o.project||'')); }) || _boardProj['threads alts'])) hit=true;   // Oct 15: Threads work is logged in Client Hub · Threads Alts
       if(!hit){ var k=(e.task||e.description||'Task')+(e.project?(' ('+e.project+')'):''); if(!_missing[k]){ _missing[k]=1; _ord.push(k); } }
     });
     if(_ord.length){
@@ -25737,7 +25744,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-15-C';
+var PORTAL_BUILD='2026-10-15-D';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -30397,7 +30404,7 @@ var FDC = {
   steps: function(){
     var ss=(typeof todayLog!=='undefined' && todayLog && todayLog.sessions)||[], active=(typeof getActiveSession==='function')?getActiveSession():null;
     var proj=this.proj(), tool='', E=this.esc;
-    try{ tool=(typeof TOOLG!=='undefined' && proj)?TOOLG.toolOf(proj):''; }catch(_t){}
+    try{ tool=(typeof TOOLG!=='undefined' && proj)?TOOLG.toolOfR((typeof trkRunning!=='undefined' && trkRunning && trkRunning.project===proj)?trkRunning:{ project:proj }):''; }catch(_t){}
     var running=!!(typeof trkRunning!=='undefined' && trkRunning), eod=!!(ss.length && !active && ss[ss.length-1].time_out);
     var linked=false; try{ linked=!!(tool && TOOLG.cur && TOOLG.cur.tool===tool && TOOLG.isOpen(TOOLG.cur.row)); }catch(_l){}
     var L=[
@@ -33172,7 +33179,7 @@ var TOOLS = (function(){
     { k:'reddit', n:'Reddit Central', d:'Account ladder, posts and proof of work.', c:'social', i:'reddit', g:'fire', u:B+'reddit.html' },
     { k:'outreach', n:'Outreach', d:'The outreach workspace.', c:'social', i:'outreach', g:'ocean', u:B+'outreach.html' },
     { k:'altr', n:'ALTR Studio', d:'Music & reels promotion — promotions, daily reel, delivery, sourcing.', c:'content', i:'altr', g:'teal', u:B+'altr-studio.html' },
-    { k:'clients', n:'Client Hub', d:'Small clients in one place — Design & Shopify, Ember (Snapchat), IG Reels for Imperium, Project 2 and Slaybae.', c:'content', i:'shop', g:'lime', u:B+'clients.html' },
+    { k:'clients', n:'Client Hub', d:'Small clients in one place — Design & Shopify, Ember (Snapchat), IG Reels for Imperium, Project 2 and Slaybae, and Threads Alts.', c:'content', i:'shop', g:'lime', u:B+'clients.html' },
     { k:'posting', n:'Posting Assistant', d:'Your groups & subreddits, and what each allows.', c:'content', i:'post', g:'violet', u:B+'posting-assistant.html' },
     { k:'qa-computer', n:'QA Computer', d:'Check your work the way QA scores it.', c:'team', i:'qa', g:'indigo', u:B+'qa-computer.html' },
     { k:'hub', n:'Internal Hub', d:'Onboarding, brand, policies and help.', c:'team', i:'hub', g:'aura', u:B+'index.html' },
