@@ -5537,6 +5537,7 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
         </div>
       </div>
       <div id="payslip-app">
+      <div id="ps-hold" style="display:none"></div>
       <div class="payslip-table">
         <div class="payslip-head">
           <span>Period</span>
@@ -10284,10 +10285,73 @@ function verifyPayslipCode() {
       } else { err.style.display = 'block'; err.textContent = (d && d.error === 'EXPIRED') ? 'Code expired — resend a new one.' : 'Incorrect code.'; }
     }).catch(function(){ btn.disabled = false; btn.textContent = 'Verify & view'; err.style.display = 'block'; err.textContent = 'Network error. Try again.'; });
 }
+/* ══ NEW-PROJECT HOLD (Jeth, Oct 16) ══════════════════════════════════════════════════════════════════════════
+   A project with fewer than 7 operating days in a cutoff (its first logged day → the cutoff's last day) is NOT
+   invoiced and NOT paid that cutoff: its hours are held and added to the NEXT cutoff's invoice and payslips.
+   First days come from the Supabase view project_first_day (min(date) per project, no hours, no names).
+   JMB Internal / Untracked / Idle are never held (not client-invoiced). */
+var PHOLD={ min:7, first:null, at:0 };
+function pholdCutoff(d){
+  d=String(d||'').slice(0,10); var y=+d.slice(0,4), m=+d.slice(5,7), day=+d.slice(8,10), p=function(n){ return (n<10?'0':'')+n; };
+  var last=new Date(Date.UTC(y,m,0)).getUTCDate(), mm=y+'-'+p(m)+'-';
+  return day<=15?{ from:mm+'01', to:mm+'15' }:{ from:mm+'16', to:mm+p(last) };
+}
+function pholdShift(d,n){ var x=new Date(String(d).slice(0,10)+'T00:00:00Z'); x.setUTCDate(x.getUTCDate()+n); return x.toISOString().slice(0,10); }
+function pholdPrev(c){ return pholdCutoff(pholdShift(c.from,-1)); }
+function pholdNext(c){ return pholdCutoff(pholdShift(c.to,1)); }
+function pholdDays(a,b){ return Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/864e5)+1; }
+function pholdSkip(p){ p=String(p||'').trim(); return !p || /^(jmb internal|untracked)$/i.test(p) || /^idle/i.test(p); }
+function pholdFmt(d){ try{ return new Date(d+'T00:00:00Z').toLocaleDateString('en-US',{ month:'short', day:'numeric', timeZone:'UTC' }); }catch(e){ return d; } }
+async function pholdLoad(force){
+  if(PHOLD.first && !force && Date.now()-PHOLD.at<300000) return PHOLD.first;
+  try{
+    var r=await fetch(SUPA_URL+'/rest/v1/project_first_day?select=project,first_day', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } });
+    var a=await r.json(), m={};
+    (Array.isArray(a)?a:[]).forEach(function(x){ if(x && x.project && x.first_day) m[String(x.project).toLowerCase()]={ project:String(x.project), first:String(x.first_day).slice(0,10) }; });
+    PHOLD.first=m; PHOLD.at=Date.now();
+  }catch(e){ if(!PHOLD.first) PHOLD.first={}; }
+  return PHOLD.first;
+}
+/* For the cutoff [from,to]: held = projects whose hours in it wait for the next cutoff; carried = projects whose
+   previous-cutoff hours are added to this one. Each item: { project, from, to, days }. */
+function pholdPlan(from, to){
+  var F=PHOLD.first||{}, pv=pholdPrev({ from:from, to:to }), out={ held:[], carried:[] };
+  Object.keys(F).forEach(function(k){
+    var x=F[k]; if(pholdSkip(x.project)) return;
+    if(x.first>=from && x.first<=to && pholdDays(x.first,to)<PHOLD.min) out.held.push({ project:x.project, from:x.first, to:to, days:pholdDays(x.first,to) });
+    if(x.first>=pv.from && x.first<=pv.to && pholdDays(x.first,pv.to)<PHOLD.min) out.carried.push({ project:x.project, from:x.first, to:pv.to, days:pholdDays(x.first,pv.to) });
+  });
+  return out;
+}
+
+/* VA side: tell the VA, in plain words, which of their hours are on hold (new project, under 7 days this cutoff)
+   and which held hours were added to the next payslip. Reads only their own entries for the held project. */
+async function psHoldNotice(){
+  var box=document.getElementById('ps-hold'); if(!box) return;
+  var id=(typeof _psEmpId==='function')?_psEmpId():''; if(!id){ box.style.display='none'; return; }
+  try{
+    await pholdLoad(false);
+    var today=new Date(Date.now()+8*3600e3).toISOString().slice(0,10), cur=pholdCutoff(today), prev=pholdPrev(cur), lines=[];
+    var mine=async function(pj,f,t){ var r=await fetch(APPS_SCRIPT_URL+'?action=get_worklog&employee_id='+encodeURIComponent(id)+'&project='+encodeURIComponent(pj)+'&from='+f+'&to='+t+'&lean=1&_='+Date.now()); var d=await r.json(), h=0;
+      ((d&&d.worklog)||[]).forEach(function(w){ var st=String(w.status||'').toLowerCase(); if(st==='running'||st==='rejected') return; if(String(w.employee_id||'').toUpperCase()!==String(id).toUpperCase()) return; h+=parseFloat(w.hours)||0; }); return Math.round(h*100)/100; };
+    var cuts=[prev, cur];
+    for(var i=0;i<cuts.length;i++){
+      var c=cuts[i], P=pholdPlan(c.from,c.to), nx=pholdNext(c);
+      for(var j=0;j<P.held.length;j++){ var x=P.held[j], h=await mine(x.project,x.from,x.to);
+        if(h>0) lines.push('<div style="margin:2px 0">⏸ <b>On hold: '+h.toFixed(2)+' hrs on '+x.project.replace(/</g,'&lt;')+'</b> ('+pholdFmt(x.from)+(x.from!==x.to?' – '+pholdFmt(x.to):'')+'). '+x.project.replace(/</g,'&lt;')+' is a new project — it had only '+x.days+' day'+(x.days===1?'':'s')+' in the '+pholdFmt(c.from)+' – '+pholdFmt(c.to)+' cutoff, so these hours are not in that payslip. They will be added to your <b>'+pholdFmt(nx.from)+' – '+pholdFmt(nx.to)+'</b> payslip.</div>'); }
+      for(var k=0;k<P.carried.length;k++){ var y=P.carried[k], h2=await mine(y.project,y.from,y.to);
+        if(h2>0) lines.push('<div style="margin:2px 0">➕ Your <b>'+pholdFmt(c.from)+' – '+pholdFmt(c.to)+'</b> payslip includes <b>'+h2.toFixed(2)+' hrs</b> on '+y.project.replace(/</g,'&lt;')+' held from '+pholdFmt(y.from)+(y.from!==y.to?' – '+pholdFmt(y.to):'')+'.</div>'); }
+    }
+    if(!lines.length){ box.style.display='none'; box.innerHTML=''; return; }
+    box.innerHTML='<div style="margin:0 0 12px;padding:12px 14px;border-radius:12px;background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;font-size:13px;line-height:1.55">'+lines.join('')+'</div>';
+    box.style.display='';
+  }catch(e){ box.style.display='none'; }
+}
 // ══════════════════════════════════════════
 // PAYSLIP SYSTEM
 // ══════════════════════════════════════════
 function renderPayslipList(data) {
+  try{ psHoldNotice(); }catch(_ph){}
   const payslipList = document.getElementById('payslip-list');
   const payslips    = data.payslips || [];
   const hourlyRate  = data.rate ? parseFloat(data.rate) / 240 : 0;
@@ -25926,7 +25990,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-15-F';
+var PORTAL_BUILD='2026-10-16-A';
 (function(){
   var pending=false;
   setInterval(function(){

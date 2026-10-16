@@ -4128,6 +4128,45 @@ async function delPause(row){
   try{ await fetch(API+'?action=delete_client_pause&row='+encodeURIComponent(row)); setTimeout(loadPauses,500); }catch(e){ toast('Could not delete.'); }
 }
 
+/* ══ NEW-PROJECT HOLD (Jeth, Oct 16) ══════════════════════════════════════════════════════════════════════════
+   A project with fewer than 7 operating days in a cutoff (its first logged day → the cutoff's last day) is NOT
+   invoiced and NOT paid that cutoff: its hours are held and added to the NEXT cutoff's invoice and payslips.
+   First days come from the Supabase view project_first_day (min(date) per project, no hours, no names).
+   JMB Internal / Untracked / Idle are never held (not client-invoiced). */
+var PHOLD={ min:7, first:null, at:0 };
+function pholdCutoff(d){
+  d=String(d||'').slice(0,10); var y=+d.slice(0,4), m=+d.slice(5,7), day=+d.slice(8,10), p=function(n){ return (n<10?'0':'')+n; };
+  var last=new Date(Date.UTC(y,m,0)).getUTCDate(), mm=y+'-'+p(m)+'-';
+  return day<=15?{ from:mm+'01', to:mm+'15' }:{ from:mm+'16', to:mm+p(last) };
+}
+function pholdShift(d,n){ var x=new Date(String(d).slice(0,10)+'T00:00:00Z'); x.setUTCDate(x.getUTCDate()+n); return x.toISOString().slice(0,10); }
+function pholdPrev(c){ return pholdCutoff(pholdShift(c.from,-1)); }
+function pholdNext(c){ return pholdCutoff(pholdShift(c.to,1)); }
+function pholdDays(a,b){ return Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/864e5)+1; }
+function pholdSkip(p){ p=String(p||'').trim(); return !p || /^(jmb internal|untracked)$/i.test(p) || /^idle/i.test(p); }
+function pholdFmt(d){ try{ return new Date(d+'T00:00:00Z').toLocaleDateString('en-US',{ month:'short', day:'numeric', timeZone:'UTC' }); }catch(e){ return d; } }
+async function pholdLoad(force){
+  if(PHOLD.first && !force && Date.now()-PHOLD.at<300000) return PHOLD.first;
+  try{
+    var r=await fetch(SUPA_URL+'/rest/v1/project_first_day?select=project,first_day', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } });
+    var a=await r.json(), m={};
+    (Array.isArray(a)?a:[]).forEach(function(x){ if(x && x.project && x.first_day) m[String(x.project).toLowerCase()]={ project:String(x.project), first:String(x.first_day).slice(0,10) }; });
+    PHOLD.first=m; PHOLD.at=Date.now();
+  }catch(e){ if(!PHOLD.first) PHOLD.first={}; }
+  return PHOLD.first;
+}
+/* For the cutoff [from,to]: held = projects whose hours in it wait for the next cutoff; carried = projects whose
+   previous-cutoff hours are added to this one. Each item: { project, from, to, days }. */
+function pholdPlan(from, to){
+  var F=PHOLD.first||{}, pv=pholdPrev({ from:from, to:to }), out={ held:[], carried:[] };
+  Object.keys(F).forEach(function(k){
+    var x=F[k]; if(pholdSkip(x.project)) return;
+    if(x.first>=from && x.first<=to && pholdDays(x.first,to)<PHOLD.min) out.held.push({ project:x.project, from:x.first, to:to, days:pholdDays(x.first,to) });
+    if(x.first>=pv.from && x.first<=pv.to && pholdDays(x.first,pv.to)<PHOLD.min) out.carried.push({ project:x.project, from:x.first, to:pv.to, days:pholdDays(x.first,pv.to) });
+  });
+  return out;
+}
+
 // ── PAYSLIPS TAB ──
 function payEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 var payEmps=[];
@@ -4168,25 +4207,54 @@ async function pgPreview(){
         var sh=String(rec.shift||'').toLowerCase(); if(sh==='night') o.night++; else if(sh) o.morning++;
       });
     }catch(_e){}
+    /* NEW-PROJECT HOLD (Oct 16): a project under 7 operating days in this cutoff is not paid now — its hours move
+       to the next cutoff's payslip; hours a project had held in the previous cutoff are added here. */
+    var _hold={}, _carry={}, HP={ held:[], carried:[] };
+    try{ await pholdLoad(true); HP=pholdPlan(from,to); }catch(_h){}
+    var _projHrs=async function(pj,f,t){
+      var r=await jGet(API+'?action=get_worklog&project='+encodeURIComponent(pj)+'&from='+encodeURIComponent(f)+'&to='+encodeURIComponent(t)+'&lean=1&_='+Date.now());
+      var d=await r.json(), m={};
+      if(!d || !Array.isArray(d.worklog)) throw new Error('hold read');
+      d.worklog.forEach(function(w){ var st=String(w.status||'').toLowerCase(); if(st==='running'||st==='rejected') return; var id=String(w.employee_id||''); if(id) m[id]=(m[id]||0)+(parseFloat(w.hours)||0); });
+      return m;
+    };
+    try{
+      for(var hi=0;hi<HP.held.length;hi++){ var _h1=HP.held[hi], hm=await _projHrs(_h1.project,_h1.from,_h1.to); Object.keys(hm).forEach(function(id){ (_hold[id]=_hold[id]||[]).push({ p:_h1.project, h:hm[id], f:_h1.from, t:_h1.to }); }); }
+      for(var ci=0;ci<HP.carried.length;ci++){ var _c1=HP.carried[ci], cm=await _projHrs(_c1.project,_c1.from,_c1.to); Object.keys(cm).forEach(function(id){ (_carry[id]=_carry[id]||[]).push({ p:_c1.project, h:cm[id], f:_c1.from, t:_c1.to }); }); }
+    }catch(_hr){ box.innerHTML='<div class="es" style="padding:10px 0;color:#f87171">Could not read the new-project (on hold) hours — try again so nobody is paid held hours.</div>'; return; }
+    var _sumH=function(a){ return (a||[]).reduce(function(s2,x){ return s2+x.h; },0); };
     _pgRows=[];
     (payEmps||[]).forEach(function(e){
       var id=String(e.employee_id); var wl=wlByEmp[id]||{prod:0,idle:0}; var att=attByEmp[id]||{clocked:0,night:0,morning:0};
       var hours = (source==='attendance') ? (att.clocked - (incIdle?0:wl.idle)) : (wl.prod + (incIdle?wl.idle:0));
+      hours = hours - _sumH(_hold[id]) + _sumH(_carry[id]);
       hours=Math.max(0, Math.round(hours*100)/100); if(hours<=0) return;
       var shift = (att.night > att.morning) ? 'night' : 'morning';
       var rate=(_rOn[id]!=null ? parseFloat(_rOn[id]) : parseFloat(e.rate))||0, hourly=rate/240, basic=hours*hourly;
       var nightD = shift==='night' ? basic*0.05 : 0;
-      _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, incentive:0, gross:basic+nightD });
+      _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, incentive:0, gross:basic+nightD, held:_hold[id]||[], carry:_carry[id]||[] });
     });
-    if(!_pgRows.length){ box.innerHTML='<div class="es" style="padding:10px 0">No hours found for anyone in this range.</div>'; return; }
+    var _hb='';
+    if(HP.held.length || HP.carried.length){
+      var _nx=pholdNext({ from:from, to:to });
+      _hb='<div style="margin:12px 0 4px;padding:10px 12px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;font-size:12.5px;color:#7c2d12;line-height:1.55">'+
+        HP.held.map(function(h){ var tot=0; Object.keys(_hold).forEach(function(k){ (_hold[k]||[]).forEach(function(x){ if(x.p===h.project) tot+=x.h; }); });
+          return '⏸ <b>'+payEsc(h.project)+'</b> is new — started '+pholdFmt(h.from)+', only '+h.days+' day'+(h.days===1?'':'s')+' this cutoff (needs 7). <b>'+tot.toFixed(2)+'h on hold</b> — not paid now, added to the '+pholdFmt(_nx.from)+' – '+pholdFmt(_nx.to)+' payslips.'; }).join('<br>')+
+        (HP.held.length&&HP.carried.length?'<br>':'')+
+        HP.carried.map(function(c){ var tot=0; Object.keys(_carry).forEach(function(k){ (_carry[k]||[]).forEach(function(x){ if(x.p===c.project) tot+=x.h; }); });
+          return '➕ <b>'+payEsc(c.project)+'</b>: '+tot.toFixed(2)+'h held from '+pholdFmt(c.from)+' – '+pholdFmt(c.to)+' are added to these payslips.'; }).join('<br>')+'</div>';
+    }
+    if(!_pgRows.length){ box.innerHTML=_hb+'<div class="es" style="padding:10px 0">No hours found for anyone in this range.</div>'; return; }
     _pgPeriod=pgPeriodLabel(from,to);
     var totH=0,totG=0; _pgRows.forEach(function(x){ totH+=x.hours; totG+=x.gross; });
     var nightCount=_pgRows.filter(function(x){return x.shift==='night';}).length;
-    box.innerHTML='<div style="font-size:12px;color:var(--t2);margin:12px 0 6px">Period <b style="color:var(--t1)">'+payEsc(_pgPeriod)+'</b> · '+_pgRows.length+' contractors ('+nightCount+' night +5%) · '+totH.toFixed(1)+'h · <span id="pg-tot-gross">₱'+totG.toLocaleString(undefined,{maximumFractionDigits:2})+'</span> gross</div>'+
+    box.innerHTML=_hb+'<div style="font-size:12px;color:var(--t2);margin:12px 0 6px">Period <b style="color:var(--t1)">'+payEsc(_pgPeriod)+'</b> · '+_pgRows.length+' contractors ('+nightCount+' night +5%) · '+totH.toFixed(1)+'h · <span id="pg-tot-gross">₱'+totG.toLocaleString(undefined,{maximumFractionDigits:2})+'</span> gross</div>'+
       '<div class="tw"><table><thead><tr><th>Contractor</th><th>Shift</th><th>Hours</th><th>Basic</th><th>Night +5%</th><th>Incentive/s</th><th>Gross</th></tr></thead><tbody>'+
       _pgRows.map(function(x,i){
         var sh = x.shift==='night' ? '<span style="color:#a78bfa"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z\"/></svg> Night</span>' : '<span style="color:var(--t2)"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><circle cx=\"12\" cy=\"14\" r=\"4\"/><path d=\"M12 3v3M4 14H1M23 14h-3M2 20h20\"/></svg> Morning</span>';
-        return '<tr><td>'+payEsc(x.name)+'</td><td>'+sh+'</td><td>'+x.hours.toFixed(2)+'h</td><td>₱'+x.basic.toLocaleString(undefined,{maximumFractionDigits:2})+'</td><td>'+(x.nightD>0?('₱'+x.nightD.toLocaleString(undefined,{maximumFractionDigits:2})):'—')+'</td>'+
+        var _hn=(x.held||[]).map(function(z){ return '<div style="font-size:11px;color:#c2410c">⏸ '+payEsc(z.p)+' '+z.h.toFixed(2)+'h on hold → next cutoff</div>'; }).join('')+
+                (x.carry||[]).map(function(z){ return '<div style="font-size:11px;color:#15803d">➕ '+payEsc(z.p)+' '+z.h.toFixed(2)+'h from '+pholdFmt(z.f)+' – '+pholdFmt(z.t)+'</div>'; }).join('');
+        return '<tr><td>'+payEsc(x.name)+_hn+'</td><td>'+sh+'</td><td>'+x.hours.toFixed(2)+'h</td><td>₱'+x.basic.toLocaleString(undefined,{maximumFractionDigits:2})+'</td><td>'+(x.nightD>0?('₱'+x.nightD.toLocaleString(undefined,{maximumFractionDigits:2})):'—')+'</td>'+
           '<td><input class="sinp" type="number" min="0" step="any" placeholder="0" value="" style="width:104px" oninput="pgIncChange('+i+',this.value)"></td>'+
           '<td id="pg-gross-'+i+'"><b>₱'+x.gross.toLocaleString(undefined,{maximumFractionDigits:2})+'</b></td></tr>';
       }).join('')+'</tbody></table></div>';
@@ -4806,6 +4874,23 @@ async function generateInvoice(){
   if(!project){ alert('Pick a specific Project in the filter first — invoices are generated per project.'); return; }
   var from = (document.getElementById('wl-from')||{}).value;
   var to   = (document.getElementById('wl-to')||{}).value;
+  /* NEW-PROJECT HOLD (Oct 16): under 7 operating days in this cutoff → no invoice now; those days go on the next one. */
+  var _carRows=[], _invFrom=from;
+  try{
+    await pholdLoad(true);
+    var _cut=pholdCutoff(to||from||new Date(Date.now()+8*3600e3).toISOString().slice(0,10)), _hp=pholdPlan(_cut.from,_cut.to), _pkl=project.toLowerCase();
+    var _held=_hp.held.filter(function(x){ return x.project.toLowerCase()===_pkl; })[0];
+    if(_held){ var _nx=pholdNext(_cut);
+      alert('⏸ '+project+' is ON HOLD this cutoff.\n\nIt started '+pholdFmt(_held.from)+' — only '+_held.days+' operating day'+(_held.days===1?'':'s')+' by '+pholdFmt(_held.to)+'. A new project needs 7 days before its first invoice.\n\nNothing is invoiced now. These hours go on the next invoice: '+pholdFmt(_held.from)+' – '+pholdFmt(_nx.to)+'.\nThe VAs\' hours for it are also held to that cutoff\'s payslip.');
+      return; }
+    var _car=_hp.carried.filter(function(x){ return x.project.toLowerCase()===_pkl; })[0];
+    if(_car && (!from || from>_car.from)){
+      var _ct=(from && pholdShift(from,-1)<_car.to)?pholdShift(from,-1):_car.to;
+      var _cr=await jGet(API+'?action=get_worklog&project='+encodeURIComponent(project)+'&from='+encodeURIComponent(_car.from)+'&to='+encodeURIComponent(_ct)+'&lean=1&_='+Date.now());
+      var _cd=await _cr.json(); _carRows=(_cd&&_cd.worklog)||[]; _invFrom=_car.from;
+      if(typeof toast==='function') toast('Includes '+project+'\'s held days '+pholdFmt(_car.from)+' – '+pholdFmt(_ct)+' from the last cutoff.');
+    }
+  }catch(_he){}
   // Fetch project list for the saved rates
   // Saved rates — per category, falling back to a project-level rate
   var rateByCat={}, projRate={};
@@ -4821,7 +4906,7 @@ async function generateInvoice(){
   }catch(e){}
   // Aggregate RECORDED entries by CATEGORY — category totals are the billed hours
   var groups={};
-  (wlRows||[]).forEach(function(w){
+  (wlRows||[]).concat(_carRows).forEach(function(w){
     if((w.status||'recorded')!=='recorded') return;
     if((w.project||'').toLowerCase()!==project.toLowerCase()) return;
     var cat=(w.category||'').trim();
@@ -4857,7 +4942,7 @@ async function generateInvoice(){
     else { lines.push({category:x.category, hours:'', rate:'', amount:amt, _extra:true}); }
     subtotal+=amt;
   });
-  openInvoiceWindow(project, from, to, lines, Math.round(subtotal*100)/100, history, outstanding);
+  openInvoiceWindow(project, _invFrom||from, to, lines, Math.round(subtotal*100)/100, history, outstanding);
 }
 // Build a no-print comparative trend panel (bars of prior invoice amounts + % change vs last).
 function buildInvoiceTrend(history, subtotal, project){
