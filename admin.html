@@ -6808,6 +6808,8 @@ async function loadAdminScorecard(force) {
   if(!_scSnapPaint()) tbody.innerHTML = sklTableRows(10, 6);   // instant paint from last snapshot, else skeleton
   await _scRenderRows(force);     // refresh in the background (force skips every cache layer)
   startScLive();             // keep the ranking live while this tab is open
+  if(!force){ try{ scToolsPublish(month, false).then(function(res){ if(!res) return;   // Oct 16: fresh tool 50% on open (at most every 4 min)
+      fetch(API+'?action=bust_scorecards&_='+Date.now()).then(function(){ try{ jBust(); }catch(_j){} return _scRenderRows(true); }).then(function(){ window._scLastFull=Date.now(); try{ _scBadge(); }catch(_b){} }).catch(function(){}); }); }catch(_tp){} }
   try{ updateFinalizeUI(month); }catch(_f){}   // show whether the selected month is finalized
   try{ scwLoad(); }catch(_w){}                 // criteria weighting for this month
 }
@@ -7154,6 +7156,27 @@ var scLiveTimer = null;
      · every 5 min — FULL silent recompute (auto version of the ↻ Recompute button:
        busts the server cache and recomputes all contractors), so demerits, QA grades,
        attendance, and sales land on the board within 5 minutes with no clicking. */
+/* ── LIVE TOOL 50% (Oct 16, Jeth: "make the scorecard live on my POV — the 50% from the tools and the other 50%") ──
+   The tools' half (Productivity · QA · Results from Reddit Central and ALTR Studio) used to reach this board once a day,
+   when each tool's morning day close published it. Now, before every recompute — opening the tab, the 10-minute auto
+   refresh, ↻ Recompute — the console asks both tools to publish the month NOW (owner token), then recomputes, so both
+   halves are minutes old. Owner view only: VAs still see their scores when the month is released. */
+var SC_TOOL_APIS={ reddit:'https://script.google.com/macros/s/AKfycbwc0seQ11rMc_9GeAE34jVPYDDsFkMqNhpGCiW8D1qIFu9bZ_e6Aa3SHR8vt8Fq04g5mA/exec',
+                   altr:'https://script.google.com/macros/s/AKfycbxp7wcIf48urxm2DcPoNgdmQreYUGia-YNnXwIXfyMqOLkyWpaqI3hoMZa4VPmjZa9_Mg/exec' };
+var _scToolAt=0, _scToolBusy=null;
+function _scCurMonth(){ return new Date(Date.now()+8*3600e3).toISOString().slice(0,7); }
+function scToolsPublish(month, force){
+  var m=month||_scCurMonth();
+  if(m<_scCurMonth() || typeof ADM_SESS==='undefined' || !ADM_SESS) return Promise.resolve(null);   // past months are frozen; needs the owner token
+  if(!force && Date.now()-_scToolAt<4*60e3) return Promise.resolve(null);
+  if(_scToolBusy) return _scToolBusy;
+  var q='&month='+encodeURIComponent(m)+'&sess='+encodeURIComponent(ADM_SESS)+'&_='+Date.now();
+  var get=function(u){ return fetch(u).then(function(r){ return r.json(); }).catch(function(){ return null; }); };
+  _scToolBusy=Promise.all([ get(SC_TOOL_APIS.reddit+'?action=rc_sc_publish&by=ADMIN'+q), get(SC_TOOL_APIS.altr+'?action=altr_sc_publish&by_id=ADMIN'+q) ])
+    .then(function(res){ _scToolAt=Date.now(); window._scToolRes={ reddit:!!(res[0]&&res[0].ok), altr:!!(res[1]&&res[1].ok), at:_scToolAt }; return res; })
+    .finally(function(){ _scToolBusy=null; });
+  return _scToolBusy;
+}
 function startScLive(){ stopScLive();
   scLiveTimer = setInterval(function(){ if(document.hidden) return; _scRenderRows(); _scBadge(); }, 60000);
   /* SCORECARD-FIRST FETCHING (Aug 25, his ask): he watches this board for accuracy, so the
@@ -7164,6 +7187,7 @@ function startScLive(){ stopScLive();
      works, rush hour or not. */
   window._scForceTimer = setInterval(async function(){ if(document.hidden) return;
     if(_scRushHour()){ _scBadge(); return; }
+    try{ await scToolsPublish(document.getElementById('sc-month-filter').value, true); }catch(_tp){}   // Oct 16: tool 50% fresh too
     try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); try{ jBust(); }catch(_j){}
          await _scRenderRows(true); window._scLastFull=Date.now(); _scBadge(); }catch(_e){}
   }, 600000);
@@ -7192,6 +7216,7 @@ function _scBadge(){
     var left=Math.max(0, 600000-(Date.now()-(window._scLastFull||Date.now())));
     msg='data as of '+asOf+' · next full refresh in ≤'+Math.ceil(left/60000)+'m';
   }
+  var tr=window._scToolRes; if(tr && tr.at) msg+=' · tool scores '+new Date(tr.at).toLocaleTimeString('en-US',{hour12:false}).slice(0,5)+((tr.reddit&&tr.altr)?'':' ('+(!tr.reddit?'Reddit ':'')+(!tr.altr?'ALTR ':'')+'did not answer)');
   el.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#16a34a;box-shadow:0 0 6px #16a34a;margin-right:5px;"></span>LIVE · '+msg;
 }
 
@@ -8806,6 +8831,7 @@ async function recomputeScorecards(){
   /* force=1 on the reload as well as busting the version. bust_scorecards bumps sc_ver, but the
      admin bundle is also held in its own short cache and the client keeps a copy in jGet — an
      admin pressing Recompute is explicitly asking for fresh numbers, so bypass every layer. */
+  try{ if(btn) btn.textContent='Pulling tool scores…'; await scToolsPublish(document.getElementById('sc-month-filter').value, true); if(btn) btn.textContent='Recomputing…'; }catch(_tp){}   // Oct 16
   try{ await fetch(API+'?action=bust_scorecards&_='+Date.now()); try{ jBust(); }catch(_){} await loadAdminScorecard(true); window._scLastFull=Date.now(); try{ _scBadge(); }catch(_b){} if(typeof toast==='function') toast('Scores recomputed — Team Sales refreshed.'); }
   catch(e){ if(typeof toast==='function') toast('Recompute failed — try again.'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old||'↻ Recompute'; } }
