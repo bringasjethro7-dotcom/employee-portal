@@ -4920,6 +4920,18 @@ async function wlSyncNow(){
    category trend. Add a pair here whenever a category is renamed (old name, lower case → current name). */
 var CAT_ALIAS={ 'reddit (evie & arya)':'Reddit (Arya & Kaia)' };
 function invCatAlias(c){ c=String(c||'').trim(); var a=CAT_ALIAS[c.toLowerCase()]; return a||c; }
+/* Oct 16 (Jeth): "Uncategorized" never goes on a client invoice. VAs keep choosing their category; a row saved without one
+   (an approved hours appeal, a system-made row) is billed under that VA's MAIN category for the project in the same rows
+   (most hours), else the project's main category. Returns cat(row). */
+function invCatResolver(rows, project){
+  var pl=String(project||'').toLowerCase(), byEmp={}, byProj={};
+  (rows||[]).forEach(function(w){ if((w.status||'recorded')!=='recorded' || String(w.project||'').toLowerCase()!==pl) return;
+    var c=invCatAlias(w.category); if(!c) return; var h=(parseFloat(w.hours)||0)+0.0001, e=String(w.employee_id||'').toLowerCase();
+    var m=byEmp[e]=byEmp[e]||{}; m[c]=(m[c]||0)+h; byProj[c]=(byProj[c]||0)+h; });
+  var top=function(m){ var b='', hh=0; Object.keys(m||{}).forEach(function(k){ if(m[k]>hh){ hh=m[k]; b=k; } }); return b; };
+  var pm=top(byProj);
+  return function(w){ var c=invCatAlias(w.category); if(c) return c; return top(byEmp[String(w.employee_id||'').toLowerCase()])||pm||'Uncategorized'; };
+}
 async function generateInvoice(){
   var project = (document.getElementById('wl-project-filter')||{}).value;
   if(!project){ alert('Pick a specific Project in the filter first — invoices are generated per project.'); return; }
@@ -4957,11 +4969,11 @@ async function generateInvoice(){
     });
   }catch(e){}
   // Aggregate RECORDED entries by CATEGORY — category totals are the billed hours
-  var groups={};
+  var groups={}, _catOf=invCatResolver((wlRows||[]).concat(_carRows), project);
   (wlRows||[]).concat(_carRows).forEach(function(w){
     if((w.status||'recorded')!=='recorded') return;
     if((w.project||'').toLowerCase()!==project.toLowerCase()) return;
-    var cat=invCatAlias(w.category);
+    var cat=_catOf(w);
     var key=cat.toLowerCase();
     if(!groups[key]) groups[key]={category:cat, hours:0};
     groups[key].hours += parseFloat(w.hours)||0;
@@ -5050,10 +5062,10 @@ async function invCatTrend(project, curCut, curRaw){
     return fetch(API+'?action=get_worklog&project='+encodeURIComponent(project)+'&from='+cc.from+'&to='+cc.to+'&lean=1&_='+Date.now())
       .then(function(r){ return r.json(); }).catch(function(){ return null; }); }));
   var names={}, cols=cuts.map(function(cc,i){
-    var d=res[i], m={};
+    var d=res[i], m={}, _cf=invCatResolver((d&&d.worklog)||[], project);
     ((d&&d.worklog)||[]).forEach(function(w){
       if((w.status||'recorded')!=='recorded') return; if(String(w.project||'').toLowerCase()!==pl) return;
-      var nm=invCatAlias(w.category)||'Uncategorized', k=nm.toLowerCase(); if(!names[k]) names[k]=nm;
+      var nm=_cf(w), k=nm.toLowerCase(); if(!names[k]) names[k]=nm;
       m[k]=(m[k]||0)+(parseFloat(w.hours)||0); });
     return { label:pholdFmt(cc.from)+'–'+parseInt(cc.to.slice(8),10), m:m, ok:!!(d&&d.worklog) };
   });
