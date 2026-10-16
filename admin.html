@@ -1380,6 +1380,7 @@ body{background-attachment:initial !important}
             <button class="bsm" onclick="addInvLine()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">+ Add line</button>
           </span>
           <span id="wl-xlist" style="font-size:11px;color:var(--t2);"></span>
+          <button class="bsm" onclick="wlSyncNow()" title="Push hand edits made in the WorkLog Google Sheet (categories, tags, hours, removed rows) into the console — invoices and payslips also do this automatically" style="color:#2563eb;border-color:rgba(37,99,235,.35);">⟳ Sync sheet edits</button> <span id="wl-sync-st" style="font-size:11px;color:var(--t3);"></span>
           <button class="bsm" onclick="generateInvoice()" style="color:#fff;background:var(--o3);border-color:var(--o3);font-weight:600;"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Generate Invoice</button>
           <button class="bsm" onclick="exportWorkLogCSV()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
           <button class="bsm" onclick="loadWorkLog()" style="color:var(--o3);border-color:rgba(255,107,26,.3);">↻ Refresh</button>
@@ -4178,7 +4179,8 @@ async function pgPreview(){
   var source=document.getElementById('pg-source').value, incIdle=document.getElementById('pg-idle').checked;
   if(!from||!to){ alert('Pick a From and To date.'); return; }
   if(!payEmps||!payEmps.length){ try{ var r0=await jGet(API+'?action=get_all_employees'); var d0=await r0.json(); payEmps=d0.employees||[]; }catch(e){} }
-  var box=document.getElementById('pg-preview'); box.innerHTML='<div class="es" style="padding:10px 0">Computing…</div>';
+  var box=document.getElementById('pg-preview'); box.innerHTML='<div class="es" style="padding:10px 0">Syncing sheet edits, then computing…</div>';
+  try{ await wlSheetSync(from, to, false); }catch(_sy){}
   // Rate in force on the cutoff's first day (dated rates) — so a rate change never re-prices an older cutoff.
   var _rOn={}; try{ var rq=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'rates_on',pass:admPass(),date:from})}); var rd=await rq.json(); if(rd&&rd.ok&&rd.rates) _rOn=rd.rates; }catch(_re){}
   document.getElementById('pg-save').style.display='none';
@@ -4869,11 +4871,57 @@ function renderInvExtra(){
   if(!window.INV_EXTRA.length){ el.innerHTML=''; return; }
   el.innerHTML='Lines: '+window.INV_EXTRA.map(function(x,i){ return escAdmin(x.category)+' $'+(Number(x.amount)||0).toFixed(2)+' <a href="#" title="remove" onclick="window.INV_EXTRA.splice('+i+',1);renderInvExtra();return false;" style="color:#dc2626;text-decoration:none;font-weight:700;">&times;</a>'; }).join(' &nbsp;·&nbsp; ');
 }
+/* ══ SHEET → READ-COPY SYNC (Oct 16) ═════════════════════════════════════════════════════════════════════════
+   The Work Log, invoices and payslips read a fast copy of the WorkLog sheet (Supabase). Edits made by hand in the
+   Google Sheet (category, project/tag, hours, removed rows) never reach that copy on their own — which is why an
+   invoice kept showing old values after a refresh. Generate Invoice and the payslip preview now push the sheet into
+   the copy first (once per month every 5 min), and "Sync sheet edits" forces it any time. Rows deleted in the sheet
+   are listed and only removed after you confirm. */
+var WLSYNC_TTL=5*60e3;
+function wlMonths(from,to){
+  var f=String(from||to||'').slice(0,7), t=String(to||from||'').slice(0,7), out=[];
+  if(!/^\d{4}-\d{2}$/.test(f)) f=t; if(!/^\d{4}-\d{2}$/.test(t)) t=f;
+  if(!/^\d{4}-\d{2}$/.test(f)) return [new Date(Date.now()+8*3600e3).toISOString().slice(0,7)];
+  var y=+f.slice(0,4), m=+f.slice(5,7), g=0;
+  while(g++<24){ var k=y+'-'+('0'+m).slice(-2); out.push(k); if(k>=t) break; m++; if(m>12){ m=1; y++; } }
+  return out;
+}
+async function wlSheetSync(from, to, force){
+  var months=wlMonths(from,to), todo=months.filter(function(m){ if(force) return true; try{ return Date.now()-(+localStorage.getItem('wl_sync_'+m)||0)>WLSYNC_TTL; }catch(e){ return true; } });
+  if(!todo.length) return false;
+  var st=document.getElementById('wl-sync-st'), say=function(t){ if(st) st.textContent=t; if(typeof toast==='function' && /failed/i.test(t)) toast(t); };
+  var pushed=0, orphans=[];
+  for(var i=0;i<todo.length;i++){
+    say('Syncing sheet edits for '+todo[i]+'…');
+    try{
+      var r=await fetch(API+'?action=worklog_push&month='+todo[i]+'&_='+Date.now()), d=await r.json();
+      if(!(d&&d.ok)){ say('Sync failed for '+todo[i]+' — '+((d&&d.error)||'error')+'. Try again.'); return false; }
+      pushed+=d.pushed||0; try{ localStorage.setItem('wl_sync_'+todo[i], String(Date.now())); }catch(_l){}
+    }catch(e){ say('Sync failed for '+todo[i]+' — network. Try again.'); return false; }
+    if(force){ try{ var rr=await fetch(API+'?action=worklog_resync&month='+todo[i]+'&_='+Date.now()), dd=await rr.json(); ((dd&&dd.detail)||[]).forEach(function(x){ orphans.push(x); }); }catch(_o){} }
+  }
+  say('✓ Sheet synced ('+pushed+' rows) · '+new Date().toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }));
+  if(orphans.length){
+    var hrs=orphans.reduce(function(a,x){ return a+(parseFloat(x.hours)||0); },0);
+    var list=orphans.slice(0,15).map(function(x){ return x.date+' · '+x.employee_id+' · '+(x.project||'')+(x.category?' / '+x.category:'')+' · '+(Math.round((parseFloat(x.hours)||0)*100)/100)+'h'; }).join('\n');
+    if(confirm(orphans.length+' row'+(orphans.length===1?' was':'s were')+' deleted from the Google Sheet but '+(orphans.length===1?'is':'are')+' still in the read copy ('+(Math.round(hrs*100)/100)+'h):\n\n'+list+(orphans.length>15?'\n…':'')+'\n\nRemove '+(orphans.length===1?'it':'them')+' from the copy too? (The sheet is not touched.)')){
+      var gone=0; for(var j=0;j<orphans.length;j++){ try{ var rd=await fetch(API+'?action=delete_worklog&entry_id='+encodeURIComponent(orphans[j].entry_id)+'&_='+Date.now()), dj=await rd.json(); if(dj&&dj.ok) gone++; }catch(_d){} }
+      say('✓ Sheet synced · removed '+gone+' deleted row'+(gone===1?'':'s'));
+    }
+  }
+  try{ jBust(); }catch(_b){}
+  return true;
+}
+async function wlSyncNow(){
+  var from=(document.getElementById('wl-from')||{}).value, to=(document.getElementById('wl-to')||{}).value;
+  if(await wlSheetSync(from, to, true)) { try{ await loadWorkLog(); }catch(_l){} }
+}
 async function generateInvoice(){
   var project = (document.getElementById('wl-project-filter')||{}).value;
   if(!project){ alert('Pick a specific Project in the filter first — invoices are generated per project.'); return; }
   var from = (document.getElementById('wl-from')||{}).value;
   var to   = (document.getElementById('wl-to')||{}).value;
+  try{ if(await wlSheetSync(from, to, false)) await loadWorkLog(); }catch(_sy){}   // hand edits in the sheet reach the invoice
   /* NEW-PROJECT HOLD (Oct 16): under 7 operating days in this cutoff → no invoice now; those days go on the next one. */
   var _carRows=[], _invFrom=from;
   try{
@@ -4921,6 +4969,7 @@ async function generateInvoice(){
   // Hidden markup: silently multiply each category's hours (e.g. 120 -> 126 at +5%). Not shown on the invoice.
   var mkEl=document.getElementById('wl-markup');
   var mult=1+((mkEl?parseFloat(mkEl.value):0)||0)/100;
+  var _curRaw={}; lines.forEach(function(l){ var k=String(l.category||'').trim()||'Uncategorized'; _curRaw[k.toLowerCase()]={ name:k, hours:(_curRaw[k.toLowerCase()]?_curRaw[k.toLowerCase()].hours:0)+(parseFloat(l.hours)||0) }; });
   lines.forEach(function(l){
     var ck=pk+'|'+(l.category||'').toLowerCase();
     var r=(rateByCat[ck]!==undefined)?rateByCat[ck]:(projRate[pk]!==undefined?projRate[pk]:0);
@@ -4942,11 +4991,23 @@ async function generateInvoice(){
     else { lines.push({category:x.category, hours:'', rate:'', amount:amt, _extra:true}); }
     subtotal+=amt;
   });
-  openInvoiceWindow(project, _invFrom||from, to, lines, Math.round(subtotal*100)/100, history, outstanding);
+  var _catT=null; try{ _catT=await invCatTrend(project, pholdCutoff(to||from), _curRaw); }catch(_ct){}
+  openInvoiceWindow(project, _invFrom||from, to, lines, Math.round(subtotal*100)/100, history, outstanding, _catT);
 }
 // Build a no-print comparative trend panel (bars of prior invoice amounts + % change vs last).
+/* Oct 16: order prior invoices by the cutoff they bill (period start), oldest → newest. created_at alone mixes
+   date formats in the Sales sheet, so the bars came out shuffled. */
+function invPeriodKey(h){
+  var p=String((h&&h.period)||''), m=p.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return m[1]+m[2]+m[3];
+  var mo={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12}, a=p.match(/([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})/), y=p.match(/(20\d{2})/);
+  if(a && mo[a[1].toLowerCase()]){ var yy=y?y[1]:(String(h.created_at||'').match(/(20\d{2})/)||[])[1]||'2026'; return yy+('0'+mo[a[1].toLowerCase()]).slice(-2)+('0'+a[2]).slice(-2); }
+  var t=Date.parse(String(h&&h.created_at||'')); if(!isNaN(t)) return new Date(t).toISOString().slice(0,10).replace(/-/g,'');
+  var n=String(h&&h.invoice_no||'').match(/(\d+)/); return n?('0'+n[1]):'0';
+}
 function buildInvoiceTrend(history, subtotal, project){
-  history=history||[];
+  history=(history||[]).slice().sort(function(a,b){ var ka=invPeriodKey(a), kb=invPeriodKey(b); if(ka!==kb) return ka<kb?-1:1;
+    var na=parseInt(String(a.invoice_no||'').replace(/\D/g,''),10)||0, nb=parseInt(String(b.invoice_no||'').replace(/\D/g,''),10)||0; return na-nb; });
   if(!history.length){
     return '<div class="no-print" style="margin:0 0 22px;padding:12px 14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;font-size:12.5px;color:#6b7280;">No prior invoices recorded for '+escAdmin(project)+' yet — this will be the first. Future invoices will chart the trend here.</div>';
   }
@@ -4975,10 +5036,59 @@ function buildInvoiceTrend(history, subtotal, project){
     '<div style="font-size:11px;color:#9ca3af;margin-top:8px;">Prior average $'+avg.toLocaleString(undefined,{maximumFractionDigits:2})+' · '+history.length+' prior invoice'+(history.length!==1?'s':'')+' · amounts in USD · this panel is not printed</div>'+
   '</div>';
 }
-function openInvoiceWindow(project, from, to, lines, subtotal, history, outstanding){
+/* ── CATEGORY TREND (Oct 16) — how each billed category scales up or down, cutoff by cutoff.
+   Logged, recorded hours per category for the last 5 cutoffs plus this invoice (before the hidden markup, so
+   every column is measured the same way). Not printed. */
+async function invCatTrend(project, curCut, curRaw){
+  var cuts=[], c=curCut; for(var i=0;i<5;i++){ c=pholdPrev(c); cuts.unshift(c); }
+  var pl=String(project).toLowerCase();
+  var res=await Promise.all(cuts.map(function(cc){
+    return fetch(API+'?action=get_worklog&project='+encodeURIComponent(project)+'&from='+cc.from+'&to='+cc.to+'&lean=1&_='+Date.now())
+      .then(function(r){ return r.json(); }).catch(function(){ return null; }); }));
+  var names={}, cols=cuts.map(function(cc,i){
+    var d=res[i], m={};
+    ((d&&d.worklog)||[]).forEach(function(w){
+      if((w.status||'recorded')!=='recorded') return; if(String(w.project||'').toLowerCase()!==pl) return;
+      var nm=String(w.category||'').trim()||'Uncategorized', k=nm.toLowerCase(); if(!names[k]) names[k]=nm;
+      m[k]=(m[k]||0)+(parseFloat(w.hours)||0); });
+    return { label:pholdFmt(cc.from)+'–'+parseInt(cc.to.slice(8),10), m:m, ok:!!(d&&d.worklog) };
+  });
+  var cm={}; Object.keys(curRaw||{}).forEach(function(k){ var nm=curRaw[k].name||k, kk=String(nm).toLowerCase(); if(!names[kk]) names[kk]=nm; cm[kk]=(cm[kk]||0)+(curRaw[k].hours||0); });
+  cols.push({ label:'This invoice', m:cm, cur:true, ok:true });
+  while(cols.length>1 && !cols[0].cur && !Object.keys(cols[0].m).length) cols.shift();   // before the project existed
+  return { cols:cols, names:names };
+}
+function buildCatTrend(T, project){
+  if(!T || !T.cols || !T.cols.length) return '';
+  var cols=T.cols, cur=cols[cols.length-1], keys=Object.keys(T.names);
+  if(!keys.length) return '';
+  keys.sort(function(a,b){ return (cur.m[b]||0)-(cur.m[a]||0) || String(T.names[a]).localeCompare(String(T.names[b])); });
+  var f1=function(v){ return v>=100?Math.round(v).toLocaleString():(Math.round(v*10)/10).toLocaleString(); };
+  var head='<tr><th style="text-align:left;padding:6px 8px;font-size:11px;color:#6b7280;font-weight:700;">Category</th>'+cols.map(function(c){ return '<th style="text-align:right;padding:6px 8px;font-size:11px;white-space:nowrap;color:'+(c.cur?'#FF6B1A':'#6b7280')+';font-weight:'+(c.cur?'800':'700')+';">'+escAdmin(c.label)+(c.ok?'':' ⚠')+'</th>'; }).join('')+
+    '<th style="text-align:right;padding:6px 8px;font-size:11px;color:#6b7280;font-weight:700;white-space:nowrap;">vs last</th></tr>';
+  var body=keys.map(function(k){
+    var vals=cols.map(function(c){ return c.m[k]||0; }), mx=Math.max.apply(null, vals)||1;
+    var prev=vals.length>1?vals[vals.length-2]:0, now=vals[vals.length-1];
+    var chg=prev>0?((now-prev)/prev*100):(now>0?null:0), up=chg==null||chg>=0;
+    return '<tr style="border-top:1px solid #f1f5f9;"><td style="padding:6px 8px;font-size:12px;font-weight:700;color:#1f2430;white-space:nowrap;">'+escAdmin(T.names[k])+'</td>'+
+      vals.map(function(v,i){ var isCur=cols[i].cur;
+        return '<td style="padding:6px 8px;text-align:right;vertical-align:bottom;"><div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">'+
+          '<div style="height:4px;width:'+Math.max(v>0?3:0, Math.round(v/mx*44))+'px;border-radius:2px;background:'+(isCur?'#FF6B1A':'#94a3b8')+';"></div>'+
+          '<span style="font-size:11.5px;'+(isCur?'font-weight:800;color:#1f2430;':'color:#475569;')+(v?'':'color:#cbd5e1;')+'">'+(v?f1(v)+'h':'—')+'</span></div></td>'; }).join('')+
+      '<td style="padding:6px 8px;text-align:right;font-size:11.5px;font-weight:800;white-space:nowrap;color:'+(chg==null?'#2563eb':(up?'#16a34a':'#dc2626'))+';">'+(chg==null?'new':((up?'▲ +':'▼ ')+chg.toFixed(0)+'%'))+'</td></tr>';
+  }).join('');
+  var tot=cols.map(function(c){ return Object.keys(c.m).reduce(function(a,k){ return a+(c.m[k]||0); },0); });
+  body+='<tr style="border-top:2px solid #e5e7eb;"><td style="padding:6px 8px;font-size:12px;font-weight:800;">Total</td>'+tot.map(function(v,i){ return '<td style="padding:6px 8px;text-align:right;font-size:11.5px;font-weight:800;'+(cols[i].cur?'color:#FF6B1A;':'')+'">'+(v?f1(v)+'h':'—')+'</td>'; }).join('')+'<td></td></tr>';
+  return '<div class="no-print" style="margin:-10px 0 22px;padding:14px 16px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;">'+
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:8px;"><span style="font-size:13px;font-weight:800;color:#1f2430;">Category trend — '+escAdmin(project)+'</span>'+
+    '<span style="font-size:11px;color:#9ca3af;">logged hours per cutoff · oldest → newest · before markup</span></div>'+
+    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'+head+body+'</table></div>'+
+    '<div style="font-size:11px;color:#9ca3af;margin-top:6px;">"vs last" compares this invoice with the previous cutoff. ⚠ = that cutoff could not be read (try again). This panel is not printed.</div></div>';
+}
+function openInvoiceWindow(project, from, to, lines, subtotal, history, outstanding, catTrend){
   outstanding=Math.round((parseFloat(outstanding)||0)*100)/100;
   var invNo='';   // no number until the invoice is RECORDED (assigned server-side, starts at 762)
-  var trendHtml=buildInvoiceTrend(history||[], subtotal, project);
+  var trendHtml=buildInvoiceTrend(history||[], subtotal, project)+buildCatTrend(catTrend, project);
   var today=new Date(); var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
   var logo='<svg width="58" height="58" viewBox="76 82 360 360" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="ilM" x1="0" y1="0.05" x2="0" y2="0.95"><stop offset="0%" stop-color="#FFE0BE"/><stop offset="16%" stop-color="#FFB16A"/><stop offset="46%" stop-color="#FF7A29"/><stop offset="78%" stop-color="#F1560F"/><stop offset="100%" stop-color="#C3380A"/></linearGradient><linearGradient id="ilB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF8E45"/><stop offset="55%" stop-color="#E64C10"/><stop offset="100%" stop-color="#A52E08"/></linearGradient></defs><rect x="241" y="110" width="30" height="304" rx="15" fill="url(#ilM)"/><path d="M256 226 Q341 264 398 320 Q341 376 256 414 Q171 376 114 320 Q171 264 256 226 Z" fill="none" stroke="url(#ilB)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/><path d="M256 110 Q341 148 398 204 Q341 260 256 298 Q171 260 114 204 Q171 148 256 110 Z" fill="none" stroke="url(#ilM)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   var rowsHtml=lines.map(function(l){
