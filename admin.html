@@ -4916,6 +4916,10 @@ async function wlSyncNow(){
   var from=(document.getElementById('wl-from')||{}).value, to=(document.getElementById('wl-to')||{}).value;
   if(await wlSheetSync(from, to, true)) { try{ await loadWorkLog(); }catch(_l){} }
 }
+/* Oct 16 (Jeth): renamed categories — the old name and the new one are the SAME line on invoices and in the
+   category trend. Add a pair here whenever a category is renamed (old name, lower case → current name). */
+var CAT_ALIAS={ 'reddit (evie & arya)':'Reddit (Arya & Kaia)' };
+function invCatAlias(c){ c=String(c||'').trim(); var a=CAT_ALIAS[c.toLowerCase()]; return a||c; }
 async function generateInvoice(){
   var project = (document.getElementById('wl-project-filter')||{}).value;
   if(!project){ alert('Pick a specific Project in the filter first — invoices are generated per project.'); return; }
@@ -4957,12 +4961,12 @@ async function generateInvoice(){
   (wlRows||[]).concat(_carRows).forEach(function(w){
     if((w.status||'recorded')!=='recorded') return;
     if((w.project||'').toLowerCase()!==project.toLowerCase()) return;
-    var cat=(w.category||'').trim();
+    var cat=invCatAlias(w.category);
     var key=cat.toLowerCase();
     if(!groups[key]) groups[key]={category:cat, hours:0};
     groups[key].hours += parseFloat(w.hours)||0;
   });
-  var lines=Object.keys(groups).map(function(k){return groups[k];});
+  var lines=Object.keys(groups).map(function(k){return groups[k];}).filter(function(l){ return (l.hours||0)>0.004; });   // no 0-hour lines on the client's invoice
   if(!lines.length){ alert('No recorded entries for "'+project+'" in the selected date range.\n(Only approved/recorded entries are billed — approve any pending ones first.)'); return; }
   lines.sort(function(a,b){ return a.category.localeCompare(b.category); });
   var pk=project.toLowerCase(); var subtotal=0;
@@ -5049,7 +5053,7 @@ async function invCatTrend(project, curCut, curRaw){
     var d=res[i], m={};
     ((d&&d.worklog)||[]).forEach(function(w){
       if((w.status||'recorded')!=='recorded') return; if(String(w.project||'').toLowerCase()!==pl) return;
-      var nm=String(w.category||'').trim()||'Uncategorized', k=nm.toLowerCase(); if(!names[k]) names[k]=nm;
+      var nm=invCatAlias(w.category)||'Uncategorized', k=nm.toLowerCase(); if(!names[k]) names[k]=nm;
       m[k]=(m[k]||0)+(parseFloat(w.hours)||0); });
     return { label:pholdFmt(cc.from)+'–'+parseInt(cc.to.slice(8),10), m:m, ok:!!(d&&d.worklog) };
   });
