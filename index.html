@@ -5705,6 +5705,14 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
         </div>
         <div id="att-body"><div class="empty-state"><div class="ei"></div><div class="et">No attendance yet</div><div class="es">Your daily time-in and time-out records will appear here.</div></div></div>
       </div>
+
+      <!-- Time analysis (Oct 17): your own cutoff, the way the admin sees it -->
+      <div class="card-head" style="margin-top:1.75rem;">
+        <div><div class="ch-t">Time analysis</div></div>
+        <div class="ch-line"></div>
+        <div class="ta-cuts" id="ta-cuts"></div>
+      </div>
+      <div class="ta-card" id="ta-body"><div class="ta-empty">Open this tab to load your cutoff.</div></div>
     </div>
 
     <!-- Per-date tracked-work popup (opened from the folder icon on each attendance row) -->
@@ -9034,6 +9042,7 @@ function switchTab(name, btn) {
   if (name === 'attendance') {
     skelInto('att-body', 5, 46);
     if (attEmpId) { loadAttendanceLogs(); }
+    try { TA.load(false); } catch(e) {}
     if (!cfyInited && window._currentEmpData) { cfyInited = true; initClockify(window._currentEmpData); }
     if (leaveEmpId) { try { syncLeaveFromServer(); updateLeaveBalance(); renderLeaveHistory(); } catch(e) {} }
   }
@@ -25991,7 +26000,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-16-B';
+var PORTAL_BUILD='2026-10-17-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -33790,6 +33799,230 @@ var ATTBAT = {
     this._shown = true;
   }
 };
+</script>
+<style id="ta-css">
+/* ══ TIME ANALYSIS + UPDATE NOTES (Oct 17) — plain on purpose: text, numbers and bars, no icons. ══ */
+.ta-cuts{ display:flex; gap:4px; padding:3px; border:1px solid var(--border); border-radius:999px; }
+.ta-cuts:empty{ display:none; }
+.ta-cut{ border:none; background:transparent; color:var(--text-2); border-radius:999px; padding:7px 13px; font:600 12px/1 inherit; cursor:pointer; white-space:nowrap; }
+.ta-cut.on{ background:var(--text-1); color:var(--bg-card,#fff); }
+.ta-cut small{ font-weight:500; opacity:.7; margin-left:6px; }
+.ta-card{ border:1px solid var(--border); border-radius:18px; padding:22px 24px 16px; background:var(--bg-card); }
+.ta-empty{ color:var(--text-3); font-size:13px; padding:12px 0; }
+.ta-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; padding-bottom:18px; border-bottom:1px solid var(--border); }
+.ta-lbl{ display:block; font-size:12px; font-weight:600; color:var(--text-3); }
+.ta-big{ font-size:34px; font-weight:700; letter-spacing:-.02em; color:var(--text-1); line-height:1.1; margin-top:4px; }
+.ta-sub{ display:block; font-size:12.5px; color:var(--text-3); margin-top:4px; }
+.ta-mini{ display:flex; gap:22px; flex-wrap:wrap; }
+.ta-mini div{ min-width:64px; }
+.ta-mini span{ display:block; font-size:11.5px; color:var(--text-3); font-weight:600; }
+.ta-mini b{ display:block; font-size:16px; color:var(--text-1); font-weight:700; margin-top:3px; }
+.ta-sec{ font-size:11px; font-weight:700; color:var(--text-3); letter-spacing:.08em; text-transform:uppercase; margin:20px 0 10px; }
+.ta-comp{ display:flex; gap:2px; height:12px; border-radius:999px; overflow:hidden; }
+.ta-comp i{ display:block; height:100%; }
+.ta-plist{ margin-top:6px; }
+.ta-prow{ display:flex; align-items:flex-start; gap:12px; padding:11px 0; border-bottom:1px solid var(--border); }
+.ta-prow:last-child{ border-bottom:none; }
+.ta-dot{ display:inline-block; flex:none; width:9px; height:9px; border-radius:3px; margin-top:4px; }
+.ta-dot.id{ background:var(--border); }
+.ta-pnm{ flex:1; min-width:0; }
+.ta-pnm b{ display:block; font-size:13.5px; color:var(--text-1); font-weight:600; }
+.ta-pnm span{ display:block; font-size:12px; color:var(--text-3); margin-top:2px; line-height:1.45; }
+.ta-ph{ text-align:right; white-space:nowrap; }
+.ta-ph b{ display:block; font-size:14px; color:var(--text-1); font-weight:700; }
+.ta-ph span{ display:block; font-size:11.5px; color:var(--text-3); margin-top:2px; }
+.ta-day{ display:grid; grid-template-columns:62px minmax(0,1fr) 96px; gap:14px; align-items:start; padding:10px 0; border-bottom:1px solid var(--border); }
+.ta-day:last-child{ border-bottom:none; }
+.ta-dd span{ display:block; font-size:11px; color:var(--text-3); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.ta-dd b{ display:block; font-size:13.5px; color:var(--text-1); font-weight:700; margin-top:1px; }
+.ta-dbar{ display:flex; gap:2px; height:24px; border-radius:7px; overflow:hidden; }
+.ta-dbar i{ display:block; height:100%; font:600 11px/24px inherit; font-style:normal; color:#fff; text-align:center; white-space:nowrap; overflow:hidden; }
+.ta-dbar i.id{ background:var(--border); color:var(--text-3); }
+.ta-dparts{ display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:6px; font-size:11.5px; color:var(--text-3); }
+.ta-dparts span{ display:inline-flex; align-items:center; gap:6px; }
+.ta-dparts .ta-dot{ width:8px; height:8px; margin-top:0; }
+.ta-dparts b{ color:var(--text-2); font-weight:600; }
+.ta-dt{ text-align:right; }
+.ta-dt b{ display:block; font-size:14px; color:var(--text-1); font-weight:700; }
+.ta-dt span{ display:block; font-size:11.5px; color:var(--text-3); margin-top:2px; }
+.ta-foot{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-top:16px; padding-top:14px; border-top:1px solid var(--border); font-size:11.5px; color:var(--text-3); line-height:1.6; }
+.ta-foot button{ flex:none; background:none; border:1px solid var(--border); border-radius:999px; color:var(--text-2); font:600 12px/1 inherit; cursor:pointer; padding:7px 13px; }
+@media (max-width:640px){ .ta-card{ padding:18px 16px 12px; } .ta-big{ font-size:28px; } .ta-day{ grid-template-columns:52px minmax(0,1fr); } .ta-dt{ grid-column:2; text-align:left; display:flex; gap:8px; align-items:baseline; } .ta-cut small{ display:none; } }
+
+/* update notes — written like an iOS update sheet */
+#pn-wrap{ position:fixed; inset:0; z-index:100500; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; padding:20px; opacity:0; transition:opacity .2s ease; }
+#pn-wrap.on{ opacity:1; }
+.pn-sheet{ width:100%; max-width:440px; max-height:86vh; overflow:auto; background:#fff; color:#111; border-radius:18px; padding:26px 26px 18px;
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter','Segoe UI',sans-serif; box-shadow:0 24px 60px rgba(15,23,42,.25); }
+.pn-k{ font-size:13px; color:#6b7280; font-weight:500; }
+.pn-v{ margin-top:14px; }
+.pn-v + .pn-v{ margin-top:22px; padding-top:18px; border-top:1px solid #e5e7eb; }
+.pn-t{ font-size:20px; font-weight:700; letter-spacing:-.01em; color:#111; }
+.pn-d{ font-size:13px; color:#6b7280; margin-top:2px; }
+.pn-s{ font-size:14.5px; line-height:1.55; color:#111; margin:12px 0 0; }
+.pn-l{ margin:10px 0 0; padding-left:18px; }
+.pn-l li{ font-size:14px; line-height:1.55; color:#1f2937; margin:6px 0; }
+.pn-btn{ display:block; width:100%; margin-top:22px; border:none; border-radius:12px; padding:13px 16px; background:#111; color:#fff; font:600 15px/1 inherit; font-family:inherit; cursor:pointer; }
+.pn-btn:focus-visible{ outline:2px solid #2563eb; outline-offset:2px; }
+</style>
+<script>
+/* ══ TIME ANALYSIS (Oct 17, Jeth) ══
+   A VA sees their own cutoff the way the admin console does: productive vs idle vs lunch, hours per project and
+   category (with the tasks inside), and day by day. Shown: the current cutoff always, and the cutoff that just
+   closed for 5 days after it ends, so hours can be checked before payslips go out. Nothing before Oct 1 2026:
+   September and earlier are closed books and are not offered here. Reads the VA's own rows only (get_worklog). */
+var TA=(function(){
+  var FLOOR='2026-10-01', GRACE=5, S={ key:'cur', cache:{}, busy:false };
+  function pad(n){ return ('0'+n).slice(-2); }
+  function ymd(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+  function today(){ try{ return _apToday(); }catch(e){ return new Date().toLocaleDateString('en-CA',{ timeZone:'Asia/Manila' }); } }
+  function cutOf(dk){ var y=+dk.slice(0,4), m=+dk.slice(5,7), d=+dk.slice(8,10);
+    return d<=15 ? { from:y+'-'+pad(m)+'-01', to:y+'-'+pad(m)+'-15' } : { from:y+'-'+pad(m)+'-16', to:ymd(new Date(y,m,0)) }; }
+  function dayAdd(dk,n){ var d=new Date(dk+'T00:00:00'); d.setDate(d.getDate()+n); return ymd(d); }
+  function short(dk){ return new Date(dk+'T00:00:00').toLocaleDateString('en-US',{ month:'short', day:'numeric' }); }
+  function range(c){ var a=new Date(c.from+'T00:00:00'), b=new Date(c.to+'T00:00:00'); return a.toLocaleDateString('en-US',{ month:'short' })+' '+a.getDate()+'–'+b.getDate(); }
+  function cuts(){
+    var t=today(), cur=cutOf(t), out=[];
+    if(cur.from>=FLOOR) out.push({ key:'cur', from:cur.from, to:cur.to, label:range(cur), sub:'current' });
+    var p=cutOf(dayAdd(cur.from,-1)), last=dayAdd(p.to, GRACE);
+    if(p.from>=FLOOR && t<=last) out.push({ key:'prev', from:p.from, to:p.to, label:range(p), sub:'closed · until '+short(last) });
+    return out;
+  }
+  function empId(){ try{ return _myEmpId() || (typeof attEmpId!=='undefined' && attEmpId) || ''; }catch(e){ return ''; } }
+  function hm(h){ var m=Math.round((h||0)*60); return Math.floor(m/60)+'h '+pad(m%60)+'m'; }
+  function esc(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  function kind(w){ var pj=String(w.project||'').toLowerCase(), cat=String(w.category||'').toLowerCase(), tk=String(w.task||'').toLowerCase();
+    if(/lunch/.test(cat) || /lunch/.test(tk)) return 'lunch';
+    if(pj.indexOf('idle')>=0 || pj==='untracked') return 'idle';
+    return 'work'; }
+  function agg(wl, c){
+    var A={ counted:0, waiting:0, rejected:0, idle:0, lunch:0, proj:{}, days:{} };
+    (wl||[]).forEach(function(w){
+      var dk=String(w.date||'').slice(0,10); if(!dk || dk<c.from || dk>c.to) return;
+      var h=parseFloat(w.hours)||0; if(!(h>0)) return;
+      var k=kind(w), st=String(w.status||'recorded').toLowerCase();
+      if(st==='rejected'){ if(k==='work') A.rejected+=h; return; }
+      var D=A.days[dk]=A.days[dk]||{ work:0, idle:0, lunch:0, p:{} };
+      if(k==='lunch'){ A.lunch+=h; D.lunch+=h; return; }
+      if(k==='idle'){ A.idle+=h; D.idle+=h; return; }
+      if(st==='recorded') A.counted+=h; else A.waiting+=h;
+      D.work+=h;
+      var pj=String(w.project||'Other').trim(), cat=String(w.category||'').trim(), key=pj.toLowerCase()+'|'+cat.toLowerCase();
+      D.p[key]=(D.p[key]||0)+h;
+      var P=A.proj[key]=A.proj[key]||{ key:key, project:pj, category:cat, h:0, wait:0, tasks:{} };
+      P.h+=h; if(st!=='recorded') P.wait+=h;
+      var tk=String(w.task||'').trim()||'No task name'; P.tasks[tk]=(P.tasks[tk]||0)+h;
+    });
+    return A;
+  }
+  function renderCuts(list){
+    var box=document.getElementById('ta-cuts'); if(!box) return;
+    box.innerHTML = list.length>1 ? list.map(function(c){ return '<button type="button" class="ta-cut'+(S.key===c.key?' on':'')+'" onclick="TA.pick(\''+c.key+'\')">'+esc(c.label)+'<small>'+esc(c.sub)+'</small></button>'; }).join('') : '';
+  }
+  function render(c, A){
+    var body=document.getElementById('ta-body'); if(!body) return;
+    var work=A.counted+A.waiting, base=work+A.idle, share=base>0 ? Math.round(work/base*100) : null, t=today();
+    var projs=Object.keys(A.proj).map(function(k){ return A.proj[k]; }).sort(function(a,b){ return b.h-a.h; });
+    var PAL=['#2563eb','#0d9488','#d97706','#7c3aed','#db2777','#65a30d','#0891b2','#b45309'], COL={}, NAME={};
+    projs.forEach(function(P,i){ COL[P.key]=PAL[i%PAL.length]; NAME[P.key]=P.category||P.project; });
+    var dot=function(k){ return '<i class="ta-dot" style="background:'+COL[k]+'"></i>'; };
+    /* headline */
+    var mini=[['Productive share', share==null?'—':share+'%'], A.waiting>0.004?['Waiting', hm(A.waiting)]:null, ['Idle', hm(A.idle)], ['Lunch', hm(A.lunch)]].filter(Boolean);
+    var head='<div class="ta-head"><div class="ta-kpi"><span class="ta-lbl">Productive hours</span><div class="ta-big">'+hm(work)+'</div>'+
+      '<span class="ta-sub">'+esc(range(c))+(c.to<t?' · closed':' · updates as you work')+(A.waiting>0.004?' · '+hm(A.counted)+' recorded':'')+'</span></div>'+
+      '<div class="ta-mini">'+mini.map(function(x){ return '<div><span>'+esc(x[0])+'</span><b>'+esc(x[1])+'</b></div>'; }).join('')+'</div></div>';
+    /* whole-cutoff composition + the colour key, which is also the by-project list */
+    var comp=projs.length ? '<div class="ta-comp">'+projs.map(function(P){ return '<i style="width:'+(work>0?P.h/work*100:0)+'%;background:'+COL[P.key]+'" title="'+esc(NAME[P.key]+': '+hm(P.h))+'"></i>'; }).join('')+'</div>' : '';
+    var list=projs.map(function(P){
+      var tasks=Object.keys(P.tasks).map(function(k){ return [k, P.tasks[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+      return '<div class="ta-prow">'+dot(P.key)+'<div class="ta-pnm"><b>'+esc(NAME[P.key])+'</b><span>'+esc(P.category?P.project:'')+(P.category&&tasks.length?' · ':'')+
+        tasks.map(function(x){ return esc(x[0])+' '+hm(x[1]); }).join(', ')+'</span></div>'+
+        '<div class="ta-ph"><b>'+hm(P.h)+'</b><span>'+(work>0?Math.round(P.h/work*100):0)+'%'+(P.wait>0.004?' · '+hm(P.wait)+' waiting':'')+'</span></div></div>';
+    }).join('');
+    /* day by day — each day split by project, hours written inside each piece, the pieces named underneath */
+    var end=c.to<t ? c.to : t, days=[], d=c.from;
+    while(d<=end){ var D0=A.days[d]; if(D0 && D0.work+D0.idle>0.004) days.push(d); d=dayAdd(d,1); }
+    var maxD=days.reduce(function(m,k){ var D=A.days[k]; return Math.max(m, D.work+D.idle); }, 0) || 1;
+    var dayRows=days.map(function(k){ var D=A.days[k], dt=new Date(k+'T00:00:00');
+      var segs=projs.filter(function(P){ return (D.p[P.key]||0)>0.004; }).map(function(P){ return { key:P.key, h:D.p[P.key] }; });
+      var bar=segs.map(function(g){ var pct=g.h/maxD*100;
+        return '<i style="width:'+pct+'%;background:'+COL[g.key]+'" title="'+esc(NAME[g.key]+': '+hm(g.h))+'">'+(pct>=12?hm(g.h):'')+'</i>'; }).join('')+
+        (D.idle>0.004 ? '<i class="id" style="width:'+(D.idle/maxD*100)+'%" title="'+esc('Idle: '+hm(D.idle))+'">'+((D.idle/maxD*100)>=12?'Idle':'')+'</i>' : '');
+      var parts=segs.map(function(g){ return '<span>'+dot(g.key)+esc(NAME[g.key])+' <b>'+hm(g.h)+'</b></span>'; }).join('')+
+        (D.idle>0.004 ? '<span><i class="ta-dot id"></i>Idle <b>'+hm(D.idle)+'</b></span>' : '');
+      return '<div class="ta-day"><div class="ta-dd"><span>'+esc(dt.toLocaleDateString('en-US',{ weekday:'short' }))+'</span><b>'+esc(dt.toLocaleDateString('en-US',{ month:'short', day:'numeric' }))+'</b></div>'+
+        '<div class="ta-dmain"><div class="ta-dbar">'+bar+'</div><div class="ta-dparts">'+parts+'</div></div>'+
+        '<div class="ta-dt"><b>'+hm(D.work)+'</b>'+(D.idle>0.004?'<span>+ '+hm(D.idle)+' idle</span>':'')+'</div></div>'; }).join('');
+    body.innerHTML=head+
+      (projs.length ? '<div class="ta-sec">Where your hours went</div>'+comp+'<div class="ta-plist">'+list+'</div>' : '<div class="ta-empty">No tracked work in this cutoff yet.</div>')+
+      (dayRows ? '<div class="ta-sec">Day by day</div><div class="ta-days">'+dayRows+'</div>' : '')+
+      '<div class="ta-foot"><span>Only recorded hours count toward your payslip. Waiting hours count once the timer is closed or the appeal is approved.'+
+        (A.rejected>0.004 ? ' Rejected entries are left out ('+hm(A.rejected)+').' : '')+' Cutoffs before October 2026 are not shown.</span>'+
+        '<button type="button" onclick="TA.load(true)">Refresh</button></div>';
+  }
+  async function load(force){
+    var list=cuts(); if(!list.some(function(c){ return c.key===S.key; })) S.key='cur';
+    renderCuts(list);
+    var c=list.filter(function(x){ return x.key===S.key; })[0], body=document.getElementById('ta-body');
+    if(!c || !body){ if(body) body.innerHTML='<div class="ta-empty">No cutoff to show yet.</div>'; return; }
+    var id=empId(); if(!id){ body.innerHTML='<div class="ta-empty">Sign in to see your time analysis.</div>'; return; }
+    var ck=id+'|'+c.from, hit=S.cache[ck];
+    if(hit && !force && Date.now()-hit.at<120000){ render(c, hit.A); return; }
+    if(S.busy) return; S.busy=true;
+    if(!hit) body.innerHTML='<div class="ta-empty">Loading '+esc(range(c))+'…</div>';
+    try{
+      var r=await jGet(APPS_SCRIPT_URL+'?action=get_worklog&employee_id='+encodeURIComponent(id)+'&from='+c.from+'&to='+c.to+'&_='+Date.now(), 0);
+      var d=await r.json(); var A=agg((d&&d.worklog)||[], c);
+      S.cache[ck]={ at:Date.now(), A:A }; render(c, A);
+    }catch(e){ if(!hit) body.innerHTML='<div class="ta-empty">Could not load your hours. <button type="button" class="ta-cut" onclick="TA.load(true)">Try again</button></div>'; }
+    S.busy=false;
+  }
+  return { load:load, pick:function(k){ S.key=k; load(false); }, _agg:agg, _cuts:cuts };
+})();
+
+/* ══ UPDATE NOTES (Oct 17, Jeth) ══
+   After an update, the next time someone opens the portal they read what changed: version, date, one short paragraph
+   and a plain list, the way an iOS update reads. No icons, emoji or pictures. Shown once per person per release on
+   this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
+   first) with every build that changes something a VA will notice. */
+var PORTAL_NOTES=[
+  { build:'2026-10-17-A', version:'2026.10.17', date:'October 17, 2026',
+    summary:'This update adds a time analysis to Attendance and shows a short summary like this one after every portal update.',
+    items:[
+      'Time analysis: under Attendance, see your productive, idle and lunch hours for the cutoff, split by project and day.',
+      'The cutoff that just closed stays viewable for 5 days after it ends, so you can check your hours before payslips go out.',
+      'Payslips: hours on a project that is still in its first week show as on hold and move to the next cutoff.',
+      'Scorecard: the Innovation card now shows this month’s due date.'
+    ] }
+];
+(function(){
+  var shown=false;
+  function key(){ var id=''; try{ id=(window._currentEmpData&&window._currentEmpData.employee_id)||''; }catch(e){} return 'portal_notes_seen'+(id?'_'+id:''); }
+  function seen(){ try{ return localStorage.getItem(key())||''; }catch(e){ return ''; } }
+  function esc(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  function unseen(){ var s=seen(); return PORTAL_NOTES.filter(function(n){ return n.build<=PORTAL_BUILD && (!s || n.build>s); }).slice(0,3); }
+  function show(list){
+    if(shown || !list.length || document.getElementById('pn-wrap')) return; shown=true;
+    var w=document.createElement('div'); w.id='pn-wrap';
+    w.innerHTML='<div class="pn-sheet" role="dialog" aria-modal="true" aria-labelledby="pn-t0"><div class="pn-k">Portal update</div>'+
+      list.map(function(n,i){ return '<div class="pn-v"><div class="pn-t" id="pn-t'+i+'">JMB Portal '+esc(n.version)+'</div><div class="pn-d">'+esc(n.date)+'</div>'+
+        '<p class="pn-s">'+esc(n.summary)+'</p><ul class="pn-l">'+(n.items||[]).map(function(t){ return '<li>'+esc(t)+'</li>'; }).join('')+'</ul></div>'; }).join('')+
+      '<button type="button" class="pn-btn">Continue</button></div>';
+    document.body.appendChild(w);
+    setTimeout(function(){ w.classList.add('on'); }, 30);
+    var done=function(){ try{ localStorage.setItem(key(), list[0].build); }catch(e){} w.classList.remove('on'); setTimeout(function(){ w.remove(); }, 220); };
+    w.querySelector('.pn-btn').onclick=done;
+    setTimeout(function(){ try{ w.querySelector('.pn-btn').focus(); }catch(e){} }, 60);
+  }
+  window.__portalNotes=function(force){ if(force){ shown=false; show(PORTAL_NOTES.slice(0,1)); } else show(unseen()); };
+  /* wait until someone is signed in and the portal is on screen, then give the opening screens a moment */
+  var tries=0, iv=setInterval(function(){
+    tries++; if(tries>600){ clearInterval(iv); return; }
+    var signed=!!(window._currentEmpData&&window._currentEmpData.employee_id), ls=document.getElementById('login-screen');
+    var loginUp=ls && ls.style.display!=='none' && ls.offsetParent!==null;
+    if(signed && !loginUp){ clearInterval(iv); setTimeout(function(){ show(unseen()); }, 2500); }
+  }, 1000);
+})();
 </script>
 </body>
 </html>
