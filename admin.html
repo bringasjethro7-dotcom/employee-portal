@@ -4418,9 +4418,12 @@ async function loadPayslipsAdmin(){
         var _pm=(fund.paid||{})[p.period||'']||{}, _cov={};
         _parts.forEach(function(x){ String(x.client_paid||'').split(',').forEach(function(c){ c=c.trim().toLowerCase(); if(c) _cov[c]=1; }); });
         var _totH=0,_fH=0,_newH=0,_newP=[],_fP=[],_waitP=[],_waitH=0;
-        _spl.forEach(function(x){ var h=parseFloat(x.h)||0, k=String(x.p).toLowerCase(), f=!!(x.f||_pm[k]); _totH+=h;
+        /* Oct 19 (Jeth — Hamto: "only Altz time has been paid"): JMB Internal is no longer treated as founder-funded.
+           Its hours (Project 1 / Project 2 clients) are billed on the JMB Internal invoice, so they are payable only once
+           that invoice is marked paid, like every other client. */
+        _spl.forEach(function(x){ var h=parseFloat(x.h)||0, k=String(x.p).toLowerCase(), f=!!_pm[k]; _totH+=h;
           if(f){ _fH+=h; _fP.push(x.p); if(!_cov[k]){ _newH+=h; _newP.push(x.p); } } else { _waitH+=h; _waitP.push(x.p); } });
-        var _mainOk=(_intOnly || isFunded(p.period,proj)), _fs;
+        var _mainOk=isFunded(p.period,proj), _fs;
         if(paid) _fs='paid';
         else if(_spl.length>1 && _totH>0) _fs=(_fH>=_totH-0.005) ? 'ready' : (_newH>0.005 ? 'partial' : 'waiting');
         else _fs=(_mainOk || (_totH>0 && _fH>=_totH-0.005)) ? 'ready' : 'waiting';
@@ -4456,7 +4459,7 @@ async function loadPayslipsAdmin(){
         :(r.partialPaid>0?'<span style="color:#2563eb;font-weight:700;">◐ Partial · ₱'+r.partialPaid.toLocaleString()+'</span>':'<span style="color:#f59e0b;font-weight:600;">● Pending</span>');
       // Project / Invoice funding cell
       var projCell, _others=(r.split||[]).filter(function(x){ return x.p!==r.project; });
-      var _splitLine=_others.length?'<div style="font-size:10.5px;color:var(--t3);margin-top:2px;line-height:1.35">+ '+_others.map(function(x){ return payEsc(x.p)+' '+x.h.toFixed(1)+'h'+(x.f?' (JMB-funded)':''); }).join(' · ')+'</div>':'';
+      var _splitLine=_others.length?'<div style="font-size:10.5px;color:var(--t3);margin-top:2px;line-height:1.35">+ '+_others.map(function(x){ return payEsc(x.p)+' '+x.h.toFixed(1)+'h'; }).join(' · ')+'</div>':'';
       if(!r.project){ projCell='<span style="color:var(--t3);font-size:11.5px;">no tracked project</span>'; }
       else if(r.paid){ projCell='<span style="color:var(--t3);font-size:12px;">'+payEsc(r.project)+'</span>'+_splitLine; }
       else if(r.funded){ projCell='<div style="font-size:12px;color:var(--t1);">'+payEsc(r.project)+'</div>'+_splitLine+'<span style="display:inline-block;margin-top:3px;font-size:10.5px;font-weight:700;color:#16a34a;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);border-radius:20px;padding:1px 8px;white-space:nowrap;"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><ellipse cx=\"12\" cy=\"7\" rx=\"7\" ry=\"3\"/><path d=\"M5 7v6c0 1.7 3.1 3 7 3s7-1.3 7-3V7\"/></svg> Invoice paid — ready</span>'; }
@@ -4472,7 +4475,7 @@ async function loadPayslipsAdmin(){
           var _fund=window._payFund||{};
           var _split=((_fund.projects_by_period||{})[r.period]||{})[r.empId]||[];
           var _paidMap=(_fund.paid||{})[r.period]||{};
-          var _f=_split.filter(function(x){ return x.f || !!_paidMap[String(x.p).toLowerCase()]; }).length;   // JMB Internal = founder-funded, always settled
+          var _f=_split.filter(function(x){ return !!_paidMap[String(x.p).toLowerCase()]; }).length;   // Oct 19: JMB Internal waits for its invoice too
           showPartial=(_split.length>1 && _f>0 && _f<_split.length);
         }catch(_pp){}
       }
@@ -4613,7 +4616,7 @@ function openPartialModal(idx){
   var isFunded=function(proj){ return !!((fund.paid||{})[r.period] && fund.paid[r.period][String(proj).toLowerCase()]); };
   var cov={}; (r.partials||[]).forEach(function(t){ String(t.client_paid||'').split(',').forEach(function(c){ c=c.trim().toLowerCase(); if(c) cov[c]=1; }); });
   var rowsHtml = split.length ? split.map(function(x,i){
-      var f=x.f || isFunded(x.p);
+      var f=isFunded(x.p);   // Oct 19: JMB Internal is invoiced (Project 1 / 2), not founder-funded
       if(cov[String(x.p).toLowerCase()]) return '<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px dashed var(--line);border-radius:9px;margin-bottom:6px;opacity:.7;">'+
         '<span style="width:13px;text-align:center;">✓</span><span style="flex:1;font-size:13px;font-weight:600;">'+payEsc(x.p)+'</span>'+
         '<span style="font-size:12px;color:var(--t2);font-family:monospace;">'+x.h.toFixed(2)+'h</span>'+
@@ -4622,7 +4625,7 @@ function openPartialModal(idx){
         '<input type="checkbox" class="ppm-chk" data-h="'+x.h+'" data-p="'+payEsc(x.p)+'"'+(f?' checked':'')+' onchange="ppmRecalc()">'+
         '<span style="flex:1;font-size:13px;font-weight:600;">'+payEsc(x.p)+'</span>'+
         '<span style="font-size:12px;color:var(--t2);font-family:monospace;">'+x.h.toFixed(2)+'h</span>'+
-        (f?'<span style="font-size:10px;font-weight:700;color:#16a34a;background:rgba(34,197,94,.12);border-radius:20px;padding:1px 7px;"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><ellipse cx=\"12\" cy=\"7\" rx=\"7\" ry=\"3\"/><path d=\"M5 7v6c0 1.7 3.1 3 7 3s7-1.3 7-3V7\"/></svg> '+(x.f?'JMB-funded':'invoice paid')+'</span>'
+        (f?'<span style="font-size:10px;font-weight:700;color:#16a34a;background:rgba(34,197,94,.12);border-radius:20px;padding:1px 7px;"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><ellipse cx=\"12\" cy=\"7\" rx=\"7\" ry=\"3\"/><path d=\"M5 7v6c0 1.7 3.1 3 7 3s7-1.3 7-3V7\"/></svg> '+'invoice paid'+'</span>'
           :'<span style="font-size:10px;color:var(--t3);background:rgba(15,23,42,.06);border-radius:20px;padding:1px 7px;">awaiting</span>')+
       '</label>'; }).join('')
     : '<div style="color:var(--t3);font-size:12px;padding:8px 2px;">No per-client hour split found for this period — enter the amount manually below.</div>';
@@ -7002,13 +7005,26 @@ function _deactSet(){
   try{ (src||[]).forEach(function(e){ if(!e||!e.employee_id) return; var s=String(e.status||'active').toLowerCase(); if(/inactive|deactivat|disabled|archived|offboard|terminated|resigned/.test(s)) set[String(e.employee_id).toLowerCase()]=1; }); }catch(_){}
   return set;
 }
+/* ── COMPLETE SCORECARDS RANK FIRST (Oct 19, Jeth) ──
+   From October 2026 the ranking puts VAs with all three TOOL scores (Productivity, QA, Results) above anyone
+   missing one, and those missing more below them. A high Overall built only from the portal half (attendance,
+   conduct, assessment…) no longer outranks a full scorecard. Within each group: highest Overall first.
+   Months before October keep their original order (September is already finalized and announced). */
+function _scNum(v){ return v!==''&&v!=null&&!isNaN(parseFloat(v)); }
+function _scToolCount(r){ if(!r) return 0; var res=(String(r.month||'')>='2026-09')?r.results:r.csat; return (_scNum(r.productivity)?1:0)+(_scNum(r.quality)?1:0)+(_scNum(res)?1:0); }
+function _scRankCmp(a,b){
+  var ov=function(v){ return _scNum(v)?parseFloat(v):-Infinity; };
+  var m=String((a&&a.month)||(b&&b.month)||'');
+  if(m>='2026-10'){ var d=_scToolCount(b)-_scToolCount(a); if(d) return d; }
+  return ov(b.overall)-ov(a.overall);
+}
 function _scFilterActive(rows){ var dead=_deactSet(); return (rows||[]).filter(function(r){ return !dead[String(r.employee_id||'').toLowerCase()]; }); }
 function _scPaint(rows){
   var tbody = document.getElementById('sc-body'); if(!tbody) return;
   rows = _scFilterActive(rows);
   if(!rows || !rows.length){ tbody.innerHTML = '<tr><td colspan="11" class="es">No scorecards found.</td></tr>'; return; }
   var _ov = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v) : -Infinity; };
-  rows = rows.slice().sort(function(a,b){ return _ov(b.overall) - _ov(a.overall); });
+  rows = rows.slice().sort(_scRankCmp);
   /* ── LIVE RANKING MOVEMENT (Aug 2026) ──
      ▲▼ = places moved vs the LAST OBSERVED standing (kept per month in localStorage),
      with the overall's +/− delta next to it. The diff freezes until the data actually
@@ -7052,7 +7068,7 @@ function _scPaint(rows){
       if(_mv.dv&&Math.abs(_mv.dv)>=0.005) dvH='<span style="font-size:10px;font-weight:700;color:'+(_mv.dv>0?'#16a34a':'#dc2626')+';margin-left:4px;">'+(_mv.dv>0?'+':'')+_mv.dv.toFixed(2)+'</span>';
     }
     return '<tr>' +
-      '<td>' + rk + mvH + '<strong>' + (sc.full_name||sc.employee_id) + '</strong></td>' +
+      '<td>' + rk + mvH + '<strong>' + (sc.full_name||sc.employee_id) + '</strong>' + ((String(sc.month||'')>='2026-10' && _scToolCount(sc)<3) ? ' <span title="Ranked below complete scorecards — missing '+(3-_scToolCount(sc))+' of the 3 tool scores (Productivity, QA, Results)" style="font-size:9.5px;font-weight:700;color:#b45309;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);border-radius:20px;padding:0 6px;margin-left:4px;white-space:nowrap;">incomplete '+_scToolCount(sc)+'/3</span>' : '') + '</td>' +
       '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
       /* tool half */
       '<td style="background:rgba(37,99,235,.035);"><span style="color:#2563eb;font-weight:600;">' + dash(sc.productivity) + '</span>' + xt(sc,'productivity') + '</td>' +
@@ -7310,7 +7326,7 @@ async function _scRanked(){
     r.photo = pmap[k]||r.photo||'';
     r.hero  = hmap[k]||r.hero||''; });
   var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; };
-  rows.sort(function(a,b){ return ov(b.overall)-ov(a.overall); });   // highest first → rank = index+1
+  rows.sort(_scRankCmp);   // complete scorecards first (Oct 2026+), then highest Overall → rank = index+1
   return { rows:rows, month:month };
 }
 // ── Finalize Month (freeze rankings + awards) ──
@@ -7331,7 +7347,7 @@ function _attachPhotos(rows){
   });
   return rows;
 }
-function _scRankSort(rows){ var ov=function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v)))?parseFloat(v):-Infinity; }; return (rows||[]).slice().sort(function(a,b){ return ov(b.overall)-ov(a.overall); }); }
+function _scRankSort(rows){ return (rows||[]).slice().sort(_scRankCmp); }
 function _scValid(r){ return r && r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); }
 async function _loadFinal(month){
   try{ var d=await (await jGet(API+'?action=get_finalized&month='+encodeURIComponent(month||''), 2500, 30000)).json(); return (d&&d.finalized&&d.snapshot)?d.snapshot:null; }
