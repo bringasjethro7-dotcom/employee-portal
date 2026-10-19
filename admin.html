@@ -4408,23 +4408,44 @@ async function loadPayslipsAdmin(){
         if(fStatus==='pending'&&paid) return;
         var _parts=(p.partials||[]).slice(); if(p.partial) _parts.push(p.partial);
         var _partSum=0; _parts.forEach(function(x){ _partSum+=parseFloat(x.amount)||0; });
-        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(!paid && (_intOnly || isFunded(p.period,proj))),split:_spl,locked:p.locked||null,rate:(p.locked&&p.locked.rate)||p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
+        /* FUNDING STATE (Oct 19 fix): "ready" used to look at the MAIN project only, so a slip whose main client
+           had paid showed the whole amount even with another client still unpaid, and the pay board had no
+           partial option at all. Now every client in the cutoff is checked:
+             ready   = every client's hours are settled (or JMB-funded) → pay what is left
+             partial = some settled hours not paid out yet → only that share is payable now
+             waiting = nothing new is payable yet
+           Clients already covered by an earlier ◐ tranche (its client_paid list) are not counted twice. */
+        var _pm=(fund.paid||{})[p.period||'']||{}, _cov={};
+        _parts.forEach(function(x){ String(x.client_paid||'').split(',').forEach(function(c){ c=c.trim().toLowerCase(); if(c) _cov[c]=1; }); });
+        var _totH=0,_fH=0,_newH=0,_newP=[],_fP=[],_waitP=[],_waitH=0;
+        _spl.forEach(function(x){ var h=parseFloat(x.h)||0, k=String(x.p).toLowerCase(), f=!!(x.f||_pm[k]); _totH+=h;
+          if(f){ _fH+=h; _fP.push(x.p); if(!_cov[k]){ _newH+=h; _newP.push(x.p); } } else { _waitH+=h; _waitP.push(x.p); } });
+        var _mainOk=(_intOnly || isFunded(p.period,proj)), _fs;
+        if(paid) _fs='paid';
+        else if(_spl.length>1 && _totH>0) _fs=(_fH>=_totH-0.005) ? 'ready' : (_newH>0.005 ? 'partial' : 'waiting');
+        else _fs=(_mainOk || (_totH>0 && _fH>=_totH-0.005)) ? 'ready' : 'waiting';
+        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(_fs==='ready'),fstate:_fs,fShare:(_totH>0?_fH/_totH:0),fNewH:Math.round(_fH*100)/100,fNewP:_fP,fWaitP:_waitP,fWaitH:Math.round(_waitH*100)/100,split:_spl,locked:p.locked||null,rate:(p.locked&&p.locked.rate)||p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
       });
     });
+    /* Settled share minus what earlier ◐ tranches already sent → is anything payable now? (works even when an
+       older tranche was entered by hand without a client list) */
+    rows.forEach(function(r){ if(r.paid || r.fstate==='ready' || !(r.fShare>0)) return;
+      var v=Math.round((payNet(r)*r.fShare-(r.partialPaid||0))*100)/100; r.fstate=(v>0.5)?'partial':'waiting'; });
     // Ready-to-pay (invoice paid) pending first, then other pending, then paid — newest within
     // each. A partially-paid slip sits with the normal pending rows: it is simply awaiting the
     // other client's invoice again, so it gets no special placement or highlight.
     rows.sort(function(a,b){
       if(a.paid!==b.paid) return a.paid?1:-1;
-      if(!a.paid && !b.paid && a.funded!==b.funded) return a.funded?-1:1;
+      var _rk={ ready:0, partial:1, waiting:2 };
+      if(!a.paid && !b.paid && _rk[a.fstate]!==_rk[b.fstate]) return (_rk[a.fstate]||0)-(_rk[b.fstate]||0);
       return _payPeriodTime(b.period)-_payPeriodTime(a.period);
     });
     var sumEl=document.getElementById('pay-summary');
     if(!rows.length){ body.innerHTML='<tr><td colspan="7" class="es">No payslips found. Add payslips in the Contractors tab.</td></tr>'; if(sumEl) sumEl.textContent=''; return; }
     var paidN=rows.filter(function(r){return r.paid;}).length;
-    var readyRows=rows.filter(function(r){return !r.paid && r.funded;});
+    var readyRows=rows.filter(function(r){return !r.paid && (r.fstate==='ready' || r.fstate==='partial');});
     var readyN=readyRows.length;
-    var readyTotal=readyRows.reduce(function(s,r){ return s+payNet(r); },0);
+    var readyTotal=readyRows.reduce(function(s,r){ return s+payNowOf(r); },0);
     var readyTotalStr='₱'+readyTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
     if(sumEl) sumEl.innerHTML=rows.length+' payslip'+(rows.length>1?'s':'')+' · '+paidN+' paid · '+(rows.length-paidN)+' pending'+
       (readyN?' · <b style="color:#16a34a;">'+readyN+' ready to pay</b> · <b style="color:#16a34a;">'+readyTotalStr+' total</b>':'');
@@ -4439,6 +4460,7 @@ async function loadPayslipsAdmin(){
       if(!r.project){ projCell='<span style="color:var(--t3);font-size:11.5px;">no tracked project</span>'; }
       else if(r.paid){ projCell='<span style="color:var(--t3);font-size:12px;">'+payEsc(r.project)+'</span>'+_splitLine; }
       else if(r.funded){ projCell='<div style="font-size:12px;color:var(--t1);">'+payEsc(r.project)+'</div>'+_splitLine+'<span style="display:inline-block;margin-top:3px;font-size:10.5px;font-weight:700;color:#16a34a;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);border-radius:20px;padding:1px 8px;white-space:nowrap;"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><ellipse cx=\"12\" cy=\"7\" rx=\"7\" ry=\"3\"/><path d=\"M5 7v6c0 1.7 3.1 3 7 3s7-1.3 7-3V7\"/></svg> Invoice paid — ready</span>'; }
+      else if(r.fstate==='partial'){ projCell='<div style="font-size:12px;color:var(--t1);">'+payEsc(r.project)+'</div>'+_splitLine+'<span style="display:inline-block;margin-top:3px;font-size:10.5px;font-weight:700;color:#2563eb;background:rgba(37,99,235,.10);border:1px solid rgba(37,99,235,.35);border-radius:20px;padding:1px 8px;white-space:nowrap;" title="'+payEsc(r.fNewP.join(', ')+' settled · '+r.fWaitP.join(', ')+' not yet')+'">◐ Part funded — '+payMoney(payNowOf(r))+' payable now</span>'; }
       else{ projCell='<div style="font-size:12px;color:var(--t2);">'+payEsc(r.project)+'</div>'+_splitLine+'<span style="display:inline-block;margin-top:3px;font-size:10.5px;color:var(--t3);background:rgba(15,23,42,.07);border:1px solid var(--line);border-radius:20px;padding:1px 8px;white-space:nowrap;">Awaiting invoice</span>'; }
       /* ◐ Partial only appears when it genuinely applies: the slip already has a partial
          tranche recorded, or the VA worked for several clients this period and SOME (not all)
@@ -4497,6 +4519,21 @@ function removeEmpQr(){
 function payAmt(r){ if(r.locked && parseFloat(r.locked.gross)>0) return parseFloat(r.locked.gross); var a=parseFloat(r.amount); if(!isNaN(a)&&a>0) return a; var rate=parseFloat(r.rate)||0,hours=parseFloat(r.hours)||0,basic=hours*rate/240,night=(String(r.shift).toLowerCase()==='night')?basic*0.05:0,inc=parseFloat(r.incentives)||0; return basic+night+inc; }
 function payMoney(n){ return '₱'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function payNet(r){ return Math.max(0, payAmt(r)-(parseFloat(r.deductions)||0)); }
+/* What can be paid out right now: the rest of the slip when every client has settled, only the settled
+   clients' hours share when some have not, nothing while all are still waiting. */
+function payWaitWhy(r){
+  var w=(r.fWaitP&&r.fWaitP.length)?r.fWaitP.join(', '):'';
+  return (r.partialPaid>0 && r.fShare>0)
+    ? 'The settled share is already sent'+(w?'; still waiting on '+w:'')+'.'
+    : 'No client invoice is settled for this payslip yet'+(w?' ('+w+')':'')+'.';
+}
+function payNowOf(r){
+  var left=Math.max(0, Math.round((payNet(r)-(r.partialPaid||0))*100)/100);
+  if(r.paid) return 0;
+  if(r.fstate==='ready') return left;
+  if(r.fstate==='partial') return Math.max(0, Math.min(left, Math.round((payNet(r)*(r.fShare||0)-(r.partialPaid||0))*100)/100));
+  return 0;
+}
 function openPayModal(idx){
   var r=(window._payRows||[])[idx]; if(!r) return; window._payCur=r;
   var gross=payAmt(r), ded=parseFloat(r.deductions)||0, net=Math.max(0,gross-ded);
@@ -4531,7 +4568,19 @@ function openPayModal(idx){
       (already>0?'<div style="font-size:10.5px;color:var(--t3);margin-top:3px;">◐ ₱'+already.toLocaleString()+' already sent'+(dedUsed>0?(' — that tranche already absorbed ₱'+dedUsed.toLocaleString()+' of the ₱'+ded.toLocaleString()+' deduction'):'')+'.</div>':'')+
       (ded>0?'<div style="font-size:10.5px;color:var(--t3);margin-top:3px;">Deduction applied here only — the contractor\'s payslip still shows the gross.</div>':'')
     : '';
+  /* Not every client has settled → say so before the whole amount, and offer the settled share instead. */
+  var notAll='';
+  if(r.fstate==='partial'){
+    notAll='<div style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(37,99,235,.07);border:1px solid rgba(37,99,235,.3);font-size:12.5px;color:var(--t1);text-align:left;">'+
+      '<b>Only part of this payslip is funded.</b> '+payEsc(r.fNewP.join(', '))+' '+(r.fNewP.length>1?'have':'has')+' paid; '+payEsc(r.fWaitP.join(', '))+' ('+r.fWaitH.toFixed(2)+'h) '+(r.fWaitP.length>1?'have':'has')+' not.'+
+      '<button class="bsm" onclick="openPartialModal('+idx+')" style="display:block;width:100%;margin-top:8px;color:#fff;background:#2563eb;border-color:#2563eb;font-weight:700;">◐ Pay the funded share only — '+payMoney(payNowOf(r))+'</button>'+
+      '<div style="font-size:11px;color:var(--t3);margin-top:5px;">The full amount below pays everything now, including the unpaid client\'s hours.</div></div>';
+  } else if(r.fstate==='waiting' && !r.paid){
+    notAll='<div style="margin-bottom:12px;padding:9px 12px;border-radius:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);font-size:12.5px;color:#92400e;text-align:left;">'+
+      '<b>'+payEsc(payWaitWhy(r))+'</b> Paying now pays the rest from JMB funds.</div>';
+  }
   document.getElementById('pay-modal-body').innerHTML=
+    notAll+
     '<div style="text-align:center;">'+qrImg+'</div>'+
     '<div style="margin-top:14px;text-align:center;">'+
       '<div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;">Amount to pay'+(ded>0?' (net)':'')+'</div>'+
@@ -4562,8 +4611,13 @@ function openPartialModal(idx){
   var already=r.partialPaid||0, remaining=Math.max(0,Math.round((net-already)*100)/100);
   var totH=0; split.forEach(function(x){ totH+=x.h; });
   var isFunded=function(proj){ return !!((fund.paid||{})[r.period] && fund.paid[r.period][String(proj).toLowerCase()]); };
+  var cov={}; (r.partials||[]).forEach(function(t){ String(t.client_paid||'').split(',').forEach(function(c){ c=c.trim().toLowerCase(); if(c) cov[c]=1; }); });
   var rowsHtml = split.length ? split.map(function(x,i){
       var f=x.f || isFunded(x.p);
+      if(cov[String(x.p).toLowerCase()]) return '<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px dashed var(--line);border-radius:9px;margin-bottom:6px;opacity:.7;">'+
+        '<span style="width:13px;text-align:center;">✓</span><span style="flex:1;font-size:13px;font-weight:600;">'+payEsc(x.p)+'</span>'+
+        '<span style="font-size:12px;color:var(--t2);font-family:monospace;">'+x.h.toFixed(2)+'h</span>'+
+        '<span style="font-size:10px;font-weight:700;color:#2563eb;background:rgba(37,99,235,.1);border-radius:20px;padding:1px 7px;">already sent</span></div>';
       return '<label style="display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px;cursor:pointer;'+(f?'background:rgba(34,197,94,.06);':'')+'">'+
         '<input type="checkbox" class="ppm-chk" data-h="'+x.h+'" data-p="'+payEsc(x.p)+'"'+(f?' checked':'')+' onchange="ppmRecalc()">'+
         '<span style="flex:1;font-size:13px;font-weight:600;">'+payEsc(x.p)+'</span>'+
@@ -4593,7 +4647,8 @@ function openPartialModal(idx){
       '<button class="bsm" onclick="closePayModal()" style="flex:1;">Cancel</button>'+
       '<button class="bsm" id="ppm-send" onclick="doPartialPay()" style="flex:1.6;color:#fff;background:#2563eb;border-color:#2563eb;font-weight:700;">◐ Send partial &amp; email breakdown</button>'+
     '</div>';
-  window._ppmCtx={ net:net, totH:totH, already:already, gross:gross, ded:ded };
+  var alreadyUncov=0; (r.partials||[]).forEach(function(t){ if(!String(t.client_paid||'').trim()) alreadyUncov+=parseFloat(t.amount)||0; });
+  window._ppmCtx={ net:net, totH:totH, already:already, gross:gross, ded:ded, uncov:Math.round(alreadyUncov*100)/100 };
   document.getElementById('pay-modal').style.display='flex';
   ppmRecalc();
 }
@@ -4605,7 +4660,7 @@ function ppmRecalc(){
     if(c.checked){ selH+=h; selP.push(c.dataset.p); } else { leftH+=h; leftP.push(c.dataset.p); }
   });
   window._ppmSel={ selH:Math.round(selH*100)/100, selP:selP, leftH:Math.round(leftH*100)/100, leftP:leftP };
-  var amt=(ctx.totH>0)? Math.round(ctx.net*(selH/ctx.totH)*100)/100 : 0;
+  var amt=(ctx.totH>0)? Math.max(0, Math.round((ctx.net*(selH/ctx.totH)-(selH>0?(ctx.uncov||0):0))*100)/100) : 0;
   var el=document.getElementById('ppm-amt'); if(el && ctx.totH>0) el.value=amt>0?amt.toFixed(2):'';
   var info=document.getElementById('ppm-info');
   /* Show the deduction math for THIS tranche, live: the ticked hours' gross share, minus their
@@ -4724,13 +4779,13 @@ function payBoardRender(){
   var box=document.getElementById('pay-board'); if(!box) return;
   var rows=window._payRows||[], tog=document.getElementById('pb-toggle');
   var want=localStorage.getItem('adm_payboard')!=='0';
-  var ready=rows.filter(function(r){ return !r.paid && r.funded; }), pending=rows.filter(function(r){ return !r.paid; });
+  var ready=rows.filter(function(r){ return !r.paid && (r.fstate==='ready' || r.fstate==='partial'); }), pending=rows.filter(function(r){ return !r.paid; });
   var justPaid=rows.filter(function(r){ return r.paid && (r._sending || r._emailed!==undefined || r._failed); });
   if(tog){ tog.textContent=(want?'Hide pay board':'💸 Pay board')+(ready.length?' · '+ready.length:''); }
   if(!want || (!pending.length && !justPaid.length)){ box.style.display='none'; box.innerHTML=''; return; }
   var list=(PB.filter==='all'?pending:ready).slice();
   var veil=(window.matchMedia && window.matchMedia('(hover:none)').matches)?'tap to reveal':'hover to reveal';
-  var total=list.reduce(function(s,r){ return s+Math.max(0, payNet(r)-(r.partialPaid||0)); },0);
+  var total=list.reduce(function(s,r){ return s+(r.fstate==='waiting' ? Math.max(0, payNet(r)-(r.partialPaid||0)) : payNowOf(r)); },0);
   var paidToday=justPaid.length, paidTotal=justPaid.reduce(function(s,r){ return s+Math.max(0, payNet(r)-(r.partialPaid||0)); },0);
   var h='<div class="pb-wrap">'+
     '<div class="pb-head">'+
@@ -4741,21 +4796,25 @@ function payBoardRender(){
   if(!list.length) h+='<div class="pb-empty">'+(PB.filter==='ready'?'Nothing is ready yet — a slip is ready once its client invoice is settled. Switch to <b>All pending</b> to see the rest.':'No pending payslips.')+'</div>';
   h+='<div class="pb-grid">'+list.concat(justPaid).map(function(r){
     var ri=rows.indexOf(r), id=payEsc(r.empId+'|'+r.period);
-    var toPay=Math.max(0, Math.round((payNet(r)-(r.partialPaid||0))*100)/100), ded=parseFloat(r.deductions)||0;
+    var left=Math.max(0, Math.round((payNet(r)-(r.partialPaid||0))*100)/100), ded=parseFloat(r.deductions)||0;
+    var part=(!r.paid && r.fstate==='partial'), toPay=part ? payNowOf(r) : left;
     var qr=r.qr?'<img src="'+convertDriveBig(r.qr,600)+'" alt="QR" loading="lazy">':'<div class="pb-noqr">No bank QR on file<br><span>Contractors → Edit → Bank QR</span></div>';
-    var state=r.paid?(r._failed?'failed':(r._sending?'sending':'paid')):(r.funded?'ready':'waiting');
+    var state=r.paid?(r._failed?'failed':(r._sending?'sending':'paid')):(r.fstate==='ready'?'ready':(part?'partial':'waiting'));
     return '<div class="pb-card '+state+(PB.open===id?' focus':'')+'" data-id="'+id+'">'+
       '<div class="pb-top"><div class="pb-name">'+payEsc(r.name)+'</div><div class="pb-period">'+payEsc(r.period||'—')+(r.hours?' · '+payEsc(String(r.hours))+' h':'')+'</div>'+
-        (r.project?'<div class="pb-proj">'+payEsc(r.project)+(state==='ready'?' <i>invoice paid</i>':(state==='waiting'?' <i class="w">awaiting invoice</i>':''))+'</div>':'')+'</div>'+
+        (r.project?'<div class="pb-proj">'+payEsc(r.project)+(state==='ready'?' <i>invoice paid</i>':(state==='partial'?' <i class="p">part funded</i>':(state==='waiting'?' <i class="w">awaiting invoice</i>':'')))+'</div>':'')+'</div>'+
       '<div class="pb-qr" onclick="payBoardFocus(\''+id+'\')" title="'+(r.paid?'':'Hover (or tap) to reveal the QR')+'">'+qr+(r.paid?'':'<span class="pb-veil">'+veil+'</span>')+'</div>'+
       '<div class="pb-amt"><span>'+payMoney(toPay)+'</span>'+(r.paid?'':'<button class="bsm" title="Copy amount" onclick="pgCopy(\''+toPay.toFixed(2)+'\')">⧉</button>')+'</div>'+
+      (part?'<div class="pb-note pb-part">Settled: '+payEsc(r.fNewP.join(', '))+' ('+r.fNewH.toFixed(2)+'h)<br>Not yet: '+payEsc(r.fWaitP.join(', '))+' ('+r.fWaitH.toFixed(2)+'h) · '+payMoney(Math.max(0,left-toPay))+' later</div>':'')+
       ((ded>0||r.partialPaid>0)?'<div class="pb-note">'+(ded>0?'net of ₱'+ded.toLocaleString()+' deduction':'')+(r.partialPaid>0?(ded>0?' · ':'')+'₱'+r.partialPaid.toLocaleString()+' already sent':'')+'</div>':'')+
       (r.gotyme?'<div class="pb-acct">GoTyme <b>'+payEsc(r.gotyme)+'</b> <button class="bsm" onclick="pgCopy(\''+payEsc(r.gotyme)+'\')">⧉</button></div>':'<div class="pb-acct muted">no GoTyme number</div>')+
       '<div class="pb-act">'+
         (r.paid
           ? (r._failed?'<button class="bsm" style="color:#b91c1c;border-color:#fca5a5;flex:1" onclick="payBoardPay('+ri+')">Retry — '+payEsc(r._failed)+'</button>'
              :'<span class="pb-paid">✓ Paid'+(r._sending?' · saving…':(r._emailed?' · emailed':''))+'</span>')
-          : '<button class="bsm pb-pay" onclick="payBoardPay('+ri+')">✓ Paid</button><button class="bsm" title="Full details" onclick="openPayModal('+ri+')">Details</button>')+
+          : (part
+              ? '<button class="bsm pb-pay pb-pay-part" onclick="openPartialModal('+ri+')">◐ Pay '+payMoney(toPay)+'</button><button class="bsm" title="Full details" onclick="openPayModal('+ri+')">Details</button>'
+              : '<button class="bsm pb-pay" onclick="payBoardPay('+ri+')">✓ Paid</button><button class="bsm" title="Full details" onclick="openPayModal('+ri+')">Details</button>'))+
       '</div>'+
     '</div>';
   }).join('')+'</div></div>';
@@ -4764,6 +4823,8 @@ function payBoardRender(){
 function payBoardPay(ri){
   var r=(window._payRows||[])[ri]; if(!r) return;
   if(r.paid && !r._failed) return;
+  if(!r.paid && r.fstate==='partial'){ openPartialModal(ri); return; }
+  if(!r.paid && r.fstate==='waiting' && !confirm(r.name+' · '+r.period+'\n\n'+payWaitWhy(r)+'\nMark the remaining '+payMoney(Math.max(0,payNet(r)-(r.partialPaid||0)))+' as paid anyway?')) return;
   r._failed=''; payMarkLocal(r); payMarkSend(r);
 }
 document.addEventListener('click', function(e){ if(PB.open && !(e.target.closest && e.target.closest('.pb-qr'))){ PB.open=null; document.querySelectorAll('.pb-card.focus').forEach(function(c){ c.classList.remove('focus'); }); } });
@@ -12002,6 +12063,8 @@ var ADMAURA = (function(){
 .pb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:14px}
 .pb-card{position:relative;border:1px solid var(--line);border-radius:14px;padding:12px 12px 10px;background:#fff;transition:box-shadow .2s,transform .2s,border-color .2s;display:flex;flex-direction:column;gap:8px}
 .pb-card.ready{border-color:rgba(34,197,94,.45)}
+.pb-card.partial{border-color:rgba(37,99,235,.45)} .pb-proj i.p{color:#2563eb} .pb-note.pb-part{color:#1e40af;line-height:1.45}
+.pb-pay.pb-pay-part{background:#2563eb !important;border-color:#2563eb !important}
 .pb-card:hover,.pb-card.focus{box-shadow:0 18px 40px -22px rgba(15,23,42,.45);transform:translateY(-2px);border-color:#16a34a;z-index:2}
 .pb-card.paid,.pb-card.sending{opacity:.58;border-style:dashed}
 .pb-card.failed{border-color:#fca5a5;background:#fff7f7}
