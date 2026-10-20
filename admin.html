@@ -5349,7 +5349,7 @@ async function loadAppeals(){
           : '<span style="color:var(--t2);font-size:12px;">'+escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' <span style="color:#fbbf24">(untracked)</span>':'')+' — current '+cur+' → claim <b style="color:#4ade80">'+claim+'</b></span>';
         return '<div data-ap="'+escAdmin(x.entry_id)+'" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid rgba(15,23,42,.08);">'+
           '<div style="flex:1;min-width:200px;"><b>'+escAdmin(x.full_name||x.employee_id)+'</b> · '+escAdmin(x.date)+'<br>'+detail+
-          (x.note?('<br><span style="color:var(--t3);font-size:12px;">“'+escAdmin(x.note)+'”</span>'):'')+_appealDayHtml(x)+'</div>'+
+          _apToolBadge(x)+(_apNote(x)?('<br><span style="color:var(--t3);font-size:12px;">“'+escAdmin(_apNote(x))+'”</span>'):'')+_appealDayHtml(x)+'</div>'+
           '<button class="bsm" style="color:#16a34a;border-color:rgba(22,163,74,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button>'+
           '<button class="bsm" style="color:#ea580c;border-color:rgba(234,88,12,.45)" onclick="approveWithDemerit(\''+escAdmin(x.entry_id)+'\')">Approve w/ demerit</button>'+
           '<button class="bsm" style="color:#dc2626;border-color:rgba(220,38,38,.4)" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'reject\')">Reject</button>'+
@@ -5449,8 +5449,19 @@ function _optiHeaderTick(container){ try{                       // "Pending appe
   var hd=container&&container.querySelector&&container.querySelector('[data-opti-count]');
   if(!hd) return; var m=hd.textContent.match(/\((\d+)\)/);
   if(m){ var v=Math.max(0,parseInt(m[1],10)-1); hd.textContent=hd.textContent.replace(/\(\d+\)/,'('+v+')'); } }catch(_h){} }
-async function resolveAppeal(entryId, decision, _force){
-  if(decision==='reject' && !confirm('Reject this appeal?')) return;
+async function resolveAppeal(entryId, decision, _force, _mins){
+  var _tl=_apTool(_apCache[entryId]), _who=((_apCache[entryId]||{}).full_name||'this VA'), _warn=false;
+  if(decision==='reject'){
+    if(_tl && _tl.flag==='none'){ if(!confirm('Reject this appeal?\n\n'+_tl.tool+' showed no work from '+_who+' in this window, so rejecting it also records a formal warning on their record.')) return; _warn=true; }
+    else if(!confirm('Reject this appeal?')) return;
+  }
+  if(decision==='approve' && !_force && _mins==null && _tl){
+    if(_tl.flag==='none'){ if(!confirm(_tl.tool+' shows NO work from '+_who+' in this window ('+_tl.total+' min).\n\nApprove it anyway?')) return; }
+    else if(_tl.flag==='partial'){
+      if(confirm(_tl.tool+' shows '+_tl.mins+' of the '+_tl.total+' min.\n\nOK = approve only the '+_tl.mins+' min the tool shows\nCancel = more options')) _mins=_tl.mins;
+      else if(!confirm('Approve the full '+_tl.total+' min anyway?')) return;
+    }
+  }
   if(!ADM_SESS && !PASS){ await admUnlock(); if(!ADM_SESS && !PASS) return; }   // Oct 15: approvals are admin-only on the server
   if(decision==='approve' && !_force && typeof window._appealBlockMsg==='function'){
     var _bm=window._appealBlockMsg(_apCache[entryId]);
@@ -5466,7 +5477,7 @@ async function resolveAppeal(entryId, decision, _force){
   _optiPending(_sel);
   try{
     var _rw=(_apCache[entryId]&&_apCache[entryId].row)?('&row='+encodeURIComponent(_apCache[entryId].row)):'';   // lets the backend skip the 10k-row scan
-    var _url=API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+_rw+(_force?'&force=1':'');
+    var _url=API+'?action=resolve_appeal&entry_id='+encodeURIComponent(entryId)+'&decision='+encodeURIComponent(decision)+_rw+(_force?'&force=1':'')+(_mins!=null?'&approve_mins='+encodeURIComponent(_mins):'')+(_warn?'&warn=1':'');
     var d=null;
     for(var _try=1;_try<=3;_try++){   // a non-JSON reply (Apps Script error page / dropped connection) used to surface as a bare "Network error." — retry, then say what to do
       try{ var r=await fetch(_url+'&_='+Date.now()); d=await r.json(); break; }
@@ -5478,7 +5489,7 @@ async function resolveAppeal(entryId, decision, _force){
       var tot=document.getElementById('dash-appeals-total');
       if(tot){ var tn=parseInt(String(tot.textContent).replace(/[^0-9]/g,''),10);
         if(!isNaN(tn)) tot.textContent=(tn-1>0)?('· '+(tn-1)+' pending'):''; }
-      if(typeof toast==='function') toast(decision==='approve'?'Appeal approved.':'Appeal rejected.');
+      if(typeof toast==='function') toast(decision==='approve'?('Appeal approved'+(_mins!=null?' — '+_mins+' min':'')+'.'):('Appeal rejected'+(_warn?' — formal warning recorded':'')+'.'));
       jBust();
       setTimeout(function(){ try{ loadWorkLog(); }catch(_w){} }, 600);   // quiet background sync — the visible list never repaints
     } else { _optiRestore(_sel); if(d&&d.error==='UNAUTHORIZED'){ admLocked(); alert('Your admin sign-in on this device has expired. Use “Enter admin password” at the top, then approve again.'); return; } alert((d&&(d.message||d.error)) ? ('Could not resolve: '+(d.message||d.error)) : 'Could not resolve the appeal.'); }
@@ -5487,6 +5498,13 @@ async function resolveAppeal(entryId, decision, _force){
 // Cache of the current pending appeals, keyed by entry_id, so action buttons can read the
 // employee/date without escaping them into inline onclick handlers.
 var _apCache={};
+/* Oct 20: tool evidence on hour appeals — the backend tags the note "[tool:none 0/180m Reddit Central] …" */
+function _apTool(x){ var m=String((x&&x.note)||'').match(/^\[tool:(none|partial|ok) (\d+)\/(\d+)m ([^\]]+)\]\s*/); return m?{ flag:m[1], mins:+m[2], total:+m[3], tool:m[4] }:null; }
+function _apNote(x){ return String((x&&x.note)||'').replace(/^\[tool:[^\]]*\]\s*/,''); }
+function _apToolBadge(x){ var t=_apTool(x); if(!t) return '';
+  var c=t.flag==='none'?'#dc2626':(t.flag==='partial'?'#d97706':'#16a34a'), bg=t.flag==='none'?'rgba(220,38,38,.10)':(t.flag==='partial'?'rgba(217,119,6,.10)':'rgba(22,163,74,.10)');
+  var tx=t.flag==='none'?('No '+t.tool+' activity in this window'):(t.flag==='partial'?(t.tool+' shows '+t.mins+' of '+t.total+' min'):(t.tool+' shows the work · '+t.mins+' of '+t.total+' min'));
+  return '<br><span style="display:inline-block;margin-top:4px;padding:2px 9px;border-radius:100px;font-size:11px;font-weight:700;color:'+c+';background:'+bg+'">'+escAdmin(tx)+'</span>'; }
 // Approve the appeal AND log a demerit against the same employee/date, entered manually.
 async function approveWithDemerit(entryId){
   var x=_apCache[entryId]||{};
@@ -5596,7 +5614,7 @@ async function loadDashAppeals(){
         : escAdmin(x.project||'')+(x.task?(' · '+escAdmin(x.task)):'')+(untracked?' (untracked)':'')+' — '+cur+' → claim <b style="color:#4ade80">'+claim+'</b>';
       return '<div class="dash-item" data-ap="'+escAdmin(x.entry_id)+'"><span class="dash-chip chip-worklog">'+(isRetag?'Retag':'Appeal')+'</span>'+
         '<div class="dash-item-main"><strong>'+escAdmin(x.full_name||x.employee_id)+'</strong> <small style="color:var(--t3)">'+escAdmin(x.date)+'</small><br>'+
-        '<small>'+dDetail+(x.note?(' · “'+escAdmin(x.note)+'”'):'')+'</small>'+_appealDayHtml(x)+'</div>'+
+        '<small>'+dDetail+(_apNote(x)?(' · “'+escAdmin(_apNote(x))+'”'):'')+'</small>'+_apToolBadge(x)+_appealDayHtml(x)+'</div>'+
         '<div class="dash-item-actions"><button class="bsm edit" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'approve\')">Approve</button><button class="bsm" style="color:#ea580c;border-color:rgba(234,88,12,.45)" onclick="approveWithDemerit(\''+escAdmin(x.entry_id)+'\')">Approve w/ demerit</button><button class="bsm danger" onclick="resolveAppeal(\''+escAdmin(x.entry_id)+'\',\'reject\')">Reject</button></div></div>';
     }).join('');
   }catch(e){ box.innerHTML='<div class="es">Could not load appeals.</div>'; }
@@ -11668,7 +11686,7 @@ var ADMAURA = (function(){
         var dt=retag ? E(x.project||'')+(x.task?' · '+E(x.task):'')+' → <b>'+E(x.new_project||'')+(x.new_task?' · '+E(x.new_task):'')+'</b> (retag, time unchanged)'
                      : E(x.project||'')+(x.task?' · '+E(x.task):'')+' — '+cur+' → claim <b>'+claim+'</b>';
         var day=''; try{ day=_appealDayHtml(x)||''; }catch(e){}
-        items.push({ t:'hours', at:'data-ap="'+E(x.entry_id)+'"', name:x.full_name||x.employee_id, date:x.date, dt:dt+(x.note?'<br><q>'+E(x.note)+'</q>':'')+day,
+        items.push({ t:'hours', at:'data-ap="'+E(x.entry_id)+'"', name:x.full_name||x.employee_id, date:x.date, dt:dt+_apToolBadge(x)+(_apNote(x)?'<br><q>'+E(_apNote(x))+'</q>':'')+day,
           ac:'<button class="bsm edit" onclick="resolveAppeal(\''+E(x.entry_id)+'\',\'approve\')">Approve</button><button class="bsm" style="color:#ea580c;border-color:rgba(234,88,12,.45)" onclick="approveWithDemerit(\''+E(x.entry_id)+'\')">Approve w/ demerit</button><button class="bsm danger" onclick="resolveAppeal(\''+E(x.entry_id)+'\',\'reject\')">Reject</button>' });
       });
       (((b.leave||{}).requests)||[]).filter(pend).forEach(function(r){
@@ -12333,7 +12351,7 @@ var ADMAURA = (function(){
 <script id="admx-js">
 /* ═══ ADMIN EXTRAS (Oct 13): Exceptions & access · Backend builds · Link health ═══ */
 var ADMX = {
-  EXPECT: { portal:'2026-10-19a', reddit:'rc-2026-10-19a', altr:'2026-10-13-ins', login:'2026-10-13-dspass', client:'cl-2026-10-14b' },
+  EXPECT: { portal:'2026-10-20b', reddit:'rc-2026-10-19a', altr:'2026-10-13-ins', login:'2026-10-13-dspass', client:'cl-2026-10-14b' },
   /* Oct 20: a backend is "behind" only when its live build is OLDER than expected. Build names carry the date, so a
      plain string compare orders them; a newer live build (deployed after this page) is up to date, not a warning. */
   older: function(live, exp){ return !!(live && exp && String(live) < String(exp)); },

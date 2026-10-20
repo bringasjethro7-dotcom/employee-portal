@@ -7380,6 +7380,146 @@ var PFX=(function(){
    one → warning; 10 min → the timer stops and a box explains why. The 10 minutes count from Start/Resume,
    so there is always time to open the tool. Meetings / huddles / training categories are exempt. No
    tool_beat table yet, or Supabase unreachable → nobody is ever stopped (fail-open). */
+/* ═══ THE TOOL DECIDES THE CATEGORY AND TASK (Jeth, Oct 20) ═══
+   On Reddit Central projects the VA no longer picks the category or the task. Reddit Central reports what they are
+   doing (tool_beat.want) and the portal files the time there:
+     · Start → the timer starts on whatever Reddit Central reports;
+     · while it runs, starting something else in Reddit Central (a posting session, a warm-up session, creating an
+       account…) moves the timer to that category + task within ~20 s — one entry per category/task a day, resumed
+       when the VA comes back to it;
+     · time with no task timer in Reddit Central (health checks, username fixes) counts as Reddit Warmup — that switch
+       waits 2 minutes, so the hand-over between two sessions stays with the task just finished.
+   Approved mapping: category = the account's model · creation → Reddit Account Creation · Warming / Comment Farm /
+   NSFW / Spam recovery → Reddit Warmup · Day 1 → Super Strong and DM rounds → Reddit Posting · Vysor adds "Vysor".
+   Threads (Client Hub) stays a free pick. Escape hatch: a meeting/training description, an exempt VA, or a Reddit
+   Central tab that has not reported yet → the VA picks as before. */
+var TOOLCAT = {
+  IDLE_WAIT: 2*60*1000, _idleSince: 0, _manual: '', _busy: false,
+  cats: function(proj){ var seen={}, out=[]; (nativeProjects||[]).forEach(function(p){ if(p.project===proj && p.category && !seen[p.category]){ seen[p.category]=1; out.push(p.category); } }); return out; },
+  tasks: function(proj, cat){ var seen={}, out=[]; (nativeProjects||[]).forEach(function(p){ if(p.project===proj && (p.category||'')===(cat||'') && p.task && !seen[p.task]){ seen[p.task]=1; out.push(p.task); } }); return out; },
+  /* is this project/category run by Reddit Central? (Threads → Client Hub, meetings/training, exempt VAs → no) */
+  driven: function(f, ignoreManual){
+    try{
+      f=f||{}; var proj=f.proj||f.project||''; if(!proj) return false;
+      if(!ignoreManual && this._manual && this._manual===proj) return false;
+      var cat=f.cat!==undefined?f.cat:f.category;
+      if(cat && TOOLG.THR.test(String(cat))) return false;
+      return TOOLG.applies({ project:proj, category:'', task:'', description:f.desc||f.description||'' })==='reddit';
+    }catch(e){ return false; }
+  },
+  /* tool report → this portal's project / category / task names */
+  resolve: function(raw, selProj){
+    var w=raw; if(typeof w==='string'){ try{ w=JSON.parse(w); }catch(e){ return null; } }
+    if(!w || !w.k) return null;
+    var projs=[], seen={}; (nativeProjects||[]).forEach(function(p){ if(p.project && !seen[p.project]){ seen[p.project]=1; projs.push(p.project); } });
+    var bp=String(w.p||''), P='';
+    if(projs.indexOf(bp)>=0) P=bp;
+    else if(/casey/i.test(bp)) P=projs.filter(function(x){ return /reddit/i.test(x) && /casey/i.test(x); })[0]||'';
+    else P=projs.filter(function(x){ return /reddit/i.test(x) && /altz/i.test(x); })[0] || ((selProj && /reddit/i.test(selProj) && !/casey/i.test(selProj))?selProj:'');
+    if(!P) return null;
+    var cats=this.cats(P).filter(function(c){ return !TOOLG.THR.test(c); });
+    var toks=String(w.m||'').toLowerCase().split(/[^a-z0-9]+/).filter(function(t){ return t.length>=2 && t!=='reddit'; });
+    var C='', best=0;
+    cats.forEach(function(c){ var lc=' '+c.toLowerCase().replace(/[^a-z0-9]+/g,' ')+' ', n=0; toks.forEach(function(t){ if(lc.indexOf(' '+t+' ')>=0) n++; }); if(n>best){ best=n; C=c; } });
+    if(!C){ var rc=(typeof trkRunning!=='undefined' && trkRunning && trkRunning.project===P)?(trkRunning.category||''):''; C=(rc && cats.indexOf(rc)>=0)?rc:(cats[0]||''); }
+    var base=w.k==='posting'?'Reddit Posting':(w.k==='creation'?'Reddit Account Creation':'Reddit Warmup');
+    var ts=this.tasks(P, C), T='';
+    if(/vysor/i.test(String(w.v||'')) && ts.indexOf(base+' Vysor')>=0) T=base+' Vysor';
+    else if(ts.indexOf(base)>=0) T=base;
+    else { var key=base.split(' ').pop().toLowerCase();
+      T=ts.filter(function(t){ return t.toLowerCase().indexOf(key)>=0 && !/vysor/i.test(t); })[0] || ts.filter(function(t){ return t.toLowerCase().indexOf(key)>=0; })[0] || ts[0] || ''; }
+    return { project:P, category:C, task:T, kind:w.k, idle:!!w.idle, lbl:String(w.lbl||'') };
+  },
+  /* the pickers: category + task read "Set by Reddit Central" (Threads stays pickable) */
+  lockUI: function(){
+    try{
+      var P=document.getElementById('cfy-project'), C=document.getElementById('cfy-category'), T=document.getElementById('cfy-task'); if(!P||!C||!T) return;
+      var proj=P.value, desc=((document.getElementById('cfy-desc')||{}).value||'');
+      var note=document.getElementById('trk-tc-note');
+      if(!proj || !this.driven({ proj:proj, cat:C.value, desc:desc })){ if(note) note.style.display='none'; return; }
+      var run=(typeof trkRunning!=='undefined' && trkRunning && trkRunning.project===proj && this.driven(trkRunning))?trkRunning:null;
+      var E=function(s){ return escapeHtml(String(s||'')); };
+      var other=run?[]:this.cats(proj).filter(function(c){ return TOOLG.THR.test(c); });
+      C.innerHTML='<option value="'+E(run?run.category:'')+'">'+E(run&&run.category?run.category:'Category: set by Reddit Central')+'</option>'+other.map(function(c){ return '<option value="'+E(c)+'">'+E(c)+'</option>'; }).join('');
+      C.value=run?(run.category||''):''; C.disabled=!other.length;
+      T.innerHTML='<option value="'+E(run?run.task:'')+'">'+E(run&&run.task?run.task:'Task: set by Reddit Central')+'</option>'; T.value=run?(run.task||''):''; T.disabled=true;
+      if(!document.getElementById('trk-tc-css')){ var st=document.createElement('style'); st.id='trk-tc-css'; st.textContent='.trk-tc-note{font-size:11.5px;line-height:1.35;color:var(--t3,#94a3b8);margin:-2px 2px 0;}'; document.head.appendChild(st); }
+      if(!note){ note=document.createElement('div'); note.id='trk-tc-note'; note.className='trk-tc-note'; T.parentNode.insertBefore(note, T.nextSibling); }
+      note.textContent=run?'Reddit Central sets this. Start something else there and the timer follows within a few seconds.'
+                          :'Reddit Central sets the category and task from what you do there. Press Start, then work in Reddit Central.';
+      note.style.display='';
+    }catch(e){}
+  },
+  /* Start: pair with Reddit Central, then start on what it reports */
+  prepare: async function(f){
+    if(!(await TOOLG.pair({ proj:f.proj, cat:'', task:'', desc:f.desc }))) return null;
+    var x=await TOOLG.row(TOOLG.me(), 'reddit');
+    var row=(x && x.ok)?x.row:(TOOLG.cur && TOOLG.cur.row);
+    var w=this.resolve(row && row.want, f.proj);
+    if(!w || !w.category || !w.task){   // Reddit Central has not reported (an old tab still open) → the VA picks this once
+      this._manual=f.proj; try{ loadCategories(); }catch(_l){}
+      try{ showToast('Reddit Central has not sent your task yet. Refresh Reddit Central, or pick the category and task this once.'); }catch(_t){}
+      return null;
+    }
+    return w;
+  },
+  /* while running: follow the tool */
+  tick: function(){
+    try{
+      if(this._busy) return;
+      if(typeof trkRunning==='undefined' || !trkRunning || !trkOwns){ this._idleSince=0; return; }
+      if(typeof isIdle!=='undefined' && isIdle) return;
+      var run=trkRunning, cur=TOOLG.cur;
+      if(!this.driven(run, true)) return;
+      if(!cur || cur.tool!=='reddit' || !cur.row || Date.now()-cur.at>60000 || !TOOLG.isOpen(cur.row)) return;
+      var w=this.resolve(cur.row.want, run.project); if(!w || !w.category || !w.task) return;
+      if(this._manual===run.project) this._manual='';   // the tool reports again → it decides again
+      if(w.project===run.project && w.category===(run.category||'') && w.task===(run.task||'')){ this._idleSince=0; return; }
+      if(w.idle){ if(!this._idleSince){ this._idleSince=Date.now(); return; } if(Date.now()-this._idleSince<this.IDLE_WAIT) return; }
+      this._idleSince=0;
+      this.switchTo(w);
+    }catch(e){}
+  },
+  switchTo: function(w){
+    var self=this; if(self._busy || !trkRunning) return; self._busy=true;
+    try{
+      var desc=trkRunning.description||'', hitId='';
+      for(var i=0;i<trkPaused.length;i++){ var e=trkPaused[i]; if((e.project||'')===w.project && (e.category||'')===w.category && (e.task||'')===w.task && (e.description||'')===desc){ hitId=e.entry_id; break; } }
+      if(hitId){   // one entry per category/task a day — go back to it
+        var rid=trkRunning.entry_id; _bankRunningToPaused(); _trkPost('tracker_pause', { entry_id: rid });
+        var k=-1; for(var j=0;j<trkPaused.length;j++){ if(trkPaused[j].entry_id===hitId){ k=j; break; } }
+        if(k<0) return;
+        var p=trkPaused.splice(k,1)[0];
+        trkSetRunning({ entry_id:p.entry_id, project:p.project, category:p.category, task:p.task, description:p.description, baseSecs:p.secs, segStart:Date.now() });
+        _trkPost('tracker_resume', { entry_id: p.entry_id });
+      } else {
+        _bankRunningToPaused();   // the server's tracker_start pauses the previous task too
+        var entryId=trkUid(), data=trkEmpData || window._currentEmpData || {};
+        trkSetRunning({ entry_id:entryId, project:w.project, category:w.category, task:w.task, description:desc, baseSecs:0, segStart:Date.now() });
+        _trkPost('tracker_start', { full_name:data.full_name || attEmpId, date:shiftDate(), project:w.project, category:w.category, task:w.task, description:desc, start:new Date().toISOString(), entry_id:entryId });
+      }
+      trkOwns=true; try{ TRKLEAD.claim(); }catch(_l){}
+      trkLastActivity=Date.now(); trkAutoPausedId=null;
+      _saveActiveMarker();
+      try{ trkRestoreFields(trkRunning); }catch(_r){}
+      startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI(); refreshTimeBar();
+      try{ showToast('Reddit Central: now on '+w.task+' · '+w.category); }catch(_t){}
+    }catch(e){}
+    finally{ self._busy=false; }
+  },
+  start: function(){
+    var self=this; if(self._iv) return;
+    self._iv=setInterval(function(){ self.tick(); }, 10000);
+    /* every redraw of the pickers re-applies the lock */
+    try{
+      var _lc=loadCategories, _lt=loadTasks, _rf=trkRestoreFields;
+      loadCategories=function(){ var r=_lc.apply(this, arguments); self.lockUI(); return r; };
+      loadTasks=function(){ var r=_lt.apply(this, arguments); self.lockUI(); return r; };
+      trkRestoreFields=function(){ var r=_rf.apply(this, arguments); self.lockUI(); return r; };
+    }catch(e){}
+    setTimeout(function(){ self.lockUI(); }, 1500);
+  }
+};
 var TOOLG = {
   GRACE: 10*60*1000, WARN: 8*60*1000, _t: null, _warned: '', _hinted: '',
   NAME: { reddit:'Reddit Central', altr:'ALTR Studio', clients:'Client Hub' },
@@ -8597,6 +8737,7 @@ function renderDashboard(data) {
   try { startNotifs(); } catch(e) {}
   try { NETG.start(); } catch(e) {}
   try { TOOLG.start(); } catch(e) {}   // 🔗 Reddit / ALTR timers need activity in their tool (Oct 7)
+  try { TOOLCAT.start(); } catch(e) {}   // 🧭 Reddit Central decides the category + task (Oct 20)
 
   // ── PAYSLIPS ──
   window._currentEmpData = data;
@@ -11122,14 +11263,18 @@ function _postAppeal(p, cb) {
       .then(function(r){ return r.json(); })
       .then(function(d){
         var ok = !!(d && d.ok);
-        if (ok) { showToast(d.kind==='untracked' && d.window ? ('Gap appeal sent — '+d.window+' · '+d.claim_hours+' h. Your admin will review it. ✅') : 'Appeal sent to admin for approval. ✅'); if (cb) cb(true, d); return; }
+        if (ok) {
+          var _tmsg = (d.tool_flag==='partial') ? (' ' + d.tool + ' shows ' + d.tool_mins + ' of ' + d.mins + ' min of work in that window — only those minutes can be approved.')
+                    : (d.tool_flag==='none' ? (' It is flagged: ' + d.tool + ' showed no work in that window.') : '');
+          showToast((d.kind==='untracked' && d.window ? ('Gap appeal sent — '+d.window+' · '+d.claim_hours+' h. Your admin will review it.') : 'Appeal sent to admin for approval.') + _tmsg);
+          if (cb) cb(true, d); return; }
         var retriable = !!(d && (d.retry || d.error === 'BUSY' || d.error === 'EXCEPTION'));
         if (retriable && n < MAX) {
           showToast('Server busy — retrying (' + n + '/' + MAX + ')… do not close this window.');
           setTimeout(function(){ attempt(n + 1); }, 1200 * n);
           return;
         }
-        showToast((d && d.message) || 'Could not send appeal. Please screenshot this and message your admin.');
+        if (!(d && d.error === 'TOOL_NO_ACTIVITY')) showToast((d && d.message) || 'Could not send appeal. Please screenshot this and message your admin.');
         if (cb) cb(false, d);
       })
       .catch(function(){
@@ -11348,10 +11493,41 @@ function submitAppeal(){
   _postAppeal(payload, function(ok, d){
     btn.disabled=false; btn.innerHTML=old;
     if(ok){ closeAppeal(); return; }
+    if(d && d.error==='TOOL_NO_ACTIVITY'){ _apToolWarn(payload, d); return; }   // Oct 20: no work in the tool → explain first
     fail((d&&d.message)||'Could not send — try again.');
     // the day changed under us (already appealed / tracked / not ended) → show the fresh gaps
     if(d && /^(DUPLICATE_|OVERLAPS_|DAY_NOT_ENDED|OUTSIDE_SHIFT|IN_LUNCH)/.test(String(d.error||''))) setTimeout(apGapLoad, 600);
   });
+}
+/* Oct 20 (Jeth): an appeal for time the tool shows no work for is not a normal appeal. The VA is told what the tool
+   saw and has to explain how the time went untracked; it then reaches the admin flagged, and a rejection is recorded
+   as a formal warning. */
+function _apToolWarn(payload, d){
+  var err=document.getElementById('ap-err'); if(!err) return;
+  if(!document.getElementById('ap-tw-css')){ var st=document.createElement('style'); st.id='ap-tw-css';
+    st.textContent='.ap-tw{margin-top:4px;padding:12px 14px;border-radius:14px;background:rgba(225,29,72,.08);border:1px solid rgba(225,29,72,.35);color:inherit;text-align:left;font-weight:500}'+
+      '.ap-tw b{display:block;color:#e11d48;font-size:13.5px;margin-bottom:4px}.ap-tw p{margin:0 0 8px;font-size:12.5px;line-height:1.45}'+
+      '.ap-tw textarea{width:100%;box-sizing:border-box;min-height:74px;border-radius:10px;border:1px solid rgba(148,163,184,.45);padding:8px 10px;font:inherit;font-size:12.5px;background:var(--card,rgba(255,255,255,.04));color:inherit;resize:vertical}'+
+      '.ap-tw .row{display:flex;gap:8px;align-items:center;margin-top:8px}.ap-tw button{border:0;border-radius:100px;padding:8px 14px;font-weight:700;font-size:12.5px;cursor:pointer;background:#e11d48;color:#fff}.ap-tw button[disabled]{opacity:.6}'+
+      '.ap-tw small{font-size:11.5px;opacity:.75}';
+    document.head.appendChild(st); }
+  err.style.display='block';
+  err.innerHTML='<div class="ap-tw"><b>'+escapeHtml((d.tool||'The tool')+' shows no work from you in '+(d.window||'this window'))+'</b>'+
+    '<p>'+escapeHtml(d.message||'')+'</p>'+
+    '<textarea id="ap-tw-text" placeholder="Explain exactly what you were doing and why it was not tracked (at least 30 characters)"></textarea>'+
+    '<div class="row"><button id="ap-tw-send">Send with my explanation</button><small id="ap-tw-msg"></small></div></div>';
+  var b=document.getElementById('ap-tw-send');
+  b.onclick=function(){
+    var t=String(document.getElementById('ap-tw-text').value||'').trim(), m=document.getElementById('ap-tw-msg');
+    if(t.length<30){ m.textContent='Write at least 30 characters.'; return; }
+    b.disabled=true; b.textContent='Sending…'; m.textContent='';
+    var p2={}; Object.keys(payload).forEach(function(k){ p2[k]=payload[k]; }); p2.tool_explain=t;
+    _postAppeal(p2, function(ok, d2){
+      if(ok){ closeAppeal(); return; }
+      b.disabled=false; b.textContent='Send with my explanation'; m.textContent=(d2&&d2.message)||'Could not send — try again.';
+    });
+  };
+  try{ document.getElementById('ap-tw-text').focus(); }catch(_f){}
 }
 // ── My appeals (status list) ──
 function openMyAppeals(){ document.getElementById('myappeals-modal').classList.add('show'); loadMyAppeals(); }
@@ -11428,7 +11604,9 @@ function loadMyAppeals(){
         } else {
           sub=(a.date?escapeHtml(a.date):'')+(a.win_start&&a.win_end?(' · gap '+escapeHtml(a.win_start)+'–'+escapeHtml(a.win_end)):'')+(a.project?(' · '+escapeHtml(a.project)):'')+(a.claim_hours?(' · '+escapeHtml(a.claim_hours)+'h'):'');
         }
-        var note=a.note?'<div class="myap-meta" style="color:var(--text-3)">“'+escapeHtml(a.note)+'”</div>':'';
+        var _tg=String(a.note||'').match(/^\[tool:(none|partial|ok) (\d+)\/(\d+)m ([^\]]+)\]\s*/), _nt=String(a.note||'').replace(/^\[tool:[^\]]*\]\s*/,'');   // Oct 20: tool evidence tag
+        var note=(_tg&&_tg[1]!=='ok'?'<div class="myap-meta" style="color:'+(_tg[1]==='none'?'#e11d48':'#d97706')+';font-weight:600">'+escapeHtml(_tg[1]==='none'?(_tg[4]+' showed no work in this window'):(_tg[4]+' showed '+_tg[2]+' of '+_tg[3]+' min'))+'</div>':'')+
+                 (_nt?'<div class="myap-meta" style="color:var(--text-3)">“'+escapeHtml(_nt)+'”</div>':'');
         return '<div class="myap-row"><div class="myap-main"><div class="myap-task">'+escapeHtml(label)+tagChip+'</div><div class="myap-meta">'+sub+'</div>'+note+'</div>'+
           '<span class="myap-badge '+st+'">'+(st==='approved'?'Approved':st==='rejected'?'Rejected':'Pending')+'</span></div>';
       }).join('');
@@ -13155,6 +13333,7 @@ function trkFormFields() {
 function trkRequirementsMet() {
   var f = trkFormFields();
   if (!f.proj) return false;
+  try { if (TOOLCAT.driven(f)) return true; } catch(_tc) {}   // 🧭 Reddit Central sets the category + task (Oct 20)
   var projHasCats = nativeProjects.some(function(p){ return p.project === f.proj && p.category; });
   if (projHasCats && !f.cat) return false;
   var catHasTasks = nativeProjects.some(function(p){ return p.project === f.proj && (p.category||'') === (f.cat||'') && p.task; });
@@ -14098,11 +14277,14 @@ async function startTimer() {
   // Require project, plus category/task wherever the project/category provides them
   if (!f.proj) { showToast('Select a Project before starting the timer.'); return; }
   try { if (window.AUL && AUL.enabled === true && f.proj === IDLE_PROJECT && /^lunch/i.test(f.cat || '')) { showToast('Lunch is automatic now — 12:00–1:00. No need to tag it.'); return; } } catch(e){}
+  /* 🧭 Oct 20: on Reddit Central projects the tool decides the category + task — pair, then start on what it reports */
+  var _tcOn = false; try { _tcOn = TOOLCAT.driven(f); } catch(_t) {}
+  if (_tcOn) { var _tw = await TOOLCAT.prepare(f); if (!_tw) return; f.proj = _tw.project; f.cat = _tw.category; f.task = _tw.task; }
   var projHasCats = nativeProjects.some(function(p){ return p.project === f.proj && p.category; });
-  if (projHasCats && !f.cat) { showToast('Select a Category before starting the timer.'); return; }
+  if (!_tcOn && projHasCats && !f.cat) { showToast('Select a Category before starting the timer.'); return; }
   var catHasTasks = nativeProjects.some(function(p){ return p.project === f.proj && (p.category||'') === (f.cat||'') && p.task; });
-  if (catHasTasks && !f.task) { showToast('Select a Task before starting the timer.'); return; }
-  if (!(await TOOLG.pair(f))) return;   // 🔗 Reddit / ALTR: the tool must be open + signed in first (Oct 8)
+  if (!_tcOn && catHasTasks && !f.task) { showToast('Select a Task before starting the timer.'); return; }
+  if (!_tcOn && !(await TOOLG.pair(f))) return;   // 🔗 Reddit / ALTR: the tool must be open + signed in first (Oct 8)
   // If an identical task is already paused (same project/category/task/description), resume THAT
   // instead of creating a new entry — prevents stacked duplicates (e.g. repeated Idle/Lunch Break).
   for (var _di = 0; _di < trkPaused.length; _di++) {
@@ -26075,7 +26257,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-19-A';
+var PORTAL_BUILD='2026-10-20-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34072,6 +34254,15 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-10-20-A', version:'2026.10.20', date:'October 20, 2026',
+    summary:'Reddit Central now decides your category and task, and hour appeals are checked against your tool.',
+    items:[
+      'On Reddit projects you only pick the project. The category and task are set by Reddit Central from what you are doing there.',
+      'Start a posting session, a warm-up session or a new account in Reddit Central and your portal timer moves to the right task by itself within a few seconds.',
+      'Health checks, username fixes and time between sessions count as Reddit Warmup.',
+      'Hour appeals are now checked against your tool. If the tool shows no work from you in that time, you have to explain why it was not tracked, and the appeal goes to the admin flagged.',
+      'If the tool shows only part of the time, only that part can be approved. Keep your portal timer and your tool running whenever you work.'
+    ] },
   { build:'2026-10-19-A', version:'2026.10.19', date:'October 19, 2026',
     summary:'Your Reddit accounts are covered while you are on leave, even when the admin is not online.',
     items:[
