@@ -7381,84 +7381,129 @@ var PFX=(function(){
    so there is always time to open the tool. Meetings / huddles / training categories are exempt. No
    tool_beat table yet, or Supabase unreachable → nobody is ever stopped (fail-open). */
 /* ═══ THE TOOL DECIDES THE CATEGORY AND TASK (Jeth, Oct 20) ═══
-   On Reddit Central projects the VA no longer picks the category or the task. Reddit Central reports what they are
-   doing (tool_beat.want) and the portal files the time there:
-     · Start → the timer starts on whatever Reddit Central reports;
-     · while it runs, starting something else in Reddit Central (a posting session, a warm-up session, creating an
-       account…) moves the timer to that category + task within ~20 s — one entry per category/task a day, resumed
-       when the VA comes back to it;
-     · time with no task timer in Reddit Central (health checks, username fixes) counts as Reddit Warmup — that switch
-       waits 2 minutes, so the hand-over between two sessions stays with the task just finished.
-   Approved mapping: category = the account's model · creation → Reddit Account Creation · Warming / Comment Farm /
-   NSFW / Spam recovery → Reddit Warmup · Day 1 → Super Strong and DM rounds → Reddit Posting · Vysor adds "Vysor".
-   Threads (Client Hub) stays a free pick. Escape hatch: a meeting/training description, an exempt VA, or a Reddit
-   Central tab that has not reported yet → the VA picks as before. */
+   On every project that has a tool, the VA picks only the project. The tool reports what they are doing
+   (tool_beat.want) and the portal files the time there:
+     · Reddit Central → Reddit - Altz / Reddit - Casey (category = the account's model; creation / warm-up / posting, Vysor)
+     · ALTR Studio   → ALTR Media (Sourcing → TP_1 Content Sourcing; Posting, Daily reel → TP_2 Vysor IG Posting)
+     · Client Hub    → Imperium, Slaybae, Project 2, Threads, Ember, Design & Shopify (the tab in front + its timer/board action)
+   Start → the timer starts on what the tool reports; while it runs, real work on another task in the tool moves the timer
+   there within ~20 s (one entry per category/task a day, resumed when the VA comes back to it). When the tool only says
+   "open, nothing specific" (a hold) the timer stays where it is; Reddit Central's idle time becomes Reddit Warmup after
+   2 minutes. Tasks the tool cannot see (2FA Authentication, Extra Task (Posting Team), Esano Cart, anything new in the
+   sheet) stay a hand pick, and meetings/training, exempt VAs and a tool that has not reported yet fall back to picking. */
 var TOOLCAT = {
   IDLE_WAIT: 2*60*1000, _idleSince: 0, _manual: '', _busy: false,
+  /* the tasks each tool can report — anything else under a tool project stays a hand pick */
+  KNOWN: {
+    reddit: /^reddit (posting|warmup|account creation)( vysor)?$/i,
+    altr: /^(content sourcing|vysor ig posting)$/i,
+    clients: /^(account creation|account warm up|ig reels posting|threads account creation|threads warmup|snapchat creation|account transfer|vps monitoring|uploading \/ downloading|photoshop|shopify)$/i
+  },
+  /* where Start lands when the tool is on another client tab (Client Hub) or has nothing to say yet */
+  DEF: [ [/imperium/i, null, 'IG Reels', 'Account Warm Up'], [/slay\s*bae/i, null, 'IG Reels', 'Account Warm Up'],
+         [/./, /project\s*2|ricardo/i, 'Project 2 (Ricardo)', 'IG Reels Posting'], [/reddit/i, /thread/i, 'Threads', 'Threads Warmup'],
+         [/ember|snapchat/i, null, 'Snapchat', 'VPS Monitoring'], [/torchlight|shopify/i, null, 'Graphics', 'Shopify'],
+         [/altr/i, null, 'TP_2', 'Vysor IG Posting'] ],
   cats: function(proj){ var seen={}, out=[]; (nativeProjects||[]).forEach(function(p){ if(p.project===proj && p.category && !seen[p.category]){ seen[p.category]=1; out.push(p.category); } }); return out; },
   tasks: function(proj, cat){ var seen={}, out=[]; (nativeProjects||[]).forEach(function(p){ if(p.project===proj && (p.category||'')===(cat||'') && p.task && !seen[p.task]){ seen[p.task]=1; out.push(p.task); } }); return out; },
-  /* is this project/category run by Reddit Central? (Threads → Client Hub, meetings/training, exempt VAs → no) */
+  toolFor: function(proj, cat, desc){ try{ return TOOLG.applies({ project:proj, category:cat||'', task:'', description:desc||'' })||''; }catch(e){ return ''; } },
+  isManual: function(tool, task){ return !!(task && tool && this.KNOWN[tool] && !this.KNOWN[tool].test(String(task).trim())); },
+  manualTasks: function(proj, cat, tool){ var self=this; return this.tasks(proj, cat).filter(function(t){ return self.isManual(tool, t); }); },
+  /* which tool runs this selection ('' = the VA picks) */
   driven: function(f, ignoreManual){
     try{
-      f=f||{}; var proj=f.proj||f.project||''; if(!proj) return false;
-      if(!ignoreManual && this._manual && this._manual===proj) return false;
-      var cat=f.cat!==undefined?f.cat:f.category;
-      if(cat && TOOLG.THR.test(String(cat))) return false;
-      return TOOLG.applies({ project:proj, category:'', task:'', description:f.desc||f.description||'' })==='reddit';
-    }catch(e){ return false; }
+      f=f||{}; var proj=f.proj||f.project||''; if(!proj) return '';
+      if(!ignoreManual && this._manual && this._manual===proj) return '';
+      var cat=(f.cat!==undefined?f.cat:f.category)||'', task=(f.task!==undefined?f.task:'')||'';
+      var tool=this.toolFor(proj, cat, f.desc||f.description||''); if(!tool) return '';
+      if(this.isManual(tool, task)) return '';
+      return tool;
+    }catch(e){ return ''; }
   },
+  _find: function(list, name){ name=String(name||'').trim().toLowerCase(); if(!name) return ''; var hit=list.filter(function(x){ return String(x).toLowerCase()===name; })[0]; if(hit) return hit;
+    return list.filter(function(x){ var l=String(x).toLowerCase(); return l.indexOf(name)>=0 || name.indexOf(l)>=0; })[0]||''; },
   /* tool report → this portal's project / category / task names */
-  resolve: function(raw, selProj){
+  resolve: function(raw, selProj, tool){
     var w=raw; if(typeof w==='string'){ try{ w=JSON.parse(w); }catch(e){ return null; } }
-    if(!w || !w.k) return null;
+    if(!w) return null;
     var projs=[], seen={}; (nativeProjects||[]).forEach(function(p){ if(p.project && !seen[p.project]){ seen[p.project]=1; projs.push(p.project); } });
-    var bp=String(w.p||''), P='';
-    if(projs.indexOf(bp)>=0) P=bp;
-    else if(/casey/i.test(bp)) P=projs.filter(function(x){ return /reddit/i.test(x) && /casey/i.test(x); })[0]||'';
-    else P=projs.filter(function(x){ return /reddit/i.test(x) && /altz/i.test(x); })[0] || ((selProj && /reddit/i.test(selProj) && !/casey/i.test(selProj))?selProj:'');
-    if(!P) return null;
-    var cats=this.cats(P).filter(function(c){ return !TOOLG.THR.test(c); });
-    var toks=String(w.m||'').toLowerCase().split(/[^a-z0-9]+/).filter(function(t){ return t.length>=2 && t!=='reddit'; });
-    var C='', best=0;
-    cats.forEach(function(c){ var lc=' '+c.toLowerCase().replace(/[^a-z0-9]+/g,' ')+' ', n=0; toks.forEach(function(t){ if(lc.indexOf(' '+t+' ')>=0) n++; }); if(n>best){ best=n; C=c; } });
-    if(!C){ var rc=(typeof trkRunning!=='undefined' && trkRunning && trkRunning.project===P)?(trkRunning.category||''):''; C=(rc && cats.indexOf(rc)>=0)?rc:(cats[0]||''); }
-    var base=w.k==='posting'?'Reddit Posting':(w.k==='creation'?'Reddit Account Creation':'Reddit Warmup');
-    var ts=this.tasks(P, C), T='';
-    if(/vysor/i.test(String(w.v||'')) && ts.indexOf(base+' Vysor')>=0) T=base+' Vysor';
-    else if(ts.indexOf(base)>=0) T=base;
-    else { var key=base.split(' ').pop().toLowerCase();
-      T=ts.filter(function(t){ return t.toLowerCase().indexOf(key)>=0 && !/vysor/i.test(t); })[0] || ts.filter(function(t){ return t.toLowerCase().indexOf(key)>=0; })[0] || ts[0] || ''; }
-    return { project:P, category:C, task:T, kind:w.k, idle:!!w.idle, lbl:String(w.lbl||'') };
+    if((tool||w.t||'reddit')==='reddit' && w.k && !w.task){
+      var bp=String(w.p||''), P='';
+      if(projs.indexOf(bp)>=0) P=bp;
+      else if(/casey/i.test(bp)) P=projs.filter(function(x){ return /reddit/i.test(x) && /casey/i.test(x); })[0]||'';
+      else P=projs.filter(function(x){ return /reddit/i.test(x) && /altz/i.test(x); })[0] || ((selProj && /reddit/i.test(selProj) && !/casey/i.test(selProj))?selProj:'');
+      if(!P) return null;
+      var cats=this.cats(P).filter(function(c){ return !TOOLG.THR.test(c); });
+      var toks=String(w.m||'').toLowerCase().split(/[^a-z0-9]+/).filter(function(t){ return t.length>=2 && t!=='reddit'; });
+      var C='', best=0;
+      cats.forEach(function(c){ var lc=' '+c.toLowerCase().replace(/[^a-z0-9]+/g,' ')+' ', n=0; toks.forEach(function(t){ if(lc.indexOf(' '+t+' ')>=0) n++; }); if(n>best){ best=n; C=c; } });
+      if(!C){ var rc=(typeof trkRunning!=='undefined' && trkRunning && trkRunning.project===P)?(trkRunning.category||''):''; C=(rc && cats.indexOf(rc)>=0)?rc:(cats[0]||''); }
+      var base=w.k==='posting'?'Reddit Posting':(w.k==='creation'?'Reddit Account Creation':'Reddit Warmup');
+      var ts=this.tasks(P, C), T='';
+      if(/vysor/i.test(String(w.v||'')) && ts.indexOf(base+' Vysor')>=0) T=base+' Vysor';
+      else if(ts.indexOf(base)>=0) T=base;
+      else { var key=base.split(' ').pop().toLowerCase();
+        T=ts.filter(function(t){ return t.toLowerCase().indexOf(key)>=0 && !/vysor/i.test(t); })[0] || ts.filter(function(t){ return t.toLowerCase().indexOf(key)>=0; })[0] || ts[0] || ''; }
+      return { project:P, category:C, task:T, kind:w.k, idle:!!w.idle, hold:false, lbl:String(w.lbl||'') };
+    }
+    /* ALTR Studio / Client Hub: they name the project, category and task — match them to the sheet */
+    var P2=this._find(projs, w.p); if(!P2) return null;
+    var C2=this._find(this.cats(P2), w.c); var T2=this._find(this.tasks(P2, C2), w.task);
+    if(!T2) return null;
+    return { project:P2, category:C2, task:T2, kind:'', idle:false, hold:!!w.hold, lbl:String(w.lbl||'') };
   },
-  /* the pickers: category + task read "Set by Reddit Central" (Threads stays pickable) */
+  /* the selected project's own starting point (the tool is on another client, or has nothing to say yet) */
+  fallback: function(proj, cat){
+    for(var i=0;i<this.DEF.length;i++){ var d=this.DEF[i];
+      if(!d[0].test(proj)) continue; if(d[1] && !d[1].test(String(cat||''))) continue; if(!d[1] && cat && TOOLG.THR.test(cat)) continue;
+      var C=this._find(this.cats(proj), cat||d[2]) || this._find(this.cats(proj), d[2]); var T=this._find(this.tasks(proj, C), d[3]);
+      if(C && T) return { project:proj, category:C, task:T, hold:true };
+    }
+    return null;
+  },
+  /* the pickers: category + task read "set by <tool>"; categories with hand-picked tasks (or another tool) stay pickable */
   lockUI: function(){
     try{
       var P=document.getElementById('cfy-project'), C=document.getElementById('cfy-category'), T=document.getElementById('cfy-task'); if(!P||!C||!T) return;
-      var proj=P.value, desc=((document.getElementById('cfy-desc')||{}).value||'');
-      var note=document.getElementById('trk-tc-note');
-      if(!proj || !this.driven({ proj:proj, cat:C.value, desc:desc })){ if(note) note.style.display='none'; return; }
+      var proj=P.value, desc=((document.getElementById('cfy-desc')||{}).value||''), note=document.getElementById('trk-tc-note');
+      var tool=proj?this.driven({ proj:proj, cat:C.value, task:T.value, desc:desc }):'';
+      if(!tool){ if(note) note.style.display='none'; return; }
+      var self=this, nm=(TOOLG.NAME&&TOOLG.NAME[tool])||'the tool', E=function(s){ return escapeHtml(String(s||'')); };
       var run=(typeof trkRunning!=='undefined' && trkRunning && trkRunning.project===proj && this.driven(trkRunning))?trkRunning:null;
-      var E=function(s){ return escapeHtml(String(s||'')); };
-      var other=run?[]:this.cats(proj).filter(function(c){ return TOOLG.THR.test(c); });
-      C.innerHTML='<option value="'+E(run?run.category:'')+'">'+E(run&&run.category?run.category:'Category: set by Reddit Central')+'</option>'+other.map(function(c){ return '<option value="'+E(c)+'">'+E(c)+'</option>'; }).join('');
-      C.value=run?(run.category||''):''; C.disabled=!other.length;
-      T.innerHTML='<option value="'+E(run?run.task:'')+'">'+E(run&&run.task?run.task:'Task: set by Reddit Central')+'</option>'; T.value=run?(run.task||''):''; T.disabled=true;
+      if(run){
+        C.innerHTML='<option value="'+E(run.category)+'">'+E(run.category||('Category: set by '+nm))+'</option>'; C.value=run.category||''; C.disabled=true;
+        T.innerHTML='<option value="'+E(run.task)+'">'+E(run.task||('Task: set by '+nm))+'</option>'; T.value=run.task||''; T.disabled=true;
+      } else {
+        var projTool=this.toolFor(proj, '', desc), cur=C.value||'';
+        var picks=this.cats(proj).filter(function(c){ var tc=self.toolFor(proj, c, desc); return tc!==projTool || self.manualTasks(proj, c, tc).length>0; });
+        if(projTool){
+          C.innerHTML='<option value="">'+E('Category: set by '+((TOOLG.NAME&&TOOLG.NAME[projTool])||'the tool'))+'</option>'+picks.map(function(c){ return '<option value="'+E(c)+'">'+E(c)+'</option>'; }).join('');
+          C.value=(picks.indexOf(cur)>=0)?cur:''; C.disabled=!picks.length;
+        }
+        var catNow=C.value||'', toolNow=catNow?this.toolFor(proj, catNow, desc):projTool, nmNow=(TOOLG.NAME&&TOOLG.NAME[toolNow])||nm;
+        var man=catNow?this.manualTasks(proj, catNow, toolNow):[], tCur=T.value||'';
+        T.innerHTML='<option value="">'+E('Task: set by '+nmNow)+'</option>'+man.map(function(t){ return '<option value="'+E(t)+'">'+E(t)+'</option>'; }).join('');
+        T.value=(man.indexOf(tCur)>=0)?tCur:''; T.disabled=!man.length;
+        nm=nmNow;
+      }
       if(!document.getElementById('trk-tc-css')){ var st=document.createElement('style'); st.id='trk-tc-css'; st.textContent='.trk-tc-note{font-size:11.5px;line-height:1.35;color:var(--t3,#94a3b8);margin:-2px 2px 0;}'; document.head.appendChild(st); }
       if(!note){ note=document.createElement('div'); note.id='trk-tc-note'; note.className='trk-tc-note'; T.parentNode.insertBefore(note, T.nextSibling); }
-      note.textContent=run?'Reddit Central sets this. Start something else there and the timer follows within a few seconds.'
-                          :'Reddit Central sets the category and task from what you do there. Press Start, then work in Reddit Central.';
+      note.textContent=run?(nm+' sets this. Work on something else there and the timer follows within a few seconds.')
+                          :(nm+' sets the category and task from what you do there. Press Start, then work in '+nm+'.');
       note.style.display='';
     }catch(e){}
   },
-  /* Start: pair with Reddit Central, then start on what it reports */
-  prepare: async function(f){
-    if(!(await TOOLG.pair({ proj:f.proj, cat:'', task:'', desc:f.desc }))) return null;
-    var x=await TOOLG.row(TOOLG.me(), 'reddit');
-    var row=(x && x.ok)?x.row:(TOOLG.cur && TOOLG.cur.row);
-    var w=this.resolve(row && row.want, f.proj);
-    if(!w || !w.category || !w.task){   // Reddit Central has not reported (an old tab still open) → the VA picks this once
+  /* Start: pair with the tool, then start on what it reports */
+  prepare: async function(f, tool){
+    if(!(await TOOLG.pair({ proj:f.proj, cat:f.cat||'', task:'', desc:f.desc }))) return null;
+    var x=await TOOLG.row(TOOLG.me(), tool);
+    var row=(x && x.ok)?x.row:(TOOLG.cur && TOOLG.cur.tool===tool && TOOLG.cur.row);
+    var w=this.resolve(row && row.want, f.proj, tool);
+    if(w && tool==='clients' && w.project!==f.proj) w=null;              // the hub is on another client's tab — start on this one
+    if(!w && tool!=='reddit') w=this.fallback(f.proj, f.cat);
+    if(!w || !w.category || !w.task){   // the tool has not reported (an old tab still open) → the VA picks this once
       this._manual=f.proj; try{ loadCategories(); }catch(_l){}
-      try{ showToast('Reddit Central has not sent your task yet. Refresh Reddit Central, or pick the category and task this once.'); }catch(_t){}
+      try{ showToast((TOOLG.NAME[tool]||'The tool')+' has not sent your task yet. Refresh it, or pick the category and task this once.'); }catch(_t){}
       return null;
     }
     return w;
@@ -7469,12 +7514,13 @@ var TOOLCAT = {
       if(this._busy) return;
       if(typeof trkRunning==='undefined' || !trkRunning || !trkOwns){ this._idleSince=0; return; }
       if(typeof isIdle!=='undefined' && isIdle) return;
-      var run=trkRunning, cur=TOOLG.cur;
-      if(!this.driven(run, true)) return;
-      if(!cur || cur.tool!=='reddit' || !cur.row || Date.now()-cur.at>60000 || !TOOLG.isOpen(cur.row)) return;
-      var w=this.resolve(cur.row.want, run.project); if(!w || !w.category || !w.task) return;
+      var run=trkRunning, tool=this.driven(run, true), cur=TOOLG.cur;
+      if(!tool) return;
+      if(!cur || cur.tool!==tool || !cur.row || Date.now()-cur.at>60000 || !TOOLG.isOpen(cur.row)) return;
+      var w=this.resolve(cur.row.want, run.project, tool); if(!w || !w.category || !w.task) return;
       if(this._manual===run.project) this._manual='';   // the tool reports again → it decides again
       if(w.project===run.project && w.category===(run.category||'') && w.task===(run.task||'')){ this._idleSince=0; return; }
+      if(w.hold){ this._idleSince=0; return; }              // ALTR / Client Hub: nothing specific → stay on the current task
       if(w.idle){ if(!this._idleSince){ this._idleSince=Date.now(); return; } if(Date.now()-this._idleSince<this.IDLE_WAIT) return; }
       this._idleSince=0;
       this.switchTo(w);
@@ -7503,7 +7549,7 @@ var TOOLCAT = {
       _saveActiveMarker();
       try{ trkRestoreFields(trkRunning); }catch(_r){}
       startTimerDisplay(); renderTimerButtons(); renderPausedList(); updateButtons(); updateOwnershipUI(); refreshTimeBar();
-      try{ showToast('Reddit Central: now on '+w.task+' · '+w.category); }catch(_t){}
+      try{ showToast('Now on '+w.task+' · '+w.category+' — set by your tool'); }catch(_t){}
     }catch(e){}
     finally{ self._busy=false; }
   },
@@ -14279,7 +14325,7 @@ async function startTimer() {
   try { if (window.AUL && AUL.enabled === true && f.proj === IDLE_PROJECT && /^lunch/i.test(f.cat || '')) { showToast('Lunch is automatic now — 12:00–1:00. No need to tag it.'); return; } } catch(e){}
   /* 🧭 Oct 20: on Reddit Central projects the tool decides the category + task — pair, then start on what it reports */
   var _tcOn = false; try { _tcOn = TOOLCAT.driven(f); } catch(_t) {}
-  if (_tcOn) { var _tw = await TOOLCAT.prepare(f); if (!_tw) return; f.proj = _tw.project; f.cat = _tw.category; f.task = _tw.task; }
+  if (_tcOn) { var _tw = await TOOLCAT.prepare(f, _tcOn); if (!_tw) return; f.proj = _tw.project; f.cat = _tw.category; f.task = _tw.task; }
   var projHasCats = nativeProjects.some(function(p){ return p.project === f.proj && p.category; });
   if (!_tcOn && projHasCats && !f.cat) { showToast('Select a Category before starting the timer.'); return; }
   var catHasTasks = nativeProjects.some(function(p){ return p.project === f.proj && (p.category||'') === (f.cat||'') && p.task; });
@@ -26257,7 +26303,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-20-A';
+var PORTAL_BUILD='2026-10-20-B';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34254,6 +34300,15 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-10-20-B', version:'2026.10.20', date:'October 20, 2026',
+    summary:'ALTR Studio and the Client Hub now set your category and task too.',
+    items:[
+      'On ALTR Media, Imperium, Slaybae, Project 2, Threads, Ember and Torchlight you only pick the project. The tool you work in sets the category and task.',
+      'ALTR Studio: sourcing counts as Content Sourcing, posting and the daily reel count as Vysor IG Posting.',
+      'Client Hub: the tab you are on and the timer or board step you use decide the task, for example creating accounts, warm-up, reels, Snapchat setup, Photoshop or Shopify.',
+      'If you only have the tool open without working on a specific step, your timer stays on the task it is on.',
+      'Tasks the tool cannot see, like 2FA Authentication, Extra Task (Posting Team) and Esano Cart, you still pick yourself in the portal.'
+    ] },
   { build:'2026-10-20-A', version:'2026.10.20', date:'October 20, 2026',
     summary:'Reddit Central now decides your category and task, and hour appeals are checked against your tool.',
     items:[
