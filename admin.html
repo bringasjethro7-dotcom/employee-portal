@@ -1981,7 +1981,7 @@ function _jText(url,tries,timeout,delay,pri){
    TTLs only stop *passive* re-fetching while navigating, and stale-while-revalidate still refreshes
    in the background past half-TTL. Net effect: far fewer queued requests, snappier console. */
 var _jTTL={ get_running:20000, team_hours_total:600000, pipeline_get:300000,
-  get_all_employees:90000, admin_bootstrap:15000, get_tracker_projects:180000, get_banks:120000,
+  get_all_employees:90000, admin_bootstrap:30000,   /* Oct 20: was 15 s — a 12 s build meant nearly every read also fired a background rebuild */ get_tracker_projects:180000, get_banks:120000,
   get_notif_templates:180000, get_worklog:45000, get_attendance:45000, get_all_scorecards:45000,
   get_finalized:90000, get_leave_requests:30000, get_coe_requests:30000, redeem_list:30000,
   lead_demerit_list:30000, get_all_demerit_disputes:30000, get_appeals:30000, lunch_work_list:20000, payslip_funding:45000,
@@ -2175,9 +2175,17 @@ function adminFeedStart(){
   try{ var c=JSON.parse(sessionStorage.getItem('adm_feed')||'null'); if(c && c.url && c.exp>Date.now()+60000){ adminFeed.url=c.url; adminFeed.exp=c.exp; } }catch(_e){}
   adminFeedTick();
   adminFeed.timer=setInterval(adminFeedTick, 20000);
-  // keep the backend publishing while this console is open (it stops 15 min after the last heartbeat)
-  setInterval(function(){ if(document.hidden || (!PASS && !ADM_SESS)) return; jGet(API+'?action=admin_watch&pass='+encodeURIComponent(PASS||'')+'&_='+Date.now(), 0, 20000).catch(function(){}); }, 5*60*1000);
-  document.addEventListener('visibilitychange', function(){ if(!document.hidden) adminFeedTick(); });
+  /* Heartbeat (Oct 20): sent at open and every minute while the console is visible. From backend 20a the heartbeat
+     itself republishes the snapshot when it is over 45 s old, so the dashboard reads the ~100 ms CDN copy instead of
+     queueing behind admin_bootstrap. Background lane, never blocks a panel; a fresh publish is read right away. */
+  var _afWatch=function(){
+    if(document.hidden || (!PASS && !ADM_SESS)) return;
+    _jText(API+'?action=admin_watch&pass='+encodeURIComponent(PASS||'')+'&_='+Date.now(), 1, 45000, 400, 2)
+      .then(function(t){ try{ var d=JSON.parse(t); adminFeed.kick=d; if(d && (d.published || d.fresh)) adminFeedTick(); }catch(_j){} }, function(){});
+  };
+  setTimeout(_afWatch, 1500);
+  setInterval(_afWatch, 60*1000);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden){ adminFeedTick(); _afWatch(); } });
 }
 function enterAdmin(){
   if(_adminEntered) return;
@@ -12325,7 +12333,10 @@ var ADMAURA = (function(){
 <script id="admx-js">
 /* ═══ ADMIN EXTRAS (Oct 13): Exceptions & access · Backend builds · Link health ═══ */
 var ADMX = {
-  EXPECT: { portal:'2026-10-15a', reddit:'rc-2026-10-13b', altr:'2026-10-13-ins', login:'2026-10-13-dspass', client:'cl-2026-10-14b' },
+  EXPECT: { portal:'2026-10-19a', reddit:'rc-2026-10-19a', altr:'2026-10-13-ins', login:'2026-10-13-dspass', client:'cl-2026-10-14b' },
+  /* Oct 20: a backend is "behind" only when its live build is OLDER than expected. Build names carry the date, so a
+     plain string compare orders them; a newer live build (deployed after this page) is up to date, not a warning. */
+  older: function(live, exp){ return !!(live && exp && String(live) < String(exp)); },
   RC:'https://script.google.com/macros/s/AKfycbwc0seQ11rMc_9GeAE34jVPYDDsFkMqNhpGCiW8D1qIFu9bZ_e6Aa3SHR8vt8Fq04g5mA/exec',
   ALTR:'https://script.google.com/macros/s/AKfycbxp7wcIf48urxm2DcPoNgdmQreYUGia-YNnXwIXfyMqOLkyWpaqI3hoMZa4VPmjZa9_Mg/exec',
   CLIENT:'https://script.google.com/macros/s/AKfycbzHo-Im9ABUJ1pyi6oFtnUD0IilvPniNe5E10ad90L3TkjhH_12WnzwRSe21cfZJEIa/exec',
@@ -12340,7 +12351,7 @@ var ADMX = {
   /* ── backend builds ── */
   backends: function(){ var L=(typeof LOGIN_API!=='undefined')?LOGIN_API:'';
     return [
-      { k:'portal', n:'Portal backend', url:API+'?action=build', pick:function(d){ return d&&d.build; }, file:'portal-apps-script_2026-10-15a.txt' },
+      { k:'portal', n:'Portal backend', url:API+'?action=build', pick:function(d){ return d&&d.build; }, file:'portal-apps-script.gs' },
       { k:'reddit', n:'Reddit Central backend', url:this.RC+'?action=rc_build', pick:function(d){ return d&&d.build; }, file:'reddit-apps-script.gs' },
       { k:'altr', n:'ALTR Studio backend', url:this.ALTR+'?action=ping', pick:function(d){ return d&&d.version; }, file:'altr-apps-script.gs' },
       { k:'login', n:'Sign-in backend (login lane)', url:L?(L+'?action=ping'):'', pick:function(d){ return d&&d.version; }, file:'login-apps-script.gs' },
@@ -12350,10 +12361,10 @@ var ADMX = {
     var self=this, B=this.backends(), out=[];
     await Promise.all(B.map(async function(b){ var live=null, err=''; if(b.url){ try{ live=b.pick(await self.get(b.url, 14000))||null; }catch(e){ err='no answer'; } } out.push({ b:b, live:live, err:err }); }));
     out.sort(function(a,b){ return B.indexOf(a.b)-B.indexOf(b.b); });
-    var behind=out.filter(function(x){ return x.live && x.live!==self.EXPECT[x.b.k]; });
+    var behind=out.filter(function(x){ return self.older(x.live, self.EXPECT[x.b.k]); });
     var el=document.getElementById('bld-body');
     if(el) el.innerHTML='<table class="admx-tbl"><tr><th>Backend</th><th>Live now</th><th>Expected</th><th></th></tr>'+out.map(function(x){
-      var exp=self.EXPECT[x.b.k], st=!x.live?'<span class="admx-pill admx-mute">'+(x.err||'unknown')+'</span>':(x.live===exp?'<span class="admx-pill admx-ok">Up to date</span>':'<span class="admx-pill admx-bad">Needs deploy</span>');
+      var exp=self.EXPECT[x.b.k], st=!x.live?'<span class="admx-pill admx-mute">'+(x.err||'unknown')+'</span>':(!self.older(x.live,exp)?'<span class="admx-pill admx-ok">Up to date</span>':'<span class="admx-pill admx-bad">Needs deploy</span>');
       return '<tr><td><b>'+self.esc(x.b.n)+'</b><small>'+self.esc(x.b.file)+'</small></td><td>'+self.esc(x.live||'—')+'</td><td>'+self.esc(exp)+'</td><td>'+st+'</td></tr>'; }).join('')+'</table>'+
       '<p style="margin:10px 0 0;color:var(--t3);font-size:12px">To update one: open that Apps Script → paste the latest file → Save → Deploy → Manage deployments → ✏️ → Version: New version → Deploy. The /exec URL stays the same.</p>';
     this.banner(behind);

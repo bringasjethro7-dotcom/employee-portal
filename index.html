@@ -5777,9 +5777,16 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
             <label class="field-label">Reason</label>
             <input class="field-input" type="text" id="leave-reason" placeholder="Brief reason for leave…" />
           </div>
+          <!-- LEAVE HANDOVER (Oct 19): VAs holding Reddit accounts pick who covers them while they are away -->
+          <div class="field-group full" id="lv-cover" style="grid-column:1/-1;display:none;">
+            <label class="field-label" for="lv-cover-to">Who will cover your Reddit accounts?</label>
+            <select class="field-input" id="lv-cover-to"></select>
+            <p class="lv-cover-help" id="lv-cover-help">They accept it in Reddit Central. Once they accept, your accounts move to their board for these days only and come back to you after.</p>
+          </div>
         </div>
         <button class="btn-primary" id="leave-submit-btn" style="width:auto;padding:10px 28px;" onclick="submitLeave()">Submit request</button>
         <div id="leave-msg" class="dup-note" style="display:none;"></div>
+        <div id="lv-cover-st" class="lv-cover-st" style="display:none;"></div>
       </div>
 
       <!-- Leave history -->
@@ -16134,6 +16141,8 @@ function submitLeave() {
   var reason = document.getElementById('leave-reason').value.trim();
   if (!start || !end) { showToast('Please select start and end dates.'); return; }
   if (!reason) { showToast('Please enter a reason.'); return; }
+  var coverTo = '';
+  try{ if (LVCOVER.uses) { coverTo = (document.getElementById('lv-cover-to')||{}).value || ''; if (!coverTo) { showToast('Pick who will cover your Reddit accounts.'); return; } } }catch(_c){}
 
   var startD = new Date(start);
   var endD   = new Date(end);
@@ -16181,6 +16190,7 @@ function submitLeave() {
       dupNote(note, 'ok', 'Sent — it’s in the admin’s queue', 'You’ll get an email once it’s approved or rejected. No need to send it again.');
       renderLeaveHistory();
       updateLeaveBalance();
+      if (coverTo && coverTo !== '__admin__') lvCoverAsk(coverTo, start, end, type, note);
       return;
     }
     if (d && d.error === 'DUPLICATE') {
@@ -16246,8 +16256,73 @@ function renderLeaveHistory() {
   }).join('');
 }
 
+/* ══ LEAVE HANDOVER (Oct 19, Jeth) ══
+   The admin is often asleep when a sick / emergency / vacation leave comes in, so Reddit accounts were never moved.
+   A VA who holds Reddit accounts now picks the teammate who covers them; that teammate accepts in Reddit Central and
+   the accounts go to their board for the leave days only (Reddit backend rc_ho_*). Plain text, no icons. */
+var RC_API_URL='https://script.google.com/macros/s/AKfycbwc0seQ11rMc_9GeAE34jVPYDDsFkMqNhpGCiW8D1qIFu9bZ_e6Aa3SHR8vt8Fq04g5mA/exec';
+var LVCOVER={ uses:false, team:[], n:0, mine:[] };
+function _lvcGet(q){ return fetch(RC_API_URL+'?'+q+'&sess='+encodeURIComponent(JMB_SESS||'')+'&_='+Date.now()).then(function(r){ return r.json(); }); }
+function _lvcType(t){ return ({ vacation:'Vacation leave', sick:'Sick leave', emergency:'Emergency leave' })[t] || 'Leave'; }
+function _lvcDay(d){ try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{ month:'short', day:'numeric' }); }catch(e){ return d; } }
+function _lvcRange(a,b){ return (!b||a===b) ? _lvcDay(a) : _lvcDay(a)+' – '+_lvcDay(b); }
+function _lvcFirst(n){ return String(n||'').split(/,\s*/).length>1 ? String(n).split(/,\s*/)[1].split(' ')[0] : String(n||'').split(' ')[0]; }
+function _lvcOptions(sel){
+  return '<option value="">Choose a teammate…</option>'+LVCOVER.team.map(function(m){ return '<option value="'+escapeHtml(m.employee_id)+'"'+(sel===m.employee_id?' selected':'')+'>'+escapeHtml(m.name)+'</option>'; }).join('')+
+    '<option value="__admin__">I can’t find anyone — the admin will decide</option>';
+}
+async function lvCoverInit(){
+  var box=document.getElementById('lv-cover'); if(!box || !leaveEmpId) return;
+  try{
+    var d=await _lvcGet('action=rc_ho_team&employee_id='+encodeURIComponent(leaveEmpId));
+    if(!d || !d.ok || !d.uses){ LVCOVER.uses=false; box.style.display='none'; return; }
+    LVCOVER.uses=true; LVCOVER.team=d.team||[]; LVCOVER.n=d.accounts||0;
+    document.getElementById('lv-cover-to').innerHTML=_lvcOptions('');
+    var h=document.getElementById('lv-cover-help'); if(h) h.textContent='You have '+LVCOVER.n+' Reddit account'+(LVCOVER.n===1?'':'s')+'. The person you pick accepts it in Reddit Central; once they accept, your accounts move to their board for these days only and come back to you after.';
+    box.style.display='';
+    lvCoverStatus();
+  }catch(e){ LVCOVER.uses=false; box.style.display='none'; }
+}
+async function lvCoverStatus(){
+  var el=document.getElementById('lv-cover-st'); if(!el || !LVCOVER.uses) return;
+  try{
+    var d=await _lvcGet('action=rc_ho_mine&employee_id='+encodeURIComponent(leaveEmpId));
+    var L=(d && d.outgoing)||[]; LVCOVER.mine=L;
+    if(!L.length){ el.style.display='none'; el.innerHTML=''; return; }
+    el.innerHTML='<div class="h">Who is covering your Reddit accounts</div>'+L.map(function(r){
+      var who='<b>'+escapeHtml(_lvcFirst(r.to_name)||r.to)+'</b>';
+      var st = r.status==='accepted' ? '<span class="s ok">Accepted</span>'
+             : r.status==='declined' ? '<span class="s no">Declined</span>'
+             : r.status==='expired'  ? '<span class="s no">No answer</span>'
+             : '<span class="s wait">Waiting for an answer</span>';
+      var again = (r.status==='declined'||r.status==='expired') ? '<select id="lvc-re-'+escapeHtml(r.id)+'">'+_lvcOptions('')+'</select><button type="button" onclick="lvCoverRepick(\''+escapeHtml(r.id)+'\')">Ask</button>' : '';
+      return '<div class="lv-cover-row"><span>'+escapeHtml(r.type||'Leave')+' · '+escapeHtml(_lvcRange(r.start,r.end))+' · '+who+'</span>'+st+(again?'<span style="flex-basis:100%;display:flex;gap:8px;align-items:center;">Ask someone else '+again+'</span>':'')+'</div>';
+    }).join('');
+    el.style.display='';
+  }catch(e){}
+}
+async function lvCoverAsk(to, start, end, type, note){
+  try{
+    var d=await _lvcGet('action=rc_ho_ask&employee_id='+encodeURIComponent(leaveEmpId)+'&to='+encodeURIComponent(to)+'&start='+encodeURIComponent(start)+'&end='+encodeURIComponent(end)+'&type='+encodeURIComponent(_lvcType(type)));
+    if(d && d.ok){
+      var nm=_lvcFirst(d.to_name)||d.to;
+      if(note) dupNote(note, 'ok', 'Sent — leave and cover request', 'The admin has your leave. '+nm+' has been asked to cover your '+d.accounts+' Reddit account'+(d.accounts===1?'':'s')+' and will answer in Reddit Central. You’ll get a notification either way.');
+    } else if(note){
+      dupNote(note, 'err', 'Leave sent, cover request not sent', (d&&d.message)||('Reddit Central answered: '+((d&&d.error)||'error')+'. Pick your cover again below.'));
+    }
+  }catch(e){ if(note) dupNote(note, 'err', 'Leave sent, cover request not sent', 'Check your connection and pick your cover again below.'); }
+  lvCoverStatus();
+}
+async function lvCoverRepick(id){
+  var r=(LVCOVER.mine||[]).filter(function(x){ return x.id===id; })[0]; var sel=document.getElementById('lvc-re-'+id);
+  var to=sel?sel.value:''; if(!r || !to) { showToast('Choose a teammate first.'); return; }
+  if(to==='__admin__'){ showToast('Okay — the admin will decide who covers your accounts.'); return; }
+  var tmap={ 'Vacation leave':'vacation','Sick leave':'sick','Emergency leave':'emergency' };
+  await lvCoverAsk(to, r.start, r.end, tmap[r.type]||'', document.getElementById('leave-msg'));
+}
 function initLeave(empId) {
   leaveEmpId = empId;
+  try{ lvCoverInit(); }catch(_lc){}
   // Set min date to today
   var today = new Date().toISOString().split('T')[0];
   document.getElementById('leave-start').min = today;
@@ -26000,7 +26075,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-18-A';
+var PORTAL_BUILD='2026-10-19-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -33849,21 +33924,32 @@ var ATTBAT = {
 .ta-foot button{ flex:none; background:none; border:1px solid var(--border); border-radius:999px; color:var(--text-2); font:600 12px/1 inherit; cursor:pointer; padding:7px 13px; }
 @media (max-width:640px){ .ta-card{ padding:18px 16px 12px; } .ta-big{ font-size:28px; } .ta-day{ grid-template-columns:52px minmax(0,1fr); } .ta-dt{ grid-column:2; text-align:left; display:flex; gap:8px; align-items:baseline; } .ta-cut small{ display:none; } }
 
-/* update notes — written like an iOS update sheet */
-#pn-wrap{ position:fixed; inset:0; z-index:100500; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; padding:20px; opacity:0; transition:opacity .2s ease; }
+/* update notes — iOS glass card, plain text only (Oct 19: frosted glass, no icons, no colour) */
+#pn-wrap{ position:fixed; inset:0; z-index:100500; display:flex; align-items:center; justify-content:center; padding:20px;
+  background:rgba(8,10,16,.28); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); opacity:0; transition:opacity .25s ease; }
 #pn-wrap.on{ opacity:1; }
-.pn-sheet{ width:100%; max-width:440px; max-height:86vh; overflow:auto; background:#fff; color:#111; border-radius:18px; padding:26px 26px 18px;
-  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter','Segoe UI',sans-serif; box-shadow:0 24px 60px rgba(15,23,42,.25); }
-.pn-k{ font-size:13px; color:#6b7280; font-weight:500; }
-.pn-v{ margin-top:14px; }
-.pn-v + .pn-v{ margin-top:22px; padding-top:18px; border-top:1px solid #e5e7eb; }
-.pn-t{ font-size:20px; font-weight:700; letter-spacing:-.01em; color:#111; }
-.pn-d{ font-size:13px; color:#6b7280; margin-top:2px; }
-.pn-s{ font-size:14.5px; line-height:1.55; color:#111; margin:12px 0 0; }
+.pn-sheet{ position:relative; width:100%; max-width:420px; max-height:84vh; overflow:auto; border-radius:28px; padding:26px 24px 18px;
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter','Segoe UI',sans-serif; color:#f5f5f7;
+  background:linear-gradient(180deg,rgba(58,58,66,.62),rgba(32,32,38,.58));
+  -webkit-backdrop-filter:blur(30px) saturate(180%); backdrop-filter:blur(30px) saturate(180%);
+  border:1px solid rgba(255,255,255,.16);
+  box-shadow:0 30px 80px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.18);
+  transform:translateY(8px) scale(.98); transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+#pn-wrap.on .pn-sheet{ transform:none; }
+body.light .pn-sheet{ color:#1d1d1f; background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(246,246,250,.62)); border-color:rgba(255,255,255,.7);
+  box-shadow:0 30px 80px rgba(15,23,42,.18), inset 0 1px 0 rgba(255,255,255,.9); }
+.pn-k{ font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; opacity:.55; }
+.pn-v{ margin-top:12px; }
+.pn-v + .pn-v{ margin-top:20px; padding-top:18px; border-top:1px solid rgba(128,128,140,.25); }
+.pn-t{ font-size:22px; font-weight:700; letter-spacing:-.02em; }
+.pn-d{ font-size:13px; opacity:.55; margin-top:2px; }
+.pn-s{ font-size:15px; line-height:1.5; margin:12px 0 0; opacity:.92; }
 .pn-l{ margin:10px 0 0; padding-left:18px; }
-.pn-l li{ font-size:14px; line-height:1.55; color:#1f2937; margin:6px 0; }
-.pn-btn{ display:block; width:100%; margin-top:22px; border:none; border-radius:12px; padding:13px 16px; background:#111; color:#fff; font:600 15px/1 inherit; font-family:inherit; cursor:pointer; }
-.pn-btn:focus-visible{ outline:2px solid #2563eb; outline-offset:2px; }
+.pn-l li{ font-size:14px; line-height:1.5; margin:7px 0; opacity:.82; }
+.pn-btn{ display:block; width:100%; margin-top:22px; border:none; border-radius:14px; padding:14px 16px; font:600 15px/1 inherit; font-family:inherit; cursor:pointer;
+  color:#1d1d1f; background:rgba(255,255,255,.9); }
+body.light .pn-btn{ color:#fff; background:rgba(29,29,31,.9); }
+.pn-btn:focus-visible{ outline:2px solid rgba(10,132,255,.8); outline-offset:2px; }
 </style>
 <script>
 /* ══ TIME ANALYSIS (Oct 17, Jeth) ══
@@ -33986,6 +34072,14 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-10-19-A', version:'2026.10.19', date:'October 19, 2026',
+    summary:'Your Reddit accounts are covered while you are on leave, even when the admin is not online.',
+    items:[
+      'When you file a leave and you hold Reddit accounts, the form asks who will cover them. Pick a teammate from your Reddit team.',
+      'Your teammate accepts or declines in Reddit Central. Once they accept, your accounts move to their board for your leave days only and come back to you after.',
+      'If they decline, you get a notification and can ask someone else from the Leave page.',
+      'If someone asks you to cover, the request is waiting for you at the top of Reddit Central.'
+    ] },
   { build:'2026-10-18-A', version:'2026.10.18', date:'October 18, 2026',
     summary:'Birthdays now get their own celebration on the portal.',
     items:[
@@ -34031,6 +34125,19 @@ var PORTAL_NOTES=[
   }, 1000);
 })();
 </script>
+<style id="lvcover-css">
+/* leave handover (Oct 19) — plain text, no icons */
+.lv-cover-help{ font-size:12px; color:var(--text-3); margin:6px 0 0; line-height:1.5; }
+.lv-cover-st{ margin-top:14px; border-top:1px solid var(--border); padding-top:12px; }
+.lv-cover-st .h{ font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); margin-bottom:6px; }
+.lv-cover-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:7px 0; font-size:13px; color:var(--text-2); border-bottom:1px solid var(--border); }
+.lv-cover-row:last-child{ border-bottom:none; }
+.lv-cover-row b{ color:var(--text-1); font-weight:600; }
+.lv-cover-row .s{ margin-left:auto; font-size:12px; font-weight:600; }
+.lv-cover-row .s.ok{ color:#16a34a; } .lv-cover-row .s.wait{ color:#b45309; } .lv-cover-row .s.no{ color:#dc2626; }
+.lv-cover-row select{ background:var(--card2); border:1px solid var(--border); color:var(--text-1); border-radius:8px; padding:5px 8px; font:inherit; font-size:12.5px; }
+.lv-cover-row button{ background:none; border:1px solid var(--border); color:var(--text-1); border-radius:8px; padding:5px 10px; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+</style>
 <style id="bday-css">
 /* ══ BIRTHDAYS (Oct 18) — teaser pill, 5-minute countdown to midnight, the birthday video, and a day-of card ══ */
 #bd-pill{ position:fixed; left:18px; bottom:18px; z-index:99980; display:flex; align-items:center; gap:10px; padding:6px 14px 6px 6px; border-radius:999px; color:#2b1a4a;
