@@ -1259,8 +1259,8 @@ body{background-attachment:initial !important}
           <!-- Oct 16 (Jeth): the tool half (Productivity · QA · Results) sits together, then the rest -->
           <tr class="sc-grp">
             <th colspan="2" style="border-bottom:none;"></th>
-            <th colspan="3" style="text-align:center;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#1d4ed8;background:rgba(37,99,235,.07);border-radius:10px 10px 0 0;border-bottom:2px solid rgba(37,99,235,.35);">🛠 From the tools · 50%<div style="font-size:9.5px;font-weight:600;letter-spacing:0;text-transform:none;color:#7c3aed;margin-top:2px;">grey = the tool's own score → coloured = after Tool Power ×</div></th>
-            <th colspan="5" style="text-align:center;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#b45309;background:rgba(245,158,11,.07);border-radius:10px 10px 0 0;border-bottom:2px solid rgba(245,158,11,.35);">Portal · 50%</th>
+            <th colspan="3" style="text-align:center;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#1d4ed8;background:rgba(37,99,235,.07);border-radius:10px 10px 0 0;border-bottom:2px solid rgba(37,99,235,.35);">🛠 From the tools · <span id="sc-grp-tools-pct">50%</span><div style="font-size:9.5px;font-weight:600;letter-spacing:0;text-transform:none;color:#7c3aed;margin-top:2px;">grey = the tool's own score → coloured = after Tool Power ×</div></th>
+            <th colspan="6" style="text-align:center;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#b45309;background:rgba(245,158,11,.07);border-radius:10px 10px 0 0;border-bottom:2px solid rgba(245,158,11,.35);">Portal · <span id="sc-grp-portal-pct">50%</span></th>
             <th style="border-bottom:none;"></th>
           </tr>
           <tr>
@@ -1269,6 +1269,7 @@ body{background-attachment:initial !important}
             <th style="background:rgba(37,99,235,.04);">Productivity</th>
             <th style="background:rgba(37,99,235,.04);">QA</th>
             <th style="background:rgba(37,99,235,.04);">Results</th>
+            <th style="background:rgba(245,158,11,.04);" id="sc-th-activity" title="Activity graph, team-adjusted: each project's active minutes judged against that project's normal level. Small grey number = raw Active %.">Activity</th>
             <th style="background:rgba(245,158,11,.04);">Attendance</th>
             <th style="background:rgba(245,158,11,.04);">Conduct</th>
             <th style="background:rgba(245,158,11,.04);">Assessment</th>
@@ -1276,7 +1277,7 @@ body{background-attachment:initial !important}
             <th style="background:rgba(245,158,11,.04);">Team Sales</th>
             <th>Overall</th>
           </tr></thead>
-          <tbody id="sc-body"><tr><td colspan="11" class="es">Loading…</td></tr></tbody>
+          <tbody id="sc-body"><tr><td colspan="12" class="es">Loading…</td></tr></tbody>
         </table>
       </div>
 
@@ -6916,7 +6917,7 @@ async function loadAdminScorecard(force) {
    Edits the weights the backend actually scores with. Percentages here, fractions
    on the wire. The server re-validates and refuses a bad set, so a typo cannot
    corrupt twenty people's rankings — but we still check before sending. */
-var SCW_LABELS = { productivity:'Productivity', quality:'Quality (QA)', attendance:'Attendance',
+var SCW_LABELS = { productivity:'Productivity', activity:'Activity (graph)', quality:'Quality (QA)', attendance:'Attendance',
   assessment:'Assessment', team_sales:'Team Sales', demerit:'Demerit',
   innovation:'Innovation', results:'Results', csat:'CSAT' };
 var SCW_STATE = null;
@@ -7048,7 +7049,7 @@ function _scFilterActive(rows){ var dead=_deactSet(); return (rows||[]).filter(f
 function _scPaint(rows){
   var tbody = document.getElementById('sc-body'); if(!tbody) return;
   rows = _scFilterActive(rows);
-  if(!rows || !rows.length){ tbody.innerHTML = '<tr><td colspan="11" class="es">No scorecards found.</td></tr>'; return; }
+  if(!rows || !rows.length){ tbody.innerHTML = '<tr><td colspan="12" class="es">No scorecards found.</td></tr>'; return; }
   var _ov = function(v){ return (v!==''&&v!=null&&!isNaN(parseFloat(v))) ? parseFloat(v) : -Infinity; };
   rows = rows.slice().sort(_scRankCmp);
   /* ── LIVE RANKING MOVEMENT (Aug 2026) ──
@@ -7094,6 +7095,21 @@ function _scPaint(rows){
     if(Math.abs(val-raw)<0.05) return main + badge;
     return '<span title="'+tip+'" style="color:var(--t3);font-size:11px;font-weight:500;white-space:nowrap;">'+raw.toFixed(0)+' →</span> ' + main + badge;
   };
+  /* ACTIVITY (Oct 22, backend 22a): the activity graph, team-adjusted. Shown from October, counted from November
+     (Productivity 15 + Activity 10 — the tool half becomes 40%, the portal half 60%). */
+  var ACT_FROM='2026-11', _mk=String((document.getElementById('sc-month-filter')||{}).value||(rows[0]&&rows[0].month)||'');
+  var _actCounts=_mk>=ACT_FROM;
+  try{ var _gt=document.getElementById('sc-grp-tools-pct'), _gp=document.getElementById('sc-grp-portal-pct');
+    if(_gt) _gt.textContent=_actCounts?'40%':'50%'; if(_gp) _gp.textContent=_actCounts?'60%':'50%';
+    var _th=document.getElementById('sc-th-activity'); if(_th) _th.innerHTML='Activity'+(_actCounts?'':' <span style="font-size:9px;font-weight:700;color:var(--t3);text-transform:none;letter-spacing:0;">shown only</span>'); }catch(_h){}
+  var actCell=function(sc){
+    var v=sc.activity, p=sc.activity_pct;
+    if(v===''||v==null||isNaN(parseFloat(v))) return '<span style="color:var(--t3)">—</span>';
+    v=parseFloat(v); var col=v>=95?'#16a34a':(v>=85?'#0d9488':(v>=75?'#d97706':'#dc2626'));
+    var tip='Activity '+v.toFixed(1)+' (team-adjusted) · raw '+(p!==''&&p!=null?parseFloat(p).toFixed(1)+'% active':'')+(_actCounts?'':' · shown only, counts from November');
+    return '<span title="'+tip+'" style="color:'+col+';font-weight:600;cursor:help;'+(_actCounts?'':'opacity:.75;')+'">'+v.toFixed(0)+'</span>'+
+      (p!==''&&p!=null?' <span style="font-size:10px;color:var(--t3);">'+parseFloat(p).toFixed(0)+'%</span>':'');
+  };
   tbody.innerHTML = rows.map(function(sc, i) {
     var overall = (sc.overall!==''&&sc.overall!=null) ? parseFloat(sc.overall).toFixed(2) : '—';
     var dem = (sc.demerit_score!==''&&sc.demerit_score!=null&&!isNaN(parseFloat(sc.demerit_score))) ? parseFloat(sc.demerit_score).toFixed(0) : '—';
@@ -7115,6 +7131,7 @@ function _scPaint(rows){
       '<td style="background:rgba(37,99,235,.035);">' + pwv(sc,'quality',sc.quality,'#0d9488') + xt(sc,'quality') + '</td>' +
       '<td style="background:rgba(37,99,235,.035);">' + (String(sc.month||'')>='2026-09' ? pwv(sc,'results',sc.results,'#0ea5a4') : '<span style="color:#0ea5a4;font-weight:600;">' + dash(sc.csat) + '</span>') + xt(sc,'results') + '</td>' +
       /* portal half */
+      '<td style="background:rgba(245,158,11,.03);">' + actCell(sc) + '</td>' +
       '<td style="background:rgba(245,158,11,.03);"><span style="color:#d97706;font-weight:600;">' + dash(sc.attendance) + '</span></td>' +
       '<td style="background:rgba(245,158,11,.03);"><span style="color:' + demCol + ';font-weight:600;">' + dem + '</span></td>' +
       '<td style="background:rgba(245,158,11,.03);"><span style="color:#9333ea;font-weight:600;">' + dash(sc.assessment) + '</span></td>' +
@@ -7158,7 +7175,7 @@ async function _scRenderRows(force) {
       try{ localStorage.setItem(_scSnapKey(), JSON.stringify({ rows:rows, ts:Date.now() })); }catch(_e){}
       try{ _scBadge(); }catch(_b){}
     } else if(!tbody.children.length){
-      tbody.innerHTML='<tr><td colspan="11" class="es">No scorecard rows for this month yet.</td></tr>';
+      tbody.innerHTML='<tr><td colspan="12" class="es">No scorecard rows for this month yet.</td></tr>';
     }
   } catch(e) {
     /* NEVER LEAVE HIM STARING AT NOTHING. Fall back to the stored board and label it, so a slow
@@ -7171,7 +7188,7 @@ async function _scRenderRows(force) {
              'OFFLINE COPY · saved '+new Date(_s.ts).toLocaleTimeString('en-US',{hour12:false})+' · server slow — press ↻ to retry';
          } }catch(_f){}
     if(!painted && (!tbody.children.length || /skl|class="es"|Loading/.test(tbody.innerHTML))){
-      tbody.innerHTML='<tr><td colspan="11" class="es">Could not reach the server. Press ↻ Recompute to retry.</td></tr>';
+      tbody.innerHTML='<tr><td colspan="12" class="es">Could not reach the server. Press ↻ Recompute to retry.</td></tr>';
     }
   }
 }
