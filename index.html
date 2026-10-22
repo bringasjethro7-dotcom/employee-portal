@@ -9927,7 +9927,7 @@ var ASSESS_TYPE_SECONDS = 60;        // per typing attempt
 var ASSESS_TARGET_WPM   = 55;        // WPM that scores 100% on speed (July target)
 var ASSESS_QUIZ_SECONDS = 30 * 60;   // quiz time limit (October: 30 min · 50 items)
 var ASSESS_TYPE_SECTION = 5 * 60;    // typing-section time limit (5 min)
-var assessOpen = false, assessTaken = false, assessScore = null;
+var assessOpen = false, assessTaken = false, assessScore = null, assessLate = false, assessLatePen = 15;   // Oct 23: after the deadline a late attempt loses 15 points
 var _asState = { quizAnswers:{}, typeStart:0, typeTimer:null, quizTimer:null, sectionTimer:null, sectionStart:0, quizPct:0, typeAttempts:0, bestTyping:null };
 
 function assessMonthKey(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -9956,7 +9956,7 @@ function applyAssessGate(){
     if(st){ st.textContent = (assessScore!=null) ? ('Recorded: '+parseFloat(assessScore).toFixed(2)+' / 100') : 'Completed — score revealed at the monthly announcement.'; st.style.color='var(--text-3)'; }
   } else if(assessOpen){
     btn.disabled=false; btn.style.opacity='1'; btn.style.cursor='pointer'; btn.textContent='Take assessment';
-    if(st){ st.textContent='One attempt only.'; st.style.color='var(--text-3)'; }
+    if(st){ st.textContent = assessLate ? ('One attempt only. The deadline has passed, so '+assessLatePen+' points come off your score.') : 'One attempt only.'; st.style.color = assessLate ? '#d97706' : 'var(--text-3)'; }
   } else {
     btn.disabled=true; btn.style.opacity='0.5'; btn.style.cursor='not-allowed'; btn.textContent='Take assessment';
     if(st){ st.textContent='Locked — your admin will open it.'; st.style.color='var(--text-3)'; }
@@ -9969,7 +9969,7 @@ function _renderAssessValue(val){
 }
 async function updateAssessmentGate(){
   var mk=assessMonthKey(), id=_assessEmpId();
-  try{ var r=await fetch(APPS_SCRIPT_URL+'?action=get_assessment_open&month='+encodeURIComponent(mk)); var d=await r.json(); assessOpen=!!(d&&d.open); }catch(e){ assessOpen=false; }
+  try{ var r=await fetch(APPS_SCRIPT_URL+'?action=get_assessment_open&month='+encodeURIComponent(mk)); var d=await r.json(); assessOpen=!!(d&&d.open); assessLate=!!(d&&d.late); if(d&&d.late_pen) assessLatePen=+d.late_pen||15; }catch(e){ assessOpen=false; }
   try{ var r2=await fetch(APPS_SCRIPT_URL+'?action=get_assessment&employee_id='+encodeURIComponent(id)+'&month='+encodeURIComponent(mk)); var d2=await r2.json(); assessTaken=!!(d2&&d2.found); assessScore=assessTaken?parseFloat(d2.assessment_score):null; }catch(e){ assessTaken=false; }
   applyAssessGate();
   if(assessTaken) _renderAssessValue(assessScore);   // show the card straight from the assessment record
