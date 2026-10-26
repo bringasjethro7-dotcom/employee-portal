@@ -11052,6 +11052,20 @@ function resolveAttToday(empId) {
       // the wrong date (the "work moved to the previous day" bug).
       if (ageH >= 0 && ageH <= 18 && nightShift && stillMorning) return yKey;
     }
+    /* Oct 26 (Jeth: "this thing keeps on happening"): the night shift also owns the morning when it was already timed out
+       — a VA who timed out at 1:49 AM and came back at 3:54 AM is still on last night's shift. Same rule as the server
+       (backend 2026-10-26a): yesterday's time-in at 4 PM or later, no more than 16 h ago, before 12 PM. A double-shift
+       VA's closed night shift does not claim a real morning shift. */
+    if (!openIn && !isDoubleShift() && now.getHours() < 12) {
+      try {
+        var yIn = null, ys = stored ? JSON.parse(stored) : null;
+        if (ys && ys.sessions && ys.sessions.length && ys.sessions[0].time_in) yIn = ys.sessions[0].time_in;
+        else if (ys && ys.time_in) yIn = ys.time_in;
+        if (!yIn) { var yl = JSON.parse(localStorage.getItem('att_' + empId) || '[]'); var yr2 = yl.find(function(r){ return r.date && String(r.date).substring(0,10) === yKey; }); if (yr2 && yr2.time_in) yIn = yr2.time_in; }
+        if (yIn) { var yt = parseTrkTime(yIn), yH = new Date(yt).getHours(), yAge = (now - yt) / 3600000;
+          if (!isNaN(yt) && yH >= 16 && yAge > 0 && yAge <= 16) return yKey; }
+      } catch(e) {}
+    }
   }
   return rawToday;
 }
@@ -11296,6 +11310,9 @@ function loadAttendanceLogs() {
       if (data.records && data.records.length) {
         attRecords = data.records.map(_attNorm); window._attRetryN = 0;
         localStorage.setItem('att_' + attEmpId, JSON.stringify(attRecords));
+        /* Oct 26: now that last night's time-in is known, decide the day again — and move a wrongly frozen shift date back */
+        try { var _was = attToday; attToday = resolveAttToday(attEmpId);
+          if (attToday !== _was) { var _fz = _frozenShiftDate(); if (!_fz || _fz === _was) _setShiftDateFrozen(attToday); } } catch(_ra) {}
       } else {
         if (!data || data.error || !data.records) _attRetry();   // an error, not an empty history — try again soon
         // Try localStorage records as fallback
@@ -11345,6 +11362,18 @@ function getTotalHoursToday() {
 
 // Confirmed attendance write over GET — verifies it persisted and retries, so a
 // time-in/out is never silently lost (the cause of missing days for the user).
+/* Oct 26: the server decides the night-shift date (backend 2026-10-26a). When it filed a punch or a timer under last
+   night's shift, the page follows: same day, same frozen shift date, the right attendance row on screen. */
+function _adoptServerDate(j, sentDate) {
+  try {
+    if (!j || !j.date_fixed || !j.date || j.date === attToday) return;
+    try { if (sentDate && sentDate !== j.date) localStorage.removeItem('att_today_' + attEmpId + '_' + sentDate); } catch(_l) {}
+    attToday = j.date; _setShiftDateFrozen(j.date);
+    showToast('Filed under your night shift of ' + fmtDateShort(j.date));
+    loadAttendanceLogs();
+    try { if (typeof loadTodayEntries === 'function') loadTodayEntries(); } catch(_t) {}
+  } catch(e) {}
+}
 function attConfirmed(params) {
   var qs = Object.keys(params).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
   var base = APPS_SCRIPT_URL + '?' + qs;
@@ -12312,7 +12341,7 @@ function logTime(type) {
   var _attP = { action: 'log_attendance', employee_id: attEmpId,
     date: attToday, type: type, timestamp: isoNow,
     shift: todayLog.shift, session_num: todayLog.sessions.length };
-  attConfirmed(_attP).catch(function(){
+  attConfirmed(_attP).then(function(j){ _adoptServerDate(j, _attP.date); }).catch(function(){
     /* Oct 9: overloaded backend → keep the punch on this device and keep sending it (the punch carries its own
        timestamp, so it lands with the right time whenever it gets through). No "tap again" — that only adds load. */
     var _q = Object.keys(_attP).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(_attP[k] == null ? '' : _attP[k]); }).join('&');
@@ -13682,7 +13711,7 @@ function _trkPost(action, extra) {
   if (queueable && WOB.pending()) { WOB.push(url, action); WOB.kick(0); return; }   // keep the order: never jump ahead of a queued write
   (function attempt(n){
     fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
-      if (d && (d.success || d.ok)) return;                                  // confirmed saved
+      if (d && (d.success || d.ok)) { if (action === 'tracker_start' && d.date_fixed) _adoptServerDate(d, params && params.date); return; }   // confirmed saved (Oct 26: follow a server-corrected night-shift date)
       if (d && WOB.retryable(d) && n < 5) { setTimeout(function(){ attempt(n+1); }, 700*n); return; }
       if (d && WOB.retryable(d) && queueable) { WOB.push(url, action); WOB.note(action === 'tracker_stop' ? 'Stop' : 'timer change'); return; }
       if (d && d.error === 'LOCKED') showToast('That month is locked — timer changes aren’t allowed.');
@@ -26457,7 +26486,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-23-A';
+var PORTAL_BUILD='2026-10-26-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34456,6 +34485,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-10-26-A', version:'2026.10.26', date:'October 26, 2026',
+    summary:'Night shift: your hours now stay on the right day.',
+    items:[
+      'If you open the portal after midnight, for example on another computer, your Time In and your timers stay on the night shift you started the evening before.',
+      'Before this, they could start a new day and split one night into two days.',
+      'You don\'t need to do anything differently.'
+    ] },
   { build:'2026-10-23-A', version:'2026.10.23', date:'October 23, 2026',
     summary:'The portal is dressed for Halloween until November 2.',
     items:[
