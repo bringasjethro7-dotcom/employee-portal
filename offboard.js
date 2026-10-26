@@ -210,7 +210,7 @@ var MODS = [
      why:"Access ends with your engagement (ICA §12). Pass it on to Jeth."}
   ]},
   form:{ id:"inventory", title:"Accounts, access & property you held",
-    intro:"List every account, tool, device and storage place you used for work, and what you did with it. A few common ones are filled in — edit or remove them. Never type a password here.",
+    intro:"List every account, tool, device and storage place you used for work, and what you did with it. A few common ones are filled in — edit or remove them.",
     fields:[
       {id:"items", type:"rows", label:"Inventory", req:true, min:3, add:"Add another item",
         cols:[ {id:"item", label:"Account / tool / device", type:"text", req:true, ph:"e.g. Client A Instagram"},
@@ -607,7 +607,7 @@ function field(m, f, ro){
     return wrap(lbl(f)+'<div class="ob-chips">'+f.opts.map(function(o){ return '<label class="ob-chip'+(arr.indexOf(o)>=0?" on":"")+'"><input type="checkbox" '+id+' value="'+esc(o)+'"'+(arr.indexOf(o)>=0?" checked":"")+(ro?" disabled":"")+'>'+esc(o)+'</label>'; }).join("")+'</div>'); }
   if(f.type==="scale"){ var mn=f.min==null?1:f.min, out='';
     for(var n=mn;n<=f.max;n++) out+='<button type="button" class="ob-sc'+(v===n?" on":"")+'" data-act="scale" data-f="'+f.id+'" data-v="'+n+'"'+(ro?" disabled":"")+'>'+n+'</button>';
-    return wrap(lbl(f)+'<div class="ob-scale">'+out+'</div><div class="ob-scale-l"><span>'+esc(f.lo||"")+'</span><span>'+esc(f.hi||"")+'</span></div>'); }
+    return wrap(lbl(f)+'<div class="ob-scale">'+out+'</div><div class="ob-scale-l" style="max-width:'+((f.max-mn+1)*44-6)+'px"><span>'+esc(f.lo||"")+'</span><span>'+esc(f.hi||"")+'</span></div>'); }
   if(f.type==="grid"){ var g=(v&&typeof v==="object")?v:{};
     return wrap(lbl(f)+'<div class="ob-grid2">'+f.items.map(function(it){ var o=''; for(var n=1;n<=f.max;n++) o+='<button type="button" class="ob-sc sm'+(g[it[0]]===n?" on":"")+'" data-act="grid" data-f="'+f.id+'" data-k="'+it[0]+'" data-v="'+n+'"'+(ro?" disabled":"")+'>'+n+'</button>';
       return '<div class="ob-gr" id="obg-'+it[0]+'"><span>'+esc(it[1])+'</span><div class="ob-scale">'+o+'</div></div>'; }).join("")+'</div><div class="ob-scale-l"><span>1 = '+esc(f.lo)+'</span><span>'+f.max+' = '+esc(f.hi)+'</span></div>'); }
@@ -813,7 +813,7 @@ var CSS=
 ".ob-grid2{display:flex;flex-direction:column;gap:8px}.ob-gr{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--ob-ln);border-radius:11px;padding:8px 11px;border-radius:12px}.ob-gr>span{font-size:13px}"+
 ".ob-audit{display:flex;flex-direction:column;gap:8px}.ob-au{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--ob-ln);border-radius:12px;padding:9px 11px}.ob-au>span{font-size:13px;font-weight:600}"+
 ".ob-seg{display:flex;flex-wrap:wrap;gap:4px}.ob-seg button{border:1px solid var(--ob-ln);background:var(--ob-bg);border-radius:8px;padding:5px 9px;font:inherit;font-size:12px;font-weight:600;color:var(--ob-t2);cursor:pointer}.ob-seg button.on{background:#16a34a;border-color:#16a34a;color:#fff}.ob-seg button.help.on{background:#d97706;border-color:#d97706}"+
-".ob-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}.ob-rh,.ob-rw{display:grid;grid-template-columns:1.4fr 1fr .9fr 1.5fr 1.3fr 30px;gap:6px;align-items:center}.ob-rh span{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ob-t3)}.ob-rh i{color:#dc2626;font-style:normal}"+
+".ob-f>.ob-btn{align-self:flex-start}.ob-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}.ob-rh,.ob-rw{display:grid;grid-template-columns:1.3fr .9fr .8fr 1.8fr 1.3fr 30px;gap:6px;align-items:center}.ob-rh span{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ob-t3)}.ob-rh i{color:#dc2626;font-style:normal}"+
 ".ob-x{width:30px;height:30px;border:1px solid var(--ob-ln);border-radius:9px;background:transparent;color:var(--ob-t3);cursor:pointer}.ob-x:hover{color:#dc2626;border-color:#dc2626}"+
 ".ob-card{border:1px solid var(--ob-ln);border-radius:14px;padding:12px 14px;margin-bottom:10px;background:var(--ob-bg2);display:flex;flex-direction:column;gap:10px}.ob-card-h{display:flex;align-items:center;justify-content:space-between}"+
 ".ob-err{display:none;margin-top:12px;border-radius:10px;padding:9px 12px;background:rgba(220,38,38,.08);color:#b91c1c;font-size:13px;font-weight:600}"+

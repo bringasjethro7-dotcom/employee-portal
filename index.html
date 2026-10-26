@@ -26486,7 +26486,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-26-A';
+var PORTAL_BUILD='2026-10-27-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34074,6 +34074,40 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
   /* boot once the dashboard is up (login or session restore), whichever way it got there */
   var t0=Date.now(), iv=setInterval(function(){ if(booted){ clearInterval(iv); return; } try{ if(document.body.classList.contains('app-authed') && window.JMBFeed && window._currentEmpData) window.feedBoot(); }catch(e){} if(Date.now()-t0>120000) clearInterval(iv); }, 800);
   window.addEventListener('hashchange', function(){ var m=/^#feed:([A-Za-z0-9]+)/.exec(location.hash||''); if(m&&window.JMBFeed&&booted){ JMBFeed.open(m[1]); history.replaceState(null,'',location.pathname); } });
+})();
+</script>
+
+<script id="offb-boot">
+/* ── OFFBOARDING PROGRAM (Oct 27, 2026) — only a contractor with an OPEN resignation case sees it ──
+   One small call after sign-in (offb_my, own session). If a case is open: an "Offboarding" tab appears, offboard.js loads
+   (~2 h program: modules, quizzes, handover, exit interview, e-signature) and saves to the Offboarding sheet. Paid time:
+   JMB Internal › Offboarding › Offboarding program. Everyone else: nothing loads. */
+(function(){
+  var done=false, tries=0;
+  function panel(){ var mc=document.querySelector('#dashboard-screen .main-content'); if(!mc) return null; var el=document.getElementById('tab-offboarding'); if(el) return el;
+    el=document.createElement('div'); el.className='tab-panel'; el.id='tab-offboarding'; el.innerHTML='<div id="offb-mount"><div class="jmb-ld jmb-ld-c" style="padding:30px;text-align:center;color:#8a93a3">Loading…</div></div>'; mc.appendChild(el); return el; }
+  function button(){
+    if(document.getElementById('tabbtn-offboarding')) return; var bar=document.querySelector('#dashboard-screen .tabs')||document.querySelector('.tabs'); if(!bar) return;
+    var b=document.createElement('button'); b.className='tab-btn'; b.id='tabbtn-offboarding'; b.title='Offboarding program'; b.style.position='relative';
+    b.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Offboarding<span id="offb-dot" style="position:absolute;top:7px;right:9px;width:8px;height:8px;border-radius:50%;background:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.22)"></span>';
+    b.onclick=function(){ try{ switchTab('offboarding', b); }catch(e){} };
+    var feed=document.getElementById('tabbtn-feed'); if(feed && feed.parentNode===bar) bar.insertBefore(b, feed); else bar.insertBefore(b, bar.children[1]||null);
+  }
+  function loadJs(cb){ if(window.OFFB) return cb(); var s=document.createElement('script'); s.src='offboard.js?v=1'; s.onload=cb; s.onerror=function(){ var m=document.getElementById('offb-mount'); if(m) m.innerHTML='<div style="padding:24px;color:#8a93a3">Couldn\'t load the offboarding program — refresh the page.</div>'; }; document.head.appendChild(s); }
+  function start(){
+    var d=window._currentEmpData; if(!d||!d.employee_id||done) return;
+    if(!JMB_SESS){ try{ jmbSessEnsure(); }catch(e){} if(++tries<6) return; }
+    done=true;
+    fetch(APPS_SCRIPT_URL+'?action=offb_my&employee_id='+encodeURIComponent(d.employee_id)+'&_='+Date.now()).then(function(r){ return r.json(); }).then(function(r){
+      if(r && (r.error==='SIGNED_OUT'||r.error==='SESSION_MISMATCH') && tries<8){ tries++; done=false; try{ jmbSessEnsure(); }catch(e){} return; }
+      if(!r || !r.ok || r.none || !r.case) return;
+      button(); panel();
+      loadJs(function(){ try{ OFFB.boot({ api:APPS_SCRIPT_URL, me:{ employee_id:d.employee_id, full_name:d.full_name||d.name||'', start_date:d.start_date||'' }, kase:r.case, program:r.program, mount:'#offb-mount' }); }catch(e){ console.error(e); } });
+      var sub=r.program&&r.program.submitted_at, dot=document.getElementById('offb-dot'); if(dot&&sub) dot.style.display='none';
+      if(!sub){ setTimeout(function(){ try{ showToast('Your offboarding program is ready — open the Offboarding tab (about 2 hours, paid time).'); }catch(e){} }, 2600); }
+    }).catch(function(){ done=false; tries++; });
+  }
+  var t0=Date.now(), iv=setInterval(function(){ if(done){ clearInterval(iv); return; } try{ if(document.body.classList.contains('app-authed') && window._currentEmpData) start(); }catch(e){} if(Date.now()-t0>180000) clearInterval(iv); }, 1500);
 })();
 </script>
 
