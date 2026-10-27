@@ -478,12 +478,13 @@ var SEGS=[
   { k:"plan",     n:"The plan",        c:"#a78bfa", s:150 },
   { k:"close",    n:"Wrap-up",         c:"#f97316", s:30  }
 ];
-var GOALK={ timer:"Timer on from time-in to time-out", posts:"Check every post before End of Day", focus:"No idle stretches with the timer on" };
+var GOALK={ timer:"Timer on the whole shift", posts:"Check every post before End of Day", focus:"No idle stretches" };
 function hx(h, a){ h=String(h||"#f97316").replace("#",""); if(h.length===3) h=h.split("").map(function(c){ return c+c; }).join(""); var n=parseInt(h,16); return "rgba("+(n>>16&255)+","+(n>>8&255)+","+(n&255)+","+a+")"; }
 function clk(sec){ sec=Math.max(0,Math.round(sec)); return Math.floor(sec/60)+":"+("0"+(sec%60)).slice(-2); }
 function night(){ return S.shift==="night"; }
 function lastLbl(R){ return R.multi ? "Friday to Sunday" : (night() ? "last night" : "yesterday"); }
 function nowLbl(){ return night() ? "tonight" : "today"; }
+function lc1(t){ t=String(t||""); return t.charAt(0).toLowerCase()+t.slice(1); }
 function plural(n, one, many){ return n+" "+(n===1?one:(many||one+"s")); }
 function ckList(R){ return (R.flags||[]).filter(function(f){ return f.status!=="dismissed"; }); }
 function stripName(q, first){ q=String(q||""); return q.indexOf(first+", ")===0 ? q.charAt(first.length+2).toUpperCase()+q.slice(first.length+3) : q; }
@@ -506,10 +507,10 @@ function goalIdeas(R, id){
   if(va && va[4]>0) add("posts", GOALK.posts);
   if(has(["idle","tool_gap","held"])) add("focus", GOALK.focus);
   var P=(R.people||[]).filter(function(p){ return p.id===id; })[0], T=P&&(P.tasks||[]).filter(function(t){ return t.qph>0 && t.hours>=1; })[0];
-  if(T){ var n=Math.max(1, Math.ceil(T.qph*1.1)); add("pace", "Hit "+n+" per hour on "+T.task, { task:T.task, n:n }); }
+  if(T){ var n=Math.max(1, Math.ceil(T.qph*1.1)); add("pace", n+" per hour on "+T.task, { task:T.task, n:n }); }
   if(va && va[0] && !va[4]) add("posts", GOALK.posts);
   add("timer", GOALK.timer); add("focus", GOALK.focus);
-  return out.slice(0,3);
+  return out.slice(0,2);
 }
 /* what to talk about on the Reddit slide */
 function rdPrompts(X){
@@ -529,7 +530,7 @@ function showList(R){
   SEGS.forEach(function(g){
     if(g.k==="review" && !(R.review && R.review.length)) return;
     if(g.k==="reddit" && !(R.removals && R.removals.t && R.removals.t[0])) return;
-    if(g.k==="checkins"){ var F=ckList(R); if(!F.length) return; var n=Math.ceil(F.length/3); for(var p=0;p<n;p++) L.push({ g:g, p:p, n:n }); return; }
+    if(g.k==="checkins"){ var F=ckList(R); if(!F.length) return; var n=Math.ceil(F.length/2); for(var p=0;p<n;p++) L.push({ g:g, p:p, n:n }); return; }
     L.push({ g:g, p:0, n:1 });
   });
   return L;
@@ -578,10 +579,11 @@ function bWins(R, it){
   var va=(R.removals&&R.removals.va)||{}, pc=Object.keys(va).filter(function(id){ return va[id][0]>0 && !va[id][4]; }), pn=pc.map(function(id){ var p=(R.people||[]).filter(function(q){ return q.id===id; })[0]; return p?p.first:id; });
   if(pc.length) W.push({ ids:pc, names:pn, t:"Checked every post", d:"Every Reddit post they made was checked before going home" });
   var conf=""; for(var i=0;i<26;i++){ conf+='<i style="left:'+((i*37)%100)+'%;background:'+PCOL[i%PCOL.length]+';animation-delay:'+((i%9)*0.18)+'s;animation-duration:'+(2.4+(i%5)*0.35)+'s"></i>'; }
-  var cards=W.length?W.slice(0,6).map(function(w,i){ return '<div class="hds-card win" style="animation-delay:'+(0.12*i)+'s"><div class="faces">'+w.ids.slice(0,4).map(function(id,j){ return avatar(id, w.names[j]||id, 92); }).join("")+'</div><div class="lbl" style="color:'+it.g.c+'">'+esc(w.t)+'</div><div class="nm">'+esc(w.names.join(", "))+'</div><div class="dt">'+esc(w.d)+'</div></div>'; }).join("")
+  var full={}; (R.people||[]).forEach(function(p){ full[p.id]=p.name; }); (R.here||[]).forEach(function(p){ if(!full[p.id]) full[p.id]=p.name; });
+  var cards=W.length?W.slice(0,6).map(function(w,i){ return '<div class="hds-card win" style="animation-delay:'+(0.12*i)+'s"><div class="faces">'+w.ids.slice(0,4).map(function(id,j){ return avatar(id, full[id]||w.names[j]||id, 92); }).join("")+'</div><div class="lbl" style="color:'+it.g.c+'">'+esc(w.t)+'</div><div class="nm">'+esc(w.names.join(", "))+'</div><div class="dt">'+esc(w.d)+'</div></div>'; }).join("")
     :'<div class="hds-card" style="grid-column:1/-1;text-align:center;padding:60px"><div class="hds-big">No standouts in the data this time.</div><div class="hds-dim" style="margin-top:10px;font-size:26px">Who wants to shout out a teammate?</div></div>';
   return { h:'<div class="hds-conf">'+conf+'</div>'+sHead(it.g, "Shout-outs", "The best of "+esc(lastLbl(R))+".")+'<div class="hds-wins">'+cards+'</div>',
-    say:W.length?"Let's hear it for "+W[0].names.join(" and ")+" — "+W[0].t.toLowerCase()+"! "+(W.length>1?"And "+W.slice(1).map(function(w){ return w.names.join(" and ")+" ("+w.t.toLowerCase()+")"; }).join(", ")+".":""):"No standouts in the numbers this time — who wants to give a shout-out to a teammate?" };
+    say:W.length?"Let's hear it for "+W[0].names.join(" and ")+" — "+lc1(W[0].t)+"! "+(W.length>1?"And "+W.slice(1).map(function(w){ return w.names.join(" and ")+" ("+lc1(w.t)+")"; }).join(", ")+".":""):"No standouts in the numbers this time — who wants to give a shout-out to a teammate?" };
 }
 function bNumbers(R, it){
   var t=R.team, vs=(t.usual_h>0)?Math.round((t.hours-t.usual_h)/t.usual_h*100):null;
@@ -593,8 +595,8 @@ function bNumbers(R, it){
   var spark=tr.length?'<div class="hds-lbl" style="margin-top:30px">Our last 2 weeks</div><div class="hds-trend">'+tr.map(function(x){ var on=(R.dates||[]).indexOf(x.date)>=0; return '<div><i class="'+(on?"on":"")+'" style="height:'+Math.max(6,x.hours/tm*100)+'%;'+(on?"background:"+it.g.c:"")+'"></i><span>'+esc(DOW[dow(x.date)].charAt(0))+'</span></div>'; }).join("")+'</div>':"";
   var tiles='<div class="hds-tiles">'+
     '<div class="hds-card"><div class="v">'+(t.eng_pct!=null?t.eng_pct+"%":"—")+'</div><div class="l">Active</div><div class="s">of the time the timer ran</div></div>'+
-    '<div class="hds-card"><div class="v">'+(t.tool_pct!=null?t.tool_pct+"%":"—")+'</div><div class="l">Seen by the tools</div><div class="s">tool work the tools saw</div></div>'+
-    '<div class="hds-card"><div class="v">'+t.vas+'</div><div class="l">Of us worked</div><div class="s">about '+fh(t.avg_h)+' each</div></div></div>';
+    '<div class="hds-card"><div class="v">'+(t.tool_pct!=null?t.tool_pct+"%":"—")+'</div><div class="l">Seen by the tools</div><div class="s">of our time on tool work</div></div>'+
+    '<div class="hds-card"><div class="v">'+t.vas+'</div><div class="l">On the shift</div><div class="s">about '+fh(t.avg_h)+' each</div></div></div>';
   var top=(R.projects||[])[0];
   return { h:'<div class="hds-cols" style="grid-template-columns:1fr 1.05fr;align-items:start"><div>'+sHead(it.g, 'Together we worked <span class="hds-num" style="color:'+it.g.c+'" data-cnt="'+t.hours+'">'+fh(t.hours)+'</span>', esc(lastLbl(R).charAt(0).toUpperCase()+lastLbl(R).slice(1))+(vsT?" — "+vsT+".":"."))+tiles+spark+'</div>'+
       '<div class="hds-card"><div class="hds-lbl">Where our time went</div>'+pj+'</div></div>',
@@ -608,21 +610,23 @@ function bReddit(R, it){
   var segs=[[a[1],"#34d399","Stayed up"],[a[2],"#fb923c","Removed by mods"],[a[3],"#ef4444","Spam filter"],[a[4],"rgba(255,255,255,.18)","Not checked"]];
   var bar='<div class="hds-stack">'+segs.map(function(s){ return s[0]?'<i style="flex:'+s[0]+';background:'+s[1]+'"></i>':""; }).join("")+'</div><div class="hds-leg">'+segs.map(function(s){ return '<span><i style="background:'+s[1]+'"></i><b>'+s[0]+'</b> '+s[2]+'</span>'; }).join("")+'</div>';
   var vsd=(ppc!=null && pc!=null)?'<div class="hds-vs">The day before: <b>'+ppc+'%</b> · '+(pc===ppc?"no change":(pc<ppc?'<span style="color:#34d399">'+(ppc-pc)+' points better</span>':'<span style="color:#fb7185">'+(pc-ppc)+' points worse</span>'))+'</div>':"";
-  var lists='<div class="hds-rl"><div><h4>By model</h4>'+rmList(rmModels(X.model))+'</div><div><h4>By method</h4>'+rmList(X.method)+'</div>'+(Object.keys(X.shift||{}).length>1?'<div><h4>By shift</h4>'+rmList(X.shift)+'</div>':"")+'</div>';
+  var lists='<div class="hds-rl"><div><h4>By model</h4>'+rmList(rmModels(X.model))+'</div><div><h4>By method</h4>'+rmList(X.method)+'</div></div>';
+  var shf=Object.keys(X.shift||{}).length>1?'<div class="hds-card" style="margin-top:18px;padding:20px 26px"><h4 style="margin:0 0 6px;font-size:15px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.55)">By shift (who posted)</h4>'+rmList(X.shift)+'</div>':"";
   var pr=rdPrompts(X);
   var talk='<div class="hds-card talk"><div class="hds-lbl" style="color:'+it.g.c+'">Talk it out</div>'+pr.map(function(q){ return '<div class="q">'+esc(q)+'</div>'; }).join("")+
     '<div class="hds-lbl" style="margin-top:18px">What we\'ll try '+nowLbl()+'</div><textarea data-talk="reddit" placeholder="Type the team\'s ideas here…">'+esc((R.talk&&R.talk.reddit)||"")+'</textarea></div>';
-  return { h:'<div class="hds-cols" style="grid-template-columns:1.35fr 1fr;align-items:start"><div>'+sHead(it.g, title, esc(sub))+bar+vsd+lists+'</div>'+talk+'</div>',
+  return { h:'<div class="hds-cols" style="grid-template-columns:1.35fr 1fr;align-items:start"><div>'+sHead(it.g, title, esc(sub))+bar+vsd+lists+'</div><div>'+talk+shf+'</div></div>',
     say:"Now our main focus — Reddit removals. "+(chk?pc+"% of the posts we checked got removed, about "+tens+" in 10. ":"")+(a[4]?a[4]+" posts were never checked. ":"")+"Let's talk: "+pr[0] };
 }
 function bChecks(R, it){
-  var F=ckList(R), page=F.slice(it.p*3, it.p*3+3);
+  var F=ckList(R), page=F.slice(it.p*2, it.p*2+2);
   var cards=page.map(function(f){ var i=R.flags.indexOf(f), P=(R.people||[]).filter(function(p){ return p.id===f.emp; })[0], st=f.status||"open";
     var day=P&&(P.days||[]).filter(function(d){ return d.date===f.date; })[0], g=(f.at && day && day.strip)?'<div class="gr">'+graph(day, P)+'</div>':"";
     var lab={ explained:["We talked about it","#34d399"], follow:["Follow up later","#fbbf24"], asked:["Asked","#38bdf8"] }[st];
-    return '<div class="hds-card ck'+(st==="explained"?" done":"")+'"><div class="hds-who sm">'+avatar(f.emp,f.name,78)+'<div style="flex:1;min-width:0"><div class="nm">'+esc(f.first||first(f.name))+(R.multi?' <span class="hds-dim" style="font-size:20px">· '+esc(dayLbl(f.date))+'</span>':"")+'</div><div class="tt">'+esc(f.title)+'</div></div>'+(lab?'<span class="hds-chip" style="background:'+hx(lab[1],.18)+';color:'+lab[1]+'">'+lab[0]+'</span>':"")+'</div>'+
-      '<div class="ask"><b>Ask '+esc(f.first||first(f.name))+':</b> '+esc(stripName(f.q, f.first||first(f.name)))+'</div>'+g+
-      '<div class="hds-btns"><button data-ck="'+i+'" data-v="explained" class="'+(st==="explained"?"on":"")+'">We talked about it</button><button data-ck="'+i+'" data-v="follow" class="'+(st==="follow"?"on":"")+'">Follow up later</button></div></div>'; }).join("");
+    return '<div class="hds-card ck'+(st==="explained"?" done":"")+'"><div class="hds-who sm">'+avatar(f.emp,f.name,78)+'<div style="flex:1;min-width:0"><div class="nm">'+esc(f.first||first(f.name))+(R.multi?' <span class="hds-dim" style="font-size:20px">· '+esc(dayLbl(f.date))+'</span>':"")+'</div><div class="tt">'+esc(f.title)+'</div></div>'+
+      (lab?'<span class="hds-chip" style="background:'+hx(lab[1],.18)+';color:'+lab[1]+'">'+lab[0]+'</span>':"")+
+      '<div class="hds-btns" style="margin-top:0"><button data-ck="'+i+'" data-v="explained" class="'+(st==="explained"?"on":"")+'">We talked about it</button><button data-ck="'+i+'" data-v="follow" class="'+(st==="follow"?"on":"")+'">Follow up later</button></div></div>'+
+      '<div class="ask"><b>Ask '+esc(f.first||first(f.name))+':</b> '+esc(stripName(f.q, f.first||first(f.name)))+'</div>'+g+'</div>'; }).join("");
   var f0=page[0];
   return { h:sHead(it.g, "Check-ins", "Quick questions from the tools. No blame — we just want the story so we can fix it together.", it.n>1?(it.p+1)+" of "+it.n:"")+'<div class="hds-cks">'+cards+'</div>',
     say:f0?(f0.first||first(f0.name))+", "+stripName(f0.q, f0.first||first(f0.name)).charAt(0).toLowerCase()+stripName(f0.q, f0.first||first(f0.name)).slice(1):"" };
@@ -630,11 +634,11 @@ function bChecks(R, it){
 function bPlan(R, it){
   var ppl=shiftPeople(R), G={}; (R.goals||[]).forEach(function(g){ G[g.emp]=g; });
   var rows=ppl.map(function(p){ var g=G[p.id], ideas=goalIdeas(R, p.id);
-    return '<div class="hds-goal'+(g?" set":"")+'"><div class="who">'+avatar(p.id,p.name,58)+'<div><div class="nm">'+esc(p.first)+'</div>'+(p.here?"":'<div class="hds-dim" style="font-size:15px">not timed in yet</div>')+'</div></div>'+
+    return '<div class="hds-goal'+(g?" set":"")+'"><div class="who">'+avatar(p.id,p.name,48)+'<div><div class="nm">'+esc(p.first)+'</div>'+(p.here?"":'<div class="hds-dim" style="font-size:15px">not timed in yet</div>')+'</div></div>'+
       '<div class="in"><input data-goal="'+esc(p.id)+'" data-kind="'+esc(g?g.k:"custom")+'" data-task="'+esc(g&&g.task||"")+'" data-n="'+esc(g&&g.n||"")+'" value="'+esc(g?g.t:"")+'" placeholder="One goal for '+nowLbl()+'…" maxlength="200">'+
       '<div class="ideas">'+ideas.map(function(x){ return '<button data-idea="'+esc(p.id)+'" data-k="'+esc(x.k)+'" data-t="'+esc(x.t)+'" data-task="'+esc(x.task||"")+'" data-n="'+esc(x.n||"")+'">'+esc(x.t)+'</button>'; }).join("")+'</div></div></div>'; }).join("");
   var n=(R.goals||[]).length;
-  return { h:'<div class="hds-cols" style="grid-template-columns:1fr 2.1fr;align-items:start"><div>'+sHead(it.g, (night()?"Tonight's":"Today's")+" plan", "One goal each — something we can check at the next huddle. Tap an idea or type your own.")+
+  return { h:'<div class="hds-cols" style="grid-template-columns:1fr 2.5fr;gap:44px;align-items:start"><div>'+sHead(it.g, (night()?"Tonight's":"Today's")+" plan", "One goal each — something we can check at the next huddle. Tap an idea or type your own.")+
       '<div class="hds-card" style="margin-top:26px"><div class="hds-lbl">Goals set</div><div class="hds-big" data-gc>'+n+' <span class="hds-dim">/ '+ppl.length+'</span></div></div>'+
       '<div class="hds-card talk" style="margin-top:18px"><div class="hds-lbl" style="color:'+it.g.c+'">Team focus '+nowLbl()+'</div><textarea data-talk="plan" placeholder="What\'s our one team focus '+nowLbl()+'?">'+esc((R.talk&&R.talk.plan)||"")+'</textarea></div></div>'+
       '<div class="hds-goals">'+rows+'</div></div>',
@@ -643,7 +647,7 @@ function bPlan(R, it){
 function bClose(R, it){
   var ppl=shiftPeople(R), n=(R.goals||[]).length, F=ckList(R), talked=F.filter(function(f){ return f.status==="explained"||f.status==="follow"; }).length, used=(Date.now()-SH.t0)/1000;
   var focus=(R.talk&&R.talk.plan)||"";
-  return { h:'<div style="text-align:center;padding-top:40px">'+'<div class="hds-kick" style="color:'+it.g.c+'">Wrap-up</div><h1 class="hds-h1 xl">That\'s our huddle.</h1><div class="hds-sub">Let\'s have a great '+(night()?"night":"shift")+'!</div>'+
+  return { h:'<div style="text-align:center;padding-top:40px">'+'<div class="hds-kick" style="color:'+it.g.c+'">Wrap-up</div><h1 class="hds-h1 xl">That\'s our huddle.</h1><div class="hds-sub" style="margin:0 auto">Let\'s have a great '+(night()?"night":"shift")+'!</div>'+
       '<div class="hds-tiles" style="max-width:1300px;margin:50px auto 0"><div class="hds-card"><div class="v">'+n+'<small>/'+ppl.length+'</small></div><div class="l">Goals set</div></div><div class="hds-card"><div class="v">'+talked+'<small>/'+F.length+'</small></div><div class="l">Check-ins covered</div></div><div class="hds-card"><div class="v">'+clk(used)+'</div><div class="l">Huddle time</div></div></div>'+
       (focus?'<div class="hds-card glow" style="max-width:1300px;margin:30px auto 0;text-align:left"><div class="hds-lbl">Team focus '+nowLbl()+'</div><div class="hds-big" style="font-size:40px;margin-top:6px">'+esc(focus)+'</div></div>':"")+
       '<div class="hds-dim" style="margin-top:34px;font-size:26px">Next huddle starts with: did we do it?</div></div>',
@@ -680,8 +684,9 @@ function showCss(){
   ".hds-sub{font-size:28px;line-height:1.35;color:rgba(255,255,255,.72);max-width:1200px}",
   ".hds-num{font-variant-numeric:tabular-nums}",
   ".hds-cols{display:grid;gap:56px;height:100%}",
-  ".hds-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:26px;padding:26px 30px;backdrop-filter:blur(6px)}",
-  ".hds-card.glow{background:linear-gradient(140deg,rgba(255,255,255,.1),rgba(255,255,255,.03));box-shadow:0 30px 80px -40px rgba(0,0,0,.8)}",
+  ".hds-card{background:rgba(16,21,38,.82);border:1px solid rgba(255,255,255,.1);border-radius:26px;padding:26px 30px;backdrop-filter:blur(6px)}",
+  ".hds b,.hds em,.hds strong,.hds h1,.hds h4{color:inherit}",
+  ".hds-card.glow{background:linear-gradient(140deg,rgba(30,36,60,.9),rgba(16,21,38,.85));box-shadow:0 30px 80px -40px rgba(0,0,0,.8)}",
   ".hds-lbl{font-size:16px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.55)}",
   ".hds-big{font-size:48px;font-weight:900;letter-spacing:-.02em;line-height:1.1}",
   ".hds-dim{color:rgba(255,255,255,.55);font-weight:600}",
@@ -710,7 +715,7 @@ function showCss(){
   ".hds-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px}.hds-tiles .v{font-size:64px;font-weight:900;letter-spacing:-.03em;line-height:1}.hds-tiles .v small{font-size:34px;color:rgba(255,255,255,.5)}.hds-tiles .l{font-size:20px;font-weight:800;margin-top:8px}.hds-tiles .s{font-size:17px;color:rgba(255,255,255,.55)}",
   ".hds-trend{display:flex;gap:8px;align-items:flex-end;height:120px;margin-top:12px}.hds-trend div{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}.hds-trend i{width:100%;border-radius:8px 8px 3px 3px;background:rgba(255,255,255,.18);animation:hdsUp .9s cubic-bezier(.2,.8,.2,1) both}.hds-trend span{font-size:14px;color:rgba(255,255,255,.45);font-weight:700}",
   "@keyframes hdsUp{from{height:0}}",
-  ".hds-pj{padding:16px 0;border-bottom:1px solid rgba(255,255,255,.08)}.hds-pj:last-child{border-bottom:0}.hds-pj .hd{display:flex;align-items:baseline;gap:14px;font-size:26px}.hds-pj .hd span{font-size:18px;color:rgba(255,255,255,.55)}.hds-pj .hd em{margin-left:auto;font-style:normal;font-weight:900}",
+  ".hds-pj{padding:16px 0;border-bottom:1px solid rgba(255,255,255,.08)}.hds-pj:last-child{border-bottom:0}.hds-pj .hd{display:flex;align-items:baseline;gap:14px;font-size:26px}.hds-pj .hd span{font-size:18px;color:rgba(255,255,255,.55)}.hds-pj .hd em{margin-left:auto;font-style:normal;font-weight:900;color:#fff}.hds-pj .hd b{color:#fff}",
   ".hds-pj .bar{height:16px;border-radius:10px;background:rgba(255,255,255,.07);margin-top:10px;overflow:hidden}.hds-pj .bar i{display:block;height:100%;border-radius:10px;animation:hdGrow 1s cubic-bezier(.2,.8,.2,1)}",
   ".hds-pj .tk{display:flex;gap:22px;flex-wrap:wrap;margin-top:9px;font-size:18px;color:rgba(255,255,255,.7)}.hds-pj .tk b{color:#fff}",
   ".hds-stack{display:flex;height:34px;border-radius:12px;overflow:hidden;margin-top:30px;background:rgba(255,255,255,.06)}.hds-stack i{display:block;animation:hdsW 1s cubic-bezier(.2,.8,.2,1)}",
@@ -719,7 +724,8 @@ function showCss(){
   ".hds-vs{margin-top:16px;font-size:21px;color:rgba(255,255,255,.7)}",
   ".hds-rl{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:30px;margin-top:26px}.hds-rl h4{margin:0 0 8px;font-size:15px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.55)}",
   ".hds .hd-rr{grid-template-columns:minmax(170px,1.2fr) 1.6fr 64px;font-size:21px;border-color:rgba(255,255,255,.1);padding:8px 0}.hds .hd-rr .nm small{color:rgba(255,255,255,.5);font-size:15px}.hds .hd-bar{background:rgba(255,255,255,.08)}",
-  ".hds-card.talk .q{font-size:24px;line-height:1.35;margin-top:14px;padding-left:18px;border-left:4px solid rgba(255,255,255,.25)}",
+  ".hds-card.talk .q{font-size:23px;line-height:1.35;margin-top:14px;padding-left:18px;border-left:4px solid rgba(255,255,255,.25)}",
+  ".hds-card.talk textarea{min-height:120px}",
   ".hds textarea,.hds input{width:100%;font:inherit;font-size:22px;color:#fff;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:13px 16px;outline:none}",
   ".hds textarea{min-height:150px;resize:none;margin-top:8px}.hds textarea:focus,.hds input:focus{border-color:rgba(255,255,255,.55);background:rgba(0,0,0,.35)}",
   ".hds-cks{display:grid;gap:18px;margin-top:26px}",
@@ -727,11 +733,11 @@ function showCss(){
   ".hds-card.ck .ask{font-size:25px;line-height:1.35;margin-top:14px;padding:14px 18px;border-radius:14px;background:rgba(251,113,133,.12);color:#ffe4e6}.hds-card.ck .ask b{color:#fda4af}",
   ".hds-card.ck .gr{margin-top:12px}.hds .hd-g svg{height:56px;background:rgba(255,255,255,.05)}.hds .hd-g .tk{color:rgba(255,255,255,.5);font-size:13px;height:18px}.hds .hd-g .cur{background:#fff;height:56px}.hds .hd-g .tip{font-size:15px}",
   ".hds-goals{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start;max-height:810px;overflow:auto;padding-right:6px}",
-  ".hds-goal{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:start;padding:16px 18px;border-radius:20px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09)}",
+  ".hds-goal{display:grid;grid-template-columns:118px 1fr;gap:12px;align-items:start;padding:14px 16px;border-radius:20px;background:rgba(16,21,38,.82);border:1px solid rgba(255,255,255,.09)}",
   ".hds-goal.set{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.1)}",
-  ".hds-goal .who{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.hds-goal .nm{font-size:24px;font-weight:900}",
-  ".hds-goal input{font-size:20px;padding:11px 14px}",
-  ".hds-goal .ideas{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}.hds-goal .ideas button{font:inherit;font-size:15px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(255,255,255,.07);border:1px dashed rgba(255,255,255,.25);border-radius:999px;padding:6px 12px;cursor:pointer}",
+  ".hds-goal .who{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.hds-goal .nm{font-size:22px;font-weight:900;line-height:1.1}",
+  ".hds-goal input{font-size:19px;padding:10px 13px}",
+  ".hds-goal .ideas{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.hds-goal .ideas button{font:inherit;font-size:14.5px;font-weight:700;color:rgba(255,255,255,.85);background:rgba(255,255,255,.07);border:1px dashed rgba(255,255,255,.25);border-radius:999px;padding:6px 12px;cursor:pointer}",
   ".hds-goal .ideas button:hover{background:rgba(167,139,250,.25);border-style:solid}",
   ".hds-foot{position:absolute;left:0;right:0;bottom:0;height:128px;display:flex;align-items:center;gap:30px;padding:0 64px;z-index:3;background:linear-gradient(0deg,rgba(5,7,15,.9),rgba(5,7,15,0))}",
   ".hds-say{flex:1;font-size:22px;line-height:1.35;color:rgba(255,255,255,.85);display:flex;gap:14px;align-items:flex-start;max-height:92px;overflow:hidden}",
