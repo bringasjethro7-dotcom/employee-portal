@@ -31,7 +31,7 @@ function t12(hm){ var p=String(hm||"").split(":"), h=parseInt(p[0],10)||0; retur
 function hmOf(ms){ var t=new Date(ms+8*3600000), h=t.getUTCHours(), m=t.getUTCMinutes(); return ((h%12)||12)+":"+("0"+m).slice(-2)+" "+(h<12?"AM":"PM"); }
 function huddleDateFor(shift){ var n=phNow(); return (shift==="night" && n.h<12) ? addD(n.d,-1) : n.d; }
 function datesOf(H){ return dow(H)===1 ? [addD(H,-3),addD(H,-2),addD(H,-1)] : [addD(H,-1)]; }
-function initials(n){ n=String(n||"").replace(/,/g," ").trim(); var p=n.split(/\s+/).filter(Boolean); if(String(n).indexOf(",")<0) return ((p[0]||"?")[0]+((p[1]||"")[0]||"")).toUpperCase(); return ((p[1]||p[0]||"?")[0]+(p[0]||"")[0]).toUpperCase(); }
+function initials(n){ n=String(n||"").trim(); if(n.indexOf(",")>=0){ var a=n.split(","), l=(a[0]||"").trim(), f=(a[1]||"").trim(); return (((f||l||"?")[0])+((l||"")[0]||"")).toUpperCase(); } var p=n.split(/\s+/).filter(Boolean); return ((p[0]||"?")[0]+((p[1]||"")[0]||"")).toUpperCase(); }
 function first(n){ n=String(n||"").trim(); if(n.indexOf(",")>=0) n=(n.split(",")[1]||"").trim(); return n.split(/\s+/)[0]||n; }
 function shortName(n){ n=String(n||"").trim(); if(n.indexOf(",")>=0){ var p=n.split(","); return (p[1]||"").trim().split(/\s+/)[0]+" "+(p[0]||"").trim().charAt(0)+"."; } return n; }
 function avatar(id, name, size){ size=size||36; var ini=esc(initials(name));
@@ -142,7 +142,8 @@ function css(){
   ".hd-show .hdr img{width:26px;height:26px;border-radius:7px}",
   ".hd-show .hdr .x{margin-left:auto;display:flex;gap:8px}",
   ".hd-show .hdr button{border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font:inherit;font-size:13px;font-weight:700;padding:6px 12px;border-radius:9px;cursor:pointer}",
-  ".hd-show .stage{flex:1;overflow:auto;padding:10px 6vw 30px;display:flex;flex-direction:column;justify-content:center}",
+  ".hd-show .stage{flex:1;overflow:auto;padding:10px 6vw 30px;display:flex;flex-direction:column}",
+  ".hd-show .stage>.sl{margin:auto 0}",
   ".hd-show .sl{animation:hdIn .45s cubic-bezier(.2,.8,.2,1)}",
   "@keyframes hdIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}",
   ".hd-show .k{font-size:13px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#fdba74}",
@@ -349,7 +350,7 @@ function render(){
   S.el.innerHTML='<div class="hd">'+head+pres+days+body+'</div>';
   S._R=R; bindGraphs(S.el); countUp(S.el);
 }
-function countUp(root){ $$("[data-count]", root).forEach(function(el){ var v=Number(el.getAttribute("data-count"))||0, t0=performance.now(), d=700; if(el._c) return; el._c=1;
+function countUp(root){ $$("[data-count]", root).forEach(function(el){ var v=Number(el.getAttribute("data-count"))||0, t0=performance.now(), d=700, key=S.H+"|"+S.shift+"|"+S.day+"|"+v; if(S._counted===key){ return; } S._counted=key;
   function f(t){ var k=Math.min(1,(t-t0)/d), e=1-Math.pow(1-k,3); el.textContent=fh(v*e); if(k<1) requestAnimationFrame(f); } requestAnimationFrame(f); }); }
 
 /* ── loading ── */
