@@ -6,7 +6,7 @@
 (function(){
 "use strict";
 if(window.JMBHuddle) return;
-var HD = window.JMBHuddle = { v:"2026-10-27c" };
+var HD = window.JMBHuddle = { v:"2026-10-27d" };
 var DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 var DOWL=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 var PCOL=["#6366f1","#0ea5e9","#10b981","#f59e0b","#ec4899","#8b5cf6","#14b8a6","#ef4444","#84cc16","#f97316"];
@@ -331,12 +331,23 @@ function rmList(o){
   return L.map(function(x){ var a=x.a, c=a[1]+a[2]+a[3];
     return '<div class="hd-rr"><div class="nm" title="'+esc(x.k)+'">'+esc(x.k)+'<small>'+a[0]+' post'+(a[0]===1?'':'s')+(c?' · '+(a[2]+a[3])+' removed':'')+(a[4]?' · '+a[4]+' not checked':'')+'</small></div><div class="hd-bar" style="height:8px"><i style="width:'+(x.pc||0)+'%;background:'+rmCol(x.pc)+'"></i></div><b style="color:'+rmCol(x.pc)+'">'+(x.pc==null?'—':x.pc+'%')+'</b></div>'; }).join('');
 }
+/* one model however it was typed: "Arya/Kaia", "Arya & Kaia" and "kaia + arya" are the same pair (Oct 27) */
+function rmParts(v){ return String(v||"").split(/\s*(?:[\/⁄∕\\|&+,;]|\s(?:and|x)\s)\s*/i).map(function(x){ return x.replace(/\s+/g," ").trim(); }).filter(Boolean); }
+function rmModels(o){
+  var g={}, out={};
+  Object.keys(o||{}).forEach(function(k){ var p=rmParts(k), key=p.map(function(x){ return x.toLowerCase(); }).sort().join("|")||String(k).toLowerCase(), a=o[k]||[];
+    var G=g[key]||(g[key]={ a:[0,0,0,0,0], lab:"", n:-1 }); for(var i=0;i<5;i++) G.a[i]+=Number(a[i])||0;
+    if((Number(a[0])||0)>G.n){ G.n=Number(a[0])||0; G.lab=p.length>1?p.join(" & "):String(k); } });
+  Object.keys(g).forEach(function(key){ var G=g[key], l=G.lab; if(out[l]) l=l+" "; out[l]=G.a; });
+  return out;
+}
+function rmShiftCol(X, h){ return Object.keys(X.shift||{}).length>1 ? '<div>'+h+rmList(X.shift)+'</div>' : ''; }
 function rmCard(R){
   var X=R.removals; if(!X || !X.t || !X.t[0]) return '';
   var a=X.t, pc=rmRate(a), c=a[1]+a[2]+a[3], bases=Object.keys(X.base||{});
   return '<div class="hd-card hd-rm" style="margin-bottom:12px"><div class="hd-kick" style="color:#db2777">Reddit · daily removal rate'+(R.multi?' · '+R.dates.length+' days':'')+'</div>'+
     '<div class="top" style="margin-top:6px"><div class="big"><b style="color:'+rmCol(pc)+'">'+(pc==null?'—':pc+'%')+'</b><span>'+(c?(a[2]+a[3])+' of '+c+' checked posts removed':'no checked posts yet')+'</span><small>'+a[0]+' posted · '+a[1]+' stayed up · '+a[2]+' by mods · '+a[3]+' spam filter'+(a[4]?' · '+a[4]+' not checked':'')+' · morning + night shift</small></div></div>'+
-    '<div class="cols"><div><h4>By model</h4>'+rmList(X.model)+'</div><div><h4>By method</h4>'+rmList(X.method)+'</div><div><h4>By shift (who posted)</h4>'+rmList(X.shift)+'</div>'+(bases.length>1?'<div><h4>By base</h4>'+rmList(X.base)+'</div>':'')+'</div></div>';
+    '<div class="cols"><div><h4>By model</h4>'+rmList(rmModels(X.model))+'</div><div><h4>By method</h4>'+rmList(X.method)+'</div>'+rmShiftCol(X,'<h4>By shift (who posted)</h4>')+(bases.length>1?'<div><h4>By base</h4>'+rmList(X.base)+'</div>':'')+'</div></div>';
 }
 
 /* ── the board (owner tab + presenter overlay share it) ── */
@@ -457,7 +468,7 @@ function slides(R){
     (t.perday?'<div class="row">'+t.perday.map(function(x){ return '<div class="tile"><div class="l">'+esc(dayLbl(x.date))+'</div><div class="v">'+fh(x.hours)+'</div><div style="color:rgba(255,255,255,.6)">'+x.vas+' VAs</div></div>'; }).join("")+'</div>':""));
   var X=R.removals; if(X && X.t && X.t[0]){ var xa=X.t, xpc=rmRate(xa), xc=xa[1]+xa[2]+xa[3];
     L.push('<div class="k">Reddit · daily removal rate</div><div class="num" style="background:none;-webkit-text-fill-color:'+rmCol(xpc)+';color:'+rmCol(xpc)+'">'+(xpc==null?'—':xpc+'%')+'</div><div class="lead">'+(xc?(xa[2]+xa[3])+' of '+xc+' checked posts removed':'no checked posts yet')+' · '+xa[0]+' posted'+(xa[4]?' · '+xa[4]+' not checked':'')+' · morning + night shift</div>'+
-      '<div class="hd-rm-cols"><div><h4>By model</h4>'+rmList(X.model)+'</div><div><h4>By method</h4>'+rmList(X.method)+'</div><div><h4>By shift</h4>'+rmList(X.shift)+'</div></div>'); }
+      '<div class="hd-rm-cols"><div><h4>By model</h4>'+rmList(rmModels(X.model))+'</div><div><h4>By method</h4>'+rmList(X.method)+'</div>'+rmShiftCol(X,'<h4>By shift</h4>')+'</div>'); }
   if(R.projects.length){ var mx=Math.max.apply(null,R.projects.map(function(p){ return p.hours; }).concat([1]));
     L.push('<div class="k">Where the hours went</div><h2>By project</h2>'+R.projects.map(function(p,i){ return '<div class="pjr"><div><b>'+esc(p.project)+'</b><div style="font-size:13px;color:rgba(255,255,255,.6)">'+p.vas+' VA'+(p.vas===1?"":"s")+' · '+p.tasks.slice(0,3).map(function(x){ return esc(x.task)+(x.volume>0?" ("+r1(x.volume)+")":""); }).join(", ")+'</div></div><div class="b"><i style="width:'+(p.hours/mx*100)+'%;background:'+PCOL[i%PCOL.length]+'"></i></div><div class="h">'+fh(p.hours)+'</div></div>'; }).join("")); }
   R.people.forEach(function(p){
