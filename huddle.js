@@ -6,7 +6,7 @@
 (function(){
 "use strict";
 if(window.JMBHuddle) return;
-var HD = window.JMBHuddle = { v:"2026-10-27d" };
+var HD = window.JMBHuddle = { v:"2026-10-27e" };
 var DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 var DOWL=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 var PCOL=["#6366f1","#0ea5e9","#10b981","#f59e0b","#ec4899","#8b5cf6","#14b8a6","#ef4444","#84cc16","#f97316"];
@@ -188,7 +188,7 @@ function css(){
   ".hd-rm .top{display:flex;gap:20px;align-items:flex-end;flex-wrap:wrap}",
   ".hd-rm .big b{display:block;font-size:44px;line-height:1;font-weight:900;letter-spacing:-.03em}.hd-rm .big span{display:block;font-size:12.5px;font-weight:700;color:var(--hd-t2);margin-top:5px}.hd-rm .big small{display:block;font-size:11.5px;color:var(--hd-t3);margin-top:2px}",
   ".hd-rm .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:12px}.hd-rm h4{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--hd-t3)}",
-  ".hd-rr{display:grid;grid-template-columns:minmax(90px,1fr) 2fr 42px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--hd-ln);font-size:12.5px}.hd-rr:last-child{border-bottom:0}.hd-rr .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hd-rr .nm small{display:block;font-weight:600;color:var(--hd-t3);font-size:10.5px}.hd-rr b{text-align:right}",
+  ".hd-rr{display:grid;grid-template-columns:minmax(150px,1.3fr) 2fr 42px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--hd-ln);font-size:12.5px}.hd-rr:last-child{border-bottom:0}.hd-rr .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hd-rr .nm small{display:block;font-weight:600;color:var(--hd-t3);font-size:10.5px;white-space:normal;line-height:1.3}.hd-rr b{text-align:right}",
   ".hd-show .hd-rr{border-color:rgba(255,255,255,.12);font-size:16px}.hd-show .hd-rr .nm small{color:rgba(255,255,255,.55);font-size:12px}.hd-show .hd-rm-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:26px;margin-top:22px}.hd-show h4{margin:0 0 8px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.6)}"
   ].join("\n");
   document.head.appendChild(st);
