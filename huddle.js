@@ -363,7 +363,7 @@ function load(fresh){
     var dates=(S.state&&S.state.dates)||(S.item&&S.item.dates)||datesOf(H);
     return Promise.all(dates.map(function(d){ var k=d+"|"+sh; if(S.reps[k] && !fresh) return S.reps[k];
       return get({ action:"huddle_report", date:d, shift:sh, fresh:fresh?"1":"" }).then(function(r){ if(!r || !r.ok) throw new Error((r&&(r.message||r.error))||"Could not build the report."); S.reps[k]=r; return r; }); }));
-  }).then(function(){ if(S._tag===tag) render(); }).catch(function(e){ if(S._tag!==tag) return; S.err=String(e&&e.message||e); if(/UNAUTHORIZED/.test(S.err)) S.err="Only the owner and today's presenter can open this report."; render(); });
+  }).then(function(){ if(S._tag===tag) render(); }).catch(function(e){ if(S._tag!==tag) return; S.err=String(e&&e.message||e); if(/UNAUTHORIZED/.test(S.err)) S.err="Only the owner and today's presenter can open this report."; else if(/MISSING_PARAMS|UNKNOWN_ACTION|Unknown action/i.test(S.err)) S.err="The Daily Huddle needs the new backend (build 2026-10-27b). Deploy it as a new version in Apps Script, then press Refresh."; render(); });
 }
 
 /* ── events ── */
