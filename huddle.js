@@ -6,7 +6,7 @@
 (function(){
 "use strict";
 if(window.JMBHuddle) return;
-var HD = window.JMBHuddle = { v:"2026-10-27b" };
+var HD = window.JMBHuddle = { v:"2026-10-27c" };
 var DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 var DOWL=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 var PCOL=["#6366f1","#0ea5e9","#10b981","#f59e0b","#ec4899","#8b5cf6","#14b8a6","#ef4444","#84cc16","#f97316"];
@@ -182,7 +182,14 @@ function css(){
   ".hd-ban.me .hd-btn{background:#fff;color:#c2410c;border:0}",
   ".hd-ov{position:fixed;inset:0;z-index:2147482000;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);display:flex;justify-content:center;align-items:flex-start;overflow:auto;padding:24px 12px}",
   ".hd-ov .box{width:min(1180px,100%);background:#f8fafc;border-radius:22px;padding:18px 20px 26px;box-shadow:0 30px 80px -20px rgba(0,0,0,.5)}",
-  "body.hd-noscroll{overflow:hidden}"
+  "body.hd-noscroll{overflow:hidden}",
+  /* Reddit removals highlight (Oct 27) */
+  ".hd-rm{background:linear-gradient(135deg,#fff 0%,#fff6fa 55%,#f6f3ff 100%);border:1px solid rgba(236,72,153,.25)}",
+  ".hd-rm .top{display:flex;gap:20px;align-items:flex-end;flex-wrap:wrap}",
+  ".hd-rm .big b{display:block;font-size:44px;line-height:1;font-weight:900;letter-spacing:-.03em}.hd-rm .big span{display:block;font-size:12.5px;font-weight:700;color:var(--hd-t2);margin-top:5px}.hd-rm .big small{display:block;font-size:11.5px;color:var(--hd-t3);margin-top:2px}",
+  ".hd-rm .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:12px}.hd-rm h4{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--hd-t3)}",
+  ".hd-rr{display:grid;grid-template-columns:minmax(90px,1fr) 2fr 42px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--hd-ln);font-size:12.5px}.hd-rr:last-child{border-bottom:0}.hd-rr .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hd-rr .nm small{display:block;font-weight:600;color:var(--hd-t3);font-size:10.5px}.hd-rr b{text-align:right}",
+  ".hd-show .hd-rr{border-color:rgba(255,255,255,.12);font-size:16px}.hd-show .hd-rr .nm small{color:rgba(255,255,255,.55);font-size:12px}.hd-show .hd-rm-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:26px;margin-top:22px}.hd-show h4{margin:0 0 8px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.6)}"
   ].join("\n");
   document.head.appendChild(st);
 }
@@ -216,6 +223,10 @@ function merge(list){
   out.projects=Object.keys(pj).map(function(k){ var P=pj[k]; return { project:P.project, hours:Math.round(P.hours*100)/100, vas:Object.keys(P.people).length, people:Object.keys(P.people), act_pct:P.actW?Math.round(P.act/P.actW):null, eng_pct:P.engW?Math.round(P.eng/P.engW):null, norm_pct:P.norm_pct,
     tasks:Object.keys(P.tasks).map(function(t){ var X=P.tasks[t]; return { task:X.task, hours:Math.round(X.hours*100)/100, volume:r1(X.volume), qph:X.hours>0&&X.volume>0?r1(X.volume/X.hours):0, vas:X.vas }; }).sort(function(a,b){ return b.hours-a.hours; }) }; }).sort(function(a,b){ return b.hours-a.hours; });
   out.flags.sort(function(a,b){ return (b.sev-a.sev) || String(a.name).localeCompare(String(b.name)); });
+  /* Reddit removals: the days added up (Oct 27) */
+  var RM=null; list.forEach(function(r){ var x=r.removals; if(!x || !x.t) return; if(!RM) RM={ date:'', t:[0,0,0,0,0], model:{}, method:{}, base:{}, shift:{} };
+    for(var i=0;i<5;i++) RM.t[i]+=x.t[i]||0; ['model','method','base','shift'].forEach(function(k){ Object.keys(x[k]||{}).forEach(function(n){ var a=RM[k][n]||(RM[k][n]=[0,0,0,0,0]); for(var i=0;i<5;i++) a[i]+=x[k][n][i]||0; }); }); });
+  out.removals=RM;
   out.team={ hours:Math.round(T.hours*100)/100, vas:out.people.length, avg_h:out.people.length?r1(T.hours/out.people.length):0, lunch_h:T.lunch_h, pending_h:T.pending_h, manual_h:Math.round(T.manual_h*100)/100, usual_h:T.usual_h,
     eng_pct:T.engW?Math.round(T.eng/T.engW):null, tool_pct:T.toolW?Math.round(T.tool/T.toolW):null, flags:T.flags, high:T.high, trend:list[list.length-1].team.trend, perday:list.map(function(r){ return { date:r.date, hours:r.team.hours, vas:r.team.vas }; }) };
   return out;
@@ -311,6 +322,23 @@ function winsView(R){
   return '<div class="hd-card">'+R.wins.map(function(w){ return '<div class="hd-win"><div class="ic">'+(w.kind==="pace"?"1":(w.kind==="focus"?"A":"OK"))+'</div><div><div style="font-weight:800">'+esc(w.title)+(w.first?' — '+esc(w.first):"")+(R.multi?' <span class="hd-sub">· '+esc(dayLbl(w.date))+'</span>':"")+'</div><div class="hd-sub">'+esc(w.detail)+'</div></div></div>'; }).join("")+'</div>';
 }
 
+/* ── Reddit removals: the day's removal rate by model, method, shift (Oct 27) ── */
+function rmRate(a){ var c=a[1]+a[2]+a[3]; return c?Math.round((a[2]+a[3])/c*100):null; }
+function rmCol(pc){ return pc==null?"#94a3b8":(pc>=50?"#ef4444":(pc>=25?"#f59e0b":"#10b981")); }
+function rmList(o){
+  var L=Object.keys(o||{}).map(function(k){ return { k:k, a:o[k], pc:rmRate(o[k]) }; }).sort(function(x,y){ return (y.a[0]-x.a[0]) || (x.k<y.k?-1:1); });
+  if(!L.length) return '<div class="hd-sub" style="font-size:12px">No posts.</div>';
+  return L.map(function(x){ var a=x.a, c=a[1]+a[2]+a[3];
+    return '<div class="hd-rr"><div class="nm" title="'+esc(x.k)+'">'+esc(x.k)+'<small>'+a[0]+' post'+(a[0]===1?'':'s')+(c?' · '+(a[2]+a[3])+' removed':'')+(a[4]?' · '+a[4]+' not checked':'')+'</small></div><div class="hd-bar" style="height:8px"><i style="width:'+(x.pc||0)+'%;background:'+rmCol(x.pc)+'"></i></div><b style="color:'+rmCol(x.pc)+'">'+(x.pc==null?'—':x.pc+'%')+'</b></div>'; }).join('');
+}
+function rmCard(R){
+  var X=R.removals; if(!X || !X.t || !X.t[0]) return '';
+  var a=X.t, pc=rmRate(a), c=a[1]+a[2]+a[3], bases=Object.keys(X.base||{});
+  return '<div class="hd-card hd-rm" style="margin-bottom:12px"><div class="hd-kick" style="color:#db2777">Reddit · daily removal rate'+(R.multi?' · '+R.dates.length+' days':'')+'</div>'+
+    '<div class="top" style="margin-top:6px"><div class="big"><b style="color:'+rmCol(pc)+'">'+(pc==null?'—':pc+'%')+'</b><span>'+(c?(a[2]+a[3])+' of '+c+' checked posts removed':'no checked posts yet')+'</span><small>'+a[0]+' posted · '+a[1]+' stayed up · '+a[2]+' by mods · '+a[3]+' spam filter'+(a[4]?' · '+a[4]+' not checked':'')+' · morning + night shift</small></div></div>'+
+    '<div class="cols"><div><h4>By model</h4>'+rmList(X.model)+'</div><div><h4>By method</h4>'+rmList(X.method)+'</div><div><h4>By shift (who posted)</h4>'+rmList(X.shift)+'</div>'+(bases.length>1?'<div><h4>By base</h4>'+rmList(X.base)+'</div>':'')+'</div></div>';
+}
+
 /* ── the board (owner tab + presenter overlay share it) ── */
 function report(){ var L=(S.state&&S.state.dates||datesOf(S.H)).map(function(d){ return S.reps[d+"|"+S.shift]; }); if(S.day!=="all") L=[S.reps[S.day+"|"+S.shift]]; if(L.some(function(x){ return !x; })) return null; return merge(JSON.parse(JSON.stringify(L))); }
 function render(){
@@ -339,7 +367,7 @@ function render(){
     var fc=R.flags.filter(function(f){ return (f.status||"open")==="open"||f.status==="asked"||f.status==="follow"; }).length;
     var tabs='<div class="hd-tabs">'+[["overview","Overview"],["people","People"],["questions","Questions"+(fc?'<span class="hd-cnt">'+fc+'</span>':"")],["wins","Wins"]].map(function(t){ return '<button class="'+(S.tab===t[0]?"on":"")+'" data-a="tab" data-v="'+t[0]+'">'+t[1]+'</button>'; }).join("")+'</div>';
     var inner="";
-    if(S.tab==="overview") inner='<div class="hd-st" style="margin:4px 0 8px">Hours by project</div>'+projectsView(R)+
+    if(S.tab==="overview") inner=rmCard(R)+'<div class="hd-st" style="margin:4px 0 8px">Hours by project</div>'+projectsView(R)+
         (R.flags.length?'<div class="hd-st" style="margin:16px 0 8px">Top questions</div>'+R.flags.slice(0,3).map(function(f,i){ return flagCard(R,f,i); }).join("")+(R.flags.length>3?'<button class="hd-btn sm" data-a="tab" data-v="questions">See all '+R.flags.length+'</button>':""):"")+
         (R.wins.length?'<div class="hd-st" style="margin:16px 0 8px">Wins</div>'+winsView(R):"");
     else if(S.tab==="people") inner=peopleView(R);
@@ -427,6 +455,9 @@ function slides(R){
   L.push('<div class="k">The numbers</div><div class="num" data-cnt="'+t.hours+'">'+fh(t.hours)+'</div><div class="lead">tracked by '+t.vas+' VA'+(t.vas===1?"":"s")+(vs!=null?' · '+(vs>=0?"+":"")+vs+'% vs their usual':"")+'</div>'+
     '<div class="row"><div class="tile"><div class="l">Average per VA</div><div class="v">'+fh(t.avg_h)+'</div></div><div class="tile"><div class="l">Engaged</div><div class="v">'+(t.eng_pct!=null?t.eng_pct+"%":"—")+'</div></div><div class="tile"><div class="l">Tool matched</div><div class="v">'+(t.tool_pct!=null?t.tool_pct+"%":"—")+'</div></div><div class="tile"><div class="l">Questions</div><div class="v">'+t.flags+'</div></div></div>'+
     (t.perday?'<div class="row">'+t.perday.map(function(x){ return '<div class="tile"><div class="l">'+esc(dayLbl(x.date))+'</div><div class="v">'+fh(x.hours)+'</div><div style="color:rgba(255,255,255,.6)">'+x.vas+' VAs</div></div>'; }).join("")+'</div>':""));
+  var X=R.removals; if(X && X.t && X.t[0]){ var xa=X.t, xpc=rmRate(xa), xc=xa[1]+xa[2]+xa[3];
+    L.push('<div class="k">Reddit · daily removal rate</div><div class="num" style="background:none;-webkit-text-fill-color:'+rmCol(xpc)+';color:'+rmCol(xpc)+'">'+(xpc==null?'—':xpc+'%')+'</div><div class="lead">'+(xc?(xa[2]+xa[3])+' of '+xc+' checked posts removed':'no checked posts yet')+' · '+xa[0]+' posted'+(xa[4]?' · '+xa[4]+' not checked':'')+' · morning + night shift</div>'+
+      '<div class="hd-rm-cols"><div><h4>By model</h4>'+rmList(X.model)+'</div><div><h4>By method</h4>'+rmList(X.method)+'</div><div><h4>By shift</h4>'+rmList(X.shift)+'</div></div>'); }
   if(R.projects.length){ var mx=Math.max.apply(null,R.projects.map(function(p){ return p.hours; }).concat([1]));
     L.push('<div class="k">Where the hours went</div><h2>By project</h2>'+R.projects.map(function(p,i){ return '<div class="pjr"><div><b>'+esc(p.project)+'</b><div style="font-size:13px;color:rgba(255,255,255,.6)">'+p.vas+' VA'+(p.vas===1?"":"s")+' · '+p.tasks.slice(0,3).map(function(x){ return esc(x.task)+(x.volume>0?" ("+r1(x.volume)+")":""); }).join(", ")+'</div></div><div class="b"><i style="width:'+(p.hours/mx*100)+'%;background:'+PCOL[i%PCOL.length]+'"></i></div><div class="h">'+fh(p.hours)+'</div></div>'; }).join("")); }
   R.people.forEach(function(p){

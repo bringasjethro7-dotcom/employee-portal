@@ -26486,7 +26486,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-27-B';
+var PORTAL_BUILD='2026-10-27-C';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34117,7 +34117,7 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
    on the home tab; the presenter's banner opens the report (read-only) and a Present mode. Logic in huddle.js. */
 (function(){
   var done=false, tries=0;
-  function loadJs(cb){ if(window.JMBHuddle) return cb(); var s=document.createElement('script'); s.src='huddle.js?v=20261027b'; s.onload=cb; document.head.appendChild(s); }
+  function loadJs(cb){ if(window.JMBHuddle) return cb(); var s=document.createElement('script'); s.src='huddle.js?v=20261027c'; s.onload=cb; document.head.appendChild(s); }
   function start(){
     var d=window._currentEmpData; if(!d||!d.employee_id||done) return;
     if(!JMB_SESS){ try{ jmbSessEnsure(); }catch(e){} if(++tries<6) return; }
@@ -34125,6 +34125,80 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
     loadJs(function(){ try{ JMBHuddle.bootPortal({ api:APPS_SCRIPT_URL, me:{ employee_id:d.employee_id, full_name:d.full_name||d.name||'' } }); }catch(e){ console.error(e); } });
   }
   var t0=Date.now(), iv=setInterval(function(){ if(done){ clearInterval(iv); return; } try{ if(document.body.classList.contains('app-authed') && window._currentEmpData) start(); }catch(e){} if(Date.now()-t0>180000) clearInterval(iv); }, 1500);
+})();
+</script>
+
+<script id="pc-eod-gate">
+/* ── END-OF-SHIFT POST CHECK GATE (Jeth + the client, Oct 27) ──
+   "Before they can do their EOD they need to do a final check of those posts." A VA who did Reddit work today can't
+   end the day while posts they logged this shift still have no verdict in Reddit Central (stayed up / removed by mods /
+   spam filter). One small call to the Reddit backend (pc_eod, own session). It never blocks when that backend can't be
+   reached within 8 s or doesn't know the action yet (fails open), or when the VA did no Reddit work today. */
+(function(){
+  var RC_PAGE='https://internals.jmbvirtuals.com/reddit.html';
+  function didReddit(){
+    try{
+      var L=[]; try{ L=(_loadTodayCache()||[]).slice(); }catch(e){}
+      L=L.concat(window._trkTodayEntries||[]);
+      try{ if(typeof trkRunning!=='undefined' && trkRunning) L.push(trkRunning); }catch(e){}
+      try{ (typeof trkPaused!=='undefined'?trkPaused:[]).forEach(function(x){ L.push(x); }); }catch(e){}
+      return L.some(function(e){ return e && /reddit/i.test(String(e.project||'')+' '+String(e.category||'')+' '+String(e.task||'')); });
+    }catch(e){ return true; }
+  }
+  function ask(emp){
+    if(typeof RC_API_URL==='undefined' || !RC_API_URL) return Promise.resolve(null);
+    var u=RC_API_URL+'?action=pc_eod&employee_id='+encodeURIComponent(emp)+'&sess='+encodeURIComponent((typeof JMB_SESS!=='undefined'&&JMB_SESS)||'')+'&_='+Date.now();
+    return Promise.race([ fetch(u).then(function(r){ return r.json(); }).catch(function(){ return null; }), new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); }) ]);
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function tm(t){ var m=String(t||'').match(/\s(\d{1,2}):(\d{2})/); if(!m) return ''; var h=+m[1]; return ((h%12)||12)+':'+m[2]+' '+(h<12?'AM':'PM'); }
+  function close(){ var o=document.getElementById('pc-eod-ov'); if(o) o.remove(); }
+  function show(r, emp, proceed){
+    close();
+    var n=r.pending, mins=n;   // 1 min per post
+    var o=document.createElement('div'); o.id='pc-eod-ov';
+    o.style.cssText='position:fixed;inset:0;z-index:100600;background:rgba(15,23,42,.5);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:18px';
+    o.innerHTML='<div style="width:min(480px,100%);max-height:86vh;overflow:auto;background:#fff;color:#0f172a;border-radius:22px;padding:22px 22px 18px;box-shadow:0 30px 80px -20px rgba(0,0,0,.45);font-family:inherit">'+
+      '<div style="font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#db2777">Before you end your day</div>'+
+      '<div style="font-size:20px;font-weight:800;letter-spacing:-.01em;margin:4px 0 6px">Check your '+n+' Reddit post'+(n===1?'':'s')+'</div>'+
+      '<div style="font-size:13.5px;line-height:1.55;color:#475569">You logged '+n+' post'+(n===1?'':'s')+' this shift'+(r.accounts?' on '+r.accounts+' account'+(r.accounts===1?'':'s'):'')+' that '+(n===1?'has':'have')+' no verdict yet. Open <b>Reddit Central</b> and mark each one: <b>stayed up</b>, <b>removed by mods</b> or <b>spam filter</b>. You have about '+mins+' minute'+(mins===1?'':'s')+' for it (1 minute per post) — keep your portal timer running on Reddit while you check.</div>'+
+      '<div style="margin:12px 0 4px;border:1px solid #e2e8f0;border-radius:14px;padding:6px 12px;max-height:200px;overflow:auto">'+(r.posts||[]).map(function(p){ return '<div style="display:flex;gap:8px;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #e2e8f0;font-size:13px"><span><b>'+esc(p.h)+'</b> · '+esc(p.r)+'</span><span style="color:#64748b">'+esc(tm(p.t))+'</span></div>'; }).join('')+'</div>'+
+      '<div id="pc-eod-msg" style="font-size:12px;color:#b45309;min-height:16px;margin-top:6px"></div>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px">'+
+        '<button type="button" data-x="cancel" style="border:1px solid #e2e8f0;background:#fff;color:#0f172a;font:inherit;font-weight:700;font-size:13.5px;padding:10px 14px;border-radius:12px;cursor:pointer">Not yet</button>'+
+        '<button type="button" data-x="again" style="border:1px solid #e2e8f0;background:#fff;color:#0f172a;font:inherit;font-weight:700;font-size:13.5px;padding:10px 14px;border-radius:12px;cursor:pointer">I\'m done — check again</button>'+
+        '<button type="button" data-x="open" style="border:0;background:linear-gradient(135deg,#ec4899,#8b5cf6);color:#fff;font:inherit;font-weight:800;font-size:13.5px;padding:10px 16px;border-radius:12px;cursor:pointer">Open Reddit Central</button>'+
+      '</div></div>';
+    document.body.appendChild(o);
+    o.addEventListener('click', function(e){
+      var b=e.target.closest && e.target.closest('[data-x]'); if(e.target===o){ close(); return; } if(!b) return;
+      var x=b.getAttribute('data-x');
+      if(x==='cancel'){ close(); return; }
+      if(x==='open'){ try{ window.open(RC_PAGE+'?tab=today','rc-central'); }catch(_o){ location.href=RC_PAGE; } return; }
+      if(x==='again'){ b.disabled=true; b.textContent='Checking…';
+        ask(emp).then(function(r2){ b.disabled=false; b.textContent='I\'m done — check again';
+          if(!r2 || !r2.ok || !(r2.pending>0)){ close(); proceed(); return; }
+          show(r2, emp, proceed); var m=document.getElementById('pc-eod-msg'); if(m) m.textContent='Still '+r2.pending+' post'+(r2.pending===1?'':'s')+' without a verdict — finish them in Reddit Central, then try again.'; }); }
+    });
+  }
+  function wrap(){
+    if(window.__pcEodWrap || typeof window.askEOD!=='function') return !!window.__pcEodWrap; window.__pcEodWrap=1;
+    var orig=window.askEOD, busy=false;
+    window.askEOD=function(){
+      var self=this, args=arguments, go=function(){ return orig.apply(self, args); };
+      var d=window._currentEmpData||{}, emp=String(d.employee_id||(typeof attEmpId!=='undefined'&&attEmpId)||'');
+      try{ if(!getActiveSession()) return go(); }catch(_a){}
+      if(!emp || !didReddit()) return go();
+      if(busy) return; busy=true;
+      try{ showToast('Checking your Reddit posts…'); }catch(_t){}
+      ask(emp).then(function(r){ busy=false;
+        if(!r || !r.ok || !(r.pending>0)) return go();   // nothing left, or the Reddit backend can't say → never block
+        show(r, emp, go);
+      });
+    };
+    return true;
+  }
+  if(!wrap()){ var n=0, iv=setInterval(function(){ if(wrap() || ++n>40) clearInterval(iv); }, 500); }
 })();
 </script>
 
@@ -34536,6 +34610,14 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-10-27-C', version:'2026.10.27', date:'October 27, 2026',
+    summary:'Reddit: check your posts before you end your day.',
+    items:[
+      'Before End of Day, mark every post you logged this shift in Reddit Central: stayed up, removed by mods or spam filter.',
+      'You have 1 minute per post. The check runs its own timer and is filed under Reddit Posting.',
+      'If posts are still unchecked, End of Day shows them and waits until they are done.',
+      'Reddit Central now opens with the daily removal rate by model and by method. The client sees the same numbers.'
+    ] },
   { build:'2026-10-27-B', version:'2026.10.27', date:'October 27, 2026',
     summary:'Every weekday, each shift starts with a short huddle about the shift before.',
     items:[
