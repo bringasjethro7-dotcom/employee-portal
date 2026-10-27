@@ -231,7 +231,7 @@ function merge(list){
   out.removals=RM;
   /* 27e: the huddle show — goals / talk / who's here are the same in every day of one huddle; "did we do it?" is the first day's */
   var rv=list.filter(function(r){ return r.review && r.review.length; })[0]; if(rv){ out.review=rv.review; out.review_of=rv.review_of; }
-  var lr=list[list.length-1]; out.goals=lr.goals||[]; out.talk=lr.talk||{}; out.here=lr.here||[]; if(list[0].removals_prev) out.removals_prev=list[0].removals_prev;
+  var lr=list[list.length-1]; out.goals=lr.goals||[]; out.talk=lr.talk||{}; out.here=lr.here||[]; out.roll=lr.roll||null; if(list[0].removals_prev) out.removals_prev=list[0].removals_prev;
   out.team={ hours:Math.round(T.hours*100)/100, vas:out.people.length, avg_h:out.people.length?r1(T.hours/out.people.length):0, lunch_h:T.lunch_h, pending_h:T.pending_h, manual_h:Math.round(T.manual_h*100)/100, usual_h:T.usual_h,
     eng_pct:T.engW?Math.round(T.eng/T.engW):null, tool_pct:T.toolW?Math.round(T.tool/T.toolW):null, flags:T.flags, high:T.high, trend:list[list.length-1].team.trend, perday:list.map(function(r){ return { date:r.date, hours:r.team.hours, vas:r.team.vas }; }) };
   return out;
@@ -327,6 +327,16 @@ function winsView(R){
   return '<div class="hd-card">'+R.wins.map(function(w){ return '<div class="hd-win"><div class="ic">'+(w.kind==="pace"?"1":(w.kind==="focus"?"A":"OK"))+'</div><div><div style="font-weight:800">'+esc(w.title)+(w.first?' — '+esc(w.first):"")+(R.multi?' <span class="hd-sub">· '+esc(dayLbl(w.date))+'</span>':"")+'</div><div class="hd-sub">'+esc(w.detail)+'</div></div></div>'; }).join("")+'</div>';
 }
 
+/* ── roll call on the board (27e): who is here today and whose Reddit accounts need cover ── */
+function rollMini(R){
+  var RL=R.roll; if(!RL || !RL.people || !RL.people.length) return "";
+  var C=RL.counts, A=RL.accounts||{}, here=C["in"]+C.late, chip=function(t,col){ return '<span class="hd-chip" style="cursor:default;border-color:'+col+';color:'+col+'">'+t+'</span>'; };
+  var off=RL.people.filter(function(p){ return p.status!=="in"; }).map(function(p){ return esc(p.first)+' <span class="hd-sub">('+esc(p.status==="late"?p.late_min+" min late":(p.type||({out:"not in yet",leave:"leave",rest:"off"})[p.status]))+(p.accounts&&p.accounts.open?' · '+p.accounts.open+' Reddit acct need cover':'')+')</span>'; });
+  return '<div class="hd-card" style="margin-bottom:12px"><div class="hd-kick" style="color:#0891b2">Roll call · today</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px"><b style="font-size:22px;margin-right:6px">'+here+' of '+C.total+' here</b>'+
+    (C.late?chip(C.late+" late","#d97706"):"")+(C.leave?chip(C.leave+" on leave","#7c3aed"):"")+(C.rest?chip(C.rest+" off","#64748b"):"")+(C.out?chip(C.out+" not in yet","#e11d48"):"")+(A.open?chip(A.open+" Reddit accounts need cover","#e11d48"):"")+'</div>'+
+    (off.length?'<div class="hd-sub" style="margin-top:8px">'+off.join(" · ")+'</div>':"")+'</div>';
+}
+
 /* ── Reddit removals: the day's removal rate by model, method, shift (Oct 27) ── */
 function rmRate(a){ var c=a[1]+a[2]+a[3]; return c?Math.round((a[2]+a[3])/c*100):null; }
 function rmCol(pc){ return pc==null?"#94a3b8":(pc>=50?"#ef4444":(pc>=25?"#f59e0b":"#10b981")); }
@@ -383,7 +393,7 @@ function render(){
     var fc=R.flags.filter(function(f){ return (f.status||"open")==="open"||f.status==="asked"||f.status==="follow"; }).length;
     var tabs='<div class="hd-tabs">'+[["overview","Overview"],["people","People"],["questions","Check-ins"+(fc?'<span class="hd-cnt">'+fc+'</span>':"")],["wins","Wins"]].map(function(t){ return '<button class="'+(S.tab===t[0]?"on":"")+'" data-a="tab" data-v="'+t[0]+'">'+t[1]+'</button>'; }).join("")+'</div>';
     var inner="";
-    if(S.tab==="overview") inner=rmCard(R)+'<div class="hd-st" style="margin:4px 0 8px">Hours by project</div>'+projectsView(R)+
+    if(S.tab==="overview") inner=rollMini(R)+rmCard(R)+'<div class="hd-st" style="margin:4px 0 8px">Hours by project</div>'+projectsView(R)+
         (R.flags.length?'<div class="hd-st" style="margin:16px 0 8px">Top check-ins</div>'+R.flags.slice(0,3).map(function(f,i){ return flagCard(R,f,i); }).join("")+(R.flags.length>3?'<button class="hd-btn sm" data-a="tab" data-v="questions">See all '+R.flags.length+'</button>':""):"")+
         (R.wins.length?'<div class="hd-st" style="margin:16px 0 8px">Wins</div>'+winsView(R):"");
     else if(S.tab==="people") inner=peopleView(R);
@@ -469,14 +479,15 @@ function toast(m){ var t=document.getElementById("hd-toast"); if(!t){ t=document
    Goals, check-ins and the team's notes are saved as the huddle goes (huddle_save) and the next huddle of the shift opens
    with "Did we do it?" — measurable goals are already judged from that shift's data. */
 var SEGS=[
-  { k:"open",     n:"Welcome",         c:"#f97316", s:30  },
+  { k:"open",     n:"Welcome",         c:"#f97316", s:20  },
+  { k:"roll",     n:"Roll call",       c:"#22d3ee", s:90  },
   { k:"review",   n:"Did we do it?",   c:"#34d399", s:90  },
-  { k:"wins",     n:"Wins",            c:"#fbbf24", s:90  },
-  { k:"numbers",  n:"The numbers",     c:"#38bdf8", s:120 },
+  { k:"wins",     n:"Wins",            c:"#fbbf24", s:75  },
+  { k:"numbers",  n:"The numbers",     c:"#38bdf8", s:105 },
   { k:"reddit",   n:"Reddit removals", c:"#f472b6", s:180 },
   { k:"checkins", n:"Check-ins",       c:"#fb7185", s:150 },
   { k:"plan",     n:"The plan",        c:"#a78bfa", s:150 },
-  { k:"close",    n:"Wrap-up",         c:"#f97316", s:30  }
+  { k:"close",    n:"Wrap-up",         c:"#f97316", s:20  }
 ];
 var GOALK={ timer:"Timer on the whole shift", posts:"Check every post before End of Day", focus:"No idle stretches" };
 function hx(h, a){ h=String(h||"#f97316").replace("#",""); if(h.length===3) h=h.split("").map(function(c){ return c+c; }).join(""); var n=parseInt(h,16); return "rgba("+(n>>16&255)+","+(n>>8&255)+","+(n&255)+","+a+")"; }
@@ -492,6 +503,9 @@ function plainWin(w){ var d=String(w.detail||""); if(w.kind==="pace") return d.r
   if(w.kind==="focus") return d.replace(/^(\d+)% of timed minutes active over (.+)$/, "Active $1% of the timer over $2"); if(w.kind==="clean") return "Nothing to check — clean shift"; return d; }
 function shiftPeople(R){
   var m={}, out=[]; (R.here||[]).forEach(function(p){ m[p.id]={ id:p.id, name:p.name, first:p.first, here:true }; });
+  if(R.roll && R.roll.people && R.roll.people.length){   /* roll call knows who is off today — they don't set a goal */
+    R.roll.people.forEach(function(p){ if(p.status==="leave"||p.status==="rest"){ delete m[p.id]; return; } if(!m[p.id]) m[p.id]={ id:p.id, name:p.name, first:p.first, here:(p.status==="in"||p.status==="late") }; });
+  } else
   (R.people||[]).forEach(function(p){ if(m[p.id]) return; m[p.id]={ id:p.id, name:p.name, first:p.first, here:false }; });
   Object.keys(m).forEach(function(k){ out.push(m[k]); });
   out.sort(function(a,b){ return (b.here-a.here) || String(a.first).localeCompare(String(b.first)); });
@@ -529,6 +543,7 @@ function showList(R){
   var L=[];
   SEGS.forEach(function(g){
     if(g.k==="review" && !(R.review && R.review.length)) return;
+    if(g.k==="roll" && !(R.roll && R.roll.people && R.roll.people.length)) return;
     if(g.k==="reddit" && !(R.removals && R.removals.t && R.removals.t[0])) return;
     if(g.k==="checkins"){ var F=ckList(R); if(!F.length) return; var n=Math.ceil(F.length/2); for(var p=0;p<n;p++) L.push({ g:g, p:p, n:n }); return; }
     L.push({ g:g, p:0, n:1 });
@@ -545,7 +560,7 @@ function sHead(g, title, sub, extra){
   return '<div class="hds-kick" style="color:'+g.c+'">'+(part>0?"Part "+part+" · ":"")+esc(g.n)+(extra?' · '+extra:"")+'</div><h1 class="hds-h1">'+title+'</h1>'+(sub?'<div class="hds-sub">'+sub+'</div>':"");
 }
 function bOpen(R, it){
-  var pres=(S.state&&S.state.shifts&&S.state.shifts[S.shift])||S.item||{}, ppl=shiftPeople(R), mins=Math.round(planSec(SH.L)/60);
+  var pres=(S.state&&S.state.shifts&&S.state.shifts[S.shift])||S.item||{}, ppl=(R.roll&&R.roll.people&&R.roll.people.length)?R.roll.people.map(function(p){ return { id:p.id, name:p.name, first:p.first, here:(p.status==="in"||p.status==="late") }; }):shiftPeople(R), mins=Math.round(planSec(SH.L)/60);
   var ag=segsIn(SH.L).filter(function(g){ return g.k!=="open" && g.k!=="close"; }).map(function(g,i){ return '<div class="hds-ag"><span class="n" style="background:'+hx(g.c,.18)+';color:'+g.c+'">0'+(i+1)+'</span><b>'+esc(g.n)+'</b><span class="t">'+clk(g.s)+'</span></div>'; }).join("");
   var h='<div class="hds-cols" style="grid-template-columns:1.25fr 1fr">'+
     '<div><div class="hds-kick" style="color:'+it.g.c+'">'+(night()?"Night":"Morning")+' huddle · '+esc(dayLong(S.H))+'</div>'+
@@ -554,7 +569,29 @@ function bOpen(R, it){
       '<div class="hds-agenda">'+ag+'</div></div>'+
     '<div class="hds-card glow" style="align-self:start">'+(pres.presenter?'<div class="hds-who">'+avatar(pres.presenter, pres.presenter_name, 120)+'<div><div class="hds-lbl">Presented by</div><div class="hds-big">'+esc(pres.presenter_first||first(pres.presenter_name))+'</div><div class="hds-dim">'+esc(pres.presenter_name)+'</div></div></div>':'<div class="hds-lbl">Presenter</div><div class="hds-big">Not picked yet</div>')+
       '<div class="hds-lbl" style="margin-top:34px">On the '+(night()?"night":"morning")+' shift · '+ppl.length+'</div><div class="hds-faces">'+ppl.map(function(p){ return '<div class="f'+(p.here?"":" off")+'">'+avatar(p.id,p.name,74)+'<span>'+esc(p.first)+'</span></div>'; }).join("")+'</div></div></div>';
-  return { h:h, say:"Good "+(night()?"evening":"morning")+", everyone! This is our "+(night()?"night":"morning")+" huddle — about "+mins+" minutes. We'll "+(R.review&&R.review.length?"check our goals from last time, ":"")+"celebrate our wins, go through the numbers"+(R.removals&&R.removals.t&&R.removals.t[0]?" and Reddit removals":"")+", do quick check-ins, and set "+nowLbl()+"'s goals." };
+  return { h:h, say:"Good "+(night()?"evening":"morning")+", everyone! This is our "+(night()?"night":"morning")+" huddle — about "+mins+" minutes. We'll start with a quick roll call, "+(R.review&&R.review.length?"check our goals from last time, ":"")+"celebrate our wins, go through the numbers"+(R.removals&&R.removals.t&&R.removals.t[0]?" and Reddit removals":"")+", do quick check-ins, and set "+nowLbl()+"'s goals." };
+}
+var RSL={ "in":["Here","#34d399"], late:["Late","#fbbf24"], leave:["On leave","#a78bfa"], rest:["Off today","#94a3b8"], out:["Not in yet","#fb7185"] };
+function bRoll(R, it){
+  var RL=R.roll, C=RL.counts, here=C["in"]+C.late, P=RL.people, A=RL.accounts||{ open:0 };
+  function nm(L){ return L.map(function(p){ return p.first; }); }
+  function joinN(L){ return L.length<=1?L.join(""):L.slice(0,-1).join(", ")+" and "+L[L.length-1]; }
+  var lateL=P.filter(function(p){ return p.status==="late"; }), leaveL=P.filter(function(p){ return p.status==="leave"; }), restL=P.filter(function(p){ return p.status==="rest"; }), outL=P.filter(function(p){ return p.status==="out"; });
+  var tiles='<div class="hds-roll-t">'+[["in","Here on time",C["in"]],["late","Late",C.late],["leave","On leave",C.leave],["rest","Off today",C.rest],["out","Not in yet",C.out]].map(function(x){ var col=RSL[x[0]][1];
+    return '<div class="hds-card'+(x[2]?"":" zero")+'" style="border-color:'+(x[2]?hx(col,.55):"rgba(255,255,255,.08)")+'"><div class="v" style="color:'+(x[2]?col:"rgba(255,255,255,.3)")+'">'+x[2]+'</div><div class="l">'+x[1]+'</div></div>'; }).join("")+'</div>';
+  var cards=P.map(function(p){ var lb=RSL[p.status]||RSL.out, sub=p.status==="in"?("In at "+(p.time_in||"—")):(p.status==="late"?(p.late_min+" min late · "+(p.time_in||"")):(p.type||lb[0])), ac=p.accounts;
+    return '<div class="hds-rp '+p.status+'"><div class="hds-who sm">'+avatar(p.id,p.name,56)+'<div style="min-width:0"><div class="nm">'+esc(p.first)+'</div><div class="st" style="color:'+lb[1]+'">'+esc(sub)+'</div>'+
+      (ac&&ac.total?'<div class="ac">'+plural(ac.total,"Reddit account")+(ac.open?' · <b style="color:#fb7185">'+ac.open+' need'+(ac.open===1?"s":"")+' cover</b>':' · covered')+'</div>':"")+'</div></div></div>'; }).join("");
+  var offAc=P.filter(function(p){ return p.accounts && p.accounts.total; });
+  var cover='<div class="hds-card cov"><div class="hds-lbl" style="color:'+it.g.c+'">Reddit accounts today</div>'+
+    (offAc.length?offAc.map(function(p){ var a=p.accounts, by=Object.keys(a.by||{}).map(function(k){ return a.by[k]+" by "+k; });
+        return '<div class="row"><div class="who">'+avatar(p.id,p.name,44)+'<b>'+esc(p.first)+'</b><span>'+esc(RSL[p.status][0].toLowerCase())+'</span></div><div class="nums">'+plural(a.total,"account")+(by.length?' · covered '+esc(by.join(", ")):"")+(a.held?' · '+a.held+' on hold':"")+(a.open?' · <b style="color:#fb7185">'+a.open+' need'+(a.open===1?"s":"")+' someone</b>':"")+'</div></div>'; }).join("")+
+      (A.open?'<div class="call">'+plural(A.open,"account")+' still need'+(A.open===1?"s":"")+' someone today.<a href="https://internals.jmbvirtuals.com/reddit.html?tab=coverage" target="_blank" rel="noopener">Reassign in Reddit Central</a></div>':'<div class="call ok">Every Reddit account is covered today.</div>')
+    :'<div class="hds-dim" style="font-size:22px;margin-top:12px">Everyone with Reddit accounts is here — nothing to reassign.</div>')+'</div>';
+  var sub=here+" of "+C.total+" are here"+(C.late?" · "+C.late+" late":"")+(C.leave?" · "+C.leave+" on leave":"")+(C.rest?" · "+C.rest+" off today":"")+(C.out?" · "+C.out+" not in yet":"")+".";
+  var say="Quick roll call. "+here+" of "+C.total+" are here."+(lateL.length?" "+joinN(nm(lateL))+(lateL.length===1?" was":" were")+" late.":"")+(leaveL.length?" "+joinN(nm(leaveL))+(leaveL.length===1?" is":" are")+" on leave.":"")+(restL.length?" "+joinN(nm(restL))+(restL.length===1?" is":" are")+" off today.":"")+(outL.length?" "+joinN(nm(outL))+(outL.length===1?" isn't":" aren't")+" in yet — anyone heard from them?":"")+
+    (A.open?" "+plural(A.open,"Reddit account")+" still need"+(A.open===1?"s":"")+" someone today — who can take them?":(offAc.length?" Their Reddit accounts are all covered.":""));
+  return { h:sHead(it.g, "Who's here today?", esc(sub))+tiles+'<div class="hds-cols" style="grid-template-columns:1.45fr 1fr;height:auto;margin-top:22px;align-items:start"><div class="hds-rgrid">'+cards+'</div>'+cover+'</div>', say:say };
 }
 function rvState(x){ var d=x.done||(x.auto==="yes"?"yes":(x.auto==="no"?"no":(x.auto==="na"?"na":""))); return d; }
 var RVL={ yes:["Done","#34d399"], partly:["Partly","#fbbf24"], no:["Not yet","#fb7185"], na:["Didn't apply","#94a3b8"], "":["Your call","#a78bfa"] };
@@ -653,7 +690,7 @@ function bClose(R, it){
       '<div class="hds-dim" style="margin-top:34px;font-size:26px">Next huddle starts with: did we do it?</div></div>',
     say:"Thanks, team! Remember your goal — we'll check it at the next huddle. Let's go!" };
 }
-var BUILD={ open:bOpen, review:bReview, wins:bWins, numbers:bNumbers, reddit:bReddit, checkins:bChecks, plan:bPlan, close:bClose };
+var BUILD={ open:bOpen, roll:bRoll, review:bReview, wins:bWins, numbers:bNumbers, reddit:bReddit, checkins:bChecks, plan:bPlan, close:bClose };
 
 /* ── the show ── */
 function showCss(){
@@ -745,7 +782,15 @@ function showCss(){
   ".hds-clock{text-align:right;min-width:210px}.hds-clock .s{font-size:46px;font-weight:900;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}.hds-clock .s.over{color:#fbbf24}.hds-clock .t{font-size:16px;color:rgba(255,255,255,.55);font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}",
   ".hds-clock .b{height:5px;border-radius:4px;background:rgba(255,255,255,.12);margin-top:8px;overflow:hidden}.hds-clock .b i{display:block;height:100%;transition:width 1s linear}",
   ".hds-nav{display:flex;gap:10px}",
-  ".hds-x{position:absolute;top:30px;right:22px;z-index:4;display:none}"
+  ".hds-x{position:absolute;top:30px;right:22px;z-index:4;display:none}",
+  ".hds-roll-t{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:22px}.hds-roll-t .hds-card{padding:16px 22px}.hds-roll-t .v{font-size:58px;font-weight:900;letter-spacing:-.03em;line-height:1}.hds-roll-t .l{font-size:19px;font-weight:800;margin-top:4px}.hds-roll-t .zero .l{color:rgba(255,255,255,.4)}",
+  ".hds-rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-content:start;max-height:470px;overflow:auto}",
+  ".hds-rp{padding:12px 14px;border-radius:18px;background:rgba(16,21,38,.82);border:1px solid rgba(255,255,255,.08)}.hds-rp .nm{font-size:22px;font-weight:900;line-height:1.1}.hds-rp .st{font-size:16px;font-weight:700;margin-top:2px}.hds-rp .ac{font-size:14.5px;color:rgba(255,255,255,.65);margin-top:3px}",
+  ".hds-rp.leave,.hds-rp.rest{opacity:.75}.hds-rp.out{border-color:rgba(251,113,133,.45)}.hds-rp.late{border-color:rgba(251,191,36,.45)}",
+  ".hds-card.cov .row{display:flex;flex-direction:column;gap:6px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.08)}.hds-card.cov .row:last-of-type{border-bottom:0}",
+  ".hds-card.cov .who{display:flex;align-items:center;gap:12px;font-size:24px}.hds-card.cov .who span{font-size:17px;color:rgba(255,255,255,.55);font-weight:700}.hds-card.cov .nums{font-size:19px;color:rgba(255,255,255,.8);padding-left:56px}",
+  ".hds-card.cov .call{margin-top:16px;padding:16px 18px;border-radius:16px;background:rgba(251,113,133,.14);color:#ffe4e6;font-size:22px;font-weight:800;display:flex;flex-direction:column;gap:10px}.hds-card.cov .call.ok{background:rgba(52,211,153,.14);color:#d1fae5}",
+  ".hds-card.cov .call a{align-self:flex-start;font-size:17px;font-weight:800;color:#0a0e1c;background:#fff;border-radius:12px;padding:9px 14px;text-decoration:none}"
   ].join("\n");
   document.head.appendChild(st);
 }
