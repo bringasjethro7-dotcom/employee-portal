@@ -7566,13 +7566,13 @@ var TOOLCAT = {
   KNOWN: {
     reddit: /^reddit (posting|warmup|account creation)( vysor)?$/i,
     altr: /^(content sourcing|vysor ig posting)$/i,
-    clients: /^(account creation|account warm up|ig reels posting|threads account creation|threads warmup|snapchat creation|account transfer|vps monitoring|uploading \/ downloading|photoshop|shopify)$/i
+    clients: /^(account creation|account warm up|ig reels posting|threads account creation|threads warmup|snapchat creation|account transfer|vps monitoring|uploading \/ downloading|photoshop|shopify|inbox & replies|lead sourcing|outreach messages|lead reporting)$/i
   },
   /* where Start lands when the tool is on another client tab (Client Hub) or has nothing to say yet */
   DEF: [ [/imperium/i, null, 'IG Reels', 'Account Warm Up'], [/slay\s*bae/i, null, 'IG Reels', 'Account Warm Up'],
          [/./, /project\s*2|ricardo/i, 'Project 2 (Ricardo)', 'IG Reels Posting'], [/reddit/i, /thread/i, 'Threads', 'Threads Warmup'],
          [/ember|snapchat/i, null, 'Snapchat', 'VPS Monitoring'], [/torchlight|shopify/i, null, 'Graphics', 'Shopify'],
-         [/altr/i, null, 'TP_2', 'Vysor IG Posting'] ],
+         [/altr/i, null, 'TP_2', 'Vysor IG Posting'], [/meadow/i, null, 'TikTok Outreach', 'Inbox & Replies'] ],   // Oct 27: Meadow (TikTok outreach)
   cats: function(proj){ var seen={}, out=[]; (nativeProjects||[]).forEach(function(p){ if(p.project===proj && p.category && !seen[p.category]){ seen[p.category]=1; out.push(p.category); } }); return out; },
   tasks: function(proj, cat){ var seen={}, out=[]; (nativeProjects||[]).forEach(function(p){ if(p.project===proj && (p.category||'')===(cat||'') && p.task && !seen[p.task]){ seen[p.task]=1; out.push(p.task); } }); return out; },
   toolFor: function(proj, cat, desc){ try{ return TOOLG.applies({ project:proj, category:cat||'', task:'', description:desc||'' })||''; }catch(e){ return ''; } },
@@ -7744,7 +7744,7 @@ var TOOLG = {
   /* Client Hub (Oct 9): small clients share one tool page. Every client whose tool is LIVE in the hub is linked —
      no pairing, no timer. Design & Shopify + Imperium (SOP-02) + Ember (Snapchat) + Project 2 (Ricardo · IG Reels, Oct 14) + Slaybae (Oct 14) + Threads Alts (Oct 15); Skyvern retired Oct 15
      (a placeholder tab can't show work, so pairing it would lock those VAs out). */
-  toolOf: function(proj){ proj=String(proj||''); if(/project\s*2\b|ricardo|slay\s*bae/i.test(proj)) return 'clients'; if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; if(/shopify|torchlight|imperium|\bember\b|snapchat/i.test(proj)) return 'clients'; return ''; },   // Skyvern (Project 3) retired Oct 15
+  toolOf: function(proj){ proj=String(proj||''); if(/project\s*2\b|ricardo|slay\s*bae|meadow/i.test(proj)) return 'clients';   /* Oct 27: Meadow → Client Hub */ if(/reddit/i.test(proj)) return 'reddit'; if(/altr/i.test(proj)) return 'altr'; if(/shopify|torchlight|imperium|\bember\b|snapchat/i.test(proj)) return 'clients'; return ''; },   // Skyvern (Project 3) retired Oct 15
   /* Oct 9: links into the Client Hub open the VA's own client tab (?c=…), not the hub's front page */
   /* Oct 15: Threads work (Altz) is its own Client Hub tab, Threads Alts. It is tracked under the Reddit - Altz project
      (category Threads), so the TASK decides: anything Threads → Client Hub, not Reddit Central. */
@@ -7753,10 +7753,10 @@ var TOOLG = {
     var t=this.toolOf(r.project); if(t) return t;
     /* Oct 15: a client's work filed under another project — Project 2 (Ricardo) is tracked as JMB Internal › Project 2 (Ricardo)
        — the CATEGORY names the client, so it pairs with that client's Client Hub tab */
-    if(/project\s*2\b|ricardo|slay\s*bae|imperium|\bember\b|snapchat|shopify|torchlight/i.test(String(r.category||''))) return 'clients';
+    if(/project\s*2\b|ricardo|slay\s*bae|imperium|\bember\b|snapchat|shopify|torchlight|meadow|tiktok outreach/i.test(String(r.category||''))) return 'clients';
     return ''; },
   lbl: function(r){ r=r||{}; return [r.project, r.category, r.task].filter(function(x){ return x; }).join(' · '); },
-  link: function(tool, proj){ var u=this.URL[tool]||''; if(tool==='clients'){ var p=String(proj||''), c=/thread|\baltz\b/i.test(p)?'threads':/imperium/i.test(p)?'imperium':(/\bember\b|snapchat/i.test(p)?'ember':(/project\s*2\b|ricardo/i.test(p)?'project2':(/slay\s*bae/i.test(p)?'slaybae':(/shopify|torchlight/i.test(p)?'design-shopify':'')))); if(c) u+='?c='+c; } return u; },
+  link: function(tool, proj){ var u=this.URL[tool]||''; if(tool==='clients'){ var p=String(proj||''), c=/thread|\baltz\b/i.test(p)?'threads':/imperium/i.test(p)?'imperium':(/\bember\b|snapchat/i.test(p)?'ember':(/project\s*2\b|ricardo/i.test(p)?'project2':(/slay\s*bae/i.test(p)?'slaybae':(/shopify|torchlight/i.test(p)?'design-shopify':(/meadow/i.test(p)?'meadow':''))))); if(c) u+='?c='+c; } return u; },
   me: function(){ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); },
   /* Oct 8 → Oct 15: Threads had no tool, so it was never stopped and JMB014 (Threads on Alts) was excused. The Threads
      Alts tab is live now — Threads timers link to it like every other tool, and nobody is excused by default.
@@ -33929,7 +33929,7 @@ var TOOLS = (function(){
     { k:'reddit', n:'Reddit Central', d:'Account ladder, posts and proof of work.', c:'social', i:'reddit', g:'fire', u:B+'reddit.html' },
     { k:'outreach', n:'Outreach', d:'The outreach workspace.', c:'social', i:'outreach', g:'ocean', u:B+'outreach.html' },
     { k:'altr', n:'ALTR Studio', d:'Music & reels promotion — promotions, daily reel, delivery, sourcing.', c:'content', i:'altr', g:'teal', u:B+'altr-studio.html' },
-    { k:'clients', n:'Client Hub', d:'Small clients in one place — Design & Shopify, Ember (Snapchat), IG Reels for Imperium, Project 2 and Slaybae, and Threads Alts.', c:'content', i:'shop', g:'lime', u:B+'clients.html' },
+    { k:'clients', n:'Client Hub', d:'Small clients in one place — Design & Shopify, Ember (Snapchat), IG Reels for Imperium, Project 2 and Slaybae, Threads Alts, and Meadow (TikTok outreach).', c:'content', i:'shop', g:'lime', u:B+'clients.html' },
     { k:'posting', n:'Posting Assistant', d:'Your groups & subreddits, and what each allows.', c:'content', i:'post', g:'violet', u:B+'posting-assistant.html' },
     { k:'qa-computer', n:'QA Computer', d:'Check your work the way QA scores it.', c:'team', i:'qa', g:'indigo', u:B+'qa-computer.html' },
     { k:'hub', n:'Internal Hub', d:'Onboarding, brand, policies and help.', c:'team', i:'hub', g:'aura', u:B+'index.html' },
