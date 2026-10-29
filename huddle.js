@@ -8,7 +8,7 @@
 (function(){
 "use strict";
 if(window.JMBHuddle) return;
-var HD = window.JMBHuddle = { v:"2026-10-27f" };
+var HD = window.JMBHuddle = { v:"2026-10-29a" };
 var DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 var DOWL=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 var PCOL=["#6366f1","#0ea5e9","#10b981","#f59e0b","#ec4899","#8b5cf6","#14b8a6","#ef4444","#84cc16","#f97316"];
@@ -25,10 +25,12 @@ function $$(sel, root){ return Array.prototype.slice.call((root||document).query
 function r1(x){ return Math.round((Number(x)||0)*10)/10; }
 function fh(h){ return r1(h).toFixed(1).replace(/\.0$/,"")+" h"; }
 function phNow(){ var t=new Date(Date.now()+8*3600000); return { d:t.toISOString().slice(0,10), h:t.getUTCHours(), m:t.getUTCMinutes(), hm:t.toISOString().slice(11,16) }; }
-function addD(d,n){ var t=new Date(d+"T12:00:00Z"); t.setUTCDate(t.getUTCDate()+n); return t.toISOString().slice(0,10); }
-function dow(d){ return new Date(d+"T12:00:00Z").getUTCDay(); }
-function dayLbl(d){ return DOW[dow(d)]+" "+MON[parseInt(d.slice(5,7),10)-1]+" "+parseInt(d.slice(8,10),10); }
-function dayLong(d){ return DOWL[dow(d)]+", "+MON[parseInt(d.slice(5,7),10)-1]+" "+parseInt(d.slice(8,10),10); }
+/* 29a: a bad date never throws ("Invalid time value") — it just stays as it is */
+function okD(d){ return /^\d{4}-\d{2}-\d{2}$/.test(String(d||"")); }
+function addD(d,n){ if(!okD(d)) return String(d||""); var t=new Date(d+"T12:00:00Z"); t.setUTCDate(t.getUTCDate()+n); return t.toISOString().slice(0,10); }
+function dow(d){ if(!okD(d)) return -1; return new Date(d+"T12:00:00Z").getUTCDay(); }
+function dayLbl(d){ if(!okD(d)) return String(d||""); return DOW[dow(d)]+" "+MON[parseInt(d.slice(5,7),10)-1]+" "+parseInt(d.slice(8,10),10); }
+function dayLong(d){ if(!okD(d)) return String(d||""); return DOWL[dow(d)]+", "+MON[parseInt(d.slice(5,7),10)-1]+" "+parseInt(d.slice(8,10),10); }
 function t12(hm){ var p=String(hm||"").split(":"), h=parseInt(p[0],10)||0; return ((h%12)||12)+":"+(p[1]||"00")+" "+(h<12?"AM":"PM"); }
 function hmOf(ms){ var t=new Date(ms+8*3600000), h=t.getUTCHours(), m=t.getUTCMinutes(); return ((h%12)||12)+":"+("0"+m).slice(-2)+" "+(h<12?"AM":"PM"); }
 function huddleDateFor(shift){ var n=phNow(); return (shift==="night" && n.h<12) ? addD(n.d,-1) : n.d; }
@@ -382,11 +384,12 @@ function render(){
     var cfg=(S.state&&S.state.cfg)||{}; var at=sh.at||((cfg[S.shift]||{}).at);
     pres='<div class="hd-card hd-pres">'+(sh.presenter?avatar(sh.presenter, sh.presenter_name, 48):'<span class="hd-av" style="width:48px;height:48px;font-size:18px"><span>?</span></span>')+
       '<div class="who"><div class="hd-kick" style="color:#9a3412">Presenter'+(at?' · huddle at '+esc(t12(at)):"")+'</div><div class="nm">'+(sh.presenter?esc(sh.presenter_name):"Not picked yet")+'</div><div class="hd-sub">'+
-      (sh.presenter?(sh.how==="auto"?"Picked automatically":(sh.how==="re-pick"?"Re-picked":"Chosen"))+(sh.picked_at?" at "+esc(String(sh.picked_at).slice(11,16)):"")+" · notified in the portal":(S.state&&S.state.is_day===false?"No huddle on weekends — the Monday huddle covers Friday to Sunday.":"Picked automatically at "+esc(t12(sh.pick||(cfg[S.shift]||{}).pick))+" from the people of this shift who are timed in."))+'</div></div>'+
+      (sh.presenter?(sh.how==="auto"?"Picked automatically":(sh.how==="re-pick"?"Re-picked":"Chosen"))+(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(sh.picked_at||""))?" at "+esc(String(sh.picked_at).slice(11,16)):"")+" · notified in the portal":(S.state&&S.state.is_day===false?"No huddle on weekends — the Monday huddle covers Friday to Sunday.":"Picked automatically at "+esc(t12(sh.pick||(cfg[S.shift]||{}).pick))+" from the people of this shift who are timed in."))+'</div></div>'+
       (owner?'<button class="hd-btn" data-a="repick">'+(sh.presenter?"Re-pick":"Pick now")+'</button><button class="hd-btn" data-a="choose">Choose…</button>':"")+'</div>';
   }
   var days=dates.length>1?'<div class="hd-days"><span class="hd-chip'+(S.day==="all"?" on":"")+'" data-a="day" data-v="all">All '+dates.length+' days</span>'+dates.map(function(d){ return '<span class="hd-chip'+(S.day===d?" on":"")+'" data-a="day" data-v="'+d+'">'+esc(dayLbl(d))+'</span>'; }).join("")+'</div>':"";
   var body="";
+  if(S.warn && !S.err) pres+='<div class="hd-sub" style="margin:0 0 10px;padding:8px 12px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412">'+esc(S.warn)+'</div>';
   if(S.err) body='<div class="hd-err">'+esc(S.err)+'</div>';
   else if(!R) body='<div class="hd-card" style="margin-top:12px"><div class="hd-empty">Loading…</div></div>';
   else {
@@ -409,8 +412,12 @@ function countUp(root){ $$("[data-count]", root).forEach(function(el){ var v=Num
 
 /* ── loading ── */
 function load(fresh){
-  S.err=""; var H=S.H, sh=S.shift, tag=H+"|"+sh+"|"+Date.now(); S._tag=tag;
+  S.err=""; S.warn=""; var H=S.H, sh=S.shift, tag=H+"|"+sh+"|"+Date.now(); S._tag=tag;
+  if(S.mode==="owner" && S.state && S.state.huddle_date!==H) S.state=null;   // 29a: never show another day's presenter/dates
   var stateP=S.mode==="owner" ? get({ action:"huddle_state", date:H }).then(function(st){ if(S._tag!==tag) return; if(!st||!st.ok){ throw new Error((st&&(st.message||st.error))||"Could not load the huddle."); } S.state=st; render(); return st; })
+      .catch(function(e){ if(S._tag!==tag) return; var m=String(e&&e.message||e);   // 29a: the presenter panel failing must not hide the report
+        if(/UNAUTHORIZED|MISSING_PARAMS|UNKNOWN_ACTION|Unknown action/i.test(m)) throw e;
+        S.state=null; S.warn="The presenter panel didn't load ("+m+"). The report below is complete."; render(); })
                               : Promise.resolve(null);
   render();
   return stateP.then(function(){
@@ -468,7 +475,7 @@ function settings(){
   document.body.appendChild(box);
   box.addEventListener("click", function(e){ var x=e.target.closest("[data-x]"); if(e.target===box || (x && x.getAttribute("data-x")==="cancel")){ box.remove(); return; } if(!x) return;
     var cfg={ morning:{ pick:$("#hds-mp").value, at:$("#hds-ma").value }, night:{ pick:$("#hds-np").value, at:$("#hds-na").value }, min_hours:$("#hds-mh").value, exclude:$("#hds-ex").value.split(/[\s,]+/).filter(Boolean), auto:$("#hds-au").checked };
-    x.disabled=true; post({ action:"huddle_cfg_set", cfg:cfg }).then(function(r){ if(!r||!r.ok){ x.disabled=false; toast((r&&(r.message||r.error))||"Couldn't save."); return; } S.state.cfg=r.cfg; box.remove(); render(); toast("Saved"); }).catch(function(){ x.disabled=false; toast("Couldn't reach the server."); }); });
+    x.disabled=true; post({ action:"huddle_cfg_set", cfg:cfg }).then(function(r){ if(!r||!r.ok){ x.disabled=false; toast((r&&(r.message||r.error))||"Couldn't save."); return; } if(S.state) S.state.cfg=r.cfg; box.remove(); render(); toast("Saved"); }).catch(function(){ x.disabled=false; toast("Couldn't reach the server."); }); });
 }
 function toast(m){ var t=document.getElementById("hd-toast"); if(!t){ t=document.createElement("div"); t.id="hd-toast"; t.style.cssText="position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;font-weight:600;z-index:2147483600;box-shadow:0 12px 30px -10px rgba(0,0,0,.5);transition:opacity .25s"; document.body.appendChild(t); } t.textContent=m; t.style.opacity="1"; clearTimeout(t._h); t._h=setTimeout(function(){ t.style.opacity="0"; }, 2600); }
 
@@ -875,7 +882,7 @@ HD.refresh=function(){ if(S.el && S.mode==="owner") load(); };
 var OV=null;
 function closeOverlay(){ if(OV){ OV.remove(); OV=null; document.body.classList.remove("hd-noscroll"); } }
 HD.openPresenter=function(item, o){
-  css(); o=o||{}; S.api=o.api||S.api; S.sess=o.sess||S.sess; S.mode="presenter"; S.item=item; S.state=null; S.shift=item.shift; S.H=item.huddle_date; S.reps={}; S.day="all"; S.tab="overview";
+  css(); o=o||{}; S.api=o.api||S.api; S.sess=o.sess||S.sess; S.mode="presenter"; S.item=item; S.state=null; S.shift=item.shift; S.H=okD(item.huddle_date)?item.huddle_date:huddleDateFor(item.shift); S.reps={}; S.day="all"; S.tab="overview";
   closeOverlay(); OV=document.createElement("div"); OV.className="hd-ov"; OV.innerHTML='<div class="box"></div>'; document.body.appendChild(OV); document.body.classList.add("hd-noscroll");
   S.el=$(".box", OV); S.el.addEventListener("click", onClick); OV.addEventListener("click", function(e){ if(e.target===OV) closeOverlay(); });
   load();
