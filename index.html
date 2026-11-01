@@ -11046,11 +11046,16 @@ function resolveAttToday(empId) {
       var oi = new Date(openIn);
       var ageH = (now - oi) / 3600000;
       var nightShift   = oi.getHours() >= 16;   // the open session STARTED in the evening → a real overnight shift
-      var stillMorning = now.getHours() < 12;   // an overnight continuation only makes sense in the morning
+      /* Nov 1 (Jeth): a double-shift VA (Nicole JMB010, Florence JMB014) works the night client and then the Ricardo morning
+         shift on the same time-in, with lunch at noon. At 12:00 this used to flip the portal to a new, empty day — after
+         lunch there was no open session, so End of Day said "Please Time In first". For them the overnight time-in owns
+         the day until 4 PM (and up to 21 h), so the EOD after lunch closes the shift they are on. */
+      var _dbl = false; try { _dbl = DOUBLE_SHIFT_IDS.indexOf(String(empId).trim().toUpperCase()) >= 0 || isDoubleShift(); } catch (_d) {}
+      var stillMorning = now.getHours() < (_dbl ? 16 : 12);   // an overnight continuation only makes sense in the morning
       // Stay anchored to yesterday ONLY for a genuine overnight shift still in progress —
       // never for a forgotten DAYTIME clock-out, which used to trap the whole new day on
       // the wrong date (the "work moved to the previous day" bug).
-      if (ageH >= 0 && ageH <= 18 && nightShift && stillMorning) return yKey;
+      if (ageH >= 0 && ageH <= (_dbl ? 21 : 18) && nightShift && stillMorning) return yKey;
     }
     /* Oct 26 (Jeth: "this thing keeps on happening"): the night shift also owns the morning when it was already timed out
        — a VA who timed out at 1:49 AM and came back at 3:54 AM is still on last night's shift. Same rule as the server
@@ -26486,7 +26491,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-10-27-C';
+var PORTAL_BUILD='2026-11-01-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34610,6 +34615,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-01-A', version:'2026.11.01', date:'November 1, 2026',
+    summary:'Client Hub changes for Slaybae and Project 2, and End of Day after lunch on a double shift.',
+    items:[
+      'Slaybae: posting days now run in waves, one account per wave. Start the wave, scroll for 15 minutes and post that account\'s reels on the same timer, then finish the wave.',
+      'Project 2 (Ricardo): the tool starts a new day at 6 AM.',
+      'Double shift: if you work the night shift and the morning shift on one Time In, you can still send End of Day after your noon lunch.'
+    ] },
   { build:'2026-10-27-C', version:'2026.10.27', date:'October 27, 2026',
     summary:'Reddit: check your posts before you end your day.',
     items:[
