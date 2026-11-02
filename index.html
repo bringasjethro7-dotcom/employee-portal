@@ -8556,7 +8556,7 @@ function lastCutoff(){
   return { from: fmt(start), to: fmt(end), label: pretty(start) + ' – ' + pretty(end) + ' (final)' };
 }
 // Productive tracked hours for the current cutoff (excludes Idle/Internal, running and rejected rows).
-async function renderCutoffHours(id){
+async function renderCutoffHours(id, data){
   var hEl = document.getElementById('kpi-hours'); if (!hEl) return;
   var co = currentCutoff();
   var tile = hEl.closest ? hEl.closest('.kpi') : null;
@@ -8565,7 +8565,7 @@ async function renderCutoffHours(id){
   try {
     var res = await jGet(APPS_SCRIPT_URL + '?action=get_worklog&employee_id=' + encodeURIComponent(id) + '&_=' + Date.now());
     var j = await res.json();
-    var total = 0;
+    var total = 0, paidHrs = 0;
     (j.worklog || []).forEach(function(w){
       if (!w || !w.date) return;
       var dk = String(w.date).slice(0,10);
@@ -8574,15 +8574,20 @@ async function renderCutoffHours(id){
       if (st === 'running' || st === 'rejected') return;
       if ((typeof isIdleProject === 'function') && isIdleProject(w.project)) return;   // productive only
       total += parseFloat(w.hours) || 0;
+      /* cutoff goal bar: the hours payroll counts (no appeal / pending rows; active time when hours are blank) */
+      var stl = st.toLowerCase(); if (stl === 'appeal' || stl === 'pending') return;
+      var hh = parseFloat(w.hours) || 0; if (!(hh > 0)) hh = (parseFloat(w.active_secs) || 0) / 3600;
+      paidHrs += hh;
     });
     countUp(hEl, total, { dec: 1, suffix: 'h' });
+    try { var _src = data || window._currentEmpData || {}; CGBAR.update(paidHrs, parseFloat(_src.rate) || 0, co.from, id); } catch(_cg) {}
   } catch (e) { hEl.textContent = '—'; }
 }
 async function renderKPIs(data) {
   var id = (data && data.employee_id) || '';
   var set = function(elid, val){ var e = document.getElementById(elid); if (e) e.textContent = val; };
   if (!id) return;
-  renderCutoffHours(id);   // Hours tracked = productive tracked hours for the current cutoff
+  renderCutoffHours(id, data);   // Hours tracked = productive tracked hours for the current cutoff (+ the cutoff goal bar)
   var mk = monthKeyPHT();   // monthly cards roll over to the new month at 8 AM PHT on the 1st
   try {
     var res = await jGet(APPS_SCRIPT_URL + '?action=get_scorecard&employee_id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(mk) + '&viewer_id=' + encodeURIComponent(scMyEmpId||id));
@@ -9376,6 +9381,7 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b   => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
+  try { CGBAR.sync(); } catch(_cg) {}   // cutoff goal bar shows on Overview only
   if (name === 'live') { empLiveStart(); }
   // Attendance & Time Tracker are merged into one view — show both panels together
   if (name === 'attendance') { var _ck = document.getElementById('tab-clockify'); if (_ck) _ck.classList.add('active'); }
@@ -26491,7 +26497,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-02-A';
+var PORTAL_BUILD='2026-11-02-B';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34615,6 +34621,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-02-B', version:'2026.11.02', date:'November 2, 2026',
+    summary:'A new goal bar on your Overview shows how close you are to this cutoff\'s goal.',
+    items:[
+      'The bar sits on the left side of your Overview and fills up as your tracked hours are recorded.',
+      'It turns green when you reach the goal for this cutoff.',
+      'It shows no numbers, and only you can see your own bar.'
+    ] },
   { build:'2026-11-01-A', version:'2026.11.01', date:'November 1, 2026',
     summary:'Client Hub changes for Slaybae and Project 2, and End of Day after lunch on a double shift.',
     items:[
@@ -35271,5 +35284,87 @@ html.hw-fx #au-reveal.on .hw-i .hw-moon{ animation:hwRise 1.2s ease forwards; }
 })();
 </script>
 <!-- JMB HALLOWEEN 2026 · MAIN END -->
+
+<!-- JMB CUTOFF GOAL BAR · BEGIN (Nov 2, 2026) -->
+<style id="cg-css">
+/* ══ CUTOFF GOAL BAR ═════════════════════════════════════════════════════════════════════════════════
+   A slim bar in the left gutter of Overview that fills as the VA's base pay for the current cutoff
+   approaches the cutoff goal. Deliberately NO numbers anywhere: no peso amount, no percentage, no hours,
+   no tick marks, and the goal amount is never sent or printed — so a screenshot can't be used to work
+   out anyone's rate. Computed in the browser from data the VA already has (own worklog + own rate),
+   no extra request. Hidden for accounts without a rate (founder/admin) and on narrow screens. */
+#cg-bar{position:fixed;z-index:30;width:10px;top:86px;bottom:22px;left:248px;display:none;pointer-events:auto}
+#cg-bar.on{display:block}
+#cg-bar .cg-track{position:absolute;inset:0;border-radius:999px;background:rgba(15,23,42,.08);box-shadow:inset 0 0 0 1px rgba(15,23,42,.10);overflow:hidden}
+#cg-bar .cg-fill{position:absolute;left:0;right:0;bottom:0;height:0;border-radius:999px;
+  background:linear-gradient(0deg,#ff8a3d 0%,#f2546b 55%,#a855f7 100%);
+  box-shadow:0 0 14px rgba(242,84,107,.35);transition:height 1.6s cubic-bezier(.22,1,.36,1)}
+#cg-bar .cg-fill::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  background:linear-gradient(0deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.45) 50%,rgba(255,255,255,0) 100%);
+  background-size:100% 220%;animation:cgShine 3.2s linear infinite;opacity:.55}
+@keyframes cgShine{0%{background-position:0 120%}100%{background-position:0 -120%}}
+#cg-bar .cg-cap{position:absolute;left:50%;top:-6px;width:16px;height:16px;margin-left:-8px;border-radius:50%;
+  background:#fff;box-shadow:0 0 0 2px rgba(15,23,42,.10),0 2px 6px rgba(15,23,42,.12);transition:background .6s,box-shadow .6s}
+#cg-bar .cg-cap::after{content:"";position:absolute;left:5px;top:3px;width:4px;height:7px;border:solid transparent;border-width:0 2px 2px 0;transform:rotate(45deg)}
+#cg-bar.cg-done .cg-fill{background:linear-gradient(0deg,#16a34a 0%,#22c55e 60%,#facc15 100%);box-shadow:0 0 18px rgba(34,197,94,.55);animation:cgGlow 2.4s ease-in-out infinite}
+#cg-bar.cg-done .cg-cap{background:#22c55e;box-shadow:0 0 0 2px rgba(34,197,94,.35),0 0 14px rgba(34,197,94,.6)}
+#cg-bar.cg-done .cg-cap::after{border-color:#fff}
+@keyframes cgGlow{0%,100%{filter:brightness(1)}50%{filter:brightness(1.18)}}
+body:not(.au-light) #cg-bar .cg-track{background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.10)}
+body:not(.au-light) #cg-bar .cg-cap{background:#1e1b2e;box-shadow:0 0 0 2px rgba(255,255,255,.14)}
+@media (prefers-reduced-motion: reduce){#cg-bar .cg-fill{transition:none}#cg-bar .cg-fill::after,#cg-bar.cg-done .cg-fill{animation:none}}
+</style>
+<div id="cg-bar" role="img" aria-label="Cutoff goal" title="Your cutoff goal. Keep going!">
+  <div class="cg-track"><div class="cg-fill" id="cg-fill"></div></div>
+  <div class="cg-cap"></div>
+</div>
+<script>
+var CGBAR=(function(){
+  var GOAL=10000;            /* base pay per cutoff (PHP). Never shown, never sent anywhere. */
+  var st={frac:null,rate:0,ok:false};
+  function el(){ return document.getElementById('cg-bar'); }
+  function overviewOn(){ var t=document.getElementById('tab-overview'); return !!(t && t.classList.contains('active')); }
+  function sync(){
+    var b=el(); if(!b) return;
+    var mc=document.querySelector('.main-content');
+    var show=st.ok && st.frac!=null && document.body.classList.contains('app-authed') && overviewOn() && window.innerWidth>=900 && !!mc;
+    if(show){
+      var r=mc.getBoundingClientRect(), pl=parseFloat(getComputedStyle(mc).paddingLeft)||26;
+      if(pl<18){ show=false; }
+      else { b.style.left=Math.round(r.left+(pl-10)/2)+'px'; }
+    }
+    b.classList.toggle('on', show);
+  }
+  function paint(){
+    var f=document.getElementById('cg-fill'), b=el(); if(!f||!b) return;
+    var v=Math.max(0, Math.min(1, st.frac||0));
+    f.style.height=(v>0 ? Math.max(v*100, 2) : 0)+'%';
+    var done=v>=1;
+    b.classList.toggle('cg-done', done);
+    b.title=done ? 'Goal reached for this cutoff. Great work!' : 'Your cutoff goal. Keep going!';
+    b.setAttribute('aria-label', done ? 'Cutoff goal reached' : 'Cutoff goal in progress');
+  }
+  function update(hours, monthlyRate, cutoffFrom, empId){
+    var rate=parseFloat(monthlyRate)||0;
+    st.ok = rate>0;
+    if(!st.ok){ st.frac=null; sync(); return; }
+    var base=(parseFloat(hours)||0)*rate/240;              /* base pay: hours x hourly (monthly rate / 240) */
+    var prev=st.frac; st.frac=Math.min(1, base/GOAL);
+    paint(); sync();
+    if(st.frac>=1){
+      var k='cg_done_'+String(cutoffFrom||'')+'_'+String(empId||'');
+      var seen=null; try{ seen=localStorage.getItem(k); }catch(e){}
+      if(!seen){
+        try{ localStorage.setItem(k,'1'); }catch(e){}
+        try{ showToast('You reached your goal for this cutoff. Great work!','success'); }catch(e){}
+      }
+    }
+  }
+  window.addEventListener('resize', function(){ try{ sync(); }catch(e){} });
+  setInterval(function(){ try{ sync(); }catch(e){} }, 4000);   /* follows sidebar / layout changes */
+  return { update:update, sync:sync };
+})();
+</script>
+<!-- JMB CUTOFF GOAL BAR · END -->
 </body>
 </html>
