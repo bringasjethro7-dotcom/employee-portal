@@ -7039,10 +7039,16 @@ function _deactSet(){
    Months before October keep their original order (September is already finalized and announced). */
 function _scNum(v){ return v!==''&&v!=null&&!isNaN(parseFloat(v)); }
 function _scToolCount(r){ if(!r) return 0; var res=(String(r.month||'')>='2026-09')?r.results:r.csat; return (_scNum(r.productivity)?1:0)+(_scNum(r.quality)?1:0)+(_scNum(res)?1:0); }
+/* FULL-MONTH VAs RANK FIRST (Nov 2, Jeth — backend 02a): from October 2026, inside each complete/incomplete group, a VA
+   under the month's hours (rank_min_hours, 160 by default) ranks below everyone who reached it. Scores don't change. */
+var SC_RANK_MIN_HOURS=160;
+function _scHrsMin(r){ var m=String((r&&r.month)||''); if(m<'2026-10') return 0; var v=parseFloat(r&&r.rank_min_hours); return isNaN(v)?SC_RANK_MIN_HOURS:v; }
+function _scHrsOk(r){ var min=_scHrsMin(r); if(!(min>0)) return 1; var h=parseFloat(r&&r.month_hours); if(isNaN(h)) return 1; return h>=min?1:0; }
 function _scRankCmp(a,b){
   var ov=function(v){ return _scNum(v)?parseFloat(v):-Infinity; };
   var m=String((a&&a.month)||(b&&b.month)||'');
-  if(m>='2026-10'){ var d=_scToolCount(b)-_scToolCount(a); if(d) return d; }
+  if(m>='2026-10'){ var d=_scToolCount(b)-_scToolCount(a); if(d) return d;
+    var e=_scHrsOk(b)-_scHrsOk(a); if(e) return e; }
   return ov(b.overall)-ov(a.overall);
 }
 function _scFilterActive(rows){ var dead=_deactSet(); return (rows||[]).filter(function(r){ return !dead[String(r.employee_id||'').toLowerCase()]; }); }
@@ -7089,6 +7095,8 @@ function _scPaint(rows){
     var P = sc && sc.power && sc.power[k];
     if(!P || P.raw==null || P.val==null || isNaN(parseFloat(P.raw))) return main;
     var raw=parseFloat(P.raw), val=parseFloat(P.val), x=parseFloat(P.x)||1;
+    if(P.set){ var stip='Hand-set: '+String(P.why||'set by the owner')+' — the tool blend was '+raw.toFixed(1);   // 02a
+      return '<span title="'+stip+'" style="color:var(--t3);font-size:11px;font-weight:500;white-space:nowrap;">'+raw.toFixed(0)+' →</span> '+main+' <span title="'+stip+'" style="font-size:9.5px;font-weight:800;color:#b45309;background:rgba(245,158,11,.12);border-radius:6px;padding:0 4px;cursor:help;white-space:nowrap;">set</span>'; }
     if(x<=1.0001) return main;
     var tip='Tool Power ×'+x.toFixed(2)+': the tool scored '+raw.toFixed(1)+', counted as '+val.toFixed(1)+(val>=100&&raw*x>100?' (capped at 100)':'');
     var badge=' <span title="'+tip+'" style="font-size:9.5px;font-weight:800;color:#7c3aed;background:rgba(124,58,237,.09);border-radius:6px;padding:0 4px;cursor:help;white-space:nowrap;">×'+x.toFixed(2)+'</span>';
@@ -7124,7 +7132,7 @@ function _scPaint(rows){
       if(_mv.dv&&Math.abs(_mv.dv)>=0.005) dvH='<span style="font-size:10px;font-weight:700;color:'+(_mv.dv>0?'#16a34a':'#dc2626')+';margin-left:4px;">'+(_mv.dv>0?'+':'')+_mv.dv.toFixed(2)+'</span>';
     }
     return '<tr>' +
-      '<td>' + rk + mvH + '<strong>' + (sc.full_name||sc.employee_id) + '</strong>' + ((String(sc.month||'')>='2026-10' && _scToolCount(sc)<3) ? ' <span title="Ranked below complete scorecards — missing '+(3-_scToolCount(sc))+' of the 3 tool scores (Productivity, QA, Results)" style="font-size:9.5px;font-weight:700;color:#b45309;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);border-radius:20px;padding:0 6px;margin-left:4px;white-space:nowrap;">incomplete '+_scToolCount(sc)+'/3</span>' : '') + '</td>' +
+      '<td>' + rk + mvH + '<strong>' + (sc.full_name||sc.employee_id) + '</strong>' + ((String(sc.month||'')>='2026-10' && _scToolCount(sc)<3) ? ' <span title="Ranked below complete scorecards — missing '+(3-_scToolCount(sc))+' of the 3 tool scores (Productivity, QA, Results)" style="font-size:9.5px;font-weight:700;color:#b45309;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);border-radius:20px;padding:0 6px;margin-left:4px;white-space:nowrap;">incomplete '+_scToolCount(sc)+'/3</span>' : '') + ((String(sc.month||'')>='2026-10' && !_scHrsOk(sc)) ? ' <span title="Ranked below VAs with '+_scHrsMin(sc)+'+ productive hours this month — '+parseFloat(sc.month_hours).toFixed(1)+' h. Scores are unchanged." style="font-size:9.5px;font-weight:700;color:#0369a1;background:rgba(14,165,233,.10);border:1px solid rgba(14,165,233,.35);border-radius:20px;padding:0 6px;margin-left:4px;white-space:nowrap;">'+parseFloat(sc.month_hours).toFixed(0)+' h</span>' : '') + '</td>' +
       '<td style="color:var(--t3);font-size:12px;">' + sc.month + '</td>' +
       /* tool half */
       '<td style="background:rgba(37,99,235,.035);">' + pwv(sc,'productivity',sc.productivity,'#2563eb') + xt(sc,'productivity') + '</td>' +
@@ -7407,7 +7415,12 @@ function _attachPhotos(rows){
 function _scRankSort(rows){ return (rows||[]).slice().sort(_scRankCmp); }
 function _scValid(r){ return r && r.overall!==''&&r.overall!=null&&!isNaN(parseFloat(r.overall)); }
 async function _loadFinal(month){
-  try{ var d=await (await jGet(API+'?action=get_finalized&month='+encodeURIComponent(month||''), 2500, 30000)).json(); return (d&&d.finalized&&d.snapshot)?d.snapshot:null; }
+  try{ var d=await (await jGet(API+'?action=get_finalized&month='+encodeURIComponent(month||''), 2500, 30000)).json(); var s=(d&&d.finalized&&d.snapshot)?d.snapshot:null;
+    /* 02a: a snapshot frozen before the hours rule has no month_hours on its rows — take them from the awards hours. */
+    try{ if(s && s.rows && s.ex && s.ex.hours){ var hm=s.ex.hours, any=Object.keys(hm).length>0; s.rows.forEach(function(r){ var k=String(r.employee_id||'').toLowerCase();
+      if(r.month_hours==null||r.month_hours===''){ if(hm[k]!=null) r.month_hours=String(hm[k]); else if(any) r.month_hours='0'; }
+      if(r.rank_min_hours==null && s.rank_min_hours!=null) r.rank_min_hours=s.rank_min_hours; }); } }catch(_h){}
+    return s; }
   catch(e){ return null; }
 }
 async function updateFinalizeUI(month){
