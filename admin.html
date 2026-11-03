@@ -5,6 +5,34 @@
 <script src="feed.js?v=4" defer></script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<script id="jmb-touch-boot">
+/* ── iPad / touch boot (Nov 3, 2026 — Jeth uses an iPad 11 for approvals) ──
+   1) Safari cannot read "2026-11-03 22:30:00" (space instead of T) — new Date()/Date.parse give Invalid Date there,
+      while Chrome reads it. Every date the backends send in that shape now parses on Safari too (only patched when the
+      engine actually fails, so Chrome is untouched).
+   2) html.touch on touch screens (iPad Safari says "Macintosh", so maxTouchPoints decides) → the touch layer CSS.
+   3) iOS: no zoom-in when a field gets focus (pinch-zoom still works — Safari ignores maximum-scale for pinching). */
+(function(){
+  try{
+    var D=Date, bad=isNaN(new D('2026-01-02 03:04:05').getTime());
+    if(bad && typeof Reflect!=='undefined'){
+      var RX=/^(\d{4}-\d{2}-\d{2})[ ]+(\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})?$/;
+      var fix=function(s){ if(typeof s!=='string') return s; var m=s.trim().match(RX); if(!m) return s; var t=m[2]; if(t.length<5||t.charAt(1)===':') t='0'+t; return m[1]+'T'+t+(m[3]?(m[3].length===5?m[3].slice(0,3)+':'+m[3].slice(3):m[3]):''); };
+      var SD=function(){ var a=Array.prototype.slice.call(arguments); if(!new.target) return D(); if(a.length===1) a[0]=fix(a[0]); return Reflect.construct(D, a, new.target); };
+      SD.prototype=D.prototype; Object.setPrototypeOf(SD, D);
+      SD.parse=function(s){ return D.parse(fix(s)); }; SD.UTC=D.UTC; SD.now=D.now;
+      window.Date=SD;
+    }
+  }catch(e){}
+  try{
+    var de=document.documentElement, mtp=navigator.maxTouchPoints||0, ua=navigator.userAgent||'';
+    var touch=mtp>1 || (window.matchMedia && matchMedia('(pointer:coarse)').matches) || /[?&]touch=1\b/.test(location.search);
+    if(touch) de.classList.add('touch');
+    var ios=/iP(ad|hone|od)/.test(ua) || (/Macintosh/.test(ua) && mtp>1);
+    if(ios){ de.classList.add('ios'); var vm=document.querySelector('meta[name=viewport]'); if(vm && !/maximum-scale/.test(vm.content)) vm.content=vm.content+', maximum-scale=1'; }
+  }catch(e){}
+})();
+</script>
 <title>Admin — JMB Virtuals Portal</title>
 <!-- Installable on a phone (Oct 6, 2026): Safari → Share → Add to Home Screen → "JMB Admin" -->
 <link rel="manifest" href="admin.webmanifest">
@@ -685,6 +713,7 @@ body{background-attachment:initial !important}
      scripts (a 3 MB page keeps the browser busy while it loads — an animation started earlier would stutter and
      be cut off), and the page opens only after the mark has drawn in and the shine has crossed it (3.45 s). */
   var HOLD=RM?700:3450, played=false;
+  try{ if(document.documentElement.classList.contains('touch')){ if(sessionStorage.getItem('jmb_intro_seen')) HOLD=250; sessionStorage.setItem('jmb_intro_seen','1'); } }catch(_iq){}   /* iPad: the 3.5 s intro once per session, not on every reload */
   function play(){ if(played) return; played=true;
     if(!RM){ try{ var a=el.querySelectorAll('animate,animateTransform'); for(var i=0;i<a.length;i++) a[i].beginElement(); }catch(e){} }
     setTimeout(hide, HOLD); }
@@ -4835,7 +4864,7 @@ function payBoardRender(){
   var paidToday=justPaid.length, paidTotal=justPaid.reduce(function(s,r){ return s+Math.max(0, payNet(r)-(r.partialPaid||0)); },0);
   var h='<div class="pb-wrap">'+
     '<div class="pb-head">'+
-      '<div><div class="pb-title">💸 Pay board</div><div class="pb-sub">Hover a card to see its QR — every other code stays blurred so nothing gets scanned by mistake. Pay from the bank, then tap <b>Paid ✓</b> on that card.</div></div>'+
+      '<div><div class="pb-title">💸 Pay board</div><div class="pb-sub">Hover (or tap) a card\u2019s QR to see it — every other code stays blurred so nothing gets scanned by mistake. Pay from the bank, then tap <b>Paid ✓</b> on that card.</div></div>'+
       '<div class="pb-stats"><div><b>'+list.length+'</b> to pay</div><div><b>'+payMoney(total)+'</b> total</div>'+(paidToday?'<div style="color:#16a34a"><b>'+paidToday+'</b> paid now · '+payMoney(paidTotal)+'</div>':'')+'</div>'+
       '<div class="pb-seg"><button class="'+(PB.filter==='ready'?'on':'')+'" onclick="payBoardFilter(\'ready\')">Ready · '+ready.length+'</button><button class="'+(PB.filter==='all'?'on':'')+'" onclick="payBoardFilter(\'all\')">All pending · '+pending.length+'</button></div>'+
     '</div>';
@@ -4966,7 +4995,7 @@ function exportWorkLogCSV(){
   var a = document.createElement('a');
   a.href = url; a.download = 'worklog_'+(emp||'all').replace(/\s+/g,'-')+'_'+(fr||'all')+'_'+(to||'')+'.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);   // Safari's download sheet reads it after a moment
 }
 // ── INVOICE GENERATION (per project, from current Work Log filters) ──
 function invMoney(n){ return '$' + (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -5303,7 +5332,7 @@ function openInvoiceWindow(project, from, to, lines, subtotal, history, outstand
     '.shint{font-size:11.5px;color:#6b7280;flex-basis:100%;}'+
     '[contenteditable]:hover{outline:1px dashed #FF6B1A;border-radius:3px;}.val:empty:before{content:"Client name";color:#cbd5e1;}'+
     '@media print{body{background:#fff;padding:0;}.sheet{box-shadow:none;max-width:none;padding:20px 28px;}.no-print{display:none!important;}[contenteditable]:hover{outline:none;}}';
-  var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+(invNo?invNo+' - ':'INVOICE - ')+escAdmin(project)+'</title><style>'+css+'</style></head><body><div class="sheet">'+
+  var html='<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><title>'+(invNo?invNo+' - ':'INVOICE - ')+escAdmin(project)+'</title><style>'+css+'@media (max-width:820px){body{padding:10px}.sheet{padding:26px 20px}.meta{flex-wrap:wrap}.topbar button,.sendbar button{min-height:42px}}</style></head><body><div class="sheet">'+
     (isCopy
       ? ('<div class="topbar no-print"><button class="pbtn" onclick="window.print()">Download PDF (Print &rarr; Save as PDF)</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Copy of recorded invoice '+escAdmin(invNo)+(opts.status?(' · '+escAdmin(opts.status)):'')+' — nothing is recorded again.</span></div>'+
          (opts.warn?('<div class="no-print" style="margin:-10px 0 22px;padding:11px 14px;background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;font-size:12.5px;color:#92400e;line-height:1.5;">'+opts.warn+'</div>'):''))
@@ -5373,8 +5402,27 @@ function openInvoiceWindow(project, from, to, lines, subtotal, history, outstand
     '})();<\/script>'+
     '</body></html>';
   var w=window.open('','_blank','width=940,height=1040');
-  if(!w){ alert('Please allow pop-ups to open the invoice.'); return; }
+  if(!w){ invReadySheet(html, invNo||project); return; }   /* Safari (iPad) blocks a window opened after the data loads — one tap opens it */
   w.document.open(); w.document.write(html); w.document.close();
+}
+/* Nov 3 (iPad): the invoice is built after several server reads, and Safari only opens a new window straight from a tap.
+   When the browser blocks it, this sheet holds the finished invoice; tapping Open is a fresh tap, so it always opens. */
+function invReadySheet(html, label){
+  var old=document.getElementById('inv-ready'); if(old) old.remove();
+  var d=document.createElement('div'); d.id='inv-ready';
+  d.style.cssText='position:fixed;inset:0;z-index:100050;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+  d.innerHTML='<div style="background:#fff;border-radius:18px;padding:20px 20px 16px;width:min(380px,100%);box-shadow:0 30px 80px rgba(15,23,42,.3);font-family:inherit;">'+
+    '<div style="font-size:16px;font-weight:800;color:#1f2430;margin-bottom:6px;">Invoice ready</div>'+
+    '<div style="font-size:13px;color:#6b7280;line-height:1.5;margin-bottom:16px;">'+escAdmin(String(label||''))+' — tap Open to view it, then Print → Save as PDF.</div>'+
+    '<div style="display:flex;gap:10px;justify-content:flex-end;"><button type="button" id="inv-ready-x" style="min-height:44px;padding:0 18px;border-radius:12px;border:1px solid #d1d5db;background:#fff;font-weight:700;font-size:14px;">Close</button>'+
+    '<button type="button" id="inv-ready-go" style="min-height:44px;padding:0 22px;border-radius:12px;border:none;background:#FF6B1A;color:#fff;font-weight:800;font-size:14px;">Open invoice</button></div></div>';
+  document.body.appendChild(d);
+  d.querySelector('#inv-ready-x').onclick=function(){ d.remove(); };
+  d.querySelector('#inv-ready-go').onclick=function(){
+    var w=window.open('','_blank');
+    if(!w){ alert('Pop-ups are blocked for this site. In Settings › Apps › Safari, turn off Block Pop-ups, then tap Open again.'); return; }
+    w.document.open(); w.document.write(html); w.document.close(); d.remove();
+  };
 }
 
 function _apFmtT(s){
@@ -5721,6 +5769,8 @@ async function invoiceCopy(id, hint){
   var iso=function(dt){ return dt.toISOString().slice(0,10); };
   var from=iso(rng.a), to=iso(rng.b);
   var made=(String(inv.created_at||'').match(/(\d{4}-\d{2}-\d{2})/)||[])[1]||'';
+  if(!made){ var _mm=String(inv.created_at||'').match(/([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})/), _MO={Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+    if(_mm && _MO[_mm[1]]) made=_mm[3]+'-'+('0'+_MO[_mm[1]]).slice(-2)+'-'+('0'+_mm[2]).slice(-2); }
   if(!made){ var _t=Date.parse(String(inv.created_at||'')); if(!isNaN(_t)) made=new Date(_t+8*3600e3).toISOString().slice(0,10); }
   var base={ copy:true, invNo:inv.invoice_no, date:made, client:inv.client, status:inv.status };
   var snap=inv.snapshot;
@@ -10561,7 +10611,7 @@ header {
 @media (max-width: 820px){
   /* Stop iOS zooming the page whenever a field is focused */
   input, select, textarea { font-size: 16px !important; }
-  html, body { max-width: 100%; overflow-x: hidden; }
+  html, body { max-width: 100%; overflow-x: hidden; overflow-x: clip; }   /* clip (Nov 3): hidden made <body> a scroll box on iPad and stopped sticky bars */
   img, canvas, svg { max-width: 100%; }
 
   /* Date/time fields: iOS gives these its own chrome — the box stretches and renders
@@ -10879,6 +10929,8 @@ body{
     imp(rail,'box-shadow','18px 0 44px -34px rgba(76,60,160,.55)');
     imp(rail,'overflow','visible');
     imp(rail,'padding-bottom','16px');
+    /* iPad landscape (Nov 3): ~750 px of screen — the groups + tools + Logout run past the bottom; scroll the rail then */
+    try{ if(rail.scrollHeight > window.innerHeight+4){ imp(rail,'overflow-y','auto'); imp(rail,'overflow-x','hidden'); imp(rail,'height','100dvh'); imp(rail,'-webkit-overflow-scrolling','touch'); } }catch(_ro){}
     var hd=document.querySelector('header');
     if(hd && getComputedStyle(hd).position==='fixed') imp(hd,'left',W+'px');
     var bd=document.querySelector('.body');
@@ -12386,6 +12438,61 @@ var ADMAURA = (function(){
 }
 @media (min-width:1000px){ #m-ttl, #m-hdr, #m-tabbar, #m-scrim, #m-subbar, #m-dhead, .m-x{ display:none !important; } }
 </style>
+<style id="admin-touch-css">
+/* ── iPad / touch layer (Nov 3, 2026 — Jeth approves from an iPad 11) ──
+   html.touch is set at boot (jmb-touch-boot). Portrait (820 px) already gets the phone layer above; this adds what
+   landscape (1180 px, desktop layout) and both orientations need on a finger: bigger targets, no tap delay,
+   no hover-only controls, modals that scroll inside the screen. */
+html.touch{ -webkit-tap-highlight-color:rgba(124,58,237,.14); }
+html.touch button, html.touch a, html.touch .bsm, html.touch .navgroup, html.touch .navsub, html.touch summary, html.touch label, html.touch select, html.touch input[type=checkbox], html.touch .dash-item, html.touch .pb-qr{ touch-action:manipulation; }
+html.touch .bsm{ min-height:40px; padding:9px 14px; font-size:13px; }
+html.touch .dash-item-actions{ gap:8px; flex-wrap:wrap; }
+html.touch .dash-item-actions .bsm{ min-height:44px; min-width:92px; font-size:13.5px; }
+html.touch .badd, html.touch .bsave, html.touch .bcancel, html.touch .btn-primary, html.touch .aa-btn, html.touch .aa-chip, html.touch .pb-pay, html.touch .disc-fixone, html.touch .disc-fixall, html.touch .qad-fill, html.touch .blogout{ min-height:42px; }
+html.touch .pb-seg button{ min-height:38px; padding-left:12px; padding-right:12px; }
+html.touch .navsub{ min-height:38px; }
+html.touch .edqf{ min-height:32px; padding:6px 10px; font-size:12px; }
+html.touch .brm{ width:36px; height:36px; }
+html.touch input[type=checkbox], html.touch input[type=radio]{ width:22px; height:22px; flex:none; }
+html.touch .sinp, html.touch .inp{ min-height:40px; }
+/* a tap leaves :hover switched on — lifts stay off, hover-only controls are simply shown */
+html.touch .bsm:hover, html.touch .dash-card:hover, html.touch .dash-item:hover, html.touch .pb-card:hover:not(.focus){ transform:none !important; }
+html.touch .adm-unsend-btn, html.touch .adm-reply-btn{ display:block; }
+html.touch .react-btn{ opacity:.85; }
+html.touch .pb-card:hover:not(.focus) .pb-qr img{ filter:blur(10px) saturate(.6); transform:scale(.97); }
+html.touch .pb-card:hover:not(.focus) .pb-veil{ opacity:1; }
+/* modals stay inside the screen and scroll — Pay / Partial buttons never end up below the edge */
+html.touch #pay-modal, html.touch #pipe-modal, html.touch #award-modal, html.touch #settings-modal, html.touch #qrmgr-modal, html.touch #promote-modal, html.touch #adjust-modal, html.touch #notify-modal, html.touch #jcal-modal{ overflow-y:auto !important; -webkit-overflow-scrolling:touch; }
+html.touch #pay-modal > div, html.touch #pipe-modal > div, html.touch #award-modal > div, html.touch #settings-modal > div, html.touch #qrmgr-modal > div, html.touch #promote-modal > div, html.touch #adjust-modal > div, html.touch #notify-modal > div, html.touch #jcal-modal > div{ max-height:calc(100dvh - 24px); overflow-y:auto; -webkit-overflow-scrolling:touch; margin-top:auto; margin-bottom:auto; }
+html.touch .modal{ max-height:calc(100dvh - 24px) !important; overflow-y:auto !important; -webkit-overflow-scrolling:touch; }
+@media (max-width:999px){ html.touch .modal{ max-height:92dvh !important; } }
+html.touch .tw{ -webkit-overflow-scrolling:touch; }
+html.touch .hd-btn{ min-height:40px; } html.touch .hd-btn.sm{ min-height:36px; padding-left:12px; padding-right:12px; }
+/* tap-to-read for details that only lived in hover tooltips */
+#tt-tip{ position:fixed; z-index:100060; left:12px; top:12px; max-width:min(360px, calc(100vw - 24px)); background:#1f2430; color:#fff; font:600 13px/1.45 Inter,system-ui,sans-serif; padding:10px 12px; border-radius:12px; box-shadow:0 16px 40px rgba(15,23,42,.35); white-space:pre-wrap; pointer-events:none; opacity:0; transition:opacity .15s; }
+#tt-tip.on{ opacity:1; }
+</style>
+<script id="admin-touch-js">
+/* touch only: tap anything that carries a hover tooltip (title) to read it; controls keep their own tap action */
+(function(){
+  if(!document.documentElement.classList.contains('touch')) return;
+  var tip=null, hideT=0;
+  function show(text, x, y){
+    if(!tip){ tip=document.createElement('div'); tip.id='tt-tip'; document.body.appendChild(tip); }
+    tip.textContent=text; tip.classList.add('on');
+    var w=tip.offsetWidth, h=tip.offsetHeight, L=Math.max(12, Math.min(x-w/2, innerWidth-w-12)), T=y-h-12; if(T<12) T=y+28;
+    tip.style.left=L+'px'; tip.style.top=T+'px'; clearTimeout(hideT); hideT=setTimeout(function(){ tip.classList.remove('on'); }, 4500);
+  }
+  document.addEventListener('click', function(e){
+    var el=(e.target && e.target.closest) ? e.target.closest('[title]') : null;
+    if(!el || el===document.body){ if(tip) tip.classList.remove('on'); return; }
+    if(el.closest('button,a,input,select,textarea,label,summary,[onclick],[role=button]')){ if(tip) tip.classList.remove('on'); return; }
+    var t=el.getAttribute('title'); if(!t || t.length<2) return;
+    var r=el.getBoundingClientRect(); show(t, r.left+r.width/2, r.top);
+  }, true);
+  window.addEventListener('scroll', function(){ if(tip) tip.classList.remove('on'); }, true);
+})();
+</script>
 <script id="admin-mobile-js">
 /* ── ADMIN ON A PHONE: drawer, sub-tab strip, bottom bar (Oct 6, 2026) ── */
 (function(){
