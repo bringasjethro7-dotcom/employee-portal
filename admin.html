@@ -2385,6 +2385,7 @@ function renderSalesRows(){
     '<div class="ls"><b style="color:'+(tNet<0?'#f87171':'#34d399')+'">'+_peso(tNet)+'</b><span>Net revenue</span></div>'+
     '<div class="ls"><b>'+rows.length+'</b><span>Records</span></div>';
   var tb2=document.getElementById('sales-tbody');
+  window._salesById={}; rows.forEach(function(x){ window._salesById[x.id]=x; });
   tb2.innerHTML=rows.map(function(x){
       return '<tr><td style="font-weight:600;color:var(--o3)">'+escAdmin(x.invoice_no||'—')+'</td>'+
         '<td>'+escAdmin(x.project||'—')+'</td>'+
@@ -2398,7 +2399,7 @@ function renderSalesRows(){
         '<td>'+_salesStatusSel(x.id, x.status||'pending')+'</td>'+
         '<td>'+escAdmin(x.client||'—')+'</td><td>'+escAdmin(x.note||'—')+'</td>'+
         '<td style="color:var(--t3);font-size:12px">'+escAdmin(x.created_at||'')+(x.by?(' · '+escAdmin(x.by)):'')+'</td>'+
-        '<td><button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M18 6 6 18M6 6l12 12\"/></svg></button></td></tr>';
+        '<td style="white-space:nowrap">'+(x.invoice_no?('<button class="bsm" title="Download this invoice again" onclick="invoiceCopy(\''+escAdmin(x.id)+'\',window._salesById&&window._salesById[\''+escAdmin(x.id)+'\'])" style="margin-right:4px;">PDF</button>'):'')+'<button class="bsm" style="color:#f87171;border-color:rgba(248,113,113,.4)" onclick="salesDelete(\''+escAdmin(x.id)+'\')"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M18 6 6 18M6 6l12 12\"/></svg></button></td></tr>';
     }).join('');
 }
 async function bookCutoff(){
@@ -5250,11 +5251,15 @@ function buildCatTrend(T, project){
     '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'+head+body+'</table></div>'+
     '<div style="font-size:11px;color:#9ca3af;margin-top:6px;">"vs last" compares this invoice with the previous cutoff. ⚠ = that cutoff could not be read (try again). This panel is not printed.</div></div>';
 }
-function openInvoiceWindow(project, from, to, lines, subtotal, history, outstanding, catTrend){
+function openInvoiceWindow(project, from, to, lines, subtotal, history, outstanding, catTrend, opts){
+  opts=opts||{}; var isCopy=!!opts.copy;   // Nov 3: copy = a RECORDED invoice opened again to download (no Record button)
   outstanding=Math.round((parseFloat(outstanding)||0)*100)/100;
-  var invNo='';   // no number until the invoice is RECORDED (assigned server-side, starts at 762)
-  var trendHtml=buildInvoiceTrend(history||[], subtotal, project)+buildCatTrend(catTrend, project);
+  var invNo=isCopy?String(opts.invNo||''):'';   // no number until the invoice is RECORDED (assigned server-side, starts at 762)
+  var trendHtml=isCopy?'':(buildInvoiceTrend(history||[], subtotal, project)+buildCatTrend(catTrend, project));
   var today=new Date(); var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+  if(isCopy && /^\d{4}-\d{2}-\d{2}/.test(String(opts.date||''))) todayStr=String(opts.date).slice(0,10);
+  var snapObj={ v:1, from:from, to:to, sub:Math.round((Number(subtotal)||0)*100)/100, out:outstanding, date:todayStr,
+    lines:(lines||[]).map(function(l){ return { category:String(l.category||''), hours:(l._extra?'':(Number(l.hours)||0)), rate:(l._extra?'':(Number(l.rate)||0)), amount:Number(l.amount)||0, _extra:!!l._extra }; }) };
   var logo='<svg width="58" height="58" viewBox="76 82 360 360" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="ilM" x1="0" y1="0.05" x2="0" y2="0.95"><stop offset="0%" stop-color="#FFE0BE"/><stop offset="16%" stop-color="#FFB16A"/><stop offset="46%" stop-color="#FF7A29"/><stop offset="78%" stop-color="#F1560F"/><stop offset="100%" stop-color="#C3380A"/></linearGradient><linearGradient id="ilB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF8E45"/><stop offset="55%" stop-color="#E64C10"/><stop offset="100%" stop-color="#A52E08"/></linearGradient></defs><rect x="241" y="110" width="30" height="304" rx="15" fill="url(#ilM)"/><path d="M256 226 Q341 264 398 320 Q341 376 256 414 Q171 376 114 320 Q171 264 256 226 Z" fill="none" stroke="url(#ilB)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/><path d="M256 110 Q341 148 398 204 Q341 260 256 298 Q171 260 114 204 Q171 148 256 110 Z" fill="none" stroke="url(#ilM)" stroke-width="50" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   var rowsHtml=lines.map(function(l){
     var isX=(l._extra===true);
@@ -5299,13 +5304,16 @@ function openInvoiceWindow(project, from, to, lines, subtotal, history, outstand
     '[contenteditable]:hover{outline:1px dashed #FF6B1A;border-radius:3px;}.val:empty:before{content:"Client name";color:#cbd5e1;}'+
     '@media print{body{background:#fff;padding:0;}.sheet{box-shadow:none;max-width:none;padding:20px 28px;}.no-print{display:none!important;}[contenteditable]:hover{outline:none;}}';
   var html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+(invNo?invNo+' - ':'INVOICE - ')+escAdmin(project)+'</title><style>'+css+'</style></head><body><div class="sheet">'+
-    '<div class="topbar no-print"><select id="rec-method" style="padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;font-family:inherit;"><option value="wise">Wise</option><option value="binance">Binance</option><option value="paypal">PayPal</option></select><button class="rbtn" id="rec-btn" onclick="recordInvoice()">Record &amp; assign #</button><button class="pbtn" onclick="window.print()">Print / Save as PDF</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Preview only — no invoice # until you Record. Rate = live market − the method\'s ₱ margin.</span><span id="rec-status" class="recstat"></span></div>'+
+    (isCopy
+      ? ('<div class="topbar no-print"><button class="pbtn" onclick="window.print()">Download PDF (Print &rarr; Save as PDF)</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Copy of recorded invoice '+escAdmin(invNo)+(opts.status?(' · '+escAdmin(opts.status)):'')+' — nothing is recorded again.</span></div>'+
+         (opts.warn?('<div class="no-print" style="margin:-10px 0 22px;padding:11px 14px;background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;font-size:12.5px;color:#92400e;line-height:1.5;">'+opts.warn+'</div>'):''))
+      : '<div class="topbar no-print"><select id="rec-method" style="padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;font-family:inherit;"><option value="wise">Wise</option><option value="binance">Binance</option><option value="paypal">PayPal</option></select><button class="rbtn" id="rec-btn" onclick="recordInvoice()">Record &amp; assign #</button><button class="pbtn" onclick="window.print()">Print / Save as PDF</button><button class="cbtn" onclick="window.close()">Close</button><span class="hint">Preview only — no invoice # until you Record. Rate = live market − the method\'s ₱ margin.</span><span id="rec-status" class="recstat"></span></div>')+
     '<div class="sendbar no-print"><span class="slbl">Send to client:</span><input id="inv-contact" class="sinp" placeholder="Phone incl. country code, e.g. 447911123456" /><button class="wabtn" onclick="sendWA()">WhatsApp</button><button class="tgbtn" onclick="sendTG()">Telegram</button><span class="shint">Tip: Save the PDF first (Print &rarr; Save as PDF), then attach it in the chat. The greeting message is filled in for you.</span></div>'+
     trendHtml+
     '<div class="head"><div class="brand">'+logo+'<div><div class="cname">JMB Virtuals</div><div class="caddr">Philippines</div><div class="cweb">jmbvirtuals.com</div></div></div><div class="invtitle">INVOICE</div></div>'+
-    '<div class="meta"><div class="billto"><div class="lbl">BILL TO</div><div class="val" contenteditable="true"></div>'+
+    '<div class="meta"><div class="billto"><div class="lbl">BILL TO</div><div class="val" contenteditable="true">'+escAdmin(isCopy?(opts.client||''):'')+'</div>'+
       '<div class="period">Payout for period from <b contenteditable="true">'+invDate(from)+'</b> to <b contenteditable="true">'+invDate(to)+'</b></div></div>'+
-      '<div class="metaright"><div class="mrow"><span>INVOICE</span><b id="inv-no" contenteditable="true">'+(invNo||'PREVIEW — not recorded')+'</b></div><div class="mrow"><span>DATE</span><b contenteditable="true">'+invDate(todayStr)+'</b></div><div class="mrow"><span>TERMS</span><b contenteditable="true">DUE IN 48 HRS</b></div></div></div>'+
+      '<div class="metaright"><div class="mrow"><span>INVOICE</span><b id="inv-no" contenteditable="true">'+(invNo||'PREVIEW — not recorded')+'</b></div><div class="mrow"><span>DATE</span><b contenteditable="true">'+invDate(todayStr)+'</b></div><div class="mrow"><span>TERMS</span><b contenteditable="true">'+escAdmin((isCopy&&opts.terms)||'DUE IN 48 HRS')+'</b></div></div></div>'+
     '<table class="items"><thead><tr><th>SERVICE</th><th class="num">TOTAL HOURS</th><th class="num">RATE/HR</th><th class="num">AMOUNT</th></tr></thead><tbody>'+
       '<tr class="grp"><td colspan="4">'+escAdmin(project)+'</td></tr>'+rowsHtml+'</tbody></table>'+
     /* When an outstanding balance exists the totals become three lines — this period's work,
@@ -5330,12 +5338,13 @@ function openInvoiceWindow(project, from, to, lines, subtotal, history, outstand
     '<script>(function(){'+
       'var PROJ='+JSON.stringify(project)+';'+
       'var API='+JSON.stringify(API)+';var PFROM='+JSON.stringify(from)+';var PTO='+JSON.stringify(to)+';var PSUB='+(Number(subtotal)||0)+';'+
+      'var SNAP='+JSON.stringify(snapObj).replace(/</g,'\\u003c')+';'+
       'window.recordInvoice=function(){'+
         'var btn=document.getElementById("rec-btn"),st=document.getElementById("rec-status");'+
         'var bt=document.querySelector(".billto .val");var client=bt?bt.textContent.trim():"";'+
         'var mEl=document.getElementById("rec-method");var method=mEl?mEl.value:"";'+
         'btn.disabled=true;btn.textContent="Recording…";if(st){st.textContent="";}'+
-        'fetch(API+"?action=record_invoice&project="+encodeURIComponent(PROJ)+"&from="+encodeURIComponent(PFROM)+"&to="+encodeURIComponent(PTO)+"&invoice_usd="+encodeURIComponent(PSUB)+"&method="+encodeURIComponent(method)+"&client="+encodeURIComponent(client)+"&by=Admin&_="+Date.now())'+
+        'fetch(API+"?action=record_invoice&project="+encodeURIComponent(PROJ)+"&from="+encodeURIComponent(PFROM)+"&to="+encodeURIComponent(PTO)+"&invoice_usd="+encodeURIComponent(PSUB)+"&method="+encodeURIComponent(method)+"&client="+encodeURIComponent(client)+"&snap="+encodeURIComponent(JSON.stringify(Object.assign({},SNAP,{client:client,terms:txt(".metaright .mrow:nth-child(3) b")})))+"&by=Admin&_="+Date.now())'+
         '.then(function(r){return r.json();}).then(function(d){'+
           'if(d&&d.ok){var b=document.getElementById("inv-no");if(b)b.textContent=d.invoice_no;try{document.title=d.invoice_no+" - "+PROJ;}catch(e){}btn.textContent="Recorded \\u2713 "+d.invoice_no;'+
             'if(st){st.style.color="#15803d";st.textContent="Booked to Sales \\u2014 Net \\u20b1"+Number(d.net_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+"  (Revenue \\u20b1"+Number(d.revenue_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+" \\u2212 Salary \\u20b1"+Number(d.payroll_php||0).toLocaleString(undefined,{maximumFractionDigits:2})+" @ FX "+d.fx_rate+")";}'+
@@ -5690,6 +5699,70 @@ async function loadDashAppeals(){
 }
 // Dashboard quick-pay: list pending/sent invoices and mark them paid in one click.
 // No revenue figures here (those stay behind the Sales OTP) — just enough to identify + pay.
+/* ══ DOWNLOAD A RECORDED INVOICE AGAIN (Nov 3 — Jeth: "Forget to save its pdf, can we make it new feature where I can
+   download it still") ══
+   Opens the invoice exactly as it was recorded, with its number, date and client, ready for Print → Save as PDF.
+   From portal API 2026-11-03b every recorded invoice keeps a snapshot of its lines, so the copy is exact. Invoices
+   recorded before that are rebuilt from the work log of their period with the saved rates (the hidden markup is
+   worked out from the recorded amount); if the rebuilt total does not land on the recorded amount, the window says so. */
+async function invoiceCopy(id, hint){
+  hint=hint||{};
+  if(typeof toast==='function') toast('Opening invoice '+(hint.invoice_no?('#'+hint.invoice_no):'')+'…');
+  var inv=null;
+  try{ var r=await fetch(API+'?action=invoice_copy&id='+encodeURIComponent(id)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) inv=d; }catch(e){}
+  inv=inv||{};
+  ['invoice_no','project','period','client','invoice_usd','created_at','status'].forEach(function(k){ if((inv[k]===undefined||inv[k]===''||inv[k]===null) && hint[k]!=null) inv[k]=hint[k]; });
+  var project=String(inv.project||'').trim(); if(!project){ alert('Could not find this invoice.'); return; }
+  if(!(Number(inv.invoice_usd)>0)){
+    try{ var rh=await fetch(API+'?action=invoice_history&project='+encodeURIComponent(project)+'&_='+Date.now()); var dh=await rh.json();
+      ((dh&&dh.history)||[]).forEach(function(h){ if(String(h.invoice_no)===String(inv.invoice_no)){ inv.invoice_usd=h.amount; inv.period=inv.period||h.period; inv.created_at=inv.created_at||h.created_at; } }); }catch(e){}
+  }
+  var rng=_payPerRange(inv.period); if(!rng){ alert('Could not read the period of invoice '+(inv.invoice_no||'')+' ("'+(inv.period||'')+'").'); return; }
+  var iso=function(dt){ return dt.toISOString().slice(0,10); };
+  var from=iso(rng.a), to=iso(rng.b);
+  var made=(String(inv.created_at||'').match(/(\d{4}-\d{2}-\d{2})/)||[])[1]||'';
+  if(!made){ var _t=Date.parse(String(inv.created_at||'')); if(!isNaN(_t)) made=new Date(_t+8*3600e3).toISOString().slice(0,10); }
+  var base={ copy:true, invNo:inv.invoice_no, date:made, client:inv.client, status:inv.status };
+  var snap=inv.snapshot;
+  if(snap && snap.lines && snap.lines.length){
+    openInvoiceWindow(project, snap.from||from, snap.to||to, snap.lines, (snap.sub!=null?snap.sub:inv.invoice_usd), [], snap.out||0, null,
+      Object.assign(base, { date:snap.date||made, client:(snap.client!=null&&snap.client!=='')?snap.client:inv.client, terms:snap.terms }));
+    return;
+  }
+  // ── no snapshot (recorded before 03b): rebuild from the work log of the invoice period ──
+  var rows=[];
+  try{ var wr=await fetch(API+'?action=get_worklog&project='+encodeURIComponent(project)+'&from='+from+'&to='+to+'&lean=1&_='+Date.now()); var wd=await wr.json(); rows=(wd&&wd.worklog)||[]; }catch(e){ alert('Could not load the work log for '+project+' — try again.'); return; }
+  var rateByCat={}, projRate={};
+  try{ var rp=await fetch(API+'?action=get_tracker_projects'); var dp=await rp.json();
+    (dp.projects||[]).forEach(function(p){ if(p.rate===''||p.rate==null||isNaN(parseFloat(p.rate))) return; var rr=parseFloat(p.rate), pk0=(p.project||'').toLowerCase(), ck0=pk0+'|'+(p.category||'').toLowerCase();
+      if(rateByCat[ck0]===undefined) rateByCat[ck0]=rr; if(projRate[pk0]===undefined) projRate[pk0]=rr; }); }catch(e){}
+  var groups={}, catOf=invCatResolver(rows, project), pk=project.toLowerCase();
+  rows.forEach(function(w){ if((w.status||'recorded')!=='recorded') return; if((w.project||'').toLowerCase()!==pk) return;
+    var c=catOf(w), k=c.toLowerCase(); if(!groups[k]) groups[k]={category:c, hours:0}; groups[k].hours+=parseFloat(w.hours)||0; });
+  var raw=Object.keys(groups).map(function(k){ return groups[k]; }).filter(function(l){ return l.hours>0.004; });
+  if(!raw.length){ alert('No recorded work-log hours for '+project+' between '+from+' and '+to+', so invoice '+(inv.invoice_no||'')+' cannot be rebuilt.'); return; }
+  raw.sort(function(a,b){ return a.category.localeCompare(b.category); });
+  for(var i=0;i<raw.length;i++){
+    var ck=pk+'|'+raw[i].category.toLowerCase(); if(rateByCat[ck]!==undefined) { raw[i].rate=rateByCat[ck]; continue; }
+    var saved=''; try{ saved=localStorage.getItem('inv_rate:'+ck)||''; }catch(_l){}
+    if(saved && parseFloat(saved)>0){ raw[i].rate=parseFloat(saved); continue; }
+    if(projRate[pk]!==undefined){ raw[i].rate=projRate[pk]; continue; }
+    var ans=prompt('Invoice '+(inv.invoice_no||'')+' — no saved rate for '+project+' › '+raw[i].category+'.\n\nHourly rate in USD that was on the invoice:', '');
+    if(ans===null) return; var rv=parseFloat(String(ans).replace(/[^0-9.]/g,'')); if(!(rv>0)){ alert('That rate is not a number above 0.'); return; }
+    raw[i].rate=rv; try{ localStorage.setItem('inv_rate:'+ck, String(rv)); }catch(_l2){}
+  }
+  var build=function(pct){ var m=1+pct/100, sub=0; var ls=raw.map(function(l){ var h=Math.round(l.hours*m*100)/100, a=Math.round(h*l.rate*100)/100; sub+=a; return {category:l.category, hours:h, rate:l.rate, amount:a}; }); return {lines:ls, sub:Math.round(sub*100)/100}; };
+  var target=Math.round((Number(inv.invoice_usd)||0)*100)/100, best=build(0), bestPct=0;
+  if(target>0){ for(var p2=0;p2<=50;p2+=0.5){ var b=build(p2); if(Math.abs(b.sub-target)<Math.abs(best.sub-target)){ best=b; bestPct=p2; } if(Math.abs(b.sub-target)<0.005) break; } }
+  var warn='';
+  if(target>0 && Math.abs(best.sub-target)>=0.01){
+    warn='<b>Rebuilt from the work log</b> — this invoice was recorded before copies were saved. The recorded amount was <b>'+invMoney(target)+'</b>, the rebuilt total is <b>'+invMoney(best.sub)+'</b>'+
+      ' (hours changed since, or the invoice had a manual line or an outstanding balance). Check the lines before sending.';
+  } else if(target>0){
+    warn='Rebuilt from the work log (recorded before copies were saved) — the total matches the recorded amount, '+invMoney(target)+'.';
+  }
+  openInvoiceWindow(project, from, to, best.lines, best.sub, [], 0, null, Object.assign(base, { warn:warn }));
+}
 async function loadDashInvoices(){
   var box=document.getElementById('dash-invoices'); if(!box) return;
   try{
@@ -5704,7 +5777,7 @@ async function loadDashInvoices(){
       return '<div class="dash-item">'+sentChip+
         '<div class="dash-item-main"><strong>'+no+'</strong> <small style="color:var(--t3)">'+escAdmin(x.project||'')+'</small><br>'+
         '<small>'+meta+'</small></div>'+
-        '<div class="dash-item-actions"><button class="bsm edit" style="color:#34d399;border-color:rgba(52,211,153,.4);" onclick="markInvoicePaid(\''+escAdmin(x.id)+'\',\''+escAdmin((x.project||'').replace(/\x27/g,""))+'\',\''+escAdmin(no)+'\')"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><polyline points=\"20 6 9 17 4 12\"/></svg> Mark paid</button></div></div>';
+        '<div class="dash-item-actions"><button class="bsm" title="Open this invoice again to download the PDF" onclick="invoiceCopy(\''+escAdmin(x.id)+'\',{invoice_no:\''+escAdmin(String(x.invoice_no||'').replace(/\x27/g,''))+'\',project:\''+escAdmin(String(x.project||'').replace(/\x27/g,''))+'\',period:\''+escAdmin(String(x.period||'').replace(/\x27/g,''))+'\'})">PDF</button><button class="bsm edit" style="color:#34d399;border-color:rgba(52,211,153,.4);" onclick="markInvoicePaid(\''+escAdmin(x.id)+'\',\''+escAdmin((x.project||'').replace(/\x27/g,""))+'\',\''+escAdmin(no)+'\')"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><polyline points=\"20 6 9 17 4 12\"/></svg> Mark paid</button></div></div>';
     }).join('');
   }catch(e){ box.innerHTML='<div class="es">Could not load invoices.</div>'; }
 }
