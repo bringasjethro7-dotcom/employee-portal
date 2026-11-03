@@ -5050,6 +5050,12 @@ function invCatResolver(rows, project){
    Oct 19."): the Project filter only listed Projects & Tasks, so deleting a client there (Imperium, after its
    last day) also hid its unbilled hours from invoicing. Every project with hours in the last ~75 days is now
    listed; the ones no longer in Projects & Tasks show as "(ended)". */
+function wlAddRowProjects(pjSel, rows){
+  if(!pjSel || !rows || !rows.length) return;
+  var have={}; Array.prototype.forEach.call(pjSel.options, function(o){ if(o.value) have[o.value.toLowerCase()]=1; });
+  var add={}; rows.forEach(function(w){ var n=String(w&&w.project||'').trim(); if(n && !/^idle\b/i.test(n) && !have[n.toLowerCase()]) add[n.toLowerCase()]=n; });
+  Object.keys(add).sort().forEach(function(k){ var o=document.createElement('option'); o.value=add[k]; o.textContent=add[k]+' (ended)'; pjSel.appendChild(o); have[k]=1; });
+}
 async function wlAddEndedProjects(pjSel){
   try{
     var have={}; Array.prototype.forEach.call(pjSel.options, function(o){ if(o.value) have[o.value.toLowerCase()]=1; });
@@ -5829,6 +5835,7 @@ async function loadWorkLog(){
     var res = await fetch(url);
     var data = await res.json();
     wlRows = data.worklog || [];
+    try{ wlAddRowProjects(pjSel, wlRows); }catch(_ap){}   // Nov 3: a project in these rows but not in the list (Imperium) shows up right away
     var rows = wlRows;
     var totalEl = document.getElementById('wl-total');
     if(!rows.length){ tbody.innerHTML = '<tr><td colspan="9" class="es">No work log entries.</td></tr>'; if(totalEl) totalEl.textContent=''; return; }
