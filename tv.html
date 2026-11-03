@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>JMB Huddle TV</title>
+<link rel="icon" href="jmb-logo-mark.svg">
+<style>
+/* JMB HUDDLE TV (Nov 3, 2026) — open this page in the TV's own web browser. It shows a code; the presenter types it
+   in the Huddle show (button "Show on TV") and this screen follows every slide live. No sign-in, nothing stored. */
+html,body{margin:0;height:100%;background:#05070f;color:#fff;font-family:Inter,"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;overflow:hidden}
+#wait{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 700px at 15% -10%,#312e81 0,transparent 60%),radial-gradient(900px 600px at 110% 110%,#7c2d12 0,transparent 60%),#05070f}
+#wait .card{text-align:center;padding:5vh 6vw}
+#wait img{width:9vh;height:9vh;border-radius:2.2vh}
+#wait .k{margin-top:3vh;font-size:2.2vh;font-weight:800;letter-spacing:.3em;text-transform:uppercase;color:#fdba74}
+#wait .h{font-size:5vh;font-weight:900;letter-spacing:-.02em;margin-top:1vh}
+#wait .code{margin:4vh auto 0;display:flex;gap:1.6vh;justify-content:center}
+#wait .code span{display:flex;align-items:center;justify-content:center;width:13vh;height:17vh;border-radius:2.4vh;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);font-size:11vh;font-weight:900;font-variant-numeric:tabular-nums}
+#wait .how{margin-top:4.5vh;font-size:2.8vh;line-height:1.5;color:rgba(255,255,255,.78)}
+#wait .how b{color:#fff}
+#wait .st{margin-top:3vh;font-size:2.1vh;color:rgba(255,255,255,.5)}
+#wait .st i{display:inline-block;width:1.2vh;height:1.2vh;border-radius:50%;background:#f59e0b;margin-right:1vh;vertical-align:.1vh}
+#wait .st.ok i{background:#10b981}
+#show{display:none}
+.tv-still *{animation:none!important;transition:none!important}
+</style>
+</head>
+<body>
+<div id="wait"><div class="card">
+  <img src="logo-aura.svg" alt="">
+  <div class="k">JMB Virtuals</div>
+  <div class="h">Huddle TV</div>
+  <div class="code" id="code"></div>
+  <div class="how">On the laptop: open the <b>Huddle</b> → <b>Start the huddle</b> → press <b>Show on TV</b> and type this code.<br>This screen follows the huddle from then on.</div>
+  <div class="st" id="st"><i></i>Connecting…</div>
+</div></div>
+<div id="show"></div>
+<script src="huddle.js"></script>
+<script>
+(function(){
+  var SUPA_URL='https://rvyrnkjqxnijxydloujk.supabase.co', SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2eXJua2pxeG5panh5ZGxvdWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NzAwODQsImV4cCI6MjA5NzE0NjA4NH0.SwkSkmbeWrhm5PZZDSZ1Z4hbjpQ0L2CRtuKQmpHshBE';
+  var AL='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  function qs(n){ var m=new RegExp('[?&]'+n+'=([^&]+)').exec(location.search); return m?decodeURIComponent(m[1]):''; }
+  var code=String(qs('code')||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(code.length!==6){ try{ code=localStorage.getItem('hudtv_code')||''; }catch(e){ code=''; } }
+  if(code.length!==6){ code=''; for(var i=0;i<6;i++) code+=AL.charAt(Math.floor(Math.random()*AL.length)); }
+  try{ localStorage.setItem('hudtv_code', code); }catch(e){}
+  document.getElementById('code').innerHTML=code.split('').map(function(c){ return '<span>'+c+'</span>'; }).join('');
+  var TOPIC='realtime:hudtv-'+code, WS=null, REF=0, HB=null, HELLO=null, JOINED=false, LIVE=false, CUR='', LAST=0;
+  try{ if(window.JMBHuddle && JMBHuddle.tvCss) JMBHuddle.tvCss(); }catch(e){}
+  var wait=document.getElementById('wait'), show=document.getElementById('show'), st=document.getElementById('st');
+  show.innerHTML='<div class="hds"><div class="hds-st"><div class="hds-bl a"></div><div class="hds-bl b"></div><div class="hds-grid"></div><div class="hds-ghost"></div><div class="hds-top"></div><div class="hds-body"></div><div class="hds-foot"></div></div></div>';
+  var stage=show.querySelector('.hds-st');
+  function fit(){ var k=Math.min(window.innerWidth/1920, window.innerHeight/1080); stage.style.transform='translate(-50%,-50%) scale('+k+')'; }
+  fit(); window.addEventListener('resize', fit);
+  function q(s){ return stage.querySelector(s); }
+  function status(t, ok){ st.className='st'+(ok?' ok':''); st.innerHTML='<i></i>'+t; }
+  function setLive(on){ LIVE=on; wait.style.display=on?'none':'flex'; show.style.display=on?'block':'none'; if(on) fit(); }
+  function onMsg(ev, p){
+    LAST=Date.now();
+    if(ev==='snap'){
+      var same=(p.k===CUR); CUR=p.k;
+      if(same) stage.classList.add('tv-still'); else stage.classList.remove('tv-still');
+      q('.hds-top').innerHTML=p.top||''; q('.hds-body').innerHTML=p.body||''; q('.hds-foot').innerHTML=p.foot||''; q('.hds-ghost').textContent=p.ghost||'';
+      if(p.a) q('.hds-bl.a').style.background=p.a; if(p.b) q('.hds-bl.b').style.background=p.b;
+      if(same) setTimeout(function(){ stage.classList.remove('tv-still'); }, 60);
+      setLive(true);
+    } else if(ev==='tick'){
+      if(!LIVE || p.k!==CUR) { if(!LIVE) hello(); return; }
+      var c=q('.hds-clock'); if(c && p.c!=null) c.innerHTML=p.c;
+      var on=q('.hds-rail .on i'); if(on && p.w) on.style.width=p.w;
+    } else if(ev==='end'){ CUR=''; setLive(false); status('The huddle ended. Waiting for the next one…', true); }
+  }
+  function send(o){ try{ if(WS && WS.readyState===1) WS.send(JSON.stringify(o)); }catch(e){} }
+  function hello(){ if(JOINED) send({ topic:TOPIC, event:'broadcast', payload:{ type:'broadcast', event:'hello', payload:{ t:Date.now() } }, ref:String(++REF) }); }
+  function connect(){
+    status('Connecting…', false);
+    try{ WS=new WebSocket(SUPA_URL.replace(/^http/,'ws')+'/realtime/v1/websocket?apikey='+encodeURIComponent(SUPA_KEY)+'&vsn=1.0.0'); }catch(e){ setTimeout(connect, 4000); return; }
+    WS.onopen=function(){
+      REF++; send({ topic:TOPIC, event:'phx_join', payload:{ config:{ broadcast:{ ack:false, self:false }, presence:{ key:'' }, postgres_changes:[], private:false }, access_token:SUPA_KEY }, ref:String(REF), join_ref:String(REF) });
+      clearInterval(HB); HB=setInterval(function(){ send({ topic:'phoenix', event:'heartbeat', payload:{}, ref:String(++REF) }); }, 25000);
+    };
+    WS.onmessage=function(e){ var m; try{ m=JSON.parse(e.data); }catch(x){ return; }
+      if(m.topic===TOPIC && m.event==='phx_reply' && m.payload && m.payload.status==='ok' && !JOINED){ JOINED=true; status('Ready — waiting for the huddle to start…', true); hello(); }
+      else if(m.topic===TOPIC && m.event==='phx_reply' && m.payload && m.payload.status==='error'){ status('Could not join — retrying…', false); }
+      else if(m.topic===TOPIC && m.event==='broadcast' && m.payload){ onMsg(m.payload.event, m.payload.payload||{}); }
+    };
+    WS.onclose=function(){ JOINED=false; clearInterval(HB); status('Reconnecting…', false); setTimeout(connect, 3000); };
+    WS.onerror=function(){ try{ WS.close(); }catch(x){} };
+  }
+  /* say hello now and then, so a laptop that opens the show later finds this TV at once */
+  HELLO=setInterval(function(){ if(!LIVE || Date.now()-LAST>20000) hello(); }, LIVE?30000:8000);
+  setInterval(function(){ if(LIVE && Date.now()-LAST>90000){ CUR=''; setLive(false); status('Lost the huddle — waiting for it to come back…', false); } }, 10000);
+  connect();
+})();
+</script>
+</body>
+</html>

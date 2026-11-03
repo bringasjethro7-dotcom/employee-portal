@@ -8,7 +8,7 @@
 (function(){
 "use strict";
 if(window.JMBHuddle) return;
-var HD = window.JMBHuddle = { v:"2026-10-29a" };
+var HD = window.JMBHuddle = { v:"2026-11-03a" };
 var DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 var DOWL=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 var PCOL=["#6366f1","#0ea5e9","#10b981","#f59e0b","#ec4899","#8b5cf6","#14b8a6","#ef4444","#84cc16","#f97316"];
@@ -699,6 +699,50 @@ function bClose(R, it){
 }
 var BUILD={ open:bOpen, roll:bRoll, review:bReview, wins:bWins, numbers:bNumbers, reddit:bReddit, checkins:bChecks, plan:bPlan, close:bClose };
 
+/* ── TV MODE (Jeth, Nov 3): the huddle on the office TV with no cable and no casting. The TV opens
+   portal.jmbvirtuals.com/tv.html in its own browser and shows a 6-letter code; the presenter types it once here
+   ("TV" in the show's buttons — remembered on this computer) and the TV follows every slide live over Supabase
+   Realtime broadcast. Nothing is stored; the TV only draws what this screen shows, without the buttons. ── */
+var TV={ ch:null, sb:null, code:"", seen:0, soon:null };
+function tvConf(){ var u="", k=""; try{ u=(typeof SUPA_URL!=="undefined"&&SUPA_URL)||""; k=(typeof SUPA_KEY!=="undefined"&&SUPA_KEY)||""; }catch(e){}
+  if((!u||!k) && window.__AURA__){ u=u||window.__AURA__.SUPA_URL||""; k=k||window.__AURA__.SUPA_KEY||""; } return { u:u, k:k }; }
+function tvSb(){ if(TV.sb) return TV.sb; var L=window.supabase||window.Supabase, c=tvConf(); if(!L||!L.createClient||!c.u||!c.k) return null;
+  TV.sb=L.createClient(c.u, c.k, { auth:{ persistSession:false, autoRefreshToken:false, detectSessionInUrl:false } }); return TV.sb; }
+function tvLbl(){ if(!TV.ch) return "Show on TV"; return (Date.now()-TV.seen<70000?"On TV":"TV waiting")+" · "+TV.code; }
+function tvChip(){ if(!SH||!SH.el) return; var b=$('[data-n="tv"]', SH.el); if(b) b.textContent=tvLbl(); }
+function tvConnect(code){
+  code=String(code||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6); if(code.length!==6){ toast("The TV code has 6 letters and numbers."); return false; }
+  tvStop(true); var sb=tvSb(); if(!sb){ toast("The TV link isn't ready on this page — reload it and try again."); return false; }
+  TV.code=code; TV.seen=0; try{ localStorage.setItem("hd_tv_code", code); }catch(e){}
+  var ch=sb.channel("hudtv-"+code, { config:{ broadcast:{ self:false, ack:false } } }); TV.ch=ch;
+  ch.on("broadcast", { event:"hello" }, function(){ if(TV.ch!==ch) return; var fresh=Date.now()-TV.seen>70000; TV.seen=Date.now(); tvChip(); tvSend(true); if(fresh) toast("The TV is showing the huddle."); });
+  ch.subscribe(function(st){ if(TV.ch!==ch) return; if(st==="SUBSCRIBED") tvSend(true); });
+  tvChip(); return true;
+}
+function tvStop(silent){ var ch=TV.ch; TV.ch=null; TV.seen=0; if(ch){ try{ ch.send({ type:"broadcast", event:"end", payload:{} }); }catch(e){} setTimeout(function(){ try{ TV.sb.removeChannel(ch); }catch(e){} }, 800); } if(!silent) tvChip(); }
+function tvAsk(){
+  var v=window.prompt(TV.ch?("The TV code (on the TV screen). Clear it to stop showing on the TV:"):"Open portal.jmbvirtuals.com/tv.html on the TV's browser, then type the code it shows:", TV.code||"");
+  if(v===null) return; v=String(v).trim();
+  if(!v){ tvStop(false); try{ localStorage.removeItem("hd_tv_code"); }catch(e){} toast("Stopped showing on the TV."); return; }
+  if(tvConnect(v)) toast("Linking to the TV "+TV.code+"…");
+}
+/* what the TV draws: the stage as it is now — typed text included, counters at their final value, no buttons */
+function tvPart(sel){ var el=$(sel, SH.st); if(!el) return ""; var c=el.cloneNode(true), live=$$("input,textarea", el), copy=$$("input,textarea", c);
+  live.forEach(function(x,i){ var y=copy[i]; if(!y) return; if(y.tagName==="TEXTAREA") y.textContent=x.value; else y.setAttribute("value", x.value); y.setAttribute("readonly",""); });
+  $$("[data-cnt]", c).forEach(function(x){ x.textContent=fh(Number(x.getAttribute("data-cnt"))||0).replace(" h"," hours"); });
+  $$(".hds-nav,.hds-btns,button[data-n]", c).forEach(function(n){ n.remove(); });
+  return c.innerHTML; }
+function tvSend(full){
+  if(!TV.ch||!SH||!SH.st) return;
+  try{
+    if(full){ var a=$(".hds-bl.a", SH.st), b=$(".hds-bl.b", SH.st), gh=$(".hds-ghost", SH.st);
+      TV.ch.send({ type:"broadcast", event:"snap", payload:{ k:SH.i+"|"+(SH.cur||""), top:tvPart(".hds-top"), body:tvPart(".hds-body"), foot:tvPart(".hds-foot"), ghost:gh?gh.textContent:"", a:a?a.style.background:"", b:b?b.style.background:"" } }); }
+    else { var ck=$(".hds-clock", SH.st), on=$(".hds-rail .on i", SH.st); TV.ch.send({ type:"broadcast", event:"tick", payload:{ k:SH.i+"|"+(SH.cur||""), c:ck?ck.innerHTML:"", w:on?on.style.width:"" } }); }
+  }catch(e){}
+}
+function tvSoon(){ clearTimeout(TV.soon); TV.soon=setTimeout(function(){ tvSend(true); }, 450); }
+HD.tvCss=function(){ css(); showCss(); };
+
 /* ── the show ── */
 function showCss(){
   if(document.getElementById("hds-css")) return; var st=document.createElement("style"); st.id="hds-css";
@@ -823,10 +867,10 @@ function show(){
     $(".hds-ghost",o).textContent=idx>=0?("0"+(idx+1)):"";
     $(".hds-top",o).innerHTML='<img src="logo-aura.svg" alt=""><div class="tt">'+(night()?"Night":"Morning")+' Huddle<span>'+esc(dayLong(S.H))+'</span></div><div class="hds-rail">'+segs.map(function(x){ var on=x===g, done=segs.indexOf(x)<segs.indexOf(g); return '<div class="'+(on?"on":(done?"done":""))+'" style="'+(on?"background:"+x.c+";border-color:"+x.c:"")+'" data-seg="'+x.k+'">'+esc(x.n)+'<i style="background:'+(on?"rgba(0,0,0,.35)":x.c)+';width:'+(done?100:0)+'%"></i></div>'; }).join("")+'</div>';
     $(".hds-body",o).innerHTML='<div class="hds-sl">'+b.h+'</div>';
-    $(".hds-foot",o).innerHTML='<div class="hds-say"><b style="background:'+hx(g.c,.2)+';color:'+g.c+'">Say</b><span>'+esc(b.say||"")+'</span></div><div class="hds-clock"><div class="s"></div><div class="t"></div><div class="b"><i style="background:'+g.c+'"></i></div></div><div class="hds-nav"><button data-n="prev"'+(SH.i?"":" disabled")+'>Back</button><button data-n="next">'+(SH.i<SH.L.length-1?"Next":"Finish")+'</button><button data-n="full">Full screen</button><button data-n="exit">Exit</button></div>';
+    $(".hds-foot",o).innerHTML='<div class="hds-say"><b style="background:'+hx(g.c,.2)+';color:'+g.c+'">Say</b><span>'+esc(b.say||"")+'</span></div><div class="hds-clock"><div class="s"></div><div class="t"></div><div class="b"><i style="background:'+g.c+'"></i></div></div><div class="hds-nav"><button data-n="prev"'+(SH.i?"":" disabled")+'>Back</button><button data-n="next">'+(SH.i<SH.L.length-1?"Next":"Finish")+'</button><button data-n="tv">'+esc(tvLbl())+'</button><button data-n="full">Full screen</button><button data-n="exit">Exit</button></div>';
     bindGraphs(o); $$("[data-goal]",o).forEach(function(x){ x._sent=x.value; });
     $$("[data-cnt]", o).forEach(function(el){ var v=Number(el.getAttribute("data-cnt"))||0, t0=performance.now(); (function f(t){ var k=Math.min(1,(t-t0)/1100), e=1-Math.pow(1-k,3); el.textContent=fh(v*e).replace(" h"," hours"); if(k<1) requestAnimationFrame(f); })(t0); });
-    tick();
+    tick(); tvSend(true);   // TV mode: the TV follows this slide
   }
   function tick(){
     if(!SH) return; var it=SH.L[SH.i], g=it.g, used=spentOn(g.k), left=g.s-used, tot=(Date.now()-SH.t0)/1000, plan=planSec(SH.L);
@@ -834,10 +878,11 @@ function show(){
     s.textContent=left>=0?clk(left):"+"+clk(-left); s.className="s"+(left<0?" over":""); t.textContent=(left>=0?"left for "+g.n.toLowerCase():"over on "+g.n.toLowerCase())+" · "+clk(tot)+" / "+clk(plan);
     b.style.width=Math.min(100, used/g.s*100)+"%";
     var on=$(".hds-rail .on i",o); if(on) on.style.width=Math.min(100, used/g.s*100)+"%";
+    if(TV.ch) tvSend(false);
   }
   SH.tick=setInterval(tick, 1000);
   function go(d){ var n=SH.i+d; if(n<0) return; if(n>=SH.L.length){ exit(); return; } SH.i=n; draw(); }
-  function exit(){ clearInterval(SH.tick); window.removeEventListener("resize", SH.fit); document.removeEventListener("keydown", key); o.remove(); document.body.classList.remove("hd-noscroll"); try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(e){} SH=null; render(); }
+  function exit(){ tvStop(true); clearInterval(SH.tick); window.removeEventListener("resize", SH.fit); document.removeEventListener("keydown", key); o.remove(); document.body.classList.remove("hd-noscroll"); try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(e){} SH=null; render(); }
   function typing(){ var a=document.activeElement; return a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA") && o.contains(a); }
   function key(e){ if(typing()){ if(e.key==="Escape") document.activeElement.blur(); return; }
     if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown"){ e.preventDefault(); go(1); } else if(e.key==="ArrowLeft"||e.key==="PageUp"){ e.preventDefault(); go(-1); } else if(e.key==="Escape") exit(); else if(e.key==="f"||e.key==="F"){ try{ if(!document.fullscreenElement) o.requestFullscreen(); else document.exitFullscreen(); }catch(_){} } }
@@ -848,7 +893,7 @@ function show(){
     hsave({ op:"goal", emp:emp, text:text, kind:kind||"custom", task:task||"", n:n||"" }).then(function(r){ if(r) toast(text?"Goal saved":"Goal cleared"); });
   }
   o.addEventListener("click", function(e){
-    var nb=e.target.closest("[data-n]"); if(nb){ var a=nb.getAttribute("data-n"); if(a==="next") go(1); else if(a==="prev") go(-1); else if(a==="exit") exit(); else if(a==="full"){ try{ if(!document.fullscreenElement) o.requestFullscreen(); else document.exitFullscreen(); }catch(_){} } return; }
+    var nb=e.target.closest("[data-n]"); if(nb){ var a=nb.getAttribute("data-n"); if(a==="next") go(1); else if(a==="prev") go(-1); else if(a==="exit") exit(); else if(a==="tv") tvAsk(); else if(a==="full"){ try{ if(!document.fullscreenElement) o.requestFullscreen(); else document.exitFullscreen(); }catch(_){} } return; }
     var sg=e.target.closest("[data-seg]"); if(sg){ var k=sg.getAttribute("data-seg"); for(var j=0;j<SH.L.length;j++){ if(SH.L[j].g.k===k){ SH.i=j; draw(); break; } } return; }
     var rv=e.target.closest("[data-rv]"); if(rv){ var emp=rv.getAttribute("data-rv"), v=rv.getAttribute("data-v"), x=(SH.R.review||[]).filter(function(q){ return q.emp===emp; })[0]; if(!x) return; var nv=(x.done===v)?"":v;
       eachRep(function(r){ (r.review||[]).forEach(function(q){ if(q.emp===emp) q.done=nv; }); }); draw(); hsave({ op:"review", of:x.of, emp:emp, done:nv }); return; }
@@ -865,6 +910,8 @@ function show(){
   o.addEventListener("focusout", function(e){ var t=e.target; if(t.hasAttribute && (t.hasAttribute("data-goal")||t.hasAttribute("data-talk"))) commit(t); });
   o.addEventListener("keydown", function(e){ var t=e.target; if(e.key==="Enter" && t.hasAttribute && t.hasAttribute("data-goal")){ e.preventDefault(); commit(t); var all=$$("[data-goal]",o), nx=all[all.indexOf(t)+1]; if(nx) nx.focus(); else t.blur(); } });
   document.addEventListener("keydown", key);
+  o.addEventListener("input", function(){ if(TV.ch) tvSoon(); });   // TV mode: typed goals / notes show on the TV too
+  try{ var _tc=localStorage.getItem("hd_tv_code"); if(_tc && !TV.ch) tvConnect(_tc); }catch(_t){}   // the TV this computer used last time
   draw();
 }
 
