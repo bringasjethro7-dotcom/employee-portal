@@ -157,10 +157,26 @@ function go(v){ if(['inbox','live','codes','more'].indexOf(v)<0) v='inbox'; VIEW
 function render(){ if(!SNAP){ return; } if(VIEW==='inbox') vInbox(); else if(VIEW==='live') vLive(); else if(VIEW==='codes') vCodes(); else vMore(); }
 
 /* ── INBOX: every pending request, newest first, one card each, Approve / Reject ── */
+/* Innovation Oct 2026 · Jeremie Concepcion (75): who else is off on the days of a pending leave (approved or pending) */
+function lvoText(r, all, emps){
+  try{
+    var ymd=function(v){ var m=String(v||'').match(/^(\d{4}-\d{2}-\d{2})/); if(m) return m[1]; var d=new Date(v); return (!v||isNaN(d))?'':(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); };
+    var first=function(n){ n=String(n||''); var p=n.split(','); return ((p.length>1?p[1]:p[0]).trim().split(/\s+/)[0])||n; };
+    var sh=function(x){ var p=x.split('-'); return new Date(+p[0],+p[1]-1,+p[2]).toLocaleDateString('en-US',{ month:'short', day:'numeric' }); };
+    var s=ymd(r.start||r.start_date), e=ymd(r.end||r.end_date)||s, me=String(r.employee_id||'').toLowerCase(); if(!s) return '';
+    var P={}; (emps||[]).forEach(function(x){ P[String(x.employee_id||'').toLowerCase()]=String(x.client||x.department||'').trim(); }); var proj=P[me]||'';
+    var H={}; (all||[]).forEach(function(x){ var st=String(x.status||'pending').toLowerCase(); if(st!=='approved'&&st!=='pending') return; if(String(x._row)===String(r._row)) return;
+      var id=String(x.employee_id||'').toLowerCase(); if(!id||id===me) return; var xs=ymd(x.start||x.start_date), xe=ymd(x.end||x.end_date)||xs; if(!xs||xs>e||xe<s) return;
+      var f=xs<s?s:xs, t=xe>e?e:xe; if(!H[id]) H[id]={ n:first(x.full_name||x.employee_id), st:st, same:!!(proj&&P[id]===proj), f:f, t:t }; else if(st==='approved') H[id].st='approved'; });
+    var L=Object.keys(H).map(function(k){ return H[k]; }); if(!L.length) return '\nNo one else is off on these days.';
+    var same=L.filter(function(h){ return h.same; }).length;
+    return '\nAlso off: '+L.map(function(h){ return h.n+' ('+h.st+', '+sh(h.f)+(h.t!==h.f?'–'+sh(h.t):'')+(h.same?', same project':'')+')'; }).join(' · ')+(same?' — '+same+' on '+proj+', check coverage.':'');
+  }catch(err){ return ''; }
+}
 function items(){
   var b=SNAP.boot||{}, out=[];
   var pend=function(x){ return String(x.status||'pending').toLowerCase()==='pending'; };
-  ((b.leave&&b.leave.requests)||[]).filter(pend).forEach(function(r){ out.push({ k:'leave', key:'leave:'+r._row, id:r.employee_id, name:r.full_name, title:(String(r.type||'leave').toLowerCase()==='sick'?'🤒 Sick leave':'🏖 '+(r.type||'Leave')+' leave'), body:fmtD(r.start||r.start_date)+' → '+fmtD(r.end||r.end_date)+(r.days?' · '+r.days+' day'+(String(r.days)==='1'?'':'s'):'')+(r.reason?'\n'+r.reason:''), at:r.submitted, ok:function(){ return w('update_leave_status&row='+enc(r._row)+'&status=approved'); }, no:function(){ return w('update_leave_status&row='+enc(r._row)+'&status=rejected'); } }); });
+  ((b.leave&&b.leave.requests)||[]).filter(pend).forEach(function(r){ out.push({ k:'leave', key:'leave:'+r._row, id:r.employee_id, name:r.full_name, title:(String(r.type||'leave').toLowerCase()==='sick'?'🤒 Sick leave':'🏖 '+(r.type||'Leave')+' leave'), body:fmtD(r.start||r.start_date)+' → '+fmtD(r.end||r.end_date)+(r.days?' · '+r.days+' day'+(String(r.days)==='1'?'':'s'):'')+(r.reason?'\n'+r.reason:'')+lvoText(r, (b.leave&&b.leave.requests)||[], (b.employees&&b.employees.employees)||(Array.isArray(b.employees)?b.employees:[])), at:r.submitted, ok:function(){ return w('update_leave_status&row='+enc(r._row)+'&status=approved'); }, no:function(){ return w('update_leave_status&row='+enc(r._row)+'&status=rejected'); } }); });
   ((b.coe&&b.coe.requests)||[]).filter(pend).forEach(function(r){ out.push({ k:'coe', key:'coe:'+r._row, id:r.employee_id, name:r.full_name, title:'📄 COE request', body:r.purpose||'', at:r.submitted, ok:function(){ var c=prompt('Client name for the certificate (required):'); if(!c||!c.trim()) return Promise.resolve({ error:'CLIENT_REQUIRED' }); var a=prompt('Client address (optional):')||''; return w('update_coe_status&row='+enc(r._row)+'&status=approved&client='+enc(c.trim())+'&client_address='+enc(a.trim())); }, no:function(){ return w('update_coe_status&row='+enc(r._row)+'&status=rejected'); } }); });
   /* Oct 14 (Jeth): redeem points archived out of the approvals — Rewards keeps the queue */
   ([]).filter(pend).forEach(function(r){ var peso=(r.peso!=null)?r.peso:(r.points/5); out.push({ k:'redeem', key:'redeem:'+r.id, id:r.employee_id, name:r.full_name, title:'💸 Redeem '+Number(r.points||0).toLocaleString()+' pts · ₱'+Number(peso||0).toLocaleString(undefined,{ maximumFractionDigits:2 })+(r.rate&&r.rate!==5?' (old rate)':''), body:(r.type||'')+(r.detail?' · '+r.detail:''), at:r.created_at, ok:function(){ return w('redeem_resolve&id='+enc(r.id)+'&decision=approve&by=Admin'); }, no:function(){ var n=prompt('Reason (optional):')||''; return w('redeem_resolve&id='+enc(r.id)+'&decision=reject&by=Admin&note='+enc(n)); } }); });

@@ -2697,7 +2697,7 @@ async function loadDashboard(opts){
     /* dashboard payslips box removed — Payslips tab only */
     loadDashInvoices();
     var items=[];
-    leave.forEach(function(r){ items.push({chip:'Leave',cls:'chip-leave',name:r.full_name||r.employee_id,detail:({vacation:'Vacation',sick:'Sick',emergency:'Emergency'}[r.type]||r.type)+' · '+fmtLeaveDate(r.start||r.start_date)+' → '+fmtLeaveDate(r.end||r.end_date),
+    leave.forEach(function(r){ items.push({chip:'Leave',cls:'chip-leave',extra:(typeof lvoTag==='function'?lvoTag(r):''),name:r.full_name||r.employee_id,detail:({vacation:'Vacation',sick:'Sick',emergency:'Emergency'}[r.type]||r.type)+' · '+fmtLeaveDate(r.start||r.start_date)+' → '+fmtLeaveDate(r.end||r.end_date),
       actions:'<button class="bsm edit" onclick="dashAct(this,\'?action=update_leave_status&row='+r._row+'&status=approved\',\'Leave approved\')">Approve</button><button class="bsm danger" onclick="dashAct(this,\'?action=update_leave_status&row='+r._row+'&status=rejected\',\'Leave rejected\')">Reject</button>'}); });
     coe.forEach(function(r){ items.push({chip:'COE',cls:'chip-coe',name:r.full_name||r.employee_id,detail:r.purpose||'Certificate of Employment',
       /* Approving from the dashboard opens the same client prompt as the COE tab — a certificate
@@ -2710,7 +2710,7 @@ async function loadDashboard(opts){
     if(!items.length){ list.innerHTML='<div class="es" style="padding:2.5rem;text-align:center;font-size:14px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>All caught up — no pending requests.</div>'; return; }
     list.innerHTML=items.map(function(it){
       return '<div class="dash-item"><span class="dash-chip '+it.cls+'">'+it.chip+'</span>'+
-        '<div class="dash-item-main"><strong>'+payEsc(it.name)+'</strong><br><small>'+payEsc(it.detail)+'</small></div>'+
+        '<div class="dash-item-main"><strong>'+payEsc(it.name)+'</strong><br><small>'+payEsc(it.detail)+'</small>'+(it.extra||'')+'</div>'+
         '<div class="dash-item-actions">'+it.actions+'</div></div>';
     }).join('');
   }catch(e){ list.innerHTML='<div class="es">Could not load dashboard.</div>'; }
@@ -6231,7 +6231,7 @@ function filterLeave(){
       ?('<div style="display:flex;gap:6px;"><button class="bsm edit" onclick="updLeave(\'' + r._row + '\',\'approved\')">Approve</button><button class="bsm danger" onclick="updLeave(\'' + r._row + '\',\'rejected\')">Reject</button></div>')
       :'—';
     return '<tr>'+
-      '<td><strong style="color:var(--t1);">'+(r.full_name||r.employee_id||'—')+'</strong><br><span style="color:var(--t3);font-size:11px;">'+(r.employee_id||'')+'</span></td>'+
+      '<td><strong style="color:var(--t1);">'+(r.full_name||r.employee_id||'—')+'</strong><br><span style="color:var(--t3);font-size:11px;">'+(r.employee_id||'')+'</span>'+(r.status==='pending' && typeof lvoTag==='function'?lvoTag(r):'')+'</td>'+
       '<td>'+tl+'</td>'+
       '<td>'+sf+'</td>'+
       '<td>'+ef+'</td>'+
@@ -11736,7 +11736,7 @@ var ADMAURA = (function(){
       (((b.leave||{}).requests)||[]).filter(pend).forEach(function(r){
         var ty=({ vacation:'Vacation', sick:'Sick', emergency:'Emergency' }[r.type]||r.type||'Leave'), from='', to='';
         try{ from=fmtLeaveDate(r.start||r.start_date); to=fmtLeaveDate(r.end||r.end_date); }catch(e){ from=r.start||''; to=r.end||''; }
-        items.push({ t:'leave', name:r.full_name||r.employee_id, date:'', dt:'<b>'+E(ty)+'</b> · '+E(from)+' → '+E(to)+(r.reason?'<br><q>'+E(r.reason)+'</q>':''),
+        items.push({ t:'leave', name:r.full_name||r.employee_id, date:'', dt:'<b>'+E(ty)+'</b> · '+E(from)+' → '+E(to)+(r.reason?'<br><q>'+E(r.reason)+'</q>':'')+(typeof lvoTag==='function'?lvoTag(r):''),
           ac:'<button class="bsm edit" onclick="dashAct(this,\'?action=update_leave_status&row='+E(r._row)+'&status=approved\',\'Leave approved\')">Approve</button><button class="bsm danger" onclick="dashAct(this,\'?action=update_leave_status&row='+E(r._row)+'&status=rejected\',\'Leave rejected\')">Reject</button>' });
       });
       (((b.coe||{}).requests)||[]).filter(pend).forEach(function(r){
@@ -12558,6 +12558,67 @@ var ADMX = {
   }catch(e){} }, 1500);
   setTimeout(function(){ try{ if(typeof PASS!=='undefined' && PASS) ADMX.buildCheck(false); }catch(e){} }, 9000);
 })();
+</script>
+<!-- ═══ INNOVATION OCT 2026 · Jeremie Concepcion (75): overlapping day-off check before approval ═══
+     Every pending leave in the approvals (Dashboard, Inbox, Leave tab) shows who else is off on those days —
+     approved or still pending — and how many of them are on the same project. Read-only: it never approves anything. -->
+<style>
+.lvo{margin-top:5px;font-size:11.5px;line-height:1.45}
+.lvo-ok{color:#047857;font-weight:600}
+.lvo-w{color:#b45309;font-weight:600}
+.lvo-w.same{color:#b91c1c}
+.lvo-w b{font-weight:800}
+</style>
+<script>
+var LVO_A={ at:0, reqs:null, emps:null, busy:null };
+function _lvoYmd(v){ var m=String(v||'').match(/^(\d{4}-\d{2}-\d{2})/); if(m) return m[1]; var d=new Date(v); if(!v || isNaN(d)) return ''; return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _lvoFirst(n){ n=String(n||''); var p=n.split(','); return ((p.length>1?p[1]:p[0]).trim().split(/\s+/)[0])||n; }
+function _lvoShort(ymd){ try{ var p=ymd.split('-'); return new Date(+p[0], +p[1]-1, +p[2]).toLocaleDateString('en-US',{ month:'short', day:'numeric' }); }catch(e){ return ymd; } }
+function _lvoEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function lvoTag(r){
+  var s=_lvoYmd(r.start||r.start_date||r.startDate), e=_lvoYmd(r.end||r.end_date||r.endDate)||s;
+  return '<div class="lvo" data-emp="'+_lvoEsc(r.employee_id||'')+'" data-s="'+_lvoEsc(s)+'" data-e="'+_lvoEsc(e)+'" data-row="'+_lvoEsc(r._row||'')+'"></div>';
+}
+function lvoLoad(){
+  if(LVO_A.reqs && Date.now()-LVO_A.at<45000) return Promise.resolve();
+  if(LVO_A.busy) return LVO_A.busy;
+  LVO_A.busy=(async function(){
+    try{
+      var A=await (await jGet(API+'?action=get_leave_requests')).json();
+      var B=await (await jGet(API+'?action=get_all_employees')).json();
+      var P={}; ((B&&B.employees)||[]).forEach(function(x){ P[String(x.employee_id||'').toLowerCase()]=String(x.client||x.department||'').trim(); });
+      LVO_A.reqs=(A&&A.requests)||[]; LVO_A.emps=P; LVO_A.at=Date.now();
+    }catch(e){}
+    LVO_A.busy=null;
+  })();
+  return LVO_A.busy;
+}
+async function lvoFill(){
+  var els=document.querySelectorAll('.lvo:not([data-done])'); if(!els.length) return;
+  await lvoLoad(); if(!LVO_A.reqs) return;
+  els.forEach(function(el){
+    el.setAttribute('data-done','1');
+    var me=String(el.getAttribute('data-emp')||'').toLowerCase(), s=el.getAttribute('data-s'), e=el.getAttribute('data-e')||s, row=String(el.getAttribute('data-row')||'');
+    if(!s) return;
+    var proj=(LVO_A.emps||{})[me]||'', hits={};
+    LVO_A.reqs.forEach(function(x){
+      var st=String(x.status||'pending').toLowerCase(); if(st!=='approved' && st!=='pending') return;
+      if(row && String(x._row)===row) return;
+      var id=String(x.employee_id||'').toLowerCase(); if(!id || id===me) return;
+      var xs=_lvoYmd(x.start||x.start_date||x.startDate), xe=_lvoYmd(x.end||x.end_date||x.endDate)||xs; if(!xs || xs>e || xe<s) return;
+      var from=xs<s?s:xs, to=xe>e?e:xe, h=hits[id];
+      if(!h) h=hits[id]={ n:_lvoFirst(x.full_name||x.employee_id), st:st, same:!!(proj && (LVO_A.emps||{})[id]===proj), from:from, to:to };
+      else { if(st==='approved') h.st='approved'; if(from<h.from) h.from=from; if(to>h.to) h.to=to; }
+    });
+    var L=Object.keys(hits).map(function(k){ return hits[k]; }).sort(function(a,b){ return (b.same-a.same) || a.from.localeCompare(b.from); });
+    if(!L.length){ el.innerHTML='<span class="lvo-ok">No one else is off on these days.</span>'; return; }
+    var same=L.filter(function(h){ return h.same; }).length;
+    el.innerHTML='<span class="lvo-w'+(same?' same':'')+'">Also off: '+L.map(function(h){ return '<b>'+_lvoEsc(h.n)+'</b> ('+(h.st==='approved'?'approved':'pending')+', '+_lvoEsc(_lvoShort(h.from))+(h.to!==h.from?'–'+_lvoEsc(_lvoShort(h.to)):'')+(h.same?', same project':'')+')'; }).join(' · ')+
+      (same?' — <b>'+same+' on '+_lvoEsc(proj)+'</b>, check coverage before approving.':'')+'</span>';
+  });
+}
+setInterval(function(){ try{ lvoFill(); }catch(e){} }, 1200);
+document.addEventListener('visibilitychange', function(){ if(!document.hidden) LVO_A.at=0; });
 </script>
 </body>
 </html>

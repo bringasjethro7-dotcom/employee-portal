@@ -5942,6 +5942,8 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
             <label class="field-label">End date</label>
             <input class="field-input" type="date" id="leave-end" />
           </div>
+          <!-- Innovation Oct 2026 · Jeremie Concepcion: who is already off on the days you pick -->
+          <div class="field-group full lv-ovl" id="lv-overlap" style="grid-column:1/-1;display:none;"></div>
           <div class="field-group full" style="grid-column:1/-1;">
             <label class="field-label">Reason</label>
             <input class="field-input" type="text" id="leave-reason" placeholder="Brief reason for leave…" />
@@ -16607,6 +16609,7 @@ function submitLeave() {
       document.getElementById('leave-end').value    = '';
       document.getElementById('leave-reason').value = '';
       selectedLeaveType = null;
+      try{ lvOverlapCheck(); }catch(_lo){}
       document.querySelectorAll('.leave-type-btn').forEach(function(b) { b.classList.remove('selected'); });
       showToast('Leave request submitted! ✅');
       dupNote(note, 'ok', 'Sent — it’s in the admin’s queue', 'You’ll get an email once it’s approved or rejected. No need to send it again.');
@@ -16742,8 +16745,45 @@ async function lvCoverRepick(id){
   var tmap={ 'Vacation leave':'vacation','Sick leave':'sick','Emergency leave':'emergency' };
   await lvCoverAsk(to, r.start, r.end, tmap[r.type]||'', document.getElementById('leave-msg'));
 }
+/* ── INNOVATION OCT 2026 · Jeremie Concepcion (75): before you send a day-off request, see who is already off on those
+   days (approved leaves only — the same list the team calendar shows). It never blocks the request; the admin sees the
+   same check, with pending requests and projects, before approving. ── */
+var LVO={ leaves:null, at:0, wired:false };
+async function lvOverlapLoad(){
+  if(LVO.leaves && Date.now()-LVO.at<60000) return LVO.leaves;
+  try{ var r=await jGet(APPS_SCRIPT_URL+'?action=approved_leaves&_='+Date.now()); var d=await r.json(); LVO.leaves=(d&&d.leaves)||[]; LVO.at=Date.now(); }
+  catch(e){ LVO.leaves=LVO.leaves||[]; }
+  return LVO.leaves;
+}
+function _lvoFirst(n){ n=String(n||''); var p=n.split(','); return ((p.length>1?p[1]:p[0]).trim().split(/\s+/)[0])||n; }
+function _lvoDays(a, b){ var out=[], p=a.split('-'), d=new Date(+p[0], +p[1]-1, +p[2]); for(var i=0;i<62;i++){ var y=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); if(y>b) break; out.push(y); d.setDate(d.getDate()+1); } return out; }
+function _lvoLbl(y){ var p=y.split('-'); return new Date(+p[0], +p[1]-1, +p[2]).toLocaleDateString('en-US',{ weekday:'short', month:'short', day:'numeric' }); }
+async function lvOverlapCheck(){
+  var box=document.getElementById('lv-overlap'); if(!box) return;
+  var s=(document.getElementById('leave-start')||{}).value||'', e=(document.getElementById('leave-end')||{}).value||s;
+  if(!s){ box.style.display='none'; return; }
+  if(e<s) e=s;
+  var L=await lvOverlapLoad(), me=String(leaveEmpId||'').toLowerCase(), rows=[];
+  _lvoDays(s, e).forEach(function(d){
+    var who={}; L.forEach(function(x){ var id=String(x.employee_id||'').toLowerCase(); if(!id || id===me) return; var xs=String(x.start||'').slice(0,10), xe=String(x.end||x.start||'').slice(0,10); if(xs && xs<=d && xe>=d) who[id]=_lvoFirst(x.full_name||x.employee_id); });
+    var names=Object.keys(who).map(function(k){ return who[k]; }); if(names.length) rows.push({ d:d, n:names });
+  });
+  var esc=function(t){ return String(t).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
+  if(!rows.length){ box.className='field-group full lv-ovl ok'; box.innerHTML='No one else is off on these days.'; box.style.display=''; return; }
+  var most=0; rows.forEach(function(r){ if(r.n.length>most) most=r.n.length; });
+  box.className='field-group full lv-ovl warn';
+  box.innerHTML='<b>'+(most>1?most+' teammates are':'A teammate is')+' already off on '+(rows.length===1?'one of these days':rows.length+' of these days')+'.</b>'+
+    '<div class="lv-ovl-l">'+rows.slice(0,8).map(function(r){ return '<span>'+esc(_lvoLbl(r.d))+' · '+esc(r.n.join(', '))+'</span>'; }).join('')+(rows.length>8?'<span>…</span>':'')+'</div>'+
+    '<p>You can still send it. The admin sees this too before approving, so pick other days if you can.</p>';
+  box.style.display='';
+}
+function lvOverlapWire(){
+  if(LVO.wired) return; LVO.wired=true;
+  ['leave-start','leave-end'].forEach(function(id){ var el=document.getElementById(id); if(el){ el.addEventListener('change', lvOverlapCheck); el.addEventListener('input', lvOverlapCheck); } });
+}
 function initLeave(empId) {
   leaveEmpId = empId;
+  try{ lvOverlapWire(); lvOverlapCheck(); }catch(_lo){}
   try{ lvCoverInit(); }catch(_lc){}
   // Set min date to today
   var today = new Date().toISOString().split('T')[0];
@@ -26497,7 +26537,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-02-B';
+var PORTAL_BUILD='2026-11-03-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34621,6 +34661,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-03-A', version:'2026.11.03', date:'November 3, 2026',
+    summary:'Three ideas from your October innovation entries are now part of your tools.',
+    items:[
+      'Leave form: when you pick your dates, you can now see if a teammate is already off on those days. This idea came from Jeremie.',
+      'Reddit Central: if a session timer keeps running, a card asks if the session is done, with Finish now and Still working. This idea came from Alieza.',
+      'Reddit Central: a drift meter at the top shows how far your portal time is ahead of your task timers. After you finish a session, a card offers the next account, and you get a reminder when no task timer is running. This idea came from Joana Mae.'
+    ] },
   { build:'2026-11-02-B', version:'2026.11.02', date:'November 2, 2026',
     summary:'A new goal bar on your Overview shows how close you are to this cutoff\'s goal.',
     items:[
@@ -34748,6 +34795,12 @@ var PORTAL_NOTES=[
 /* leave handover (Oct 19) — plain text, no icons */
 .lv-cover-help{ font-size:12px; color:var(--text-3); margin:6px 0 0; line-height:1.5; }
 .lv-cover-st{ margin-top:14px; border-top:1px solid var(--border); padding-top:12px; }
+.lv-ovl{ font-size:12.5px; line-height:1.5; border-radius:12px; padding:10px 12px; border:1px solid var(--border); }
+.lv-ovl.ok{ color:#047857; background:rgba(16,185,129,.07); border-color:rgba(16,185,129,.25); font-weight:600; }
+.lv-ovl.warn{ color:#92400e; background:rgba(245,158,11,.08); border-color:rgba(245,158,11,.3); }
+.lv-ovl.warn b{ font-weight:800; }
+.lv-ovl-l{ display:flex; flex-direction:column; gap:2px; margin:6px 0 4px; font-weight:600; }
+.lv-ovl p{ margin:4px 0 0; font-size:11.5px; opacity:.85; }
 .lv-cover-st .h{ font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); margin-bottom:6px; }
 .lv-cover-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:7px 0; font-size:13px; color:var(--text-2); border-bottom:1px solid var(--border); }
 .lv-cover-row:last-child{ border-bottom:none; }
