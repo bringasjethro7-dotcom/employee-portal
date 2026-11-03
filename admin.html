@@ -4109,7 +4109,7 @@ async function dcSave(){
   }catch(e){ toast('Connection error.'); }
 }
 async function deleteTrackerProject(row){
-  if(!confirm('Delete this project/task from the list?')) return;
+  if(!confirm('Delete this project/task from the list?\n\nIts saved rate goes too. If hours on it are still unbilled, the invoice will ask you for the rate.')) return;
   try{
     await fetch(API+'?action=delete_tracker_project&row='+encodeURIComponent(row));
     setTimeout(loadProjectsAdmin,600);
@@ -4395,6 +4395,7 @@ async function loadPayslipsAdmin(){
     var d=_r[0]||{}, fd=_r[1]||{}, bkd=_r[2]||{};
     payEmps=d.employees||[];
     var fund=(fd&&fd.ok)?fd:{main_project:{},paid:{}};
+    if(!fund.paid_cov) _payPaidByRange(fund);   // until portal API 2026-11-03a is live (it does this day by day)
     window._payFund=fund;
     var payBanks=(bkd&&bkd.banks)||{};
     var mpOf=function(id, period){ var mb=(fund.main_by_period||{})[period||'']; return (mb&&mb[id])||fund.main_project[id]||''; };
@@ -4616,6 +4617,38 @@ function closePayModal(){ var m=document.getElementById('pay-modal'); if(m) m.st
    now, the amount pre-fills as that share of the net (hours-weighted, editable), and on send
    the tranche is recorded, the contractor is emailed the paid/outstanding breakdown, and the
    row shows "◐ Partial" until the final tranche goes through the normal Pay button. */
+/* Nov 3 (Slaybae INV833 "Oct 14 – Oct 31, 2026" never funded its VAs): an invoice period is not always a
+   cutoff label — a new project's held days move its first invoice back, a client that ends mid-cutoff is
+   billed to its last day. Each paid invoice now also funds every cutoff its dates fall in. The portal API
+   (2026-11-03a+) does this exactly, day by day, and sends paid_cov:1; this is the stand-in until then. */
+function _payPerRange(s){
+  var M={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  var m=String(s||'').match(/([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,\s*(\d{4}))?\s*(?:\u2013|\u2014|-|to)\s*([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s*(\d{4})/);
+  if(!m) return null; var m1=M[m[1].toLowerCase()], m2=M[m[4].toLowerCase()]; if(!m1||!m2) return null;
+  var y2=+m[6], y1=m[3]?+m[3]:(m1>m2?y2-1:y2);
+  return { a:new Date(Date.UTC(y1,m1-1,+m[2])), b:new Date(Date.UTC(y2,m2-1,+m[5])) };
+}
+function _payPaidByRange(fund){
+  try{
+    var paid=fund.paid=fund.paid||{}, MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    Object.keys(paid).forEach(function(per){
+      var r=_payPerRange(per); if(!r || r.b<r.a) return;
+      var y=r.a.getUTCFullYear(), mo=r.a.getUTCMonth(), guard=0;
+      while(guard++<48){
+        var last=new Date(Date.UTC(y,mo+1,0)).getUTCDate();
+        [[1,15],[16,last]].forEach(function(h){
+          var c0=new Date(Date.UTC(y,mo,h[0])), c1=new Date(Date.UTC(y,mo,h[1]));
+          if(c1<r.a || c0>r.b) return;
+          var lbl=MN[mo]+' '+h[0]+' \u2013 '+MN[mo]+' '+h[1]+', '+y;
+          if(lbl===per) return;
+          Object.keys(paid[per]).forEach(function(pr){ (paid[lbl]=paid[lbl]||{})[pr]=true; });
+        });
+        if(new Date(Date.UTC(y,mo+1,1))>r.b) break;
+        mo++; if(mo>11){ mo=0; y++; }
+      }
+    });
+  }catch(e){}
+}
 function openPartialModal(idx){
   var r=(window._payRows||[])[idx]; if(!r) return; window._payCur=r;
   var fund=window._payFund||{}; var split=((fund.projects_by_period||{})[r.period]||{})[r.empId]||[];
@@ -5013,6 +5046,21 @@ function invCatResolver(rows, project){
   var pm=top(byProj);
   return function(w){ var c=invCatAlias(w.category); if(c) return c; return top(byEmp[String(w.employee_id||'').toLowerCase()])||pm||'Uncategorized'; };
 }
+/* Nov 3 (Jeth: "Why the Imperium doesnt show when I am doing invoice? Even though we still work for them until
+   Oct 19."): the Project filter only listed Projects & Tasks, so deleting a client there (Imperium, after its
+   last day) also hid its unbilled hours from invoicing. Every project with hours in the last ~75 days is now
+   listed; the ones no longer in Projects & Tasks show as "(ended)". */
+async function wlAddEndedProjects(pjSel){
+  try{
+    var have={}; Array.prototype.forEach.call(pjSel.options, function(o){ if(o.value) have[o.value.toLowerCase()]=1; });
+    var fd=await (await jGet(API+'?action=payslip_funding')).json();
+    var names={};
+    Object.keys((fd&&fd.projects_by_period)||{}).forEach(function(l){ var pl=fd.projects_by_period[l]||{};
+      Object.keys(pl).forEach(function(em){ (pl[em]||[]).forEach(function(x){ var n=String(x&&x.p||'').trim(); if(n && !/^idle\b/i.test(n)) names[n.toLowerCase()]=n; }); }); });
+    Object.keys(names).sort().forEach(function(k){ if(have[k]) return; have[k]=1;
+      var o=document.createElement('option'); o.value=names[k]; o.textContent=names[k]+' (ended)'; pjSel.appendChild(o); });
+  }catch(e){}
+}
 async function generateInvoice(){
   var project = (document.getElementById('wl-project-filter')||{}).value;
   if(!project){ alert('Pick a specific Project in the filter first — invoices are generated per project.'); return; }
@@ -5063,6 +5111,20 @@ async function generateInvoice(){
   if(!lines.length){ alert('No recorded entries for "'+project+'" in the selected date range.\n(Only approved/recorded entries are billed — approve any pending ones first.)'); return; }
   lines.sort(function(a,b){ return a.category.localeCompare(b.category); });
   var pk=project.toLowerCase(); var subtotal=0;
+  /* Nov 3: no saved rate for this project (deleted from Projects & Tasks — e.g. an ended client) → ask, never bill $0.
+     The rate typed here is remembered on this computer for the next invoice of the same project. */
+  if(projRate[pk]===undefined){
+    for(var _ri=0; _ri<lines.length; _ri++){
+      var _ck=pk+'|'+String(lines[_ri].category||'').toLowerCase(); if(rateByCat[_ck]!==undefined) continue;
+      var _def=''; try{ _def=localStorage.getItem('inv_rate:'+_ck)||''; }catch(_ls){}
+      var _ans=prompt('No saved rate for '+project+' › '+(lines[_ri].category||'Uncategorized')+' ('+(Math.round(lines[_ri].hours*100)/100)+' h).\n'+
+        'It is not in Projects & Tasks any more.\n\nHourly rate in USD for this invoice:', _def);
+      if(_ans===null){ if(typeof toast==='function') toast('Invoice cancelled — no rate for '+(lines[_ri].category||'Uncategorized')+'.'); return; }
+      var _rv=parseFloat(String(_ans).replace(/[^0-9.]/g,''));
+      if(!(_rv>0)){ alert('That rate is not a number above 0 — invoice not made.'); return; }
+      rateByCat[_ck]=_rv; try{ localStorage.setItem('inv_rate:'+_ck, String(_rv)); }catch(_ls2){}
+    }
+  }
   // Hidden markup: silently multiply each category's hours (e.g. 120 -> 126 at +5%). Not shown on the invoice.
   var mkEl=document.getElementById('wl-markup');
   var mult=1+((mkEl?parseFloat(mkEl.value):0)||0)/100;
@@ -5742,6 +5804,7 @@ async function loadWorkLog(){
         if(p.project && !seen[p.project]){ seen[p.project]=true; pjSel.innerHTML += '<option value="'+escAdmin(p.project)+'">'+escAdmin(p.project)+'</option>'; }
       });
     }catch(err){}
+    wlAddEndedProjects(pjSel);   // Nov 3: projects removed from Projects & Tasks but still with hours to bill
   }
   // Default the date range to the current month on first load
   var fromEl = document.getElementById('wl-from');
