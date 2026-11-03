@@ -4241,6 +4241,11 @@ async function pgPreview(){
     var wd=await wr.json();
     var wlByEmp={};
     ((wd&&wd.totals)||[]).forEach(function(o){ wlByEmp[String(o.employee_id)]={ prod:parseFloat(o.prod)||0, idle:parseFloat(o.idle)||0 }; });
+    /* Nov 3 (Jeth): the 5% night differential covers ONLY hours worked 7 PM–7 AM Philippine time — for everyone, whatever
+       their shift. The portal API (2026-11-03c+) measures each VA's hours inside that window from the work log. */
+    var ndByEmp=null;
+    try{ var nr=await jGet(API+'?action=nd_hours&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+'&_='+Date.now()); var nd=await nr.json();
+      if(nd && nd.ok && Array.isArray(nd.rows)){ ndByEmp={}; nd.rows.forEach(function(o){ ndByEmp[String(o.employee_id)]=o; }); } }catch(_nd){}
     // Always read attendance — for clocked hours (if that source) AND to detect each
     // person's shift (night/morning) over the cutoff so night shift gets the 5% diff.
     // ONE bulk call for everyone's attendance in the range. This used to fire a separate
@@ -4282,8 +4287,14 @@ async function pgPreview(){
       hours=Math.max(0, Math.round(hours*100)/100); if(hours<=0) return;
       var shift = (att.night > att.morning) ? 'night' : 'morning';
       var rate=(_rOn[id]!=null ? parseFloat(_rOn[id]) : parseFloat(e.rate))||0, hourly=rate/240, basic=hours*hourly;
-      var nightD = shift==='night' ? basic*0.05 : 0;
-      _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, incentive:0, gross:basic+nightD, held:_hold[id]||[], carry:_carry[id]||[] });
+      var ndH=null, ndUntimed=0;
+      if(ndByEmp){   // hours inside 7 PM–7 AM, in proportion to the hours being paid (holds / idle choice applied the same way)
+        var n0=ndByEmp[id]||{}, nb=(parseFloat(n0.nd_prod)||0)+(incIdle?(parseFloat(n0.nd_idle)||0):0), pb=(parseFloat(n0.prod)||0)+(incIdle?(parseFloat(n0.idle)||0):0);
+        ndH=pb>0 ? Math.min(hours, Math.round(hours*(nb/pb)*100)/100) : 0; ndUntimed=parseFloat(n0.untimed)||0;
+        shift = (ndH>=hours/2 || (typeof DOUBLE_SHIFT_ADM!=='undefined' && DOUBLE_SHIFT_ADM.indexOf(id.toUpperCase())>=0)) ? 'night' : 'morning';
+      }
+      var nightD = (ndH!==null) ? ndH*hourly*0.05 : (shift==='night' ? basic*0.05 : 0);
+      _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, ndH:ndH, ndUntimed:ndUntimed, incentive:0, gross:basic+nightD, held:_hold[id]||[], carry:_carry[id]||[] });
     });
     var _hb='';
     if(HP.held.length || HP.carried.length){
@@ -4298,14 +4309,15 @@ async function pgPreview(){
     if(!_pgRows.length){ box.innerHTML=_hb+'<div class="es" style="padding:10px 0">No hours found for anyone in this range.</div>'; return; }
     _pgPeriod=pgPeriodLabel(from,to);
     var totH=0,totG=0; _pgRows.forEach(function(x){ totH+=x.hours; totG+=x.gross; });
-    var nightCount=_pgRows.filter(function(x){return x.shift==='night';}).length;
-    box.innerHTML=_hb+'<div style="font-size:12px;color:var(--t2);margin:12px 0 6px">Period <b style="color:var(--t1)">'+payEsc(_pgPeriod)+'</b> · '+_pgRows.length+' contractors ('+nightCount+' night +5%) · '+totH.toFixed(1)+'h · <span id="pg-tot-gross">₱'+totG.toLocaleString(undefined,{maximumFractionDigits:2})+'</span> gross</div>'+
-      '<div class="tw"><table><thead><tr><th>Contractor</th><th>Shift</th><th>Hours</th><th>Basic</th><th>Night +5%</th><th>Incentive/s</th><th>Gross</th></tr></thead><tbody>'+
+    var nightCount=_pgRows.filter(function(x){return x.nightD>0;}).length;
+    if(!ndByEmp) _hb='<div style="margin:12px 0 4px;padding:10px 12px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;font-size:12.5px;color:#991b1b;line-height:1.55"><b>Night differential is on the OLD rule here</b> (5% on all hours of night-shift VAs) — the portal API could not measure the 7 PM–7 AM hours. Deploy portal API 2026-11-03c (Actions → Deploy Apps Script backends), then compute again before generating.</div>'+_hb;
+    box.innerHTML=_hb+'<div style="font-size:12px;color:var(--t2);margin:12px 0 6px">Period <b style="color:var(--t1)">'+payEsc(_pgPeriod)+'</b> · '+_pgRows.length+' contractors ('+nightCount+' with night diff, 5% on hours 7 PM–7 AM) · '+totH.toFixed(1)+'h · <span id="pg-tot-gross">₱'+totG.toLocaleString(undefined,{maximumFractionDigits:2})+'</span> gross</div>'+
+      '<div class="tw"><table><thead><tr><th>Contractor</th><th>Shift</th><th>Hours</th><th>Basic</th><th>Night diff · 7 PM–7 AM</th><th>Incentive/s</th><th>Gross</th></tr></thead><tbody>'+
       _pgRows.map(function(x,i){
         var sh = x.shift==='night' ? '<span style="color:#a78bfa"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z\"/></svg> Night</span>' : '<span style="color:var(--t2)"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><circle cx=\"12\" cy=\"14\" r=\"4\"/><path d=\"M12 3v3M4 14H1M23 14h-3M2 20h20\"/></svg> Morning</span>';
         var _hn=(x.held||[]).map(function(z){ return '<div style="font-size:11px;color:#c2410c">⏸ '+payEsc(z.p)+' '+z.h.toFixed(2)+'h on hold → next cutoff</div>'; }).join('')+
                 (x.carry||[]).map(function(z){ return '<div style="font-size:11px;color:#15803d">➕ '+payEsc(z.p)+' '+z.h.toFixed(2)+'h from '+pholdFmt(z.f)+' – '+pholdFmt(z.t)+'</div>'; }).join('');
-        return '<tr><td>'+payEsc(x.name)+_hn+'</td><td>'+sh+'</td><td>'+x.hours.toFixed(2)+'h</td><td>₱'+x.basic.toLocaleString(undefined,{maximumFractionDigits:2})+'</td><td>'+(x.nightD>0?('₱'+x.nightD.toLocaleString(undefined,{maximumFractionDigits:2})):'—')+'</td>'+
+        return '<tr><td>'+payEsc(x.name)+_hn+'</td><td>'+sh+'</td><td>'+x.hours.toFixed(2)+'h</td><td>₱'+x.basic.toLocaleString(undefined,{maximumFractionDigits:2})+'</td><td>'+(x.nightD>0?('₱'+x.nightD.toLocaleString(undefined,{maximumFractionDigits:2})):'—')+(x.ndH!=null?('<div style="font-size:11px;color:var(--t3)">'+x.ndH.toFixed(2)+'h × 5%'+(x.ndUntimed>0.05?(' · '+x.ndUntimed.toFixed(2)+'h untimed, counted as day'):'')+'</div>'):'')+'</td>'+
           '<td><input class="sinp" type="number" min="0" step="any" placeholder="0" value="" style="width:104px" oninput="pgIncChange('+i+',this.value)"></td>'+
           '<td id="pg-gross-'+i+'"><b>₱'+x.gross.toLocaleString(undefined,{maximumFractionDigits:2})+'</b></td></tr>';
       }).join('')+'</tbody></table></div>';
@@ -4321,15 +4333,16 @@ function pgIncChange(i, val){
   var tot=_pgRows.reduce(function(s,r){ return s+r.gross; },0);
   var te=document.getElementById('pg-tot-gross'); if(te) te.textContent='₱'+tot.toLocaleString(undefined,{maximumFractionDigits:2});
 }
+var DOUBLE_SHIFT_ADM=['JMB010','JMB014'];   // Nicole + Hamto: night-shift VAs with a 6 AM client — always labelled night
 async function pgGenerate(){
   if(!_pgRows||!_pgRows.length) return;
   if(!confirm('Generate '+_pgRows.length+' payslip(s) for '+_pgPeriod+'?\n\nExisting payslips for this exact period are updated (not duplicated). Paid ones keep their paid status.')) return;
   var btn=document.getElementById('pg-save'); btn.disabled=true; btn.textContent='Saving…';
   var ok=0,fail=0,failNames=[];
-  var payload=_pgRows.map(function(x){ return { employee_id:x.id, period:_pgPeriod, hours:x.hours, shift:x.shift, incentives:x.incentive||0, amount:Math.round((x.gross||0)*100)/100 }; });
+  var payload=_pgRows.map(function(x){ var o={ employee_id:x.id, period:_pgPeriod, hours:x.hours, shift:x.shift, incentives:x.incentive||0, amount:Math.round((x.gross||0)*100)/100 }; if(x.ndH!=null) o.nd_hours=x.ndH; return o; });
   function nameFor(id){ var z=_pgRows.filter(function(r){return r.id===id;})[0]; return z?z.name:id; }
   async function saveOne(x){   // per-row fallback with retry (used if batch is unavailable/errors)
-    for(var t=0;t<3;t++){ try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+'&incentives='+encodeURIComponent(x.incentive||0)+'&amount='+encodeURIComponent(Math.round((x.gross||0)*100)/100)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) return true; }catch(e){} await new Promise(function(res){ setTimeout(res,300*(t+1)); }); }
+    for(var t=0;t<3;t++){ try{ var r=await fetch(API+'?action=add_payslip&employee_id='+encodeURIComponent(x.id)+'&period='+encodeURIComponent(_pgPeriod)+'&hours='+encodeURIComponent(x.hours)+'&shift='+encodeURIComponent(x.shift)+(x.ndH!=null?('&nd_hours='+encodeURIComponent(x.ndH)):'')+'&incentives='+encodeURIComponent(x.incentive||0)+'&amount='+encodeURIComponent(Math.round((x.gross||0)*100)/100)+'&_='+Date.now()); var d=await r.json(); if(d&&d.ok) return true; }catch(e){} await new Promise(function(res){ setTimeout(res,300*(t+1)); }); }
     return false;
   }
   async function perRow(){ ok=0;fail=0;failNames=[]; for(var i=0;i<_pgRows.length;i++){ var okk=await saveOne(_pgRows[i]); if(okk) ok++; else { fail++; failNames.push(_pgRows[i].name); } } }
@@ -4467,7 +4480,7 @@ async function loadPayslipsAdmin(){
         if(paid) _fs='paid';
         else if(_spl.length>1 && _totH>0) _fs=(_fH>=_totH-0.005) ? 'ready' : (_newH>0.005 ? 'partial' : 'waiting');
         else _fs=(_mainOk || (_totH>0 && _fH>=_totH-0.005)) ? 'ready' : 'waiting';
-        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(_fs==='ready'),fstate:_fs,fShare:(_totH>0?_fH/_totH:0),fNewH:Math.round(_fH*100)/100,fNewP:_fP,fWaitP:_waitP,fWaitH:Math.round(_waitH*100)/100,split:_spl,locked:p.locked||null,rate:(p.locked&&p.locked.rate)||p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100});
+        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(_fs==='ready'),fstate:_fs,fShare:(_totH>0?_fH/_totH:0),fNewH:Math.round(_fH*100)/100,fNewP:_fP,fWaitP:_waitP,fWaitH:Math.round(_waitH*100)/100,split:_spl,locked:p.locked||null,rate:(p.locked&&p.locked.rate)||p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100,nd_hours:(p.nd_hours!==undefined?p.nd_hours:'')});
       });
     });
     /* Settled share minus what earlier ◐ tranches already sent → is anything payable now? (works even when an
@@ -4559,7 +4572,7 @@ function removeEmpQr(){
 }
 
 /* ── Pay modal: amount + bank QR for fast manual payment ── */
-function payAmt(r){ if(r.locked && parseFloat(r.locked.gross)>0) return parseFloat(r.locked.gross); var a=parseFloat(r.amount); if(!isNaN(a)&&a>0) return a; var rate=parseFloat(r.rate)||0,hours=parseFloat(r.hours)||0,basic=hours*rate/240,night=(String(r.shift).toLowerCase()==='night')?basic*0.05:0,inc=parseFloat(r.incentives)||0; return basic+night+inc; }
+function payAmt(r){ if(r.locked && parseFloat(r.locked.gross)>0) return parseFloat(r.locked.gross); var a=parseFloat(r.amount); if(!isNaN(a)&&a>0) return a; var rate=parseFloat(r.rate)||0,hours=parseFloat(r.hours)||0,basic=hours*rate/240,_nd=(r.nd_hours!==undefined&&r.nd_hours!=='')?parseFloat(r.nd_hours):NaN,night=!isNaN(_nd)?_nd*rate/240*0.05:((String(r.shift).toLowerCase()==='night')?basic*0.05:0),inc=parseFloat(r.incentives)||0; return basic+night+inc; }   // Nov 3: night diff by the hour when the payslip carries nd_hours
 function payMoney(n){ return '₱'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function payNet(r){ return Math.max(0, payAmt(r)-(parseFloat(r.deductions)||0)); }
 /* What can be paid out right now: the rest of the slip when every client has settled, only the settled
@@ -5827,7 +5840,7 @@ async function loadDashInvoices(){
       return '<div class="dash-item">'+sentChip+
         '<div class="dash-item-main"><strong>'+no+'</strong> <small style="color:var(--t3)">'+escAdmin(x.project||'')+'</small><br>'+
         '<small>'+meta+'</small></div>'+
-        '<div class="dash-item-actions"><button class="bsm" title="Open this invoice again to download the PDF" onclick="invoiceCopy(\''+escAdmin(x.id)+'\',{invoice_no:\''+escAdmin(String(x.invoice_no||'').replace(/\x27/g,''))+'\',project:\''+escAdmin(String(x.project||'').replace(/\x27/g,''))+'\',period:\''+escAdmin(String(x.period||'').replace(/\x27/g,''))+'\'})">PDF</button><button class="bsm edit" style="color:#34d399;border-color:rgba(52,211,153,.4);" onclick="markInvoicePaid(\''+escAdmin(x.id)+'\',\''+escAdmin((x.project||'').replace(/\x27/g,""))+'\',\''+escAdmin(no)+'\')"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><polyline points=\"20 6 9 17 4 12\"/></svg> Mark paid</button></div></div>';
+        '<div class="dash-item-actions"><button class="bsm" style="background:#fff;border:1px solid rgba(15,23,42,.16);color:#334155;font-weight:700;" title="Open this invoice again to download the PDF" onclick="invoiceCopy(\''+escAdmin(x.id)+'\',{invoice_no:\''+escAdmin(String(x.invoice_no||'').replace(/\x27/g,''))+'\',project:\''+escAdmin(String(x.project||'').replace(/\x27/g,''))+'\',period:\''+escAdmin(String(x.period||'').replace(/\x27/g,''))+'\'})">PDF</button><button class="bsm edit" style="color:#34d399;border-color:rgba(52,211,153,.4);" onclick="markInvoicePaid(\''+escAdmin(x.id)+'\',\''+escAdmin((x.project||'').replace(/\x27/g,""))+'\',\''+escAdmin(no)+'\')"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><polyline points=\"20 6 9 17 4 12\"/></svg> Mark paid</button></div></div>';
     }).join('');
   }catch(e){ box.innerHTML='<div class="es">Could not load invoices.</div>'; }
 }
@@ -12467,7 +12480,8 @@ html.touch #pay-modal > div, html.touch #pipe-modal > div, html.touch #award-mod
 html.touch .modal{ max-height:calc(100dvh - 24px) !important; overflow-y:auto !important; -webkit-overflow-scrolling:touch; }
 @media (max-width:999px){ html.touch .modal{ max-height:92dvh !important; } }
 html.touch .tw{ -webkit-overflow-scrolling:touch; }
-html.touch .hd-btn{ min-height:40px; } html.touch .hd-btn.sm{ min-height:36px; padding-left:12px; padding-right:12px; }
+html.touch .hd-btn{ min-height:40px; }
+@media (min-width:700px) and (max-width:999px){ .toolbar > .tl{ flex:1 1 auto; } .toolbar > button, .toolbar > .bsm{ flex:0 0 auto; } }   /* iPad portrait: section titles left, their buttons right */ html.touch .hd-btn.sm{ min-height:36px; padding-left:12px; padding-right:12px; }
 /* tap-to-read for details that only lived in hover tooltips */
 #tt-tip{ position:fixed; z-index:100060; left:12px; top:12px; max-width:min(360px, calc(100vw - 24px)); background:#1f2430; color:#fff; font:600 13px/1.45 Inter,system-ui,sans-serif; padding:10px 12px; border-radius:12px; box-shadow:0 16px 40px rgba(15,23,42,.35); white-space:pre-wrap; pointer-events:none; opacity:0; transition:opacity .15s; }
 #tt-tip.on{ opacity:1; }

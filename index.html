@@ -10735,8 +10735,9 @@ function renderPayslipList(data) {
     var hours      = p.hours ? parseFloat(p.hours) : null;
     var slipHourly = (parseFloat(p.rate) > 0) ? parseFloat(p.rate) / 240 : hourlyRate;   // each payslip keeps the rate of its own cutoff
     var basicP     = hours !== null ? hours * slipHourly : (p.amount ? parseFloat(p.amount) : 0);
-    var isNight    = (p.shift || '').toLowerCase() === 'night';
-    var nightD     = isNight ? basicP * 0.05 : 0;
+    var _ndH       = (p.nd_hours !== undefined && p.nd_hours !== '' && !isNaN(parseFloat(p.nd_hours))) ? parseFloat(p.nd_hours) : null;   // Nov 3: hours worked 7 PM–7 AM
+    var isNight    = _ndH !== null ? _ndH > 0 : (p.shift || '').toLowerCase() === 'night';
+    var nightD     = _ndH !== null ? _ndH * slipHourly * 0.05 : (isNight ? basicP * 0.05 : 0);
     var incentive  = p.incentives ? parseFloat(p.incentives) : 0;
     var totalP     = basicP + nightD + incentive;
     if (p.locked && parseFloat(p.locked.gross) >= 0) totalP = parseFloat(p.locked.gross);   // paid = locked: never recomputed (Oct 8)
@@ -10768,8 +10769,10 @@ function openPayslip(idx) {
   var basicPay = _lk ? parseFloat(_lk.basic) : (hours !== null ? hours * hourly : (p.amount ? parseFloat(p.amount) : 0));
 
   // Night shift differential: 5% of basic pay
-  var isNightShift   = (p.shift || '').toLowerCase() === 'night';
-  var nightDiff      = _lk ? (parseFloat(_lk.night) || 0) : (isNightShift ? basicPay * 0.05 : 0);
+  /* Nov 3: the 5% is earned only for hours worked 7 PM–7 AM Philippine time (nd_hours on the payslip); older payslips keep the shift rule */
+  var ndHours        = (p.nd_hours !== undefined && p.nd_hours !== '' && !isNaN(parseFloat(p.nd_hours))) ? parseFloat(p.nd_hours) : null;
+  var isNightShift   = ndHours !== null ? ndHours > 0 : (p.shift || '').toLowerCase() === 'night';
+  var nightDiff      = _lk ? (parseFloat(_lk.night) || 0) : (ndHours !== null ? ndHours * hourly * 0.05 : (isNightShift ? basicPay * 0.05 : 0));
 
   // Incentives: fixed amount from payslip JSON
   var incentives     = p.incentives ? parseFloat(p.incentives) : 0;
@@ -10781,8 +10784,8 @@ function openPayslip(idx) {
 
   var nightDiffRow = isNightShift ? `
           <tr>
-            <td>Night Shift Differential <span style="color:#888;font-size:11px;">(5%)</span></td>
-            <td style="color:#888;font-size:12px;">5% × basic</td>
+            <td>Night Differential <span style="color:#888;font-size:11px;">(5%)</span></td>
+            <td style="color:#888;font-size:12px;">${ndHours !== null ? ('5% × ' + ndHours.toFixed(2) + ' h worked 7 PM–7 AM') : '5% × basic'}</td>
             <td style="text-align:right;">${formatMoney(nightDiff)}</td>
           </tr>` : '';
 
@@ -10839,7 +10842,7 @@ function openPayslip(idx) {
       '</div>' +
 
       (isNightShift || incentives > 0 ? '<div style="margin-top:10px;font-size:11px;color:#888;line-height:1.8;">' +
-        (isNightShift ? '<div>Night Differential: ' + formatMoney(nightDiff) + ' (5% of basic pay)</div>' : '') +
+        (isNightShift ? '<div>Night Differential: ' + formatMoney(nightDiff) + (ndHours !== null ? ' (5% on ' + ndHours.toFixed(2) + ' h worked 7 PM–7 AM)' : ' (5% of basic pay)') + '</div>' : '') +
         (incentives > 0 ? '<div>' + incentiveLabel + ': ' + formatMoney(incentives) + '</div>' : '') +
         '</div>' : '') +
 
@@ -10974,6 +10977,16 @@ function vaPassesLoad(){
   }).catch(function(){}); }catch(e){}
 }
 setTimeout(vaPassesLoad, 6000); setInterval(vaPassesLoad, 30*60000);
+/* Nov 3 (Jeth): "whenever they are on the 6 a.m. shift for their next client, it asks them to time in again … I don't want
+   you to do that." For Nicole + Hamto (the double-shift pass) pressing Start / Resume with no open session times them in
+   on the spot — no extra Time In step — and the session stays a night-shift one. */
+function hybridAutoTimeIn(){
+  try{
+    if(!isDoubleShift() || getActiveSession()) return false;
+    logTime('time_in');
+    return !!getActiveSession();
+  }catch(e){ return false; }
+}
 function _dsShiftFrom(){   // ms of the latest Time In today, when this is a double-shift VA's second (or later) shift — else 0
   try{ if(!isDoubleShift()) return 0; var ss=(todayLog && todayLog.sessions) || []; if(ss.length<2) return 0;
     var t=parseTrkTime(ss[ss.length-1].time_in); return isNaN(t)?0:t; }catch(e){ return 0; }
@@ -10983,6 +10996,7 @@ function detectShift(hour, minute) {
   // Morning: clock in between 05:00–14:00
   // Night:   clock in between 17:00–23:59 or 00:00–04:59
   if (isSplitSched()) return 'split';
+  if (isDoubleShift()) return 'night';   // Nov 3 (Jeth): Nicole + Hamto are night-shift VAs who also have a 6 AM client, never morning
   if (hour >= 5 && hour < 14) return 'morning';
   return 'night';
 }
@@ -14505,7 +14519,7 @@ async function startTimer() {
   try { if (!trkRunning && window.__portalUpdPending && window.__portalUpdPending() && !(typeof WOB !== 'undefined' && WOB.pending())) {
     try { saveTrkSelection(); } catch(_s) {}
     showToast('🔄 Updating the portal first — press Start again in a moment.'); setTimeout(function(){ location.reload(); }, 700); return; } } catch(_u) {}
-  if (!getActiveSession()) { showToast('Please Time In before tracking time.'); return; }
+  if (!getActiveSession() && !hybridAutoTimeIn()) { showToast('Please Time In before tracking time.'); return; }
   if (!TRKDEV.required()) return;   // 💻 company laptop must be chosen first (no personal laptops)
   if (AUL.blocked()) return;   // 🍽 AUTO-LUNCH: the hour is not workable (unless admin approved)
   /* 📚 SOP REFRESHER GATE (his spec): on Mon/Thu/Sat no project or task may be STARTED until
@@ -14581,7 +14595,7 @@ function pauseTimer(opts) {
 }
 
 async function resumeTask(entryId) {
-  if (!getActiveSession()) { showToast('Please Time In first.'); return; }
+  if (!getActiveSession() && !hybridAutoTimeIn()) { showToast('Please Time In first.'); return; }
   if (!TRKDEV.required()) return;           // 💻 resuming is starting work too — laptop first
   if (AUL.blocked()) return;                // 🍽 AUTO-LUNCH: resuming mid-lunch is starting work too
   if (!(await _sopAllowWork())) return;     // 📚 resuming a paused task is starting work too
@@ -16049,8 +16063,8 @@ function updateClockifyStartBtn() {
     if (hint) hint.style.display = 'none';
     return;
   }
-  // Timer idle → enable only if timed in
-  var active = getActiveSession();
+  // Timer idle → enable only if timed in (a hybrid night VA's morning client: Start times her in by itself)
+  var active = getActiveSession() || (isDoubleShift() ? { hybrid:true } : null);
   var hint   = document.getElementById('cfy-timein-hint');
   if (!active) {
     btn.disabled      = true;
@@ -26537,7 +26551,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-03-A';
+var PORTAL_BUILD='2026-11-03-B';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34661,6 +34675,12 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-03-B', version:'2026.11.03', date:'November 3, 2026',
+    summary:'The 5% night differential now follows the hours you work between 7 PM and 7 AM.',
+    items:[
+      'Night differential: from the November 1 to 15 cutoff, the 5% is added only for the hours you work between 7 PM and 7 AM Philippine time. Hours outside that window are paid at your normal rate. Your payslip shows how many hours earned it.',
+      'Night shift VAs who also have an early morning client stay on the night shift all day. Starting your morning timer no longer asks you to time in again.'
+    ] },
   { build:'2026-11-03-A', version:'2026.11.03', date:'November 3, 2026',
     summary:'Three ideas from your October innovation entries are now part of your tools.',
     items:[
