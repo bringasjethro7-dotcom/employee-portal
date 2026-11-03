@@ -47,7 +47,7 @@ html,body{margin:0;height:100%;background:#05070f;color:#fff;font-family:Inter,"
   if(code.length!==6){ code=''; for(var i=0;i<6;i++) code+=AL.charAt(Math.floor(Math.random()*AL.length)); }
   try{ localStorage.setItem('hudtv_code', code); }catch(e){}
   document.getElementById('code').innerHTML=code.split('').map(function(c){ return '<span>'+c+'</span>'; }).join('');
-  var TOPIC='realtime:hudtv-'+code, WS=null, REF=0, HB=null, HELLO=null, JOINED=false, LIVE=false, CUR='', LAST=0;
+  var TOPIC='realtime:hudtv-'+code, WS=null, REF=0, HB=null, HELLO=null, JOINED=false, LIVE=false, CUR='', LAST=0, SAID=0;
   try{ if(window.JMBHuddle && JMBHuddle.tvCss) JMBHuddle.tvCss(); }catch(e){}
   var wait=document.getElementById('wait'), show=document.getElementById('show'), st=document.getElementById('st');
   show.innerHTML='<div class="hds"><div class="hds-st"><div class="hds-bl a"></div><div class="hds-bl b"></div><div class="hds-grid"></div><div class="hds-ghost"></div><div class="hds-top"></div><div class="hds-body"></div><div class="hds-foot"></div></div></div>';
@@ -65,7 +65,7 @@ html,body{margin:0;height:100%;background:#05070f;color:#fff;font-family:Inter,"
       q('.hds-top').innerHTML=p.top||''; q('.hds-body').innerHTML=p.body||''; q('.hds-foot').innerHTML=p.foot||''; q('.hds-ghost').textContent=p.ghost||'';
       if(p.a) q('.hds-bl.a').style.background=p.a; if(p.b) q('.hds-bl.b').style.background=p.b;
       if(same) setTimeout(function(){ stage.classList.remove('tv-still'); }, 60);
-      setLive(true);
+      var was=LIVE; setLive(true); if(!was) hello();   /* tell the laptop the TV is showing it */
     } else if(ev==='tick'){
       if(!LIVE || p.k!==CUR) { if(!LIVE) hello(); return; }
       var c=q('.hds-clock'); if(c && p.c!=null) c.innerHTML=p.c;
@@ -73,7 +73,7 @@ html,body{margin:0;height:100%;background:#05070f;color:#fff;font-family:Inter,"
     } else if(ev==='end'){ CUR=''; setLive(false); status('The huddle ended. Waiting for the next one…', true); }
   }
   function send(o){ try{ if(WS && WS.readyState===1) WS.send(JSON.stringify(o)); }catch(e){} }
-  function hello(){ if(JOINED) send({ topic:TOPIC, event:'broadcast', payload:{ type:'broadcast', event:'hello', payload:{ t:Date.now() } }, ref:String(++REF) }); }
+  function hello(){ SAID=Date.now(); if(JOINED) send({ topic:TOPIC, event:'broadcast', payload:{ type:'broadcast', event:'hello', payload:{ t:Date.now() } }, ref:String(++REF) }); }
   function connect(){
     status('Connecting…', false);
     try{ WS=new WebSocket(SUPA_URL.replace(/^http/,'ws')+'/realtime/v1/websocket?apikey='+encodeURIComponent(SUPA_KEY)+'&vsn=1.0.0'); }catch(e){ setTimeout(connect, 4000); return; }
@@ -90,7 +90,7 @@ html,body{margin:0;height:100%;background:#05070f;color:#fff;font-family:Inter,"
     WS.onerror=function(){ try{ WS.close(); }catch(x){} };
   }
   /* say hello now and then, so a laptop that opens the show later finds this TV at once */
-  HELLO=setInterval(function(){ if(!LIVE || Date.now()-LAST>20000) hello(); }, LIVE?30000:8000);
+  HELLO=setInterval(function(){ if(!LIVE || Date.now()-SAID>25000) hello(); }, 8000);   /* waiting: every 8 s · showing: every 25 s (keeps the laptop's "On TV") */
   setInterval(function(){ if(LIVE && Date.now()-LAST>90000){ CUR=''; setLive(false); status('Lost the huddle — waiting for it to come back…', false); } }, 10000);
   connect();
 })();
