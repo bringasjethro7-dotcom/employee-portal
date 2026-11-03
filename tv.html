@@ -10,19 +10,22 @@
 /* JMB HUDDLE TV (Nov 3, 2026) — open this page in the TV's own web browser. It shows a code; the presenter types it
    in the Huddle show (button "Show on TV") and this screen follows every slide live. No sign-in, nothing stored. */
 html,body{margin:0;height:100%;background:#05070f;color:#fff;font-family:Inter,"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;overflow:hidden}
-#wait{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 700px at 15% -10%,#312e81 0,transparent 60%),radial-gradient(900px 600px at 110% 110%,#7c2d12 0,transparent 60%),#05070f}
-#wait .card{text-align:center;padding:5vh 6vw}
+#wait{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 700px at 15% -10%,#312e81 0,transparent 60%),radial-gradient(900px 600px at 110% 110%,#7c2d12 0,transparent 60%),#05070f}
+#wait .card{text-align:center;padding:5vh 6vw;transform-origin:center center}
 #wait img{width:9vh;height:9vh;border-radius:2.2vh}
 #wait .k{margin-top:3vh;font-size:2.2vh;font-weight:800;letter-spacing:.3em;text-transform:uppercase;color:#fdba74}
 #wait .h{font-size:5vh;font-weight:900;letter-spacing:-.02em;margin-top:1vh}
-#wait .code{margin:4vh auto 0;display:flex;gap:1.6vh;justify-content:center}
-#wait .code span{display:flex;align-items:center;justify-content:center;width:13vh;height:17vh;border-radius:2.4vh;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);font-size:11vh;font-weight:900;font-variant-numeric:tabular-nums}
+#wait .code{margin:4vh auto 0;display:flex;justify-content:center}
+#wait .code span{margin:0 .8vh;display:flex;align-items:center;justify-content:center;width:13vh;height:17vh;border-radius:2.4vh;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);font-size:11vh;font-weight:900;font-variant-numeric:tabular-nums}
 #wait .how{margin-top:4.5vh;font-size:2.8vh;line-height:1.5;color:rgba(255,255,255,.78)}
 #wait .how b{color:#fff}
 #wait .st{margin-top:3vh;font-size:2.1vh;color:rgba(255,255,255,.5)}
 #wait .st i{display:inline-block;width:1.2vh;height:1.2vh;border-radius:50%;background:#f59e0b;margin-right:1vh;vertical-align:.1vh}
 #wait .st.ok i{background:#10b981}
-#show{display:none}
+#show{display:none;position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%}
+#show .hds{position:absolute!important;top:0!important;left:0!important;right:0!important;bottom:0!important;width:100%;height:100%}
+#tvsz{position:fixed;left:50%;bottom:4vh;transform:translateX(-50%);background:rgba(15,23,42,.92);color:#fff;font-size:2.4vh;font-weight:800;padding:1.2vh 2.4vh;border-radius:1.4vh;z-index:2147483647;opacity:0;transition:opacity .25s;pointer-events:none}
+#wait .keys{margin-top:2vh;font-size:1.9vh;color:rgba(255,255,255,.42)}
 .tv-still *{animation:none!important;transition:none!important}
 </style>
 </head>
@@ -34,8 +37,10 @@ html,body{margin:0;height:100%;background:#05070f;color:#fff;font-family:Inter,"
   <div class="code" id="code"></div>
   <div class="how">On the laptop: open the <b>Huddle</b> → <b>Start the huddle</b> → press <b>Show on TV</b> and type this code.<br>This screen follows the huddle from then on.</div>
   <div class="st" id="st"><i></i>Connecting…</div>
+  <div class="keys">Not filling the screen? Remote: <b>Up</b> / <b>Down</b> changes the size · <b>OK</b> = full screen</div>
 </div></div>
 <div id="show"></div>
+<div id="tvsz"></div>
 <script src="huddle.js"></script>
 <script>
 (function(){
@@ -51,9 +56,23 @@ html,body{margin:0;height:100%;background:#05070f;color:#fff;font-family:Inter,"
   try{ if(window.JMBHuddle && JMBHuddle.tvCss) JMBHuddle.tvCss(); }catch(e){}
   var wait=document.getElementById('wait'), show=document.getElementById('show'), st=document.getElementById('st');
   show.innerHTML='<div class="hds"><div class="hds-st"><div class="hds-bl a"></div><div class="hds-bl b"></div><div class="hds-grid"></div><div class="hds-ghost"></div><div class="hds-top"></div><div class="hds-body"></div><div class="hds-foot"></div></div></div>';
-  var stage=show.querySelector('.hds-st');
-  function fit(){ var k=Math.min(window.innerWidth/1920, window.innerHeight/1080); stage.style.transform='translate(-50%,-50%) scale('+k+')'; }
-  fit(); window.addEventListener('resize', fit);
+  var stage=show.querySelector('.hds-st'), card=wait.querySelector('.card');
+  /* size: fits the screen by itself; the remote's Up / Down make it bigger or smaller (remembered on this TV) */
+  var Z=1; try{ Z=parseFloat(localStorage.getItem('hudtv_zoom'))||1; }catch(e){}
+  var qz=parseFloat(qs('z')); if(qz>0.3 && qz<3) Z=qz;
+  function vw(){ var a=[window.innerWidth||0, document.documentElement.clientWidth||0, document.body.clientWidth||0]; if(window.visualViewport) a.push(window.visualViewport.width||0); return Math.max.apply(null, a)||1920; }
+  function vh(){ var a=[window.innerHeight||0, document.documentElement.clientHeight||0]; if(window.visualViewport) a.push(window.visualViewport.height||0); return Math.max.apply(null, a)||1080; }
+  function fit(){ var k=Math.min(vw()/1920, vh()/1080)*Z; stage.style.transform='translate(-50%,-50%) scale('+k+')'; stage.style.webkitTransform=stage.style.transform; card.style.transform='scale('+Z+')'; card.style.webkitTransform=card.style.transform; }
+  fit(); window.addEventListener('resize', fit); setInterval(fit, 2000);
+  var szT=null; function sizeNote(){ var n=document.getElementById('tvsz'); n.textContent='Size '+Math.round(Z*100)+'%'; n.style.opacity='1'; clearTimeout(szT); szT=setTimeout(function(){ n.style.opacity='0'; }, 1600); }
+  function setZ(z){ Z=Math.max(0.5, Math.min(2.5, Math.round(z*100)/100)); try{ localStorage.setItem('hudtv_zoom', String(Z)); }catch(e){} fit(); sizeNote(); }
+  function goFull(){ var d=document.documentElement; try{ if(!(document.fullscreenElement||document.webkitFullscreenElement)){ if(d.requestFullscreen) d.requestFullscreen(); else if(d.webkitRequestFullscreen) d.webkitRequestFullscreen(); } }catch(e){} setTimeout(fit, 700); setTimeout(fit, 1600); }
+  document.addEventListener('keydown', function(e){ var c=e.keyCode||e.which;
+    if(c===38||c===39||c===33){ setZ(Z+0.05); e.preventDefault(); }
+    else if(c===40||c===37||c===34){ setZ(Z-0.05); e.preventDefault(); }
+    else if(c===13){ goFull(); }
+    else if(c===48){ setZ(1); } });
+  document.addEventListener('click', goFull);
   function q(s){ return stage.querySelector(s); }
   function status(t, ok){ st.className='st'+(ok?' ok':''); st.innerHTML='<i></i>'+t; }
   function setLive(on){ LIVE=on; wait.style.display=on?'none':'flex'; show.style.display=on?'block':'none'; if(on) fit(); }
