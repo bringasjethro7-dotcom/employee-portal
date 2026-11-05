@@ -6960,6 +6960,7 @@ async function doLogin(auto) {
     } else {
       try{ NETAUTO.stop(); if(raw && raw.office_learned) NETAUTO.alert(); }catch(_na){}
       data._pin = pin; // store for background refresh
+      try{ if(_wc.trim()) sessionStorage.setItem('wcam_wfh_'+String(data.employee_id||id).toUpperCase(), '1'); }catch(_ww){}   // 📷 signed in with a work-from-home code (Nov 5e)
       sessionStorage.setItem('emp_data', JSON.stringify(data));
       try{ var _sid=data.employee_id||id; setTimeout(function(){ jmbSessEnsure(_sid, pin); }, 7000); }catch(_se){}   // token fallback if bootstrap didn't bring one
       sessionStorage.setItem('jmb_last_active', String(Date.now()));   // start the heartbeat clock
@@ -7126,7 +7127,7 @@ var NETG = {
       var d=await r.json(); this._last=Date.now();
       if(!d || !d.ok){ this._lastOk=null; return true; }            // backend trouble → never stop anyone
       this._lastOk=!!d.allowed; this._why=d.why||''; this._ip=d.ip||'';
-      try{ if(window.WCAM) WCAM.setWhy(d.why||'', !!d.grace); }catch(_wc){}   // 📷 off the office network → camera (Nov 5)
+      try{ if(window.WCAM) WCAM.setWhy(d.why||'', !!d.grace, d.ip||''); }catch(_wc){}   // 📷 off the office network → camera (Nov 5; 5e: with the IP)
       if(d.office_learned){ try{ NETAUTO.alert(); }catch(_a){} }
       if(d.allowed){ if(this._graceUntil){ this._graceUntil=0; try{ showToast('✅ New office network recognised — carry on.'); }catch(_t){} } }
       /* Oct 8: on the office network in the last 2 h and the office IP just changed → keep working up to 15 min while it confirms */
@@ -7167,7 +7168,7 @@ var NETG = {
       document.getElementById('netg-x').onclick=function(){ el.style.display='none'; };
       document.getElementById('netg-req').onclick=function(){ wfhReqSend('shift'); };
       document.getElementById('netg-go').onclick=async function(){ var c=(document.getElementById('netg-code').value||'').replace(/\D/g,''); var er=document.getElementById('netg-err'); if(c.length!==6){ er.textContent='Enter the 6-digit code.'; return; }
-        this.disabled=true; this.textContent='Checking…'; self.setCode(c); self._last=0; var ok=await self.check(); this.disabled=false; this.textContent='Use this code';
+        this.disabled=true; this.textContent='Checking…'; self.setCode(c); self._last=0; try{ if(window.WCAM) WCAM.markWfh(); }catch(_wm){} var ok=await self.check(); this.disabled=false; this.textContent='Use this code';
         if(ok){ el.style.display='none'; try{ showToast('✅ Code accepted — you can work from here today.'); }catch(e){} } else { er.textContent=(self._why==='NETWORK_CODE_INVALID')?'That code is not valid (expired or wrong). Ask the admin for a new one.':'Still not allowed from this network.'; } };
     }
     var sub=document.getElementById('netg-sub'); if(sub && this._ip) sub.textContent='This network ('+this._ip+') is not the office. Working from home today? Enter the work-from-home code from the admin.';
@@ -26545,7 +26546,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-05-A';
+var PORTAL_BUILD='2026-11-05-B';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34089,6 +34090,12 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-05-B', version:'2026.11.05b', date:'November 5, 2026',
+    summary:'Camera fix for the office.',
+    items:[
+      'At the office, the portal no longer asks for your camera because of a short internet hiccup. It only asks when your laptop has really been off the office network for a few minutes.',
+      'If it still asks while you are at the office, press "I\'m at the office" on the camera square. It checks again and shows the internet address your laptop is using. Turn off any VPN or proxy and use the office Wi-Fi, not a phone hotspot.'
+    ] },
   { build:'2026-11-05-A', version:'2026.11.05', date:'November 5, 2026',
     summary:'Working from home now needs your camera on.',
     items:[
@@ -34889,6 +34896,10 @@ html body.app-authed #wcam-tile.on{ display:block; position:absolute; left:14px;
 #wcam-tile[data-s="noface"] .wc-dot, #wcam-tile[data-s="off"] .wc-dot{ background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.25); }
 #wcam-tile[data-s="bio"] .wc-dot{ background:#14b8a6; }
 #wcam-tile .wc-live{ background:rgba(239,68,68,.85); }
+#wcam-tile .wc-o{ pointer-events:auto; cursor:pointer; background:rgba(255,255,255,.88); color:#0f172a; flex:none; }
+#wcam-tile .wc-o:hover{ background:#fff; }
+#wcam-tile .wc-off .wc-o2{ margin-top:2px; color:#cbd5e1; font:700 10.5px/1.3 Inter,system-ui,sans-serif; text-decoration:underline; cursor:pointer; }
+#wcam-tile[data-v="0"] .wc-top .wc-o{ display:none; }
 #wcam-tile .wc-off{ position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:5px; text-align:center; padding:12px;
   color:#e9e6f5; font:600 11.5px/1.4 Inter,system-ui,sans-serif; background:radial-gradient(120% 90% at 50% 0%, rgba(255,107,26,.22), #0d0c13 70%); }
 #wcam-tile .wc-off b{ font-size:13px; color:#fff; }
@@ -34936,9 +34947,11 @@ var WCAM = (function(){
   var V='0.10.14', CDN='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+V,
       MODEL='https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
   var GRACE=3000, WARN=10, CAMOFF=30, FRAME_MS=2000, DET_MS=1000;
+  var SUSTAIN=6*60*1000, FAST=90*1000, NEEDCHK=4*60*1000;   // Nov 5e: off the office network for 6 min before the camera is required
   var S={ emp:'', need:false, why:'', known:false, lastRef:0, st:'off', stream:null, track:null, cap:null, video:null, cv:null, cx:null, small:null,
     det:null, detP:null, detFail:false, detBusy:false, lastDet:0, lastGood:0, face:null, noSince:0, warnKind:'', warnUntil:0,
-    ch:null, chUp:false, admins:0, lastFrame:0, presSig:'', presAt:0, tile:null, starting:null, lastLog:{}, autoTry:0 };
+    ch:null, chUp:false, admins:0, lastFrame:0, presSig:'', presAt:0, tile:null, starting:null, lastLog:{}, autoTry:0,
+    ip:'', offSince:0, offN:0 };
 
   function me(){ try{ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); }catch(e){ return ''; } }
   function nm(){ try{ return String((window._currentEmpData||{}).full_name||''); }catch(e){ return ''; } }
@@ -34957,32 +34970,73 @@ var WCAM = (function(){
   function want(){ return S.need && authed() && inShift(); }
 
   /* ── who needs it ── */
-  function setWhy(why, grace){
-    why=String(why||''); if(!why || grace) return;
-    var need;
-    if(/^(OFFICE|OFFICE_LEARNED|GATE_OFF)$/.test(why)) need=false;
-    else if(/^(CODE|PASS|NETWORK_CODE_REQUIRED|NETWORK_CODE_INVALID|NOT_OFFICE)$/.test(why)) need=true;
-    else return;
-    S.why=why; S.known=true; S.lastRef=Date.now();
-    try{ sessionStorage.setItem('wcam_need_'+me(), need?'1':'0'); }catch(e){}
-    if(need!==S.need){ S.need=need; if(!need) stop('office'); paint(); }
+  /* Nov 5e: VAs AT THE OFFICE were asked for the camera. One "not the office" answer used to switch it on (and it stuck for
+     10–15 min): the office Starlink IP changing for a few minutes before the beacon reports it, the IP check timing out on a
+     busy line, a refusal… Now:
+       · OFFICE → no camera, straight away;
+       · CODE / PASS with a signed IP → camera once the laptop has STAYED off the office network for 6 minutes (re-checked
+         every 90 s while timed in; any office answer resets it) — straight away only if a work-from-home code was typed in this tab;
+       · no signed IP, a refusal (the network gate handles those) or a grace answer → no change.
+     Every switch is logged with the reason and the IP the laptop is using (wfh_cam_log: cam_need / cam_release). */
+  var OFFICE_RE=/^(OFFICE|OFFICE_LEARNED|GATE_OFF)$/;
+  function ssGet(k){ try{ return sessionStorage.getItem(k+me()); }catch(e){ return null; } }
+  function ssSet(k, v){ try{ if(v===null) sessionStorage.removeItem(k+me()); else sessionStorage.setItem(k+me(), v); }catch(e){} }
+  function explicit(){ return ssGet('wcam_wfh_')==='1'; }
+  function markWfh(){ ssSet('wcam_wfh_', '1'); }
+  function offSave(){ ssSet('wcam_off_', S.offSince?JSON.stringify({ s:S.offSince, n:S.offN }):null); }
+  function setNeed(need, why, ip, how){
+    S.need=need; ssSet('wcam_need2_', need?'1':'0');
+    if(need) log('cam_need', S.offSince?Math.round((Date.now()-S.offSince)/1000):0, (why+' · '+(ip||'no IP')+' · '+how).slice(0,280));
+    else { log('cam_release', 0, ('office network · '+(ip||'no IP')).slice(0,280)); stop('office'); }
+    paint();
+  }
+  function setWhy(why, grace, ip){
+    why=String(why||''); ip=String(ip||'');
+    if(!why || grace) return;
+    var now=Date.now();
+    if(OFFICE_RE.test(why)){
+      S.why=why; S.ip=ip; S.known=true; S.lastRef=now;
+      if(S.offSince){ S.offSince=0; S.offN=0; offSave(); }
+      if(S.need) setNeed(false, why, ip, '');
+      return;
+    }
+    if(!/^(CODE|PASS)$/.test(why) || !ip) return;
+    S.why=why; S.ip=ip; S.known=true; S.lastRef=now;
+    if(S.need) return;
+    if(explicit()){ setNeed(true, why, ip, 'work-from-home code typed'); return; }
+    if(!S.offSince){ S.offSince=now; S.offN=1; offSave(); return; }
+    S.offN++; offSave();
+    if(now-S.offSince>=SUSTAIN && S.offN>=3) setNeed(true, why, ip, 'off the office network for '+Math.round((now-S.offSince)/60000)+' min');
   }
   async function refresh(){
-    var id=me(); if(!id) return;
-    if(id==='ADMIN'){ S.known=true; S.need=false; S.lastRef=Date.now(); return; }
+    var id=me(); if(!id) return null;
+    if(id==='ADMIN'){ S.known=true; S.need=false; S.lastRef=Date.now(); return null; }
     if(S._rp) return S._rp;
     S._rp=(async function(){
+      var out=null;
       try{
         var n=null; try{ n=await netWhoAmI(); }catch(_n){}
+        if(!n){ await sleep(1500); try{ n=await netWhoAmI(); }catch(_n2){} }   // one retry: a slow first answer is common on a busy line
         var code=''; try{ code=NETG.code(); }catch(_c){}
         var q='action=net_check&employee_id='+encodeURIComponent(id)+'&device='+encodeURIComponent(_devId())+(n?('&net_ip='+encodeURIComponent(n.ip)+'&net_ts='+n.ts+'&net_sig='+n.sig):'')+(code?('&wfh_code='+encodeURIComponent(code)):'')+'&_='+Date.now();
         var ctl=(typeof AbortController!=='undefined')?new AbortController():null, t=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(_e){} },12000):null;
         var r=await fetch((window.LOGIN_API||APPS_SCRIPT_URL)+'?'+q, ctl?{ signal:ctl.signal }:{}); if(t) clearTimeout(t);
-        var d=await r.json(); if(d && d.ok) setWhy(d.why, !!d.grace);
+        var d=await r.json(); if(d && d.ok){ out=d; setWhy(d.why, !!d.grace, d.ip||''); }
       }catch(e){}
       S.lastRef=Date.now();
+      return out;
     })();
-    try{ await S._rp; }finally{ S._rp=null; }
+    try{ return await S._rp; }finally{ S._rp=null; }
+  }
+  /* "I'm at the office": check again now; if it still is not the office, show the address the laptop is using */
+  async function officeCheck(){
+    if(S._oc) return; S._oc=true;
+    toast('🛰 Checking the network this laptop is on…');
+    try{
+      var d=await refresh();
+      if(d && OFFICE_RE.test(String(d.why||''))){ gateClose(); log('onsite_check', 0, ('office · '+(d.ip||'no IP')).slice(0,280)); toast('✅ You are on the office network. No camera needed.'); }
+      else { var ip=(d&&d.ip)||''; log('onsite_check', 0, ('not the office · '+((d&&d.why)||'no answer')+' · '+(ip||'no IP')).slice(0,280)); gate('notoffice', ip, d); }
+    }finally{ S._oc=false; }
   }
 
   /* ── the camera ── */
@@ -35010,7 +35064,7 @@ var WCAM = (function(){
     try{ if(S.stream) S.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
     S.stream=null; S.track=null; S.cap=null; S.st='off'; S.face=null; S.noSince=0; warnEnd();
     try{ if(S.video) S.video.srcObject=null; }catch(e){}
-    if(why==='logout'){ chDown(); S.need=false; S.known=false; S.emp=''; }
+    if(why==='logout'){ chDown(); ssSet('wcam_need2_', null); ssSet('wcam_off_', null); ssSet('wcam_wfh_', null); S.need=false; S.known=false; S.emp=''; S.offSince=0; S.offN=0; }
     paint(); pres(true);
   }
   function mountVideo(){
@@ -35141,11 +35195,12 @@ var WCAM = (function(){
   function build(){
     if(S.tile) return S.tile;
     var t=document.createElement('div'); t.id='wcam-tile'; t.setAttribute('data-v','0'); t.setAttribute('data-s','off'); t.title='Working from home: your camera stays on while you work';
-    t.innerHTML='<div class="wc-off"><b id="wc-off-t">Camera needed</b><span id="wc-off-s">Working from home: keep your camera on while you work.</span><span class="wc-btn" id="wc-off-b">Turn on camera</span></div>'+
-      '<div class="wc-top"><span class="wc-chip" id="wc-who">Work from home</span><span class="wc-chip wc-live" id="wc-adm" style="display:none">Admin watching</span></div>'+
+    t.innerHTML='<div class="wc-off"><b id="wc-off-t">Camera needed</b><span id="wc-off-s">Working from home: keep your camera on while you work.</span><span class="wc-btn" id="wc-off-b">Turn on camera</span><span class="wc-o2" data-o="1">I\'m at the office</span></div>'+
+      '<div class="wc-top"><span class="wc-chip" id="wc-who">Work from home</span><span class="wc-chip wc-live" id="wc-adm" style="display:none">Admin watching</span><span class="wc-chip wc-o" data-o="1">At the office?</span></div>'+
       '<div class="wc-bot"><span class="wc-chip"><i class="wc-dot"></i><span id="wc-lbl">Checking…</span></span></div>'+
       '<div class="wc-cd"><span id="wc-cd-t">No face on camera</span><b id="wc-cd-n">10</b><span>timer stops</span></div>';
-    t.addEventListener('click', function(){
+    t.addEventListener('click', function(ev){
+      if(ev && ev.target && ev.target.closest && ev.target.closest('[data-o]')){ ev.stopPropagation(); officeCheck(); return; }   // Nov 5e
       if(S.st!=='live'){ start().then(function(ok){ if(!ok) gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':'error')); }); return; }
       toast('📷 Working from home: your camera stays on while you work. The face check runs on this computer — nothing is recorded.');
     });
@@ -35198,7 +35253,7 @@ var WCAM = (function(){
   }
 
   /* ── the box on Start / Resume ── */
-  function gate(kind){
+  function gate(kind, ip, nd){
     var el=document.getElementById('wcam-gate');
     if(!el){ el=document.createElement('div'); el.id='wcam-gate'; document.body.appendChild(el); }
     var T={ checking:['Checking your camera','<span class="wg-spin"></span>Look at the camera for a moment…'],
@@ -35207,16 +35262,20 @@ var WCAM = (function(){
             denied:['Your camera is blocked','Working from home, the timer needs your camera. Click the camera icon in the address bar → <b>Allow</b>, then press <b>Try again</b>.'],
             nocam:['No camera found','Working from home, the timer needs a camera. Plug in a webcam (or close other apps using it — Zoom, Discord, Teams), then press <b>Try again</b>.'],
             slow:['Still getting the face check ready','Your internet is slow to load it the first time. Wait a few seconds, then press Start again.'],
-            error:['The camera didn\'t start','Close other apps that might be using it (Zoom, Discord, Teams), then press <b>Try again</b>.'] }[kind]||['Camera',''];
-    var busy=(kind==='checking'||kind==='loading'), vid=(S.stream && kind!=='denied' && kind!=='nocam');
+            error:['The camera didn\'t start','Close other apps that might be using it (Zoom, Discord, Teams), then press <b>Try again</b>.'],
+            notoffice:['This laptop is not on the office network', (ip?'The portal sees this laptop on the internet address <b>'+esc(ip)+'</b>, which is not the office internet.':'The portal could not confirm the office network from this laptop just now.')+
+              ' If you are at the office: turn off any VPN or proxy (browser extensions too), make sure the laptop is on the office Wi-Fi and not a phone hotspot, then press <b>Check again</b>. If it still says this, tell the admin. They can see this check in the camera log.'] }[kind]||['Camera',''];
+    var busy=(kind==='checking'||kind==='loading'), vid=(S.stream && kind!=='denied' && kind!=='nocam' && kind!=='notoffice');
     el.innerHTML='<div class="wg" role="dialog" aria-modal="true"><div class="wg-t">📷 '+esc(T[0])+'</div><p class="wg-s">'+T[1]+'</p>'+
       (vid?'<div class="wg-v"><video muted autoplay playsinline></video><i class="wg-ring"></i></div>':'')+
       '<div class="wg-b">'+(busy?'':'<button type="button" class="wg-sec" data-a="close">Close</button>')+
+      (busy?'':(kind==='notoffice'?'<button type="button" class="wg-pri" data-a="office">Check again</button>':'<button type="button" class="wg-sec" data-a="office">I\'m at the office</button>'))+
       ((kind==='denied'||kind==='nocam'||kind==='error')?'<button type="button" class="wg-pri" data-a="retry">Try again</button>':'')+'</div>'+
       '<p class="wg-s" style="font-size:11.5px;margin:12px 0 0;color:#94a3b8">Working from home, your camera is shared with the admin while you work. The face check runs on this computer and nothing is recorded.</p></div>';
     if(vid){ try{ var v=el.querySelector('video'); v.srcObject=S.stream; var p=v.play(); if(p&&p.catch) p.catch(function(){}); }catch(e){} }
     el.onclick=function(ev){ var b=ev.target.closest && ev.target.closest('button[data-a]'); if(!b) return;
       if(b.getAttribute('data-a')==='close') gateClose();
+      else if(b.getAttribute('data-a')==='office') officeCheck();
       else { start().then(function(ok){ if(ok){ gateClose(); toast('📷 Camera on — press Start / Resume.'); } else gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':'error')); }); } };
   }
   function gateClose(){ var el=document.getElementById('wcam-gate'); if(el){ try{ var v=el.querySelector('video'); if(v) v.srcObject=null; }catch(e){} el.remove(); } }
@@ -35249,13 +35308,15 @@ var WCAM = (function(){
   /* ── the clock: a worker keeps ticking with the tab in the background ── */
   async function tick(){
     var id=me();
-    if(id!==S.emp){ S.emp=id; S.known=false; S.lastRef=0; S.need=false; try{ S.need=!!id && sessionStorage.getItem('wcam_need_'+id)==='1'; }catch(e){} }
+    if(id!==S.emp){ S.emp=id; S.known=false; S.lastRef=0; S.need=false; S.offSince=0; S.offN=0;
+      try{ S.need=!!id && sessionStorage.getItem('wcam_need2_'+id)==='1'; var o=JSON.parse(sessionStorage.getItem('wcam_off_'+id)||'null'); if(o && o.s && Date.now()-o.s<2*3600*1000){ S.offSince=o.s; S.offN=o.n||1; } }catch(e){} }
     if(!authed()){ if(S.stream) stop('signout'); if(S.ch) chDown(); paint(); return; }
     var now=Date.now();
     if(now-(S._place||0)>1500){ S._place=now; place(); }
-    if((!S.known || now-S.lastRef>15*60*1000) && !S._rp && now-(S._rTry||0)>60000){ S._rTry=now; refresh(); }
+    var every=!S.known?60000:(inShift()?(S.need?NEEDCHK:(S.offSince?FAST:15*60*1000)):15*60*1000);   // Nov 5e
+    if((!S.known || now-S.lastRef>=every) && !S._rp && now-(S._rTry||0)>=Math.min(every,60000)){ S._rTry=now; refresh(); }
     if(!want()){ if(S.stream) stop('idle'); if(S.ch) chDown(); paint(); return; }
-    if(!S.stream && !S.starting && S.st!=='denied' && S.st!=='nocam' && now-S.autoTry>15000){ S.autoTry=now; start(); }
+    if(!S.stream && S.known && !S.starting && S.st!=='denied' && S.st!=='nocam' && now-S.autoTry>15000){ S.autoTry=now; start(); }
     if(S.stream && S.video && !S.video.srcObject) mountVideo();
     if(S.stream && !S.detBusy && now-S.lastDet>=DET_MS){
       S.detBusy=true; S.lastDet=now;
@@ -35278,8 +35339,8 @@ var WCAM = (function(){
     setInterval(safeTick, 1000);
     window.addEventListener('pagehide', function(){ try{ if(S.stream) S.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} try{ chDown(); }catch(e){} });
   })();
-  return { allowWork:allowWork, setWhy:setWhy, start:start, stop:stop, refresh:refresh,
-    state:function(){ return { need:S.need, why:S.why, st:S.st, face:S.face, warn:S.warnKind, admins:S.admins, det:!!S.det, detFail:S.detFail }; }, _S:S };
+  return { allowWork:allowWork, setWhy:setWhy, start:start, stop:stop, refresh:refresh, markWfh:markWfh, officeCheck:officeCheck,
+    state:function(){ return { need:S.need, why:S.why, ip:S.ip, offSince:S.offSince, offN:S.offN, st:S.st, face:S.face, warn:S.warnKind, admins:S.admins, det:!!S.det, detFail:S.detFail }; }, _S:S };
 })();
 </script>
 <!-- JMB WFH CAMERA · END -->
