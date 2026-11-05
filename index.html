@@ -7126,6 +7126,7 @@ var NETG = {
       var d=await r.json(); this._last=Date.now();
       if(!d || !d.ok){ this._lastOk=null; return true; }            // backend trouble → never stop anyone
       this._lastOk=!!d.allowed; this._why=d.why||''; this._ip=d.ip||'';
+      try{ if(window.WCAM) WCAM.setWhy(d.why||'', !!d.grace); }catch(_wc){}   // 📷 off the office network → camera (Nov 5)
       if(d.office_learned){ try{ NETAUTO.alert(); }catch(_a){} }
       if(d.allowed){ if(this._graceUntil){ this._graceUntil=0; try{ showToast('✅ New office network recognised — carry on.'); }catch(_t){} } }
       /* Oct 8: on the office network in the last 2 h and the office IP just changed → keep working up to 15 min while it confirms */
@@ -8982,6 +8983,7 @@ function renderDashboard(data) {
 // ─────────────────────────────────────────────
 function doLogout() {
   try { stopSessionGuard(); } catch(e) {}
+  try { if (window.WCAM) WCAM.stop('logout'); } catch(e) {}   // 📷 camera off on sign-out
   try { empLiveStop(); } catch(e) {}
   // Free the laptop back into the pool so the next VA can claim it — instantly via presence + logged.
   try{ if(window._devChan){ try{ window._devChan.untrack(); }catch(_u){} try{ window._devChan.unsubscribe(); }catch(_s){} window._devChan=null; } window._devHold=null; }catch(_pr){}
@@ -14526,6 +14528,7 @@ async function startTimer() {
      side door into a running timer. */
   if (!(await _sopAllowWork())) return;
   if (!(await NETG.allowWork())) return;   // 🛰 office network or a work-from-home code (Oct 6, 2026)
+  if (window.WCAM && !(await WCAM.allowWork())) return;   // 📷 working from home: camera on + a face (Nov 5, 2026)
   if (window.JMBFeed && !(await JMBFeed.allowWork())) return;   // 📣 must-read / must-do / quiz posts addressed to me
   var f = trkFormFields();
   // Require project, plus category/task wherever the project/category provides them
@@ -14598,6 +14601,7 @@ async function resumeTask(entryId) {
   if (AUL.blocked()) return;                // 🍽 AUTO-LUNCH: resuming mid-lunch is starting work too
   if (!(await _sopAllowWork())) return;     // 📚 resuming a paused task is starting work too
   if (!(await NETG.allowWork())) return;    // 🛰 same network rule on resume
+  if (window.WCAM && !(await WCAM.allowWork())) return;    // 📷 same camera rule on resume (Nov 5, 2026)
   if (window.JMBFeed && !(await JMBFeed.allowWork())) return;   // 📣 same feed rule on resume
   { var _pe0=null; for (var _q=0; _q<trkPaused.length; _q++) { if (trkPaused[_q].entry_id === entryId) { _pe0 = trkPaused[_q]; break; } } if (_pe0 && !(await TOOLG.pair(_pe0))) return; }   // 🔗 pair the tool on resume too (Oct 8)
   if (trkRunning) { var rid = trkRunning.entry_id; _bankRunningToPaused(); _trkPost('tracker_pause', { entry_id: rid }); }
@@ -26541,7 +26545,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-04-C';
+var PORTAL_BUILD='2026-11-05-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34085,6 +34089,14 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-05-A', version:'2026.11.05', date:'November 5, 2026',
+    summary:'Working from home now needs your camera on.',
+    items:[
+      'If you work outside the office network (with a work-from-home code or the double-shift pass), a small camera square shows above your name at the bottom left. Keep it on while you work.',
+      'Start and Resume wait until the camera can see your face.',
+      'If the camera cannot see your face while your timer runs, you get a warning, and the timer stops after 10 seconds. Bio breaks are fine.',
+      'The face check runs on your own computer and nothing is recorded. The admin can see your camera while you work.'
+    ] },
   { build:'2026-11-04-C', version:'2026.11.04', date:'November 4, 2026',
     summary:'More time for the night check.',
     items:[
@@ -34861,5 +34873,415 @@ var CGBAR=(function(){
 })();
 </script>
 <!-- JMB CUTOFF GOAL BAR · END -->
+<!-- JMB WFH CAMERA · START -->
+<style id="wcam-css">
+/* ── 📷 Work-from-home camera (Nov 5, 2026) — the square above the name / Sign out ── */
+#wcam-tile{ display:none; }
+html body.app-authed #wcam-tile.on{ display:block; position:absolute; left:14px; right:14px; bottom:var(--wc-sb,92px); aspect-ratio:4/3; border-radius:16px; overflow:hidden; z-index:3;
+  background:#0d0c13; border:1px solid rgba(255,255,255,.10); box-shadow:0 12px 30px -16px rgba(0,0,0,.75); cursor:pointer; transition:box-shadow .2s, border-color .2s; }
+#wcam-tile video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:block; background:#0d0c13; }
+#wcam-tile .wc-top, #wcam-tile .wc-bot{ position:absolute; left:8px; right:8px; display:flex; align-items:center; justify-content:space-between; gap:6px; pointer-events:none; }
+#wcam-tile .wc-top{ top:8px; } #wcam-tile .wc-bot{ bottom:8px; }
+#wcam-tile .wc-chip{ display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:3px 8px; border-radius:999px; background:rgba(10,10,16,.62); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+  color:#fff; font:700 10.5px/1.35 Inter,system-ui,sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#wcam-tile .wc-dot{ width:7px; height:7px; border-radius:50%; background:#94a3b8; flex:none; }
+#wcam-tile[data-s="ok"] .wc-dot{ background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.25); }
+#wcam-tile[data-s="noface"] .wc-dot, #wcam-tile[data-s="off"] .wc-dot{ background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.25); }
+#wcam-tile[data-s="bio"] .wc-dot{ background:#14b8a6; }
+#wcam-tile .wc-live{ background:rgba(239,68,68,.85); }
+#wcam-tile .wc-off{ position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:5px; text-align:center; padding:12px;
+  color:#e9e6f5; font:600 11.5px/1.4 Inter,system-ui,sans-serif; background:radial-gradient(120% 90% at 50% 0%, rgba(255,107,26,.22), #0d0c13 70%); }
+#wcam-tile .wc-off b{ font-size:13px; color:#fff; }
+#wcam-tile .wc-off .wc-btn{ margin-top:3px; padding:6px 12px; border-radius:999px; background:#ff6b1a; color:#fff; font:800 11.5px/1 Inter,system-ui,sans-serif; }
+#wcam-tile[data-v="0"] .wc-off{ display:flex; }
+#wcam-tile[data-v="0"] .wc-bot{ display:none; }
+#wcam-tile .wc-cd{ position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:4px; background:rgba(185,28,28,.48); color:#fff; text-align:center; font:800 11.5px/1.3 Inter,system-ui,sans-serif; padding:10px; }
+#wcam-tile .wc-cd b{ font:800 36px/1 'Sora','Inter',sans-serif; }
+#wcam-tile.warn{ border-color:#ef4444; animation:wcPulse 1s ease-in-out infinite; }
+#wcam-tile.warn .wc-cd{ display:flex; }
+@keyframes wcPulse{ 0%,100%{ box-shadow:0 0 0 2px rgba(239,68,68,.65), 0 0 18px rgba(239,68,68,.35); } 50%{ box-shadow:0 0 0 4px rgba(239,68,68,.95), 0 0 32px rgba(239,68,68,.6); } }
+html body.app-authed #dashboard-screen .tabs.wcam-on > .hw-side{ display:none !important; }
+html body.app-authed #wcam-tile.on.wc-float{ position:fixed; right:auto; width:176px; z-index:1300; }
+@media(max-width:999px){ html body.app-authed #wcam-tile.on{ position:fixed; left:10px; right:auto; width:124px; bottom:calc(var(--navh,64px) + 14px + env(safe-area-inset-bottom)); z-index:1300; } }
+/* the box on Start / Resume */
+#wcam-gate{ position:fixed; inset:0; z-index:99990; display:flex; align-items:center; justify-content:center; background:rgba(15,23,42,.55); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); padding:18px; }
+#wcam-gate .wg{ width:100%; max-width:430px; background:#fff; color:#0f172a; border-radius:20px; padding:22px 22px 18px; box-shadow:0 30px 80px -30px rgba(0,0,0,.6); font-family:inherit; }
+#wcam-gate .wg-t{ font-size:19px; font-weight:800; margin:0 0 6px; }
+#wcam-gate .wg-s{ font-size:13.5px; color:#475569; line-height:1.55; margin:0 0 12px; }
+#wcam-gate .wg-v{ position:relative; width:100%; aspect-ratio:4/3; border-radius:14px; overflow:hidden; background:#0d0c13; margin:4px 0 12px; }
+#wcam-gate .wg-v video{ width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:block; }
+#wcam-gate .wg-v .wg-ring{ position:absolute; left:50%; top:46%; width:42%; aspect-ratio:3/4; transform:translate(-50%,-50%); border:2px dashed rgba(255,255,255,.65); border-radius:50%; }
+#wcam-gate .wg-b{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
+#wcam-gate button{ border:none; border-radius:11px; padding:10px 15px; font:700 13px/1 inherit; font-family:inherit; cursor:pointer; }
+#wcam-gate .wg-pri{ background:#ff6b1a; color:#fff; } #wcam-gate .wg-sec{ background:#f1f5f9; color:#0f172a; }
+#wcam-gate .wg-spin{ display:inline-block; width:14px; height:14px; border-radius:50%; border:2px solid rgba(15,23,42,.18); border-top-color:#ff6b1a; animation:wgSpin .8s linear infinite; vertical-align:-2px; margin-right:6px; }
+@keyframes wgSpin{ to{ transform:rotate(360deg); } }
+</style>
+<script id="wcam-js">
+/* ══ 📷 WORK-FROM-HOME CAMERA (Jeth, Nov 5, 2026) ══════════════════════════════════════════════════════
+   "Anyone who works on a different network should have their camera on in the portal … no face → warn them and
+   stop the timer within 10 seconds … bio breaks are fine … the admin sees the cameras on the live overview."
+   • WHO: off the office network — a work-from-home code, or the double-shift pass away from the office (the
+     sign-in lane's net_check says CODE / PASS / code required). At the office nothing changes. ADMIN is exempt.
+   • THE SQUARE: above the name and Sign out in the sidebar (bottom-left on a phone). Shown only to those VAs,
+     only while they are timed in. Their own camera, mirrored.
+   • THE FACE CHECK runs on this computer (MediaPipe face detector, loaded once from the CDN). Nothing is recorded
+     or stored. While the timer runs: no face for 3 seconds → warning + 10-second countdown (alarm, desktop alert)
+     → the timer stops. Camera off / unplugged → 30 seconds, then the timer stops. Bio-break windows and break /
+     lunch tasks are exempt. Start / Resume wait for the camera and a face.
+   • THE ADMIN sees every working-from-home camera on Live team. Small still frames go over Supabase Realtime
+     every 2 seconds, and only while an admin has that board open. Warnings and stops are logged (wfh_cam_log —
+     time, kind, seconds; no images) for the admin's camera log. */
+var WCAM = (function(){
+  var V='0.10.14', CDN='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+V,
+      MODEL='https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+  var GRACE=3000, WARN=10, CAMOFF=30, FRAME_MS=2000, DET_MS=1000;
+  var S={ emp:'', need:false, why:'', known:false, lastRef:0, st:'off', stream:null, track:null, cap:null, video:null, cv:null, cx:null, small:null,
+    det:null, detP:null, detFail:false, detBusy:false, lastDet:0, lastGood:0, face:null, noSince:0, warnKind:'', warnUntil:0,
+    ch:null, chUp:false, admins:0, lastFrame:0, presSig:'', presAt:0, tile:null, starting:null, lastLog:{}, autoTry:0 };
+
+  function me(){ try{ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); }catch(e){ return ''; } }
+  function nm(){ try{ return String((window._currentEmpData||{}).full_name||''); }catch(e){ return ''; } }
+  function authed(){ return !!(document.body && document.body.classList.contains('app-authed')) && !!me(); }
+  function running(){ try{ return !!trkRunning; }catch(e){ return false; } }
+  function inShift(){ if(running()) return true; try{ return typeof getActiveSession==='function' && !!getActiveSession(); }catch(e){ return false; } }
+  function onBreak(){
+    try{ if(typeof trkInBioBreak==='function' && trkInBioBreak()) return 'bio'; }catch(e){}
+    try{ var r=trkRunning; if(r && /break|lunch/i.test(String(r.category||'')+' '+String(r.task||''))) return 'break'; }catch(e){}
+    return '';
+  }
+  function day(){ try{ if(typeof shiftDate==='function'){ var d=shiftDate(); if(d) return String(d).slice(0,10); } }catch(e){} try{ return _phtNow().dateKey; }catch(e){ return new Date().toISOString().slice(0,10); } }
+  function toast(m){ try{ showToast(m); }catch(e){} }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function want(){ return S.need && authed() && inShift(); }
+
+  /* ── who needs it ── */
+  function setWhy(why, grace){
+    why=String(why||''); if(!why || grace) return;
+    var need;
+    if(/^(OFFICE|OFFICE_LEARNED|GATE_OFF)$/.test(why)) need=false;
+    else if(/^(CODE|PASS|NETWORK_CODE_REQUIRED|NETWORK_CODE_INVALID|NOT_OFFICE)$/.test(why)) need=true;
+    else return;
+    S.why=why; S.known=true; S.lastRef=Date.now();
+    try{ sessionStorage.setItem('wcam_need_'+me(), need?'1':'0'); }catch(e){}
+    if(need!==S.need){ S.need=need; if(!need) stop('office'); paint(); }
+  }
+  async function refresh(){
+    var id=me(); if(!id) return;
+    if(id==='ADMIN'){ S.known=true; S.need=false; S.lastRef=Date.now(); return; }
+    if(S._rp) return S._rp;
+    S._rp=(async function(){
+      try{
+        var n=null; try{ n=await netWhoAmI(); }catch(_n){}
+        var code=''; try{ code=NETG.code(); }catch(_c){}
+        var q='action=net_check&employee_id='+encodeURIComponent(id)+'&device='+encodeURIComponent(_devId())+(n?('&net_ip='+encodeURIComponent(n.ip)+'&net_ts='+n.ts+'&net_sig='+n.sig):'')+(code?('&wfh_code='+encodeURIComponent(code)):'')+'&_='+Date.now();
+        var ctl=(typeof AbortController!=='undefined')?new AbortController():null, t=ctl?setTimeout(function(){ try{ ctl.abort(); }catch(_e){} },12000):null;
+        var r=await fetch((window.LOGIN_API||APPS_SCRIPT_URL)+'?'+q, ctl?{ signal:ctl.signal }:{}); if(t) clearTimeout(t);
+        var d=await r.json(); if(d && d.ok) setWhy(d.why, !!d.grace);
+      }catch(e){}
+      S.lastRef=Date.now();
+    })();
+    try{ await S._rp; }finally{ S._rp=null; }
+  }
+
+  /* ── the camera ── */
+  async function start(){
+    if(S.stream) return true; if(S.starting) return S.starting;
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ S.st='nocam'; paint(); return false; }
+    S.st='starting'; paint();
+    S.starting=(async function(){
+      try{
+        var st=await navigator.mediaDevices.getUserMedia({ video:{ width:{ ideal:640 }, height:{ ideal:480 }, facingMode:'user', frameRate:{ ideal:15, max:20 } }, audio:false });
+        S.stream=st; S.track=st.getVideoTracks()[0];
+        try{ S.cap=('ImageCapture' in window)?new ImageCapture(S.track):null; }catch(_i){ S.cap=null; }
+        S.track.addEventListener('ended', function(){ S.stream=null; S.track=null; S.cap=null; S.st='off'; S.face=null; paint(); pres(true); });
+        S.st='live'; S.lastGood=Date.now(); mountVideo(); loadDet();
+        return true;
+      }catch(e){
+        S.stream=null; S.track=null; S.cap=null;
+        var n=e&&e.name; S.st=(n==='NotAllowedError'||n==='SecurityError')?'denied':((n==='NotFoundError'||n==='OverconstrainedError'||n==='NotReadableError')?'nocam':'error');
+        return false;
+      }finally{ paint(); pres(true); }
+    })();
+    try{ return await S.starting; }finally{ S.starting=null; }
+  }
+  function stop(why){
+    try{ if(S.stream) S.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+    S.stream=null; S.track=null; S.cap=null; S.st='off'; S.face=null; S.noSince=0; warnEnd();
+    try{ if(S.video) S.video.srcObject=null; }catch(e){}
+    if(why==='logout'){ chDown(); S.need=false; S.known=false; S.emp=''; }
+    paint(); pres(true);
+  }
+  function mountVideo(){
+    if(!S.tile) build();
+    if(!S.video){ S.video=document.createElement('video'); S.video.muted=true; S.video.autoplay=true; S.video.setAttribute('playsinline',''); S.tile.insertBefore(S.video, S.tile.firstChild); }
+    try{ if(S.video.srcObject!==S.stream){ S.video.srcObject=S.stream; } var p=S.video.play(); if(p&&p.catch) p.catch(function(){}); }catch(e){}
+  }
+  /* one frame, "cover"-cropped to 320×240, straight from the camera (ImageCapture works with the tab in the background) */
+  async function grab(){
+    if(!S.track || S.track.readyState!=='live') return null;
+    if(!S.cv){ S.cv=document.createElement('canvas'); S.cv.width=320; S.cv.height=240; S.cx=S.cv.getContext('2d'); }
+    var src=null, w=0, h=0, bm=null;
+    if(S.cap){ try{ bm=await Promise.race([ S.cap.grabFrame(), sleep(1500).then(function(){ return null; }) ]); if(bm){ src=bm; w=bm.width; h=bm.height; } }catch(e){ bm=null; } }
+    if(!src && S.video && S.video.readyState>=2 && S.video.videoWidth){ src=S.video; w=S.video.videoWidth; h=S.video.videoHeight; }
+    if(!src || !w || !h) return null;
+    var r=Math.max(320/w, 240/h), sw=320/r, sh=240/r;
+    try{ S.cx.drawImage(src, (w-sw)/2, (h-sh)/2, sw, sh, 0, 0, 320, 240); }catch(e){ return null; }
+    try{ if(bm && bm.close) bm.close(); }catch(_c){}
+    return S.cv;
+  }
+
+  /* ── the face check (on this computer) ── */
+  function loadDet(){
+    if(S.det || S.detP || S.detFail) return S.detP;
+    S.detP=(async function(){
+      try{
+        var m=await import(CDN+'/vision_bundle.mjs');
+        var fs=await m.FilesetResolver.forVisionTasks(CDN+'/wasm');
+        S.det=await m.FaceDetector.createFromOptions(fs, { baseOptions:{ modelAssetPath:MODEL, delegate:'CPU' }, runningMode:'IMAGE', minDetectionConfidence:0.5 });
+      }catch(e){
+        try{ if('FaceDetector' in window){ S.det={ native:new window.FaceDetector({ fastMode:true, maxDetectedFaces:1 }) }; } }catch(_n){}
+        if(!S.det){ S.detFail=true; log('det_unavailable', 0, String((e&&e.message)||e).slice(0,200)); }
+      }
+    })();
+    return S.detP;
+  }
+  async function detect(cv){
+    if(!S.det || !cv) return null;
+    try{
+      if(S.det.native){ var f=await S.det.native.detect(cv); return f.length>0; }
+      var r=S.det.detect(cv), L=(r&&r.detections)||[];
+      return L.some(function(d){ var sc=(d.categories&&d.categories[0]&&d.categories[0].score)||0, b=d.boundingBox||{}; return sc>=0.5 && (b.width||0)>=24; });
+    }catch(e){ return null; }
+  }
+
+  /* ── warn → stop ── */
+  function warnStart(kind, secs){
+    S.warnKind=kind; S.warnUntil=Date.now()+secs*1000;
+    var msg=kind==='cam' ? 'Your camera is off. Working from home, the timer needs it on — turn it back on or the timer stops.'
+                         : 'We can\'t see your face on the camera. Sit in front of it or your timer stops.';
+    try{ STOPAL.warn('cam', S.warnUntil, msg); }catch(e){}
+    if(kind==='face') log('noface_warn', Math.round(GRACE/1000), taskNote());
+    paint(); pres(true);
+  }
+  function warnEnd(){ if(!S.warnKind) return; S.warnKind=''; S.warnUntil=0; try{ STOPAL.warnEnd('cam'); }catch(e){} paint(); pres(true); }
+  function taskNote(){ try{ var r=trkRunning; return r ? (String(r.project||'')+(r.task?' › '+r.task:(r.category?' › '+r.category:''))).slice(0,200) : ''; }catch(e){ return ''; } }
+  async function fire(){
+    if(S.firing) return; S.firing=true; setTimeout(function(){ S.firing=false; }, 4000);
+    var kind=S.warnKind, secs=S.noSince?Math.round((Date.now()-S.noSince)/1000):(kind==='cam'?CAMOFF:0), note=taskNote();
+    S.warnKind=''; S.warnUntil=0;
+    try{ await stopTimer(); }catch(e){}
+    try{ STOPAL.stopped('cam', 'Your timer stopped', kind==='cam' ? 'Your camera was off. Turn it on, then press Start / Resume.'
+      : 'Nobody was on the camera for '+Math.max(secs, GRACE/1000+WARN)+' seconds. Sit in front of the camera, then press Start / Resume.'); }catch(e){}
+    log(kind==='cam'?'cam_off_stop':'noface_stop', secs, note);
+    S.noSince=0; paint(); pres(true);
+  }
+  function enforce(now){
+    if(S.firing) return;
+    if(!running() || !S.need){ warnEnd(); S.noSince=0; return; }
+    if(onBreak()){ warnEnd(); S.noSince=0; return; }
+    var camLive=!!(S.track && S.track.readyState==='live' && S.st==='live');
+    if(!camLive){
+      if(S.warnKind==='face') warnEnd();
+      if(!S.warnKind && !S.starting) warnStart('cam', CAMOFF);
+    } else {
+      if(S.warnKind==='cam') warnEnd();
+      if(S.det && now-S.lastGood>(document.hidden?60000:8000)) S.face=false;   // frames stopped coming → treated as nobody there (a background tab gets a minute)
+      if(S.face===false){ if(!S.noSince) S.noSince=now; }
+      else if(S.face===true){ if(S.warnKind==='face'){ log('noface_back', Math.round((now-S.noSince)/1000), taskNote()); warnEnd(); } S.noSince=0; }
+      if(S.face===false && !S.warnKind && now-S.noSince>=GRACE) warnStart('face', WARN);
+    }
+    if(S.warnKind && now>=S.warnUntil) fire();
+  }
+
+  /* ── the admin's view (Supabase Realtime: presence always, frames only while an admin watches) ── */
+  function chUp(){
+    if(S.ch || !window.supaClient) return;
+    try{
+      S.ch=supaClient.channel('wfh-cam', { config:{ presence:{ key:me() }, broadcast:{ self:false } } });
+      S.ch.on('presence', { event:'sync' }, function(){ try{ var st=S.ch.presenceState(), n=0; Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p && p.r==='admin') n++; }); }); S.admins=n; paint(); }catch(e){} });
+      S.ch.on('broadcast', { event:'ping' }, function(){ S.presSig=''; pres(true); });
+      S.ch.subscribe(function(s){ if(s==='SUBSCRIBED'){ S.chUp=true; S.presSig=''; pres(true); } else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED'){ S.chUp=false; } });
+    }catch(e){ S.ch=null; }
+  }
+  function chDown(){ try{ if(S.ch){ try{ S.ch.untrack(); }catch(_u){} supaClient.removeChannel(S.ch); } }catch(e){} S.ch=null; S.chUp=false; S.admins=0; S.presSig=''; }
+  function pres(force){
+    if(!want()){ if(S.ch) chDown(); return; }
+    if(!S.ch){ chUp(); return; }
+    if(!S.chUp) return;
+    var r=null; try{ r=trkRunning; }catch(e){}
+    var p={ r:'va', e:me(), n:nm(), s:S.st, f:(S.face===true?1:(S.face===false?0:-1)), w:r?1:0, b:onBreak()?1:0, k:S.warnKind||'', u:S.warnUntil||0, j:r?String(r.project||''):'', tk:r?String(r.task||r.category||''):'', d:S.detFail?1:0 };
+    var sig=JSON.stringify([p.s,p.f,p.w,p.b,p.k,p.j,p.tk,p.d]), now=Date.now();
+    if(sig===S.presSig && now-S.presAt<60000) return;
+    if(!force && now-S.presAt<2500) return;
+    S.presSig=sig; S.presAt=now; p.t=now;
+    try{ S.ch.track(p); }catch(e){}
+  }
+  function sendFrame(cv){
+    if(!S.ch || !S.chUp || S.admins<1 || !cv) return;
+    S.lastFrame=Date.now();
+    try{
+      if(!S.small){ S.small=document.createElement('canvas'); S.small.width=224; S.small.height=168; }
+      var c=S.small.getContext('2d'); c.save(); c.translate(224,0); c.scale(-1,1); c.drawImage(cv,0,0,224,168); c.restore();   // mirrored, like the VA sees it
+      S.ch.send({ type:'broadcast', event:'f', payload:{ e:me(), i:S.small.toDataURL('image/jpeg', 0.62), f:(S.face===true?1:(S.face===false?0:-1)), t:Date.now() } });
+    }catch(e){}
+  }
+
+  /* ── the log the admin reads (no images) ── */
+  function log(kind, secs, note){
+    var id=me(); if(!/^JMB\d{3}$/.test(id)) return;
+    var k=kind+'|'+(note||''), now=Date.now(); if(S.lastLog[k] && now-S.lastLog[k]<20000) return; S.lastLog[k]=now;
+    try{ fetch(SUPA_URL+'/rest/v1/wfh_cam_log', { method:'POST', keepalive:true,
+      headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' },
+      body:JSON.stringify({ day:day(), employee_id:id, kind:kind, secs:Math.max(0, Math.min(86400, Math.round(secs||0))), note:String(note||'').slice(0,280) }) }).catch(function(){}); }catch(e){}
+  }
+
+  /* ── the square ── */
+  function build(){
+    if(S.tile) return S.tile;
+    var t=document.createElement('div'); t.id='wcam-tile'; t.setAttribute('data-v','0'); t.setAttribute('data-s','off'); t.title='Working from home: your camera stays on while you work';
+    t.innerHTML='<div class="wc-off"><b id="wc-off-t">Camera needed</b><span id="wc-off-s">Working from home: keep your camera on while you work.</span><span class="wc-btn" id="wc-off-b">Turn on camera</span></div>'+
+      '<div class="wc-top"><span class="wc-chip" id="wc-who">Work from home</span><span class="wc-chip wc-live" id="wc-adm" style="display:none">Admin watching</span></div>'+
+      '<div class="wc-bot"><span class="wc-chip"><i class="wc-dot"></i><span id="wc-lbl">Checking…</span></span></div>'+
+      '<div class="wc-cd"><span id="wc-cd-t">No face on camera</span><b id="wc-cd-n">10</b><span>timer stops</span></div>';
+    t.addEventListener('click', function(){
+      if(S.st!=='live'){ start().then(function(ok){ if(!ok) gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':'error')); }); return; }
+      toast('📷 Working from home: your camera stays on while you work. The face check runs on this computer — nothing is recorded.');
+    });
+    S.tile=t; return t;
+  }
+  function place(){
+    var t=build(), on=want();
+    var rail=document.querySelector('#dashboard-screen .tabs'), wide=innerWidth>=1000;
+    var vis=function(el){ return !!el && el.getClientRects().length>0; };   // the rail is position:fixed → offsetParent is always null
+    if(rail) rail.classList.toggle('wcam-on', on && wide);
+    if(wide && vis(rail)){
+      if(t.parentNode!==rail) rail.appendChild(t);
+      if(!on) return;
+      var tr=rail.getBoundingClientRect(), f=rail.querySelector('.au-side-foot'), sb=92;
+      if(vis(f)){ var fr=f.getBoundingClientRect(); sb=Math.max(16, Math.round(tr.bottom-fr.top)+12); }
+      t.style.setProperty('--wc-sb', sb+'px');
+      var last=0; rail.querySelectorAll(':scope > .tab-btn, :scope > .side-menu-label, :scope > .header-logo, :scope > .side-userchip, :scope > .navgroup, :scope > nav').forEach(function(b){ if(vis(b) && b!==t){ var r=b.getBoundingClientRect(); if(r.bottom>last) last=r.bottom; } });
+      var h=Math.round((tr.width-28)*0.75), avail=Math.round(tr.bottom-sb-last-12);
+      t.classList.remove('wc-float'); t.style.left=''; t.style.bottom=''; t.style.height=''; t.style.aspectRatio='';
+      if(last && avail<h){
+        if(avail>=96){ t.style.height=avail+'px'; t.style.aspectRatio='auto'; }
+        else { t.classList.add('wc-float'); t.style.left=Math.round(tr.right+14)+'px'; t.style.bottom='14px'; }
+      }
+    } else {
+      if(t.parentNode!==document.body) document.body.appendChild(t);
+      t.style.height=''; t.style.aspectRatio='';
+      if(wide){ t.classList.add('wc-float'); t.style.left='14px'; t.style.bottom='14px'; }   // no sidebar on screen → a floating square bottom-left
+      else { t.classList.remove('wc-float'); t.style.left=''; t.style.bottom=''; }
+    }
+  }
+  function paint(){
+    var t=S.tile; if(!t) return;
+    var on=want(); t.classList.toggle('on', on); if(!on) return;
+    var live=S.st==='live', br=onBreak(), run=running(), s, lbl;
+    if(!live){ s='off'; lbl=S.st==='starting'?'Starting camera…':'Camera off'; }
+    else if(br && run){ s='bio'; lbl=br==='bio'?'Bio break':'On a break'; }
+    else if(S.warnKind==='face' || (S.face===false && run)){ s='noface'; lbl='No face'; }
+    else if(S.face===true || S.detFail){ s='ok'; lbl=run?'On camera':'On camera · timer off'; }
+    else { s='wait'; lbl='Checking…'; }
+    t.setAttribute('data-s', s); t.setAttribute('data-v', live?'1':'0'); t.classList.toggle('warn', !!S.warnKind);
+    var set=function(id, v){ var e=document.getElementById(id); if(e && e.textContent!==v) e.textContent=v; };
+    set('wc-lbl', lbl);
+    var adm=document.getElementById('wc-adm'); if(adm) adm.style.display=(live && S.admins>0)?'':'none';
+    if(S.warnKind){ set('wc-cd-n', String(Math.max(0, Math.ceil((S.warnUntil-Date.now())/1000)))); set('wc-cd-t', S.warnKind==='cam'?'Camera off':'No face on camera'); }
+    if(!live){
+      set('wc-off-t', S.st==='denied'?'Camera blocked':(S.st==='nocam'?'No camera found':(S.st==='starting'?'Starting camera…':'Camera needed')));
+      set('wc-off-s', S.st==='denied'?'Allow the camera: click the camera icon in the address bar → Allow.':(S.st==='nocam'?'Plug in a webcam, then click here.':'Working from home: keep your camera on while you work.'));
+      set('wc-off-b', S.st==='starting'?'Please wait…':(S.st==='denied'?'Try again':'Turn on camera'));
+    }
+  }
+
+  /* ── the box on Start / Resume ── */
+  function gate(kind){
+    var el=document.getElementById('wcam-gate');
+    if(!el){ el=document.createElement('div'); el.id='wcam-gate'; document.body.appendChild(el); }
+    var T={ checking:['Checking your camera','<span class="wg-spin"></span>Look at the camera for a moment…'],
+            loading:['Getting the face check ready','<span class="wg-spin"></span>The first time takes a few seconds. Keep looking at the camera.'],
+            noface:['We can\'t see your face','Working from home, the timer needs your face on the camera. Sit in front of it with your whole face in the frame and good light, then press Start again.'],
+            denied:['Your camera is blocked','Working from home, the timer needs your camera. Click the camera icon in the address bar → <b>Allow</b>, then press <b>Try again</b>.'],
+            nocam:['No camera found','Working from home, the timer needs a camera. Plug in a webcam (or close other apps using it — Zoom, Discord, Teams), then press <b>Try again</b>.'],
+            slow:['Still getting the face check ready','Your internet is slow to load it the first time. Wait a few seconds, then press Start again.'],
+            error:['The camera didn\'t start','Close other apps that might be using it (Zoom, Discord, Teams), then press <b>Try again</b>.'] }[kind]||['Camera',''];
+    var busy=(kind==='checking'||kind==='loading'), vid=(S.stream && kind!=='denied' && kind!=='nocam');
+    el.innerHTML='<div class="wg" role="dialog" aria-modal="true"><div class="wg-t">📷 '+esc(T[0])+'</div><p class="wg-s">'+T[1]+'</p>'+
+      (vid?'<div class="wg-v"><video muted autoplay playsinline></video><i class="wg-ring"></i></div>':'')+
+      '<div class="wg-b">'+(busy?'':'<button type="button" class="wg-sec" data-a="close">Close</button>')+
+      ((kind==='denied'||kind==='nocam'||kind==='error')?'<button type="button" class="wg-pri" data-a="retry">Try again</button>':'')+'</div>'+
+      '<p class="wg-s" style="font-size:11.5px;margin:12px 0 0;color:#94a3b8">Working from home, your camera is shared with the admin while you work. The face check runs on this computer and nothing is recorded.</p></div>';
+    if(vid){ try{ var v=el.querySelector('video'); v.srcObject=S.stream; var p=v.play(); if(p&&p.catch) p.catch(function(){}); }catch(e){} }
+    el.onclick=function(ev){ var b=ev.target.closest && ev.target.closest('button[data-a]'); if(!b) return;
+      if(b.getAttribute('data-a')==='close') gateClose();
+      else { start().then(function(ok){ if(ok){ gateClose(); toast('📷 Camera on — press Start / Resume.'); } else gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':'error')); }); } };
+  }
+  function gateClose(){ var el=document.getElementById('wcam-gate'); if(el){ try{ var v=el.querySelector('video'); if(v) v.srcObject=null; }catch(e){} el.remove(); } }
+
+  /* the gate used by startTimer / resumeTask: camera on + a face, when working from home */
+  async function allowWork(){
+    var id=me(); if(!id || id==='ADMIN') return true;
+    if(!S.known || Date.now()-S.lastRef>10*60*1000) await Promise.race([ refresh(), sleep(9000) ]);
+    if(!S.need) return true;
+    if(!S.stream){ var ok=await start(); if(!ok){ gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':'error')); log('start_blocked', 0, 'camera '+S.st); return false; } }
+    place(); paint();
+    if(S.detFail) return true;          // the face check could not load here — the camera alone (logged once as det_unavailable)
+    if(!S.det) loadDet();
+    var shown=S.det?'checking':'loading', until=Date.now()+(S.det?8000:25000);
+    gate(shown);
+    while(Date.now()<until){
+      if(S.detFail){ gateClose(); return true; }
+      if(S.det){
+        if(shown==='loading'){ shown='checking'; gate('checking'); until=Math.min(until, Date.now()+8000); }
+        var cv=await grab(), f=await detect(cv);
+        if(f===true){ S.face=true; S.lastGood=Date.now(); S.noSince=0; gateClose(); return true; }
+        if(f===false) S.face=false;
+      }
+      await sleep(400);
+    }
+    if(!S.det){ gate('slow'); return false; }
+    gate('noface'); log('start_blocked', 0, 'no face'); return false;
+  }
+
+  /* ── the clock: a worker keeps ticking with the tab in the background ── */
+  async function tick(){
+    var id=me();
+    if(id!==S.emp){ S.emp=id; S.known=false; S.lastRef=0; S.need=false; try{ S.need=!!id && sessionStorage.getItem('wcam_need_'+id)==='1'; }catch(e){} }
+    if(!authed()){ if(S.stream) stop('signout'); if(S.ch) chDown(); paint(); return; }
+    var now=Date.now();
+    if(now-(S._place||0)>1500){ S._place=now; place(); }
+    if((!S.known || now-S.lastRef>15*60*1000) && !S._rp && now-(S._rTry||0)>60000){ S._rTry=now; refresh(); }
+    if(!want()){ if(S.stream) stop('idle'); if(S.ch) chDown(); paint(); return; }
+    if(!S.stream && !S.starting && S.st!=='denied' && S.st!=='nocam' && now-S.autoTry>15000){ S.autoTry=now; start(); }
+    if(S.stream && S.video && !S.video.srcObject) mountVideo();
+    if(S.stream && !S.detBusy && now-S.lastDet>=DET_MS){
+      S.detBusy=true; S.lastDet=now;
+      try{
+        var cv=await grab();
+        if(cv){
+          if(!S.det && !S.detFail) loadDet();
+          var f=await detect(cv);
+          if(f!==null){ S.face=f; S.lastGood=Date.now(); }
+          if(S.admins>0 && Date.now()-S.lastFrame>=FRAME_MS) sendFrame(cv);
+        }
+      }catch(e){}
+      S.detBusy=false;
+    }
+    enforce(now); paint(); pres(false);
+  }
+  function safeTick(){ var n=Date.now(); if(n-(S._lt||0)<700) return; S._lt=n; try{ tick().catch(function(){}); }catch(e){} }
+  (function boot(){
+    try{ var w=new Worker(URL.createObjectURL(new Blob(['setInterval(function(){ postMessage(0); }, 1000);'], { type:'text/javascript' }))); w.onmessage=safeTick; }catch(e){}
+    setInterval(safeTick, 1000);
+    window.addEventListener('pagehide', function(){ try{ if(S.stream) S.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} try{ chDown(); }catch(e){} });
+  })();
+  return { allowWork:allowWork, setWhy:setWhy, start:start, stop:stop, refresh:refresh,
+    state:function(){ return { need:S.need, why:S.why, st:S.st, face:S.face, warn:S.warnKind, admins:S.admins, det:!!S.det, detFail:S.detFail }; }, _S:S };
+})();
+</script>
+<!-- JMB WFH CAMERA · END -->
 </body>
 </html>

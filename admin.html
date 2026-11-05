@@ -9905,7 +9905,7 @@ var ADMAURA = (function(){
       t.innerHTML='<div class="aa-panel-h"><div><h2>Live <em>team</em></h2><p id="aa-t-sub">Who is working, on lunch or on a break — right now.</p></div><span class="aa-sp"></span>'+
         '<input class="aa-search" id="aa-t-q" placeholder="Search name or project…" oninput="ADMAURA.tq(this.value)">'+
         '<button type="button" class="aa-btn" onclick="ADMAURA.teamLoad(true)">'+SV.refresh+'Refresh</button></div>'+
-        '<div class="aa-chips" id="aa-t-chips"></div><div id="aa-t-body"><div class="es">Loading the team…</div></div>';
+        '<div id="aa-cam"></div><div class="aa-chips" id="aa-t-chips"></div><div id="aa-t-body"><div class="es">Loading the team…</div></div>';
       host.insertBefore(t, dash);
     }
     if(!document.getElementById(PANELS.inbox)){
@@ -10024,8 +10024,9 @@ var ADMAURA = (function(){
   /* ── live team board ── */
   function teamOpen(){ teamLoad(false); teamClose(true);
     S.liveT=setInterval(function(){ if(!document.hidden) teamLoad(false); }, 30000);
-    S.tickT=setInterval(tick, 1000); }
-  function teamClose(keep){ if(S.liveT){ clearInterval(S.liveT); S.liveT=null; } if(S.tickT && !keep){ clearInterval(S.tickT); S.tickT=null; } }
+    S.tickT=setInterval(tick, 1000);
+    try{ if(window.WCAMA) WCAMA.open(); }catch(e){} }   // 📷 work-from-home cameras (Nov 5)
+  function teamClose(keep){ if(S.liveT){ clearInterval(S.liveT); S.liveT=null; } if(S.tickT && !keep){ clearInterval(S.tickT); S.tickT=null; } if(!keep){ try{ if(window.WCAMA) WCAMA.close(); }catch(e){} } }
   function teamLoad(force){
     if(force){ try{ jBust(); }catch(e){} }
     var need=!list().length ? api('get_all_employees').then(function(d){ if(d && d.employees){ try{ emps=d.employees; }catch(e){} } }).catch(function(){}) : Promise.resolve();
@@ -11113,5 +11114,163 @@ async function lvoFill(){
 setInterval(function(){ try{ lvoFill(); }catch(e){} }, 1200);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden) LVO_A.at=0; });
 </script>
+<!-- WFH CAMERA WALL · START -->
+<style id="wca-css">
+/* ── 📷 Work-from-home cameras on Live team (Nov 5, 2026) ── */
+#aa-cam:empty{ display:none; }
+#aa-cam{ margin:0 0 16px; }
+.wca-h{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
+.wca-h b{ font-family:'Sora','Inter',sans-serif; font-size:15px; font-weight:800; color:#15172a; }
+.wca-h span{ font-size:12px; color:#8e93a8; font-weight:600; }
+.wca-h .sp{ flex:1; }
+.wca-h button{ height:32px; padding:0 12px; border-radius:999px; border:1px solid rgba(17,19,34,.10); background:#fff; color:#4a4f66; font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; }
+.wca-h button:hover{ border-color:#a855f7; color:#7c3aed; }
+.wca-g{ display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; }
+.wca-t{ background:#fff; border:1px solid rgba(124,58,237,.10); border-radius:18px; overflow:hidden; box-shadow:0 14px 28px -26px rgba(76,60,160,.65); transition:box-shadow .2s, border-color .2s; }
+.wca-t.bad{ border-color:#ef4444; animation:wcaPulse 1s ease-in-out infinite; }
+@keyframes wcaPulse{ 0%,100%{ box-shadow:0 0 0 2px rgba(239,68,68,.45); } 50%{ box-shadow:0 0 0 4px rgba(239,68,68,.85); } }
+.wca-v{ position:relative; aspect-ratio:4/3; background:#0d0c13; }
+.wca-v img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
+.wca-ph{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:12px; color:#c9c5da; font-size:12px; font-weight:600; line-height:1.4; }
+.wca-cd{ position:absolute; left:8px; right:8px; bottom:8px; display:none; padding:6px 9px; border-radius:10px; background:rgba(185,28,28,.88); color:#fff; font-size:12px; font-weight:800; text-align:center; }
+.wca-t.bad .wca-cd{ display:block; }
+.wca-old{ position:absolute; left:8px; top:8px; padding:3px 8px; border-radius:999px; background:rgba(10,10,16,.65); color:#fff; font-size:10.5px; font-weight:700; display:none; }
+.wca-m{ padding:10px 12px 12px; }
+.wca-m b{ display:block; font-size:13.5px; color:#15172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wca-s{ display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; font-weight:700; color:#4a4f66; }
+.wca-s i{ width:8px; height:8px; border-radius:50%; flex:none; background:#94a3b8; }
+.wca-s.ok i{ background:#22c55e; } .wca-s.bad i{ background:#ef4444; } .wca-s.bio i{ background:#14b8a6; } .wca-s.amb i{ background:#f59e0b; }
+.wca-w{ margin-top:3px; font-size:11.5px; color:#8e93a8; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wca-x{ display:inline-block; margin-top:6px; padding:2px 8px; border-radius:999px; background:rgba(239,68,68,.10); color:#b91c1c; font-size:11px; font-weight:800; }
+.wca-none{ font-size:12.5px; color:#8e93a8; font-weight:600; padding:2px 0 4px; }
+#wca-log{ position:fixed; inset:0; z-index:100400; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; padding:18px; }
+#wca-log .wl{ width:100%; max-width:860px; max-height:86vh; overflow:auto; background:#fff; border-radius:20px; padding:20px 22px; box-shadow:0 30px 80px -30px rgba(0,0,0,.5); }
+#wca-log .wl-h{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+#wca-log .wl-h b{ font-family:'Sora','Inter',sans-serif; font-size:18px; font-weight:800; color:#15172a; }
+#wca-log .wl-h .sp{ flex:1; }
+#wca-log select, #wca-log button{ height:32px; border-radius:10px; border:1px solid rgba(17,19,34,.12); background:#fff; font:inherit; font-size:12.5px; font-weight:700; padding:0 10px; cursor:pointer; }
+#wca-log table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+#wca-log th{ text-align:left; color:#8e93a8; font-size:11px; letter-spacing:.06em; text-transform:uppercase; padding:6px 8px; border-bottom:1px solid #eef0f4; }
+#wca-log td{ padding:7px 8px; border-bottom:1px solid #f3f4f7; color:#1f2333; vertical-align:top; }
+#wca-log .wl-sum{ display:flex; gap:8px; flex-wrap:wrap; margin:0 0 12px; }
+#wca-log .wl-sum span{ padding:5px 10px; border-radius:999px; background:#f6f5fb; font-size:12px; font-weight:700; color:#3b3f55; }
+#wca-log .wl-sum span em{ font-style:normal; color:#b91c1c; }
+</style>
+<script id="wca-js">
+/* ══ 📷 WORK-FROM-HOME CAMERA WALL (Jeth, Nov 5, 2026) ══════════════════════════════════════════════════
+   On Dashboard → Live team: every VA working off the office network who is timed in, with their camera — a still
+   frame every ~2 seconds over Supabase Realtime (channel "wfh-cam"). The VAs' portals only send frames while this
+   board is open in a visible tab (the admin's presence on the channel), so nothing streams when nobody watches.
+   The face check itself runs on each VA's computer: no face → warning → their timer stops in 10 s; this wall shows
+   the countdown live. "Camera log" lists every warning / stop (wfh_cam_log) for discussions. */
+var WCAMA=(function(){
+  var S={ sb:null, ch:null, on:false, up:false, va:{}, fr:{}, stops:{}, logAt:0, iv:null, keys:'', key:'admin-'+Math.random().toString(36).slice(2,9) };
+  function E(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  function L(){ try{ return (typeof emps!=='undefined' && Array.isArray(emps)) ? emps : []; }catch(e){ return []; } }
+  function nameOf(id, n){ id=String(id||'').toUpperCase(); var e=null; L().some(function(x){ if(String(x.employee_id||'').toUpperCase()===id){ e=x; return true; } return false; });
+    var s=String((e&&e.full_name)||n||id); if(s.indexOf(',')>=0){ var p=s.split(','); s=((p[1]||'').trim().split(/\s+/)[0]+' '+p[0].trim()).trim(); } return s; }
+  function client(){
+    if(S.sb) return S.sb;
+    try{ if(typeof adminSupaClient!=='undefined' && adminSupaClient) return (S.sb=adminSupaClient); }catch(e){}
+    try{ var lib=window.supabase||window.Supabase; if(lib && lib.createClient) S.sb=lib.createClient(SUPA_URL, SUPA_KEY); }catch(e){}
+    return S.sb;
+  }
+  function track(){ try{ if(S.ch && S.up && !document.hidden){ S.ch.track({ r:'admin', t:Date.now() }); S.ch.send({ type:'broadcast', event:'ping', payload:{ t:Date.now() } }); } }catch(e){} }
+  function open(){
+    if(S.on) return; var sb=client(); if(!sb){ setTimeout(open, 1500); return; }
+    S.on=true;
+    try{
+      S.ch=sb.channel('wfh-cam', { config:{ presence:{ key:S.key }, broadcast:{ self:false } } });
+      S.ch.on('presence', { event:'sync' }, sync);
+      S.ch.on('broadcast', { event:'f' }, function(m){ var p=m && m.payload; if(!p || !p.e) return; S.fr[p.e]={ i:p.i, f:p.f, at:Date.now() }; img(p.e); });
+      S.ch.subscribe(function(s){ if(s==='SUBSCRIBED'){ S.up=true; track(); } else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED'){ S.up=false; } });
+    }catch(e){ S.ch=null; }
+    loadStops();
+    S.iv=setInterval(function(){ render(); if(Date.now()-S.logAt>60000) loadStops(); }, 1000);
+    render();
+  }
+  function close(){
+    S.on=false; S.up=false; if(S.iv){ clearInterval(S.iv); S.iv=null; }
+    try{ if(S.ch){ try{ S.ch.untrack(); }catch(_u){} S.sb.removeChannel(S.ch); } }catch(e){} S.ch=null; S.va={}; S.keys='';
+    var box=document.getElementById('aa-cam'); if(box) box.innerHTML='';
+  }
+  document.addEventListener('visibilitychange', function(){ if(!S.on || !S.ch || !S.up) return; try{ if(document.hidden) S.ch.untrack(); else track(); }catch(e){} });
+  function sync(){
+    var st={}; try{ st=S.ch.presenceState(); }catch(e){}
+    var va={}; Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p && p.r==='va' && p.e){ if(!va[p.e] || (p.t||0)>(va[p.e].t||0)) va[p.e]=p; } }); });
+    S.va=va; render();
+  }
+  function loadStops(){
+    S.logAt=Date.now();
+    var since=new Date(Date.now()-14*3600*1000).toISOString();
+    fetch(SUPA_URL+'/rest/v1/wfh_cam_log?select=employee_id,kind&at=gte.'+encodeURIComponent(since)+'&kind=in.(noface_stop,cam_off_stop)&limit=1000', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } })
+      .then(function(r){ return r.json(); }).then(function(rows){ var c={}; (Array.isArray(rows)?rows:[]).forEach(function(x){ c[x.employee_id]=(c[x.employee_id]||0)+1; }); S.stops=c; render(); }).catch(function(){});
+  }
+  function state(p){
+    var now=Date.now(), left=p.u?Math.max(0, Math.ceil((p.u-now)/1000)):0;
+    if(p.s!=='live') return p.w ? { c:'bad', l:'Camera off', bad:true, cd:'Camera off · timer stops in '+left+'s' } : { c:'bad', l:(p.s==='denied'?'Camera blocked':'Camera off') };
+    if(p.k==='face' && p.w) return { c:'bad', l:'No face', bad:true, cd:'No face · timer stops in '+left+'s' };
+    if(p.b && p.w) return { c:'bio', l:'Bio break' };
+    if(!p.w) return { c:p.f===0?'amb':'', l:'Timer off'+(p.f===0?' · no face':'') };
+    if(p.f===1 || p.d) return { c:'ok', l:'On camera' };
+    if(p.f===0) return { c:'amb', l:'No face' };
+    return { c:'', l:'Checking…' };
+  }
+  function img(e){ var t=document.querySelector('#aa-cam .wca-t[data-e="'+e+'"]'), f=S.fr[e]; if(!t || !f) return; var p=S.va[e]; if(p && p.s!=='live') return;
+    var im=t.querySelector('img'); if(!im) return; if(im.getAttribute('src')!==f.i) im.setAttribute('src', f.i); im.style.display=''; var ph=t.querySelector('.wca-ph'); if(ph) ph.style.display='none'; }
+  function render(){
+    var box=document.getElementById('aa-cam'); if(!box || !S.on) return;
+    var ids=Object.keys(S.va).sort(function(a,b){ return nameOf(a, S.va[a].n).localeCompare(nameOf(b, S.va[b].n)); });
+    var keys=ids.join(',');
+    if(keys!==S.keys || !box.querySelector('.wca-h')){
+      S.keys=keys;
+      box.innerHTML='<div class="wca-h"><b>On camera · working from home</b><span>'+(ids.length?ids.length+' timed in off the office network':'Nobody timed in off the office network right now')+'</span><span class="sp"></span>'+
+        '<button type="button" onclick="WCAMA.log()">Camera log</button></div>'+
+        (ids.length?'<div class="wca-g">'+ids.map(function(e){ return '<div class="wca-t" data-e="'+E(e)+'"><div class="wca-v"><img alt="" style="display:none"><div class="wca-ph">Waiting for the picture…</div><span class="wca-old"></span><div class="wca-cd"></div></div>'+
+          '<div class="wca-m"><b>'+E(nameOf(e, S.va[e].n))+'</b><div class="wca-s"><i></i><span></span></div><div class="wca-w"></div><span class="wca-x" style="display:none"></span></div></div>'; }).join('')+'</div>':'');
+      ids.forEach(img);
+    }
+    var now=Date.now();
+    ids.forEach(function(e){
+      var t=box.querySelector('.wca-t[data-e="'+e+'"]'); if(!t) return;
+      var p=S.va[e], s=state(p), f=S.fr[e];
+      t.classList.toggle('bad', !!s.bad);
+      var st=t.querySelector('.wca-s'); st.className='wca-s '+s.c; st.querySelector('span').textContent=s.l;
+      t.querySelector('.wca-cd').textContent=s.cd||'';
+      var w=t.querySelector('.wca-w'), task=p.w?((p.j||'')+(p.tk?' › '+p.tk:'')):'Not on the clock'; if(w.textContent!==task){ w.textContent=task; w.title=task; }
+      var x=t.querySelector('.wca-x'), n=S.stops[e]||0; x.style.display=n?'':'none'; x.textContent=n+' stop'+(n===1?'':'s')+' this shift';
+      var old=t.querySelector('.wca-old'), age=f?Math.round((now-f.at)/1000):null;
+      var ph=t.querySelector('.wca-ph'), im=t.querySelector('img');
+      if(p.s!=='live'){ ph.style.display='flex'; ph.textContent=p.s==='denied'?'Camera blocked on their side':(p.s==='starting'?'Camera starting…':'Camera is off'); im.style.display='none'; old.style.display='none'; }
+      else if(!f){ ph.style.display='flex'; ph.textContent='Waiting for the picture…'; im.style.display='none'; old.style.display='none'; }
+      else { if(im.style.display==='none') img(e); if(age>10){ old.style.display=''; old.textContent='Picture '+age+'s old'; } else old.style.display='none'; }
+    });
+  }
+  /* ── the camera log ── */
+  var KL={ noface_warn:'No face — warned', noface_back:'Face back', noface_stop:'Timer stopped — no face', cam_off_stop:'Timer stopped — camera off',
+           start_blocked:'Start blocked', cam_denied:'Camera blocked', det_unavailable:'Face check could not load', cam_on:'Camera on' };
+  function log(range){
+    range=range||'24'; var hrs=+range||24;
+    var el=document.getElementById('wca-log'); if(!el){ el=document.createElement('div'); el.id='wca-log'; document.body.appendChild(el); el.addEventListener('click', function(ev){ if(ev.target===el) el.remove(); }); }
+    el.innerHTML='<div class="wl"><div class="wl-h"><b>Camera log</b><span class="sp"></span><select onchange="WCAMA.log(this.value)"><option value="24"'+(hrs===24?' selected':'')+'>Last 24 hours</option><option value="72"'+(hrs===72?' selected':'')+'>Last 3 days</option><option value="168"'+(hrs===168?' selected':'')+'>Last 7 days</option></select><button type="button" onclick="document.getElementById(\'wca-log\').remove()">Close</button></div><div id="wl-b" style="font-size:13px;color:#8e93a8">Loading…</div></div>';
+    var since=new Date(Date.now()-hrs*3600*1000).toISOString();
+    fetch(SUPA_URL+'/rest/v1/wfh_cam_log?select=at,day,employee_id,kind,secs,note&at=gte.'+encodeURIComponent(since)+'&kind=neq.cam_on&order=at.desc&limit=2000', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } })
+      .then(function(r){ return r.json(); }).then(function(rows){
+        var b=document.getElementById('wl-b'); if(!b) return;
+        rows=Array.isArray(rows)?rows:[];
+        if(!rows.length){ b.innerHTML='Nothing logged — no warnings or stops in this period.'; return; }
+        var sum={}; rows.forEach(function(x){ var s=sum[x.employee_id]=sum[x.employee_id]||{ stop:0, warn:0 }; if(/_stop$/.test(x.kind)) s.stop++; else if(x.kind==='noface_warn') s.warn++; });
+        b.innerHTML='<div class="wl-sum">'+Object.keys(sum).sort(function(a,c){ return sum[c].stop-sum[a].stop || sum[c].warn-sum[a].warn; }).map(function(e){ return '<span>'+E(nameOf(e))+' · <em>'+sum[e].stop+' stop'+(sum[e].stop===1?'':'s')+'</em> · '+sum[e].warn+' warning'+(sum[e].warn===1?'':'s')+'</span>'; }).join('')+'</div>'+
+          '<table><thead><tr><th>When (PH time)</th><th>VA</th><th>What happened</th><th>Seconds</th><th>Task</th></tr></thead><tbody>'+rows.map(function(x){
+            var d=new Date(x.at), when=d.toLocaleString('en-US',{ timeZone:'Asia/Manila', month:'short', day:'numeric', hour:'numeric', minute:'2-digit', second:'2-digit' });
+            var what=KL[x.kind]||x.kind, note=String(x.note||'');
+            if(x.kind==='noface_back') what='Face back after '+(x.secs||0)+'s';
+            return '<tr><td style="white-space:nowrap">'+E(when)+'</td><td>'+E(nameOf(x.employee_id))+'</td><td'+(/_stop$/.test(x.kind)?' style="color:#b91c1c;font-weight:700"':'')+'>'+E(what)+'</td><td>'+(x.secs?E(x.secs):'')+'</td><td style="color:#6b7280">'+E(note)+'</td></tr>'; }).join('')+'</tbody></table>';
+      }).catch(function(){ var b=document.getElementById('wl-b'); if(b) b.innerHTML='Could not load the log. Try again.'; });
+  }
+  return { open:open, close:close, log:log, _S:S };
+})();
+</script>
+<!-- WFH CAMERA WALL · END -->
 </body>
 </html>
