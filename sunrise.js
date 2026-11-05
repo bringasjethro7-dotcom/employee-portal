@@ -198,6 +198,137 @@
     }, 600);
   })();
 
+
+  /* (2e) "at its best": ambient hero canvas (orbs + drifting diamonds that react to the cursor), 3D tilt on cards,
+     rotating border glint, magnetic + ripple buttons, top progress bar on tab change, name sheen, points confetti,
+     a "Classic look" switch in the sidebar footer. Decorative only; all paused when the tab is hidden or reduced-motion is on. */
+  (function best() {
+    var reduce = false; try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+    var fine = true; try { fine = window.matchMedia('(pointer: fine)').matches; } catch (e) {}
+    function $(s, r) { return (r || document).querySelector(s); }
+    function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+
+    /* ── ambient canvas inside the hero ── */
+    function ambient(host, opts) {
+      if (!host || host.__srFx || reduce) return; host.__srFx = true;
+      var cv = document.createElement('canvas'); cv.className = 'sr-fx'; cv.setAttribute('aria-hidden', 'true');
+      host.insertBefore(cv, host.firstChild);
+      var ctx = cv.getContext('2d'), W = 0, H = 0, DPR = Math.min(1.5, window.devicePixelRatio || 1), P = [], O = [], mx = -1e4, my = -1e4, t0 = performance.now(), raf = 0, on = true;
+      function size() { var r = host.getBoundingClientRect(); W = Math.max(1, r.width); H = Math.max(1, r.height); cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + 'px'; cv.style.height = H + 'px'; ctx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+      function seed() {
+        P = []; O = [];
+        var n = Math.round(Math.min(44, W / 32));
+        for (var i = 0; i < n; i++) P.push({ x: Math.random() * W, y: Math.random() * H, s: 4 + Math.random() * 9, a: .08 + Math.random() * .22, vy: -(4 + Math.random() * 10), ph: Math.random() * 6.28, sp: .4 + Math.random() * .8, r: Math.random() * 6.28, vr: (Math.random() - .5) * .4, fill: Math.random() < .35 });
+        for (var j = 0; j < 3; j++) O.push({ x: Math.random() * W, y: Math.random() * H, r: 180 + Math.random() * 160, ph: Math.random() * 6.28, sp: .12 + Math.random() * .1, c: j === 1 ? '255,228,209' : '255,235,220' });
+      }
+      function diamond(x, y, s, rot) { ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(s * .72, 0); ctx.lineTo(0, s); ctx.lineTo(-s * .72, 0); ctx.closePath(); ctx.restore(); }
+      var last = t0;
+      function frame(now) {
+        raf = 0; if (!on) return;
+        var dt = Math.min(.05, (now - last) / 1000); last = now; var t = (now - t0) / 1000;
+        ctx.clearRect(0, 0, W, H);
+        /* soft orbs */
+        O.forEach(function (o) {
+          var ox = o.x + Math.sin(t * o.sp + o.ph) * 60, oy = o.y + Math.cos(t * o.sp * .8 + o.ph) * 40;
+          var g = ctx.createRadialGradient(ox, oy, 0, ox, oy, o.r); g.addColorStop(0, 'rgba(' + o.c + ',.55)'); g.addColorStop(1, 'rgba(' + o.c + ',0)');
+          ctx.fillStyle = g; ctx.fillRect(ox - o.r, oy - o.r, o.r * 2, o.r * 2);
+        });
+        /* diamonds */
+        P.forEach(function (p) {
+          p.y += p.vy * dt; p.x += Math.sin(t * p.sp + p.ph) * 12 * dt; p.r += p.vr * dt;
+          var dx = p.x - mx, dy = p.y - my, d2 = dx * dx + dy * dy, R = 150;
+          if (d2 < R * R) { var d = Math.sqrt(d2) || 1, f = (1 - d / R) * 90 * dt; p.x += dx / d * f; p.y += dy / d * f; }
+          if (p.y < -20) { p.y = H + 20; p.x = Math.random() * W; } if (p.x < -20) p.x = W + 20; if (p.x > W + 20) p.x = -20;
+          diamond(p.x, p.y, p.s, p.r);
+          if (p.fill) { ctx.fillStyle = 'rgba(242,106,27,' + (p.a * .7).toFixed(3) + ')'; ctx.fill(); }
+          else { ctx.strokeStyle = 'rgba(242,106,27,' + p.a.toFixed(3) + ')'; ctx.lineWidth = 1.4; ctx.stroke(); }
+        });
+        raf = requestAnimationFrame(frame);
+      }
+      function start() { if (!raf && on) { last = performance.now(); raf = requestAnimationFrame(frame); } }
+      size(); seed(); start();
+      host.addEventListener('mousemove', function (e) { var r = host.getBoundingClientRect(); mx = e.clientX - r.left; my = e.clientY - r.top; });
+      host.addEventListener('mouseleave', function () { mx = -1e4; my = -1e4; });
+      window.addEventListener('resize', function () { size(); seed(); });
+      document.addEventListener('visibilitychange', function () { on = !document.hidden; if (on) start(); });
+      if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { on = es[0].isIntersecting && !document.hidden; if (on) start(); }).observe(host);
+    }
+
+    /* ── 3D tilt + rotating glint on cards ── */
+    function cards() {
+      if (!fine || reduce) return;
+      $$('#dashboard-screen .main-content .card').forEach(function (c) {
+        if (c.__srTilt || c.id === 'dashboard-hero') return; c.__srTilt = true;
+        var g = document.createElement('i'); g.className = 'sr-glint'; g.setAttribute('aria-hidden', 'true'); c.appendChild(g);
+        c.addEventListener('mousemove', function (e) {
+          var r = c.getBoundingClientRect(); if (r.width > 900) return;   /* wide cards don't tilt, it looks odd */
+          var px = (e.clientX - r.left) / r.width - .5, py = (e.clientY - r.top) / r.height - .5;
+          c.style.setProperty('--rx', (-py * 3).toFixed(2) + 'deg'); c.style.setProperty('--ry', (px * 4).toFixed(2) + 'deg'); c.classList.add('sr-tilt');
+        });
+        c.addEventListener('mouseleave', function () { c.classList.remove('sr-tilt'); c.style.removeProperty('--rx'); c.style.removeProperty('--ry'); });
+      });
+    }
+
+    /* ── magnetic + ripple primary buttons ── */
+    function buttons() {
+      $$('#dashboard-screen .btn-primary, #dashboard-screen button.primary, #dashboard-screen #btn-time-in, #dashboard-screen button[style*="linear-gradient"]').forEach(function (b) {
+        if (b.__srBtn) return; b.__srBtn = true;
+        if (fine && !reduce) {
+          b.addEventListener('mousemove', function (e) { var r = b.getBoundingClientRect(); var dx = (e.clientX - (r.left + r.width / 2)) / r.width, dy = (e.clientY - (r.top + r.height / 2)) / r.height; b.style.setProperty('--tx', (dx * 6).toFixed(1) + 'px'); b.style.setProperty('--ty', (dy * 4).toFixed(1) + 'px'); b.classList.add('sr-mag'); });
+          b.addEventListener('mouseleave', function () { b.classList.remove('sr-mag'); b.style.removeProperty('--tx'); b.style.removeProperty('--ty'); });
+        }
+        b.addEventListener('pointerdown', function (e) {
+          if (reduce) return; var r = b.getBoundingClientRect(); var s = document.createElement('i'); s.className = 'sr-ripple';
+          var d = Math.max(r.width, r.height) * 1.6; s.style.cssText = 'width:' + d + 'px;height:' + d + 'px;left:' + (e.clientX - r.left - d / 2) + 'px;top:' + (e.clientY - r.top - d / 2) + 'px';
+          b.appendChild(s); setTimeout(function () { s.remove(); }, 700);
+        });
+      });
+    }
+
+    /* ── top progress bar on tab change ── */
+    var bar = null, barT = 0;
+    function progress() {
+      if (!bar) { bar = document.createElement('i'); bar.id = 'sr-progress'; bar.setAttribute('aria-hidden', 'true'); document.body.appendChild(bar); }
+      clearTimeout(barT); bar.className = ''; void bar.offsetWidth; bar.className = 'go';
+      barT = setTimeout(function () { bar.className = 'done'; barT = setTimeout(function () { bar.className = ''; }, 350); }, 380);
+    }
+
+    /* ── confetti when JMB Points go up ── */
+    function confetti(el) {
+      if (reduce) return; var r = el.getBoundingClientRect();
+      for (var i = 0; i < 18; i++) {
+        var s = document.createElement('i'); s.className = 'sr-confetti'; s.setAttribute('aria-hidden', 'true'); var big = Math.random() < .3;
+        s.style.cssText = 'left:' + (r.left + r.width / 2) + 'px;top:' + (r.top + r.height / 2) + 'px;width:' + (big ? 10 : 6) + 'px;height:' + (big ? 10 : 6) + 'px;background:' + (Math.random() < .5 ? '#F26A1B' : (Math.random() < .5 ? '#FFB98A' : '#C2410C'));
+        document.body.appendChild(s);
+        var a = Math.random() * 6.28, v = 90 + Math.random() * 120;
+        s.animate([{ transform: 'translate(0,0) rotate(0) scale(1)', opacity: 1 }, { transform: 'translate(' + (Math.cos(a) * v) + 'px,' + (Math.sin(a) * v + 60) + 'px) rotate(' + (Math.random() * 540) + 'deg) scale(.4)', opacity: 0 }], { duration: 900 + Math.random() * 500, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'forwards' });
+        (function (el) { setTimeout(function () { el.remove(); }, 1500); })(s);
+      }
+    }
+    function pointsWatch() {
+      var el = $('#hero-st-pts'); if (!el || el.__srPts) return; el.__srPts = true;
+      var last = parseFloat((el.textContent || '').replace(/[^\d.]/g, '')) || 0;
+      new MutationObserver(function () { var v = parseFloat((el.textContent || '').replace(/[^\d.]/g, '')); if (!isNaN(v) && v > last && last > 0 && !el.__srBusy) confetti(el); if (!isNaN(v) && !el.__srBusy) last = v; }).observe(el, { childList: true, characterData: true, subtree: true });
+    }
+
+    /* ── "Classic look" switch in the sidebar footer ── */
+    function toggle() {
+      var foot = $('#dashboard-screen .tabs .au-side-foot'); if (!foot || !foot.offsetParent || $('#sr-classic')) return;
+      var b = document.createElement('button'); b.id = 'sr-classic'; b.type = 'button'; b.title = 'Switch back to the previous look'; b.textContent = 'Classic look';
+      b.addEventListener('click', function () { try { localStorage.setItem('aura_theme', 'light'); } catch (e) {} location.href = location.pathname + '?theme=light'; });
+      foot.appendChild(b);
+    }
+
+    function tick() { ambient($('#dashboard-hero')); cards(); buttons(); pointsWatch(); toggle(); }
+    var n = 0, t = setInterval(function () { tick(); if (++n > 80) clearInterval(t); }, 450);
+    setTimeout(function hook() {
+      if (typeof window.switchTab === 'function' && !window.switchTab.__srBest) {
+        var o = window.switchTab; var w = function () { progress(); var r = o.apply(this, arguments); setTimeout(function () { cards(); buttons(); }, 60); return r; };
+        w.__srBest = true; w.__sr = o.__sr; w.__srMotion = o.__srMotion; window.switchTab = w;
+      } else if (!window.switchTab) setTimeout(hook, 300);
+    }, 900);
+  })();
+
   /* (3) messages rail: collapsed by default in Sunrise, remembered per device */
   var RAIL = 'sunrise_rail';
   function railPref() { try { return localStorage.getItem(RAIL); } catch (e) { return null; } }

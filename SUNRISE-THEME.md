@@ -62,6 +62,13 @@ Rules: one orange focus per area; green/amber/red only ever mean status; plum on
 - **Sidebar "dock" magnification** — like the macOS Dock: the menu row under the cursor grows (+8.5%), its icon grows more (+42%), neighbours grow less and rows spread apart; everything springs back on mouse-leave. Tuning knobs at the top of the `dock()` block in `sunrise.js`: `RADIUS`, `ROW`, `ICON`, `SPREAD`. Desktop only (≥ 900 px).
 - Hero: greeting, KPI tiles, clock and Ora pill rise in on load; the logo watermark floats slowly.
 - Cards lift 2 px on hover; primary buttons lift on hover and press on click; tab content fades in on switch.
+- **Hero**: an ambient canvas (soft orbs + drifting diamond particles that scatter away from the cursor), the JMB mark watermark, sunrise arcs and scattered diamonds with cursor parallax; the name has a slow metallic sheen; KPI numbers count up; JMB Points going up fires a small confetti burst.
+- **Sidebar**: cursor spotlight, dock magnification, the orange active pill glides to the tab you click, the logo has a breathing halo. A "Classic look" switch under the user card returns to Aura (`?theme=light`).
+- **Cards**: 3D tilt that follows the cursor (not on wide cards), a glint that runs around the border on hover, a light sweep, a diamond in the corner; cards below the fold rise in on scroll.
+- **Top bar**: page title + date; a thin orange progress bar runs across the top on tab change; the title underline redraws.
+- **Buttons**: magnetic nudge toward the cursor, ripple on click, shine sweep on hover.
+- **Login**: the existing light strands are recoloured warm (one CSS filter), nothing else touched.
+- All of it is decorative, pauses when the tab is hidden, and is off under `prefers-reduced-motion`. Tuning knobs: top of the `dock()` and `best()` blocks in `sunrise.js`.
 
 ## Known leftovers (small, optional)
 
