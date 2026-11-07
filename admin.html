@@ -4841,6 +4841,18 @@ async function resolveAppeal(entryId, decision, _force, _mins){
     } else { _optiRestore(_sel); if(d&&d.error==='UNAUTHORIZED'){ admLocked(); alert('Your admin sign-in on this device has expired. Use “Enter admin password” at the top, then approve again.'); return; } alert((d&&(d.message||d.error)) ? ('Could not resolve: '+(d.message||d.error)) : 'Could not resolve the appeal.'); }
   }catch(e){ _optiRestore(_sel); alert('Could not reach the portal backend after 3 tries. Reload the inbox: if the appeal is gone, it went through; if it is still here, try again. If it keeps failing, check Apps Script → Executions for a red resolve_appeal row.'); }
 }
+/* Nov 7i: a system error report — the admin decides how many minutes of the gap to credit (0 = reject) */
+async function resolveTicket(entryId){
+  var x=_apCache[entryId]||{}, gm=Math.round((parseFloat(x.claim_hours)||0)*60), tl=_apTool(x);
+  if(!(gm>0)){ alert('Could not read this report — refresh the inbox and try again.'); return; }
+  var sug=tl ? Math.min(gm, tl.mins) : gm;
+  var v=prompt('System error report — '+(x.full_name||x.employee_id||'')+'\nGap '+(x.claim_start||'')+'–'+(x.claim_end||'')+' ('+gm+' min)'+(tl?('\n'+tl.tool+' shows '+tl.mins+' min of work in it.'):'')+'\n\nHow many minutes should be credited? (0 to '+gm+', 0 = reject)', String(sug));
+  if(v===null) return;
+  var m=Math.round(parseFloat(String(v).replace(/[^0-9.]/g,'')));
+  if(isNaN(m) || m<0 || m>gm){ alert('Enter a number from 0 to '+gm+'.'); return; }
+  if(m===0) return resolveAppeal(entryId, 'reject');
+  return resolveAppeal(entryId, 'approve', false, m);
+}
 // Cache of the current pending appeals, keyed by entry_id, so action buttons can read the
 // employee/date without escaping them into inline onclick handlers.
 var _apCache={};
@@ -10100,7 +10112,7 @@ var ADMAURA = (function(){
         inboxLoad(true);
       }).catch(function(e){ alert(admErr(e,null)); bs.forEach(function(b){ b.disabled=false; }); });
   };
-  var IB={ wfh:{ l:'Work-from-home code', ic:'laptop' }, rcdel:{ l:'Reddit deletion', ic:'warn' }, rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
+  var IB={ wfh:{ l:'Work-from-home code', ic:'laptop' }, rcdel:{ l:'Reddit deletion', ic:'warn' }, rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, tk:{ l:'System error report', ic:'warn' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
   function inboxLoad(force, quiet){
     if(force){ try{ jBust(); }catch(e){} }
     var boot=api('admin_bootstrap').then(function(b){ if(!b || !b.ok) throw new Error('boot'); return b; }).catch(function(){
@@ -10163,7 +10175,15 @@ var ADMAURA = (function(){
       });
       (((b.appeals||{}).appeals)||[]).forEach(function(x){
         try{ _apCache[x.entry_id]=x; }catch(e){}
-        var retag=String(x.appeal_type||'').toLowerCase()==='retag';
+        var retag=String(x.appeal_type||'').toLowerCase()==='retag', tkt=String(x.appeal_type||'').toLowerCase()==='ticket';
+        if(tkt){   /* Nov 7i: a system error report — the VA described it, the admin decides the credit */
+          var gm=Math.round((parseFloat(x.claim_hours)||0)*60), tday=''; try{ tday=_appealDayHtml(x)||''; }catch(e){}
+          items.push({ t:'tk', at:'data-ap="'+E(x.entry_id)+'"', name:x.full_name||x.employee_id, date:x.date,
+            dt:'Gap <b>'+E(x.claim_start||'')+'–'+E(x.claim_end||'')+'</b> ('+gm+' min) · '+E(x.project||'')+(x.task?' · '+E(x.task):'')+_apToolBadge(x)+
+               (_apNote(x)?'<br><q>'+E(_apNote(x).replace(/^System error report:\s*/,''))+'</q>':'')+'<br><span style="opacity:.75">The VA could not choose the hours. Check the day below, then credit what the records support.</span>'+tday,
+            ac:'<button class="bsm edit" onclick="resolveTicket(\''+E(x.entry_id)+'\')">Credit time…</button><button class="bsm danger" onclick="resolveAppeal(\''+E(x.entry_id)+'\',\'reject\')">Reject</button>' });
+          return;
+        }
         var claim=(x.claim_hours!==''&&x.claim_hours!=null)?(parseFloat(x.claim_hours).toFixed(2)+'h'):'—', cur=(x.hours!==''&&x.hours!=null)?(parseFloat(x.hours).toFixed(2)+'h'):'0h';
         var dt=retag ? E(x.project||'')+(x.task?' · '+E(x.task):'')+' → <b>'+E(x.new_project||'')+(x.new_task?' · '+E(x.new_task):'')+'</b> (retag, time unchanged)'
                      : E(x.project||'')+(x.task?' · '+E(x.task):'')+' — '+cur+' → claim <b>'+claim+'</b>';
@@ -10218,12 +10238,12 @@ var ADMAURA = (function(){
     recount();
   }
   function recount(){
-    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 };
+    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, tk:0, leave:0, coe:0, dem:0, pts:0 };
     var live=!!document.getElementById('aa-i-body') && S.cur==='inbox';
     if(live){ rows.forEach(function(r){ if(r.style.opacity==='0' || r.style.display==='none' || r.classList.contains('ib-old')) return; var m=(r.className.match(/t-(\w+)/)||[])[1]; if(m){ c[m]++; c.all++; } }); }
-    if(!live || S.iff!=='all'){ c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ if(x.old) return; c[x.t]++; c.all++; }); }
+    if(!live || S.iff!=='all'){ c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, tk:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ if(x.old) return; c[x.t]++; c.all++; }); }
     var ch=document.getElementById('aa-i-chips');
-    if(ch) ch.innerHTML=[['all','Everything'],['wfh','WFH codes'],['rcdel','Reddit deletions'],['rc','Reddit coverage'],['lunch','Working lunch'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
+    if(ch) ch.innerHTML=[['all','Everything'],['wfh','WFH codes'],['rcdel','Reddit deletions'],['rc','Reddit coverage'],['lunch','Working lunch'],['tk','System errors'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
       .filter(function(k){ return k[0]==='all' || c[k[0]]; })
       .map(function(k){ return '<button type="button" class="aa-chip'+(S.iff===k[0]?' on':'')+'" onclick="ADMAURA.iff(\''+k[0]+'\')">'+k[1]+' <i>'+c[k[0]]+'</i></button>'; }).join('');
     var n=document.getElementById('aa-hdr-n'); if(n){ n.textContent=c.all; n.classList.toggle('zero', !c.all); }
