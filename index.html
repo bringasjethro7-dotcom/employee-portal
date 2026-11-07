@@ -26548,7 +26548,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-07-C';
+var PORTAL_BUILD='2026-11-07-D';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34961,7 +34961,7 @@ var WCAM = (function(){
   var S={ emp:'', need:false, why:'', known:false, lastRef:0, st:'off', stream:null, track:null, cap:null, video:null, cv:null, cx:null, small:null,
     det:null, detP:null, detFail:false, detBusy:false, lastDet:0, lastGood:0, face:null, noSince:0, warnKind:'', warnUntil:0,
     ch:null, chUp:false, admins:0, lastFrame:0, presSig:'', presAt:0, tile:null, starting:null, lastLog:{}, autoTry:0,
-    tracked:false, trk:[], stSig:'', stAt:0, watchAt:0, reAt:0, fails:0, upAt:0, chAt:0,
+    tracked:false, trk:[], stSig:'', stAt:0, watchAt:0, reAt:0, fails:0, upAt:0, chAt:0, rtc:null,
     ip:'', offSince:0, offN:0 };
 
   function me(){ try{ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); }catch(e){ return ''; } }
@@ -35060,8 +35060,8 @@ var WCAM = (function(){
         var st=await navigator.mediaDevices.getUserMedia({ video:{ width:{ ideal:640 }, height:{ ideal:480 }, facingMode:'user', frameRate:{ ideal:15, max:20 } }, audio:false });
         S.stream=st; S.track=st.getVideoTracks()[0];
         try{ S.cap=('ImageCapture' in window)?new ImageCapture(S.track):null; }catch(_i){ S.cap=null; }
-        S.track.addEventListener('ended', function(){ S.stream=null; S.track=null; S.cap=null; S.st='off'; S.face=null; paint(); pres(true); });
-        S.st='live'; S.lastGood=Date.now(); mountVideo(); loadDet();
+        S.track.addEventListener('ended', function(){ S.stream=null; S.track=null; S.cap=null; S.st='off'; S.face=null; try{ if(S.rtc) S.rtc.closeAll(true); }catch(_r){} paint(); pres(true); });
+        S.st='live'; S.lastGood=Date.now(); mountVideo(); loadDet(); try{ if(S.rtc) S.rtc.retrack(); }catch(_r){}
         return true;
       }catch(e){
         S.stream=null; S.track=null; S.cap=null;
@@ -35072,6 +35072,7 @@ var WCAM = (function(){
     try{ return await S.starting; }finally{ S.starting=null; }
   }
   function stop(why){
+    try{ if(S.rtc) S.rtc.closeAll(true); }catch(_r){}
     try{ if(S.stream) S.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
     S.stream=null; S.track=null; S.cap=null; S.st='off'; S.face=null; S.noSince=0; warnEnd();
     try{ if(S.video) S.video.srcObject=null; }catch(e){}
@@ -35175,6 +35176,9 @@ var WCAM = (function(){
       S.ch=ch; S.chUp=false; S.tracked=false; S.stSig=''; S.stAt=0; S.upAt=0; S.chAt=now;
       ch.on('presence', { event:'sync' }, function(){ if(ch!==S.ch) return; try{ var st=ch.presenceState(), n=0; Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p && p.r==='admin') n++; }); }); if(n>0 && !S.admins) S.stSig=''; S.admins=n; paint(); }catch(e){} });
       ch.on('broadcast', { event:'ping' }, function(){ if(ch!==S.ch) return; S.watchAt=Date.now(); S.stSig=''; });
+      /* Nov 7e: live video to the admin (WebRTC); the hand-shake rides on this channel */
+      if(!S.rtc && window.WCRTC) S.rtc=WCRTC.va({ send:function(p){ if(S.ch && S.chUp){ try{ S.ch.send({ type:'broadcast', event:'rtc', payload:p }); }catch(e){} } }, me:me, track:function(){ return S.track; }, stream:function(){ return S.stream; } });
+      ch.on('broadcast', { event:'rtc' }, function(m){ if(ch===S.ch && S.rtc && m && m.payload) S.rtc.on(m.payload); });
       ch.subscribe(function(s){
         if(ch!==S.ch) return;
         if(s==='SUBSCRIBED'){ S.chUp=true; S.upAt=Date.now(); trackOnce(); S.stSig=''; status(true); }
@@ -35189,6 +35193,7 @@ var WCAM = (function(){
     S.reAt=Date.now()+Math.min(60000, 5000*Math.pow(2, S.fails-1));
   }
   function chDown(lost){
+    try{ if(S.rtc) S.rtc.closeAll(!lost); }catch(_r){}
     var ch=S.ch; S.ch=null; S.chUp=false; S.admins=0; S.tracked=false; S.stSig=''; S.presSig='';
     if(!ch) return;
     try{
@@ -35226,6 +35231,7 @@ var WCAM = (function(){
   }
   function sendFrame(cv){
     if(!S.ch || !S.chUp || !watching() || !cv) return;
+    if(S.rtc && S.rtc.live()>0 && S.rtc.live()>=S.admins) return;   // Nov 7e: the admin has live video — no still pictures needed
     S.lastFrame=Date.now();
     try{
       if(!S.small){ S.small=document.createElement('canvas'); S.small.width=224; S.small.height=168; }
@@ -35384,6 +35390,7 @@ var WCAM = (function(){
       S.detBusy=false;
     }
     enforce(now); paint(); pres(false);
+    if(S.rtc){ S.rtc.sweep(); if(!watching() && S.rtc.count()) S.rtc.closeAll(true); }   // Nov 7e: nobody watching → no video
   }
   function safeTick(){ var n=Date.now(); if(n-(S._lt||0)<700) return; S._lt=n; try{ tick().catch(function(){}); }catch(e){} }
   (function boot(){
@@ -35392,10 +35399,120 @@ var WCAM = (function(){
     window.addEventListener('pagehide', function(){ try{ if(S.stream) S.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} try{ chDown(); }catch(e){} });
   })();
   return { allowWork:allowWork, setWhy:setWhy, start:start, stop:stop, refresh:refresh, markWfh:markWfh, officeCheck:officeCheck,
-    state:function(){ return { need:S.need, why:S.why, ip:S.ip, offSince:S.offSince, offN:S.offN, st:S.st, face:S.face, warn:S.warnKind, admins:S.admins, watching:watching(), ch:!!S.ch, chUp:S.chUp, tracked:S.tracked, fails:S.fails, det:!!S.det, detFail:S.detFail }; }, _S:S };
+    state:function(){ return { need:S.need, why:S.why, ip:S.ip, offSince:S.offSince, offN:S.offN, st:S.st, face:S.face, warn:S.warnKind, admins:S.admins, watching:watching(), ch:!!S.ch, chUp:S.chUp, tracked:S.tracked, fails:S.fails, video:S.rtc?S.rtc.live():0, det:!!S.det, detFail:S.detFail }; }, _S:S };
 })();
 </script>
 <!-- JMB WFH CAMERA · END -->
+<script id="wcrtc-js">
+/* ══ WORK-FROM-HOME CAMERA · LIVE VIDEO (Jeth, Nov 7, 2026) ═══════════════════════════════════════════════════
+   "The camera on my side lags — make it smooth like Discord." The wall used to get one still picture every 2 seconds
+   through Supabase. Now each VA's portal sends real video straight to the admin's browser (WebRTC, the same thing
+   Discord and Meet use): about 15 frames a second, a fraction of a second behind, ~350 kbps per camera.
+   Supabase only carries the short hand-shake messages (event "rtc" on the wfh-cam channel).
+   If a direct connection cannot be made (some home routers block it) the wall keeps the still pictures and tries again later.
+   Video only flows while the admin has the wall open in a visible tab. */
+window.WCRTC=(function(){
+  /* STUN only. The free public relay the voice room uses (openrelay) gave no relay address when tested on Nov 7, so it
+     is left out; when a direct connection cannot be made the wall keeps the still pictures. */
+  var ICE={ iceServers:[ { urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302','stun:stun.cloudflare.com:3478'] } ] };
+  try{ if(window.WCAM_TURN && window.WCAM_TURN.urls) ICE.iceServers.push(window.WCAM_TURN); }catch(e){}
+  function ok(){ return typeof RTCPeerConnection!=='undefined'; }
+  function cand(c){ try{ return c.toJSON?c.toJSON():{ candidate:c.candidate, sdpMid:c.sdpMid, sdpMLineIndex:c.sdpMLineIndex }; }catch(e){ return null; } }
+  function backoff(r){ r.tries=(r.tries||0)+1; r.next=Date.now()+Math.min(120000, 5000*Math.pow(2, Math.min(r.tries, 5))); }
+
+  /* the VA's side: one connection per admin tab that asks (3 at most); sends the camera only, receives nothing */
+  function va(api){
+    var P={};
+    function send(to, kind, d){ var p={ to:to, from:api.me(), kind:kind }; if(d) for(var k in d) p[k]=d[k]; try{ api.send(p); }catch(e){} }
+    function close(k, tell){ var x=P[k]; if(!x) return; delete P[k]; try{ x.pc.close(); }catch(e){} if(tell) send(k, 'bye'); }
+    async function tune(sender){
+      try{
+        var pr=sender.getParameters(); if(!pr.encodings || !pr.encodings.length) pr.encodings=[{}];
+        var tr=api.track(), w=(tr && tr.getSettings && tr.getSettings().width)||640;
+        pr.encodings[0].maxBitrate=350000; pr.encodings[0].maxFramerate=15; pr.encodings[0].scaleResolutionDownBy=Math.max(1, w/320);
+        pr.degradationPreference='maintain-framerate';
+        await sender.setParameters(pr);
+      }catch(e){}
+    }
+    async function offer(k){
+      var tr=api.track(), st=api.stream();
+      if(!ok() || !tr || tr.readyState!=='live'){ send(k, 'none'); return; }
+      close(k, false);
+      if(Object.keys(P).length>=3){ send(k, 'none'); return; }
+      var pc=new RTCPeerConnection(ICE), x={ pc:pc, at:Date.now(), up:false, q:[], rd:false }; P[k]=x;
+      x.sender=pc.addTrack(tr, st);
+      pc.onicecandidate=function(ev){ if(ev.candidate && P[k]===x){ var c=cand(ev.candidate); if(c) send(k, 'ice', { c:c }); } };
+      pc.onconnectionstatechange=function(){ var s=pc.connectionState; x.up=(s==='connected'); if((s==='failed' || s==='closed') && P[k]===x) close(k, true); };
+      try{ await tune(x.sender); var o=await pc.createOffer(); await pc.setLocalDescription(o); send(k, 'offer', { sdp:pc.localDescription.sdp }); }
+      catch(e){ close(k, true); }
+    }
+    async function on(p){
+      if(!p || p.to!==api.me() || !p.from) return;
+      var k=String(p.from), x=P[k];
+      if(p.kind==='want'){ await offer(k); return; }
+      if(!x) return;
+      try{
+        if(p.kind==='answer' && !x.rd){ await x.pc.setRemoteDescription({ type:'answer', sdp:p.sdp }); x.rd=true; while(x.q.length) await x.pc.addIceCandidate(x.q.shift()); }
+        else if(p.kind==='ice' && p.c){ if(x.rd) await x.pc.addIceCandidate(p.c); else x.q.push(p.c); }
+        else if(p.kind==='bye'){ close(k, false); }
+      }catch(e){}
+    }
+    function retrack(){ var tr=api.track(); if(!tr) return; Object.keys(P).forEach(function(k){ try{ if(P[k].sender) P[k].sender.replaceTrack(tr); }catch(e){} }); }
+    function closeAll(tell){ Object.keys(P).forEach(function(k){ close(k, tell); }); }
+    function live(){ var n=0; Object.keys(P).forEach(function(k){ if(P[k].up) n++; }); return n; }
+    function sweep(){ var now=Date.now(); Object.keys(P).forEach(function(k){ if(!P[k].up && now-P[k].at>25000) close(k, true); }); }   // never came up
+    return { on:on, retrack:retrack, closeAll:closeAll, live:live, sweep:sweep, count:function(){ return Object.keys(P).length; }, _P:P };
+  }
+
+  /* the admin's side: asks each VA on the wall for video; until it plays the still pictures stay */
+  function admin(api){
+    var P={}, R={};
+    function send(to, kind, d){ var p={ to:to, from:api.key, kind:kind }; if(d) for(var k in d) p[k]=d[k]; try{ api.send(p); }catch(e){} }
+    function close(e, tell){ var x=P[e]; if(!x) return; delete P[e]; try{ if(x.pc) x.pc.close(); }catch(_){} if(tell) send(e, 'bye'); try{ api.onStream(e, null); }catch(_){} }
+    function ensure(e){
+      if(!ok()) return;
+      var now=Date.now(), x=P[e], r=R[e]=R[e]||{ tries:0, next:0 };
+      if(x){ if(!x.up && now-x.at>25000){ close(e, true); backoff(r); } return; }
+      if(now<r.next) return;
+      P[e]={ pc:null, at:now, up:false, q:[], rd:false };
+      send(e, 'want');
+    }
+    async function on(p){
+      if(!p || p.to!==api.key || !p.from) return;
+      var e=String(p.from), x=P[e];
+      if(p.kind==='offer'){
+        if(!x){ return; }                                   // we did not ask (or gave up): ignore
+        if(x.pc){ try{ x.pc.close(); }catch(_){} }
+        var pc=new RTCPeerConnection(ICE), y={ pc:pc, at:Date.now(), up:false, q:x.q||[], rd:false }; P[e]=y;
+        pc.ontrack=function(ev){ if(P[e]!==y) return; y.stream=(ev.streams && ev.streams[0]) || new MediaStream([ev.track]); if(y.up) api.onStream(e, y.stream); };
+        pc.onicecandidate=function(ev){ if(ev.candidate && P[e]===y){ var c=cand(ev.candidate); if(c) send(e, 'ice', { c:c }); } };
+        pc.onconnectionstatechange=function(){
+          if(P[e]!==y) return; var s=pc.connectionState;
+          if(s==='connected'){ y.up=true; (R[e]=R[e]||{}).tries=0; api.onStream(e, y.stream||null); }
+          else if(s==='failed' || s==='closed'){ close(e, true); backoff(R[e]=R[e]||{}); }
+          else if(s==='disconnected'){ y.dAt=Date.now(); }
+        };
+        try{
+          await pc.setRemoteDescription({ type:'offer', sdp:p.sdp }); y.rd=true;
+          while(y.q.length){ try{ await pc.addIceCandidate(y.q.shift()); }catch(_){} }
+          var a=await pc.createAnswer(); await pc.setLocalDescription(a); send(e, 'answer', { sdp:pc.localDescription.sdp });
+        }catch(err){ close(e, true); backoff(R[e]=R[e]||{}); }
+        return;
+      }
+      if(!x) return;
+      if(p.kind==='ice' && p.c){ if(x.pc && x.rd){ try{ await x.pc.addIceCandidate(p.c); }catch(_){} } else x.q.push(p.c); }
+      else if(p.kind==='bye' || p.kind==='none'){ close(e, false); backoff(R[e]=R[e]||{}); }
+    }
+    function sweep(){ var now=Date.now(); Object.keys(P).forEach(function(e){ var x=P[e]; if(x.pc && x.pc.connectionState==='disconnected' && x.dAt && now-x.dAt>8000){ close(e, true); backoff(R[e]=R[e]||{}); } }); }
+    function drop(e){ close(e, true); delete R[e]; }
+    function closeAll(){ Object.keys(P).forEach(function(e){ close(e, true); }); R={}; }
+    function live(e){ return !!(P[e] && P[e].up); }
+    function stats(){ var o={}; Object.keys(P).forEach(function(e){ o[e]=P[e].pc?P[e].pc.connectionState:'asked'; }); return o; }
+    return { ensure:ensure, on:on, sweep:sweep, drop:drop, closeAll:closeAll, live:live, stats:stats, ids:function(){ return Object.keys(P); } };
+  }
+  return { va:va, admin:admin, ICE:ICE };
+})();
+</script>
 <!-- JMB PA · ANNOUNCEMENTS (Nov 7, 2026) -->
 <style id="pa-css">
 #pa-ov{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.58);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);font-family:Inter,system-ui,sans-serif;animation:paIn .25s ease}

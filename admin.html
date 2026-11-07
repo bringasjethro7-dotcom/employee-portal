@@ -11131,6 +11131,8 @@ document.addEventListener('visibilitychange', function(){ if(!document.hidden) L
 @keyframes wcaPulse{ 0%,100%{ box-shadow:0 0 0 2px rgba(239,68,68,.45); } 50%{ box-shadow:0 0 0 4px rgba(239,68,68,.85); } }
 .wca-v{ position:relative; aspect-ratio:4/3; background:#0d0c13; }
 .wca-v img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
+.wca-v video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; transform:scaleX(-1); background:#0d0c13; }
+.wca-old.live{ background:rgba(22,163,74,.9); }
 .wca-ph{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:12px; color:#c9c5da; font-size:12px; font-weight:600; line-height:1.4; }
 .wca-cd{ position:absolute; left:8px; right:8px; bottom:8px; display:none; padding:6px 9px; border-radius:10px; background:rgba(185,28,28,.88); color:#fff; font-size:12px; font-weight:800; text-align:center; }
 .wca-t.bad .wca-cd{ display:block; }
@@ -11156,6 +11158,116 @@ document.addEventListener('visibilitychange', function(){ if(!document.hidden) L
 #wca-log .wl-sum span{ padding:5px 10px; border-radius:999px; background:#f6f5fb; font-size:12px; font-weight:700; color:#3b3f55; }
 #wca-log .wl-sum span em{ font-style:normal; color:#b91c1c; }
 </style>
+<script id="wcrtc-js">
+/* ══ WORK-FROM-HOME CAMERA · LIVE VIDEO (Jeth, Nov 7, 2026) ═══════════════════════════════════════════════════
+   "The camera on my side lags — make it smooth like Discord." The wall used to get one still picture every 2 seconds
+   through Supabase. Now each VA's portal sends real video straight to the admin's browser (WebRTC, the same thing
+   Discord and Meet use): about 15 frames a second, a fraction of a second behind, ~350 kbps per camera.
+   Supabase only carries the short hand-shake messages (event "rtc" on the wfh-cam channel).
+   If a direct connection cannot be made (some home routers block it) the wall keeps the still pictures and tries again later.
+   Video only flows while the admin has the wall open in a visible tab. */
+window.WCRTC=(function(){
+  /* STUN only. The free public relay the voice room uses (openrelay) gave no relay address when tested on Nov 7, so it
+     is left out; when a direct connection cannot be made the wall keeps the still pictures. */
+  var ICE={ iceServers:[ { urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302','stun:stun.cloudflare.com:3478'] } ] };
+  try{ if(window.WCAM_TURN && window.WCAM_TURN.urls) ICE.iceServers.push(window.WCAM_TURN); }catch(e){}
+  function ok(){ return typeof RTCPeerConnection!=='undefined'; }
+  function cand(c){ try{ return c.toJSON?c.toJSON():{ candidate:c.candidate, sdpMid:c.sdpMid, sdpMLineIndex:c.sdpMLineIndex }; }catch(e){ return null; } }
+  function backoff(r){ r.tries=(r.tries||0)+1; r.next=Date.now()+Math.min(120000, 5000*Math.pow(2, Math.min(r.tries, 5))); }
+
+  /* the VA's side: one connection per admin tab that asks (3 at most); sends the camera only, receives nothing */
+  function va(api){
+    var P={};
+    function send(to, kind, d){ var p={ to:to, from:api.me(), kind:kind }; if(d) for(var k in d) p[k]=d[k]; try{ api.send(p); }catch(e){} }
+    function close(k, tell){ var x=P[k]; if(!x) return; delete P[k]; try{ x.pc.close(); }catch(e){} if(tell) send(k, 'bye'); }
+    async function tune(sender){
+      try{
+        var pr=sender.getParameters(); if(!pr.encodings || !pr.encodings.length) pr.encodings=[{}];
+        var tr=api.track(), w=(tr && tr.getSettings && tr.getSettings().width)||640;
+        pr.encodings[0].maxBitrate=350000; pr.encodings[0].maxFramerate=15; pr.encodings[0].scaleResolutionDownBy=Math.max(1, w/320);
+        pr.degradationPreference='maintain-framerate';
+        await sender.setParameters(pr);
+      }catch(e){}
+    }
+    async function offer(k){
+      var tr=api.track(), st=api.stream();
+      if(!ok() || !tr || tr.readyState!=='live'){ send(k, 'none'); return; }
+      close(k, false);
+      if(Object.keys(P).length>=3){ send(k, 'none'); return; }
+      var pc=new RTCPeerConnection(ICE), x={ pc:pc, at:Date.now(), up:false, q:[], rd:false }; P[k]=x;
+      x.sender=pc.addTrack(tr, st);
+      pc.onicecandidate=function(ev){ if(ev.candidate && P[k]===x){ var c=cand(ev.candidate); if(c) send(k, 'ice', { c:c }); } };
+      pc.onconnectionstatechange=function(){ var s=pc.connectionState; x.up=(s==='connected'); if((s==='failed' || s==='closed') && P[k]===x) close(k, true); };
+      try{ await tune(x.sender); var o=await pc.createOffer(); await pc.setLocalDescription(o); send(k, 'offer', { sdp:pc.localDescription.sdp }); }
+      catch(e){ close(k, true); }
+    }
+    async function on(p){
+      if(!p || p.to!==api.me() || !p.from) return;
+      var k=String(p.from), x=P[k];
+      if(p.kind==='want'){ await offer(k); return; }
+      if(!x) return;
+      try{
+        if(p.kind==='answer' && !x.rd){ await x.pc.setRemoteDescription({ type:'answer', sdp:p.sdp }); x.rd=true; while(x.q.length) await x.pc.addIceCandidate(x.q.shift()); }
+        else if(p.kind==='ice' && p.c){ if(x.rd) await x.pc.addIceCandidate(p.c); else x.q.push(p.c); }
+        else if(p.kind==='bye'){ close(k, false); }
+      }catch(e){}
+    }
+    function retrack(){ var tr=api.track(); if(!tr) return; Object.keys(P).forEach(function(k){ try{ if(P[k].sender) P[k].sender.replaceTrack(tr); }catch(e){} }); }
+    function closeAll(tell){ Object.keys(P).forEach(function(k){ close(k, tell); }); }
+    function live(){ var n=0; Object.keys(P).forEach(function(k){ if(P[k].up) n++; }); return n; }
+    function sweep(){ var now=Date.now(); Object.keys(P).forEach(function(k){ if(!P[k].up && now-P[k].at>25000) close(k, true); }); }   // never came up
+    return { on:on, retrack:retrack, closeAll:closeAll, live:live, sweep:sweep, count:function(){ return Object.keys(P).length; }, _P:P };
+  }
+
+  /* the admin's side: asks each VA on the wall for video; until it plays the still pictures stay */
+  function admin(api){
+    var P={}, R={};
+    function send(to, kind, d){ var p={ to:to, from:api.key, kind:kind }; if(d) for(var k in d) p[k]=d[k]; try{ api.send(p); }catch(e){} }
+    function close(e, tell){ var x=P[e]; if(!x) return; delete P[e]; try{ if(x.pc) x.pc.close(); }catch(_){} if(tell) send(e, 'bye'); try{ api.onStream(e, null); }catch(_){} }
+    function ensure(e){
+      if(!ok()) return;
+      var now=Date.now(), x=P[e], r=R[e]=R[e]||{ tries:0, next:0 };
+      if(x){ if(!x.up && now-x.at>25000){ close(e, true); backoff(r); } return; }
+      if(now<r.next) return;
+      P[e]={ pc:null, at:now, up:false, q:[], rd:false };
+      send(e, 'want');
+    }
+    async function on(p){
+      if(!p || p.to!==api.key || !p.from) return;
+      var e=String(p.from), x=P[e];
+      if(p.kind==='offer'){
+        if(!x){ return; }                                   // we did not ask (or gave up): ignore
+        if(x.pc){ try{ x.pc.close(); }catch(_){} }
+        var pc=new RTCPeerConnection(ICE), y={ pc:pc, at:Date.now(), up:false, q:x.q||[], rd:false }; P[e]=y;
+        pc.ontrack=function(ev){ if(P[e]!==y) return; y.stream=(ev.streams && ev.streams[0]) || new MediaStream([ev.track]); if(y.up) api.onStream(e, y.stream); };
+        pc.onicecandidate=function(ev){ if(ev.candidate && P[e]===y){ var c=cand(ev.candidate); if(c) send(e, 'ice', { c:c }); } };
+        pc.onconnectionstatechange=function(){
+          if(P[e]!==y) return; var s=pc.connectionState;
+          if(s==='connected'){ y.up=true; (R[e]=R[e]||{}).tries=0; api.onStream(e, y.stream||null); }
+          else if(s==='failed' || s==='closed'){ close(e, true); backoff(R[e]=R[e]||{}); }
+          else if(s==='disconnected'){ y.dAt=Date.now(); }
+        };
+        try{
+          await pc.setRemoteDescription({ type:'offer', sdp:p.sdp }); y.rd=true;
+          while(y.q.length){ try{ await pc.addIceCandidate(y.q.shift()); }catch(_){} }
+          var a=await pc.createAnswer(); await pc.setLocalDescription(a); send(e, 'answer', { sdp:pc.localDescription.sdp });
+        }catch(err){ close(e, true); backoff(R[e]=R[e]||{}); }
+        return;
+      }
+      if(!x) return;
+      if(p.kind==='ice' && p.c){ if(x.pc && x.rd){ try{ await x.pc.addIceCandidate(p.c); }catch(_){} } else x.q.push(p.c); }
+      else if(p.kind==='bye' || p.kind==='none'){ close(e, false); backoff(R[e]=R[e]||{}); }
+    }
+    function sweep(){ var now=Date.now(); Object.keys(P).forEach(function(e){ var x=P[e]; if(x.pc && x.pc.connectionState==='disconnected' && x.dAt && now-x.dAt>8000){ close(e, true); backoff(R[e]=R[e]||{}); } }); }
+    function drop(e){ close(e, true); delete R[e]; }
+    function closeAll(){ Object.keys(P).forEach(function(e){ close(e, true); }); R={}; }
+    function live(e){ return !!(P[e] && P[e].up); }
+    function stats(){ var o={}; Object.keys(P).forEach(function(e){ o[e]=P[e].pc?P[e].pc.connectionState:'asked'; }); return o; }
+    return { ensure:ensure, on:on, sweep:sweep, drop:drop, closeAll:closeAll, live:live, stats:stats, ids:function(){ return Object.keys(P); } };
+  }
+  return { va:va, admin:admin, ICE:ICE };
+})();
+</script>
 <script id="wca-js">
 /* ══ 📷 WORK-FROM-HOME CAMERA WALL (Jeth, Nov 5, 2026) ══════════════════════════════════════════════════
    On Dashboard → Live team: every VA working off the office network who is timed in, with their camera — a still
@@ -11164,7 +11276,7 @@ document.addEventListener('visibilitychange', function(){ if(!document.hidden) L
    The face check itself runs on each VA's computer: no face → warning → their timer stops in 10 s; this wall shows
    the countdown live. "Camera log" lists every warning / stop (wfh_cam_log) for discussions. */
 var WCAMA=(function(){
-  var S={ sb:null, ch:null, on:false, up:false, va:{}, pv:{}, st:{}, fr:{}, stops:{}, logAt:0, iv:null, keys:'', key:'admin-'+Math.random().toString(36).slice(2,9), tracked:false, pingAt:0, fails:0, upAt:0, chAt:0, reT:null };
+  var S={ sb:null, ch:null, on:false, up:false, va:{}, pv:{}, st:{}, fr:{}, stops:{}, logAt:0, iv:null, keys:'', key:'admin-'+Math.random().toString(36).slice(2,9), tracked:false, pingAt:0, fails:0, upAt:0, chAt:0, reT:null, rtc:null, vs:{}, hidAt:0 };
   function E(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
   function L(){ try{ return (typeof emps!=='undefined' && Array.isArray(emps)) ? emps : []; }catch(e){ return []; } }
   function nameOf(id, n){ id=String(id||'').toUpperCase(); var e=null; L().some(function(x){ if(String(x.employee_id||'').toUpperCase()===id){ e=x; return true; } return false; });
@@ -11187,6 +11299,9 @@ var WCAMA=(function(){
       S.ch=ch; S.up=false; S.tracked=false; S.upAt=0; S.chAt=Date.now();
       ch.on('presence', { event:'sync' }, function(){ if(ch===S.ch) sync(); });
       ch.on('broadcast', { event:'f' }, function(m){ if(ch!==S.ch) return; var p=m && m.payload; if(!p || !p.e) return; S.fr[p.e]={ i:p.i, f:p.f, at:Date.now() }; img(p.e); });
+      /* Nov 7e: live video from each VA (WebRTC); the still pictures stay until it plays */
+      if(!S.rtc && window.WCRTC) S.rtc=WCRTC.admin({ key:S.key, send:function(p){ if(S.ch && S.up){ try{ S.ch.send({ type:'broadcast', event:'rtc', payload:p }); }catch(e){} } }, onStream:function(e, st){ if(st) S.vs[e]=st; else delete S.vs[e]; render(); } });
+      ch.on('broadcast', { event:'rtc' }, function(m){ if(ch===S.ch && S.rtc && m && m.payload) S.rtc.on(m.payload); });
       ch.on('broadcast', { event:'st' }, function(m){ if(ch!==S.ch) return; var p=m && m.payload; if(!p || !p.e) return; if(p.gone){ delete S.st[p.e]; } else { p.at=Date.now(); S.st[p.e]=p; } merge(); render(); });
       ch.subscribe(function(s){
         if(ch!==S.ch) return;
@@ -11195,7 +11310,7 @@ var WCAMA=(function(){
       });
     }catch(e){ S.ch=null; S.reT=setTimeout(join, 5000); }
   }
-  function drop(){ var ch=S.ch; S.ch=null; S.up=false; S.tracked=false; if(ch){ try{ S.sb.removeChannel(ch); }catch(e){} } }
+  function drop(){ try{ if(S.rtc) S.rtc.closeAll(); }catch(_r){} S.vs={}; var ch=S.ch; S.ch=null; S.up=false; S.tracked=false; if(ch){ try{ S.sb.removeChannel(ch); }catch(e){} } }
   function lost(){
     var up=S.upAt||0; drop();
     S.fails=(up && Date.now()-up>120000)?1:Math.min(S.fails+1, 5);
@@ -11209,6 +11324,13 @@ var WCAMA=(function(){
       var now=Date.now();
       if(S.ch && !S.up && now-S.chAt>30000) lost();                 // never answered → rebuild
       if(S.up && !document.hidden && now-S.pingAt>20000) ping();    // "still watching"
+      if(S.rtc){                                                     // Nov 7e: ask each VA on camera for live video
+        S.rtc.sweep();
+        if(S.up && !document.hidden){
+          Object.keys(S.va).forEach(function(e){ var p=S.va[e], pv=S.pv[e]; if(p && p.s==='live' && pv && pv.v===2) S.rtc.ensure(e); else if(S.rtc.ids().indexOf(e)>=0) S.rtc.drop(e); });
+          S.rtc.ids().forEach(function(e){ if(!S.va[e]) S.rtc.drop(e); });
+        } else if(document.hidden && S.hidAt && now-S.hidAt>60000 && S.rtc.ids().length){ S.rtc.closeAll(); S.vs={}; }
+      }
       merge(); render(); if(now-S.logAt>60000) loadStops();
     }, 1000);
     render();
@@ -11218,7 +11340,7 @@ var WCAMA=(function(){
     try{ if(S.ch){ try{ S.ch.untrack(); }catch(_u){} } }catch(e){} drop(); S.va={}; S.pv={}; S.st={}; S.keys='';
     var box=document.getElementById('aa-cam'); if(box) box.innerHTML='';
   }
-  document.addEventListener('visibilitychange', function(){ if(S.on && !document.hidden) ping(); });
+  document.addEventListener('visibilitychange', function(){ S.hidAt=document.hidden?Date.now():0; if(S.on && !document.hidden) ping(); });
   function sync(){
     var st={}; try{ st=S.ch.presenceState(); }catch(e){}
     var pv={}; Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p && p.r==='va' && p.e){ if(!pv[p.e] || (p.t||0)>(pv[p.e].t||0)) pv[p.e]=p; } }); });
@@ -11250,7 +11372,7 @@ var WCAMA=(function(){
     if(p.f===0) return { c:'amb', l:'No face' };
     return { c:'', l:'Checking…' };
   }
-  function img(e){ var t=document.querySelector('#aa-cam .wca-t[data-e="'+e+'"]'), f=S.fr[e]; if(!t || !f) return; var p=S.va[e]; if(p && p.s!==undefined && p.s!=='live') return;
+  function img(e){ if(S.vs[e]) return; var t=document.querySelector('#aa-cam .wca-t[data-e="'+e+'"]'), f=S.fr[e]; if(!t || !f) return; var p=S.va[e]; if(p && p.s!==undefined && p.s!=='live') return;
     var im=t.querySelector('img'); if(!im) return; if(im.getAttribute('src')!==f.i) im.setAttribute('src', f.i); im.style.display=''; var ph=t.querySelector('.wca-ph'); if(ph) ph.style.display='none'; }
   function render(){
     var box=document.getElementById('aa-cam'); if(!box || !S.on) return;
@@ -11260,7 +11382,7 @@ var WCAMA=(function(){
       S.keys=keys;
       box.innerHTML='<div class="wca-h"><b>On camera · working from home</b><span>'+(ids.length?ids.length+' timed in off the office network':'Nobody timed in off the office network right now')+'</span><span class="sp"></span>'+
         '<button type="button" onclick="WCAMA.log()">Camera log</button><button type="button" onclick="PAA.open()" style="background:linear-gradient(180deg,#ff8a3d,#f26716);color:#fff;border-color:transparent">Announce</button></div>'+
-        (ids.length?'<div class="wca-g">'+ids.map(function(e){ return '<div class="wca-t" data-e="'+E(e)+'"><div class="wca-v"><img alt="" style="display:none"><div class="wca-ph">Waiting for the picture…</div><span class="wca-old"></span><div class="wca-cd"></div></div>'+
+        (ids.length?'<div class="wca-g">'+ids.map(function(e){ return '<div class="wca-t" data-e="'+E(e)+'"><div class="wca-v"><img alt="" style="display:none"><video class="wca-vid" muted autoplay playsinline style="display:none"></video><div class="wca-ph">Waiting for the picture…</div><span class="wca-old"></span><div class="wca-cd"></div></div>'+
           '<div class="wca-m"><b>'+E(nameOf(e, S.va[e].n))+'</b><div class="wca-s"><i></i><span></span></div><div class="wca-w"></div><span class="wca-x" style="display:none"></span></div></div>'; }).join('')+'</div>':'');
       ids.forEach(img);
     }
@@ -11279,6 +11401,16 @@ var WCAMA=(function(){
       else if(p.s!==undefined && p.s!=='live'){ ph.style.display='flex'; ph.textContent=p.s==='denied'?'Camera blocked on their side':(p.s==='starting'?'Camera starting…':'Camera is off'); im.style.display='none'; old.style.display='none'; }
       else if(!f){ ph.style.display='flex'; ph.textContent='Waiting for the picture…'; im.style.display='none'; old.style.display='none'; }
       else { if(im.style.display==='none') img(e); if(age>10){ old.style.display=''; old.textContent='Picture '+age+'s old'; } else old.style.display='none'; }
+      /* Nov 7e: live video over everything when it plays */
+      var vv=t.querySelector('video.wca-vid'), vs=S.vs[e];
+      if(vv){
+        if(vs && p.s!=='off' && p.s!=='denied'){
+          if(vv.srcObject!==vs){ vv.srcObject=vs; var pp=vv.play(); if(pp && pp.catch) pp.catch(function(){}); }
+          vv.style.display=''; ph.style.display='none'; im.style.display='none'; old.style.display=''; old.classList.add('live'); old.textContent='Live';
+        } else {
+          if(vv.srcObject) vv.srcObject=null; vv.style.display='none'; old.classList.remove('live');
+        }
+      }
     });
   }
   /* ── the camera log ── */
