@@ -10127,7 +10127,14 @@ var ADMAURA = (function(){
     var fc=api('face_admin_list').catch(function(){ return {}; });   // Nov 7j: face registrations waiting for the admin
     return Promise.all([boot, lw, rc, wn, fc]).then(function(R){
       var b=R[0]||{}, items=[];
-      (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.status==='pending'; }).forEach(function(x){
+      (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.new_at; }).forEach(function(x){   // Nov 7l: guided scan from My Profile
+        var np=(window.FACEA && FACEA.pic) ? FACEA.pic(x.new_snap, 120, 90) : '', op=(window.FACEA && FACEA.pic) ? FACEA.pic(x.snap, 120, 90) : '';
+        items.push({ t:'face', name:x.employee_id, date:String(x.new_at||'').slice(0,10),
+          dt:np+op+'New face scan from My Profile (left) · saved face now (right)'+(x.new_score!=null ? ' · matches the saved face <b>'+Math.round(x.new_score*100)+'%</b>' : '')+
+             '<br><span style="opacity:.75">Approve only if this is them. Until you approve, the saved face keeps working.</span>',
+          ac:'<button class="bsm edit" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'approve_new\',this)">Approve new scan</button><button class="bsm danger" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'reject_new\',this)">Reject</button>' });
+      });
+      (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.status==='pending' && !x.new_at; }).forEach(function(x){
         var pic=(window.FACEA && FACEA.pic) ? FACEA.pic(x.snap, 120, 90) : '';
         items.push({ t:'face', name:x.employee_id, date:String(x.created_at||'').slice(0,10),
           dt:pic+'New face registration · '+(x.score!=null ? 'matches their portal headshot <b>'+Math.round(x.score*100)+'%</b> (auto-approve needs 62%)' : 'no portal headshot on file to compare')+
@@ -11708,11 +11715,14 @@ var FACEA=(function(){
   function render(d){
     var el=document.getElementById('facea'); if(!el) return;
     var regs=(d&&d.registrations)||[], bad=(d&&d.mismatches)||[], heads=(d&&d.headshots)||[];
-    var pend=regs.filter(function(x){ return x.status==='pending'; }), rest=regs.filter(function(x){ return x.status!=='pending'; });
+    var neu=regs.filter(function(x){ return x.new_at; }), pend=regs.filter(function(x){ return x.status==='pending' && !x.new_at; }), rest=regs.filter(function(x){ return x.status!=='pending'; });
     var row=function(x, btns){ return '<div class="fa-row">'+(pic(x.snap)||'<span class="fa-pic"></span>')+'<span class="who">'+E(x.employee_id)+'</span>'+
       '<span class="meta"><span class="fa-chip '+E(x.status)+'">'+E(x.status)+'</span> · '+when(x.created_at)+(x.score!=null?' · headshot match '+Math.round(x.score*100)+'%':'')+(x.decided_by?' · by '+E(x.decided_by):'')+'</span>'+btns+'</div>'; };
     el.innerHTML='<div class="fa-box"><div class="fa-h"><b>Faces</b><span class="sp"></span><button type="button" data-a="reload">Reload</button><button type="button" data-a="close">Close</button></div>'+
       '<p class="fa-s">Working from home, the portal checks that the person on the camera is the VA (match 60% or more; someone else is usually under 45%). Registrations that clearly match the portal headshot are approved automatically. '+heads.length+' portal headshots are on file as references.</p>'+
+      '<div class="fa-t">New scans from My Profile ('+neu.length+')</div>'+(neu.length?neu.map(function(x){ return '<div class="fa-row">'+(pic(x.new_snap)||'<span class="fa-pic"></span>')+(pic(x.snap)||'<span class="fa-pic"></span>')+'<span class="who">'+E(x.employee_id)+'</span>'+
+        '<span class="meta">new scan (left) · saved face (right) · '+when(x.new_at)+(x.new_score!=null?' · matches the saved face '+Math.round(x.new_score*100)+'%':'')+'</span>'+
+        '<button type="button" data-a="approve_new" data-e="'+E(x.employee_id)+'">Approve</button><button type="button" data-a="reject_new" data-e="'+E(x.employee_id)+'">Reject</button></div>'; }).join(''):'<div class="fa-empty">None.</div>')+
       '<div class="fa-t">Waiting for you ('+pend.length+')</div>'+(pend.length?pend.map(function(x){ return row(x, '<button type="button" data-a="approve" data-e="'+E(x.employee_id)+'">Approve</button><button type="button" data-a="reject" data-e="'+E(x.employee_id)+'">Reject</button>'); }).join(''):'<div class="fa-empty">Nothing waiting.</div>')+
       '<div class="fa-t">Someone else on the camera · last 3 days ('+bad.length+')</div>'+(bad.length?bad.map(function(x){ return '<div class="fa-row">'+(pic(x.snap)||'<span class="fa-pic"></span>')+'<span class="who">'+E(x.employee_id)+'</span><span class="meta">'+when(x.at)+' · '+(x.kind==='login'?'sign-in':'while working')+' · match '+Math.round((x.score||0)*100)+'% · '+E(x.note||'')+'</span></div>'; }).join(''):'<div class="fa-empty">None.</div>')+
       '<div class="fa-t">All registrations ('+rest.length+')</div>'+(rest.length?rest.map(function(x){ return row(x, x.status==='approved'?'<button type="button" data-a="reset" data-e="'+E(x.employee_id)+'">Reset</button>':''); }).join(''):'<div class="fa-empty">No one has registered yet. Each VA registers at their first Start from home.</div>')+
@@ -11737,11 +11747,11 @@ var FACEA=(function(){
     load();
   }
   function decide(emp, d, btn, after){
-    var q={ approve:'Approve this face for '+emp+'?', reject:'Reject this registration? '+emp+' will be asked to register again.', reset:'Reset '+emp+'\'s face? They will be asked to register again at their next Start from home.' }[d];
+    var q={ approve_new:'Approve the new face scan for '+emp+'? It replaces the saved face.', reject_new:'Reject the new face scan for '+emp+'? Their saved face stays.', approve:'Approve this face for '+emp+'?', reject:'Reject this registration? '+emp+' will be asked to register again.', reset:'Reset '+emp+'\'s face? They will be asked to register again at their next Start from home.' }[d];
     if(!q || !confirm(q)) return;
     if(btn) btn.disabled=true;
     call('face_admin_decide&employee_id='+encodeURIComponent(emp)+'&decision='+encodeURIComponent(d)).then(function(r){
-      if(r && r.ok){ try{ showToast((d==='approve'?'Approved':(d==='reject'?'Rejected':'Reset'))+' · '+emp); }catch(e){}
+      if(r && r.ok){ try{ showToast((/^approve/.test(d)?'Approved':(/^reject/.test(d)?'Rejected':'Reset'))+' · '+emp); }catch(e){}
         try{ var it=btn && btn.closest('.aa-ib'); if(it) it.style.display='none'; }catch(e){}
         if(after) after(); return; }
       if(btn) btn.disabled=false; alert('Could not save: '+((r&&(r.message||r.error))||'no answer'));

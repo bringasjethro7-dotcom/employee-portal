@@ -26586,7 +26586,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-07-J';
+var PORTAL_BUILD='2026-11-07-K';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34130,6 +34130,14 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-07-K', version:'2026.11.07k', date:'November 7, 2026',
+    summary:'Register your face in My Profile.',
+    items:[
+      'Open My Profile. At the top is the Face ID card. Press Register my face.',
+      'It takes about 15 seconds: look straight at the camera, then turn your head a little to the left and a little to the right. Have light on your face and only you in the picture.',
+      'Your admin approves the scan. Until then, the face saved when you first signed in keeps working.',
+      'New laptop or webcam? Press Register again.'
+    ] },
   { build:'2026-11-07-J', version:'2026.11.07j', date:'November 7, 2026',
     summary:'Your face signs you in, and keep your eyes open.',
     items:[
@@ -35814,10 +35822,118 @@ var FACEID = (function(){
     });
   }
 
-  return { allowWork:allowWork, register:register, loginGate:loginGate, status:status, load:load, earOf:earOf, _S:S };
+  return { allowWork:allowWork, register:register, loginGate:loginGate, status:status, load:load, earOf:earOf, _S:S,
+    _h:{ modal:modal, close:close, msg:msg, openCam:openCam, frame:frame, snap:snap, avg:avg, rpc:rpc, me:me, sleep:sleep, WITH_DESC:WITH_DESC } };
 })();
 </script>
 <!-- JMB FACE ID · END -->
+<!-- JMB FACE ID CARD · START -->
+<style id="fidc-css">
+#fid-card{ background:var(--card,#fff); border:1px solid var(--border,rgba(15,23,42,.08)); border-radius:18px; padding:16px 18px; margin:0 0 16px; box-shadow:0 10px 30px -22px rgba(15,23,42,.35); }
+#fid-card .fidc-h{ display:flex; align-items:center; gap:10px; margin:0 0 6px; }
+#fid-card .fidc-h b{ font-size:15.5px; font-weight:800; color:var(--text-1,#0f172a); }
+#fid-card .fidc-chip{ font-size:11.5px; font-weight:800; padding:3px 10px; border-radius:999px; background:rgba(100,116,139,.12); color:#475569; }
+#fid-card .fidc-chip.ok{ background:rgba(22,163,74,.12); color:#15803d; } #fid-card .fidc-chip.wait{ background:rgba(217,119,6,.14); color:#b45309; } #fid-card .fidc-chip.no{ background:rgba(225,29,72,.10); color:#be123c; }
+#fid-card p{ margin:0 0 12px; font-size:13px; line-height:1.55; color:var(--text-2,#475569); }
+#fid-card button{ border:none; border-radius:11px; padding:10px 16px; font:700 13px/1 inherit; font-family:inherit; cursor:pointer; background:#ff6b1a; color:#fff; }
+#fid-modal .fid-steps{ display:flex; gap:6px; margin:0 0 10px; } #fid-modal .fid-steps i{ flex:1; height:5px; border-radius:99px; background:#e2e8f0; }
+#fid-modal .fid-steps i.on{ background:#ff6b1a; } #fid-modal .fid-steps i.done{ background:#16a34a; }
+#fid-modal .fid-big{ font-size:16px; font-weight:800; color:#0f172a; margin:2px 0 8px; min-height:22px; }
+</style>
+<script id="fidc-js">
+/* ══ FACE ID CARD — My Profile (Jeth, Nov 7, 2026) ══
+   "have it on the portal settings that they can register the face … not basing on the portal images, because some
+   of the portal images are AI generated." A guided scan (look straight, then a little left and right, with a light
+   check), consent, then the admin approves it in Faces. Until then the face saved at the first sign-in keeps working.
+   Someone else cannot replace the face on an account (the server refuses a scan that is not the saved face). */
+var FIDCARD=(function(){
+  var X=FACEID._h, S={ st:null, busy:false };
+  var STEPS=[ { t:'Look straight at the camera', n:4, yaw:'mid' }, { t:'Turn your head a little to the left', n:3, yaw:'side' }, { t:'Turn your head a little to the right', n:3, yaw:'side' } ];
+  function E(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  function when(t){ try{ return new Date(t).toLocaleDateString('en-US',{ timeZone:'Asia/Manila', month:'short', day:'numeric' }); }catch(e){ return ''; } }
+  function view(d){
+    var c=document.getElementById('fid-card'); if(!c) return;
+    var chip='Not registered', cls='no', txt='Register your face so the portal can recognise you when you sign in and when you work from home. It takes about 15 seconds.', btn='Register my face';
+    if(d && d.ok){
+      if(d.waiting){ chip='Waiting for approval'; cls='wait'; txt='Your new face scan is waiting for your admin. Your current face keeps working until then.'; btn='Scan again'; }
+      else if(d.status==='approved' && /admin/i.test(d.by||'')){ chip='Registered'; cls='ok'; txt='Approved by your admin'+(d.samples?'. The portal has also learned '+d.samples+' more look'+(d.samples>1?'s':'')+' of you from your sign-ins.':'.')+' Got a new laptop or webcam? Register again.'; btn='Register again'; }
+      else if(d.status==='approved'){ chip='Saved at sign-in'; cls='wait'; txt='Your face was saved from a quick scan when you signed in on '+E(when(d.saved_at))+'. Register properly here for better accuracy. Your admin approves it.'; btn='Register my face'; }
+      else if(d.status==='rejected' || d.status==='reset'){ chip='Register again'; cls='no'; txt='Your admin asked you to register your face again.'; }
+      else if(d.status==='pending'){ chip='Waiting for approval'; cls='wait'; txt='Your face is waiting for your admin.'; btn='Scan again'; }
+    }
+    c.innerHTML='<div class="fidc-h"><b>Face ID</b><span class="fidc-chip '+cls+'">'+chip+'</span></div><p>'+txt+'</p><button type="button" id="fidc-go">'+btn+'</button>';
+    document.getElementById('fidc-go').onclick=function(){ scan(); };
+  }
+  async function refresh(){ try{ var d=await X.rpc('face_status', { p_emp:X.me() }); S.st=d; view(d); }catch(e){ view(null); } }
+  function mount(){
+    var p=document.getElementById('tab-profile'); if(!p || !/^(JMB\d{3}|JMBEAST|ADMIN)$/.test(X.me())) return;
+    if(!(p.offsetParent || p.getClientRects().length)) return;
+    if(document.getElementById('fid-card')) return;
+    var c=document.createElement('div'); c.id='fid-card'; c.innerHTML='<div class="fidc-h"><b>Face ID</b><span class="fidc-chip">Checking…</span></div>';
+    p.insertBefore(c, p.firstChild); refresh();
+  }
+  setInterval(function(){ try{ mount(); }catch(e){} }, 1500);
+
+  function bright(cv){   // average brightness of the middle of the picture (0–255)
+    try{ var t=document.createElement('canvas'); t.width=48; t.height=36; var x=t.getContext('2d'); x.drawImage(cv, cv.width*0.25, cv.height*0.15, cv.width*0.5, cv.height*0.7, 0, 0, 48, 36);
+      var d=x.getImageData(0,0,48,36).data, s=0; for(var i=0;i<d.length;i+=4) s+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; return s/(d.length/4); }catch(e){ return 128; }
+  }
+  function scan(){
+    if(S.busy) return; S.busy=true;
+    var el=X.modal('<div class="fid-t">Register your face</div><div class="fid-steps"><i></i><i></i><i></i></div>'+
+      '<div class="fid-big" id="fid-big">Get ready</div><div class="fid-v"><video muted playsinline></video><i class="fid-ring"></i></div>'+
+      '<label class="fid-c on"><input type="checkbox" id="fid-ok"> I agree to face checks when I sign in and while I work from home.</label>'+
+      '<p class="fid-small">Face the camera with light on your face. Only you in the picture. The portal keeps a face template (numbers, not a photo) and one small picture for your admin.</p>'+
+      '<div class="fid-msg" id="fid-msg"></div><div class="fid-b"><button type="button" class="fid-sec" data-a="close">Close</button><button type="button" class="fid-pri" data-a="go">Start the scan</button></div>');
+    var vid=null, done=false;
+    function fin(){ if(done) return; done=true; S.busy=false; X.close(); refresh(); }
+    function big(t){ var b=document.getElementById('fid-big'); if(b) b.textContent=t; }
+    function step(i, cls){ var b=el.querySelectorAll('.fid-steps i')[i]; if(b) b.className=cls; }
+    X.openCam(el).then(function(v){ vid=v; }).catch(function(){ X.msg('The camera did not start. Allow the camera (the camera icon in the address bar), then try again.'); });
+    FACEID.load().catch(function(){});
+    el.onclick=async function(ev){
+      var b=ev.target && ev.target.closest && ev.target.closest('button[data-a]'); if(!b || b.disabled) return;
+      if(b.getAttribute('data-a')==='close'){ fin(); return; }
+      if(!document.getElementById('fid-ok').checked){ X.msg('Tick the box to agree first.'); return; }
+      if(!vid){ X.msg('Waiting for the camera…'); return; }
+      b.disabled=true; X.msg('Getting the face check ready…', true);
+      var h; try{ h=await FACEID.load(); }catch(e){ X.msg('The face check could not load. Check your internet, then try again.'); b.disabled=false; return; }
+      X.msg('');
+      var all=[], snapCv=null;
+      for(var i=0;i<STEPS.length;i++){
+        var st=STEPS[i], got=0, tries=0, yawMiss=0; step(i, 'on'); big(st.t); await X.sleep(1300);
+        while(got<st.n && tries<st.n*8){
+          tries++; if(done) return;
+          var cv=X.frame(vid);
+          if(bright(cv)<55){ X.msg('Too dark. Turn on a light or face a window.'); await X.sleep(500); continue; }
+          var r=await h.detect(cv, X.WITH_DESC), f=r && r.face && r.face[0];
+          if(!f || !f.embedding || !(f.score>=0.6)){ X.msg('We cannot see your face clearly. Keep it inside the circle.'); await X.sleep(350); continue; }
+          if(r.face.length>1){ X.msg('Only you in the picture, please.'); await X.sleep(500); continue; }
+          var yaw=f.rotation && f.rotation.angle ? Math.abs(f.rotation.angle.yaw||0) : null;
+          var yawOk=yaw==null || (st.yaw==='mid' ? yaw<=0.35 : yaw>=0.05);
+          if(!yawOk && yawMiss<st.n*3){ yawMiss++; X.msg(st.yaw==='mid'?'Look straight at the camera.':'Turn your head a little more.'); await X.sleep(350); continue; }   // never get stuck on the angle
+          X.msg(''); all.push(Array.prototype.slice.call(f.embedding)); got++; if(st.yaw==='mid' && !snapCv) snapCv=cv;
+          await X.sleep(350);
+        }
+        if(got<st.n){ X.msg('That step did not work. Light on your face, only you in the picture, then press Start the scan again.'); step(i, ''); b.disabled=false; big('Try again'); return; }
+        step(i, 'done');
+      }
+      // every frame must be the same person (someone stepping in, a photo held up…)
+      var mean=X.avg(all), worst=1; all.forEach(function(e){ var s=h.match.similarity(e, mean); if(s<worst) worst=s; });
+      if(worst<0.55){ X.msg('The scan was not steady. Keep only your face in the picture and try again.'); b.disabled=false; big('Try again'); return; }
+      big('Saving…');
+      var d=null; try{ d=await X.rpc('face_enroll', { p_emp:X.me(), p_emb:mean, p_snap:X.snap(snapCv||X.frame(vid)), p_device:(function(){ try{ return _devId(); }catch(e){ return ''; } })() }); }catch(e){}
+      if(d && d.ok){ big('Done'); X.msg('Sent to your admin for approval. Your current face keeps working until then.', true);
+        try{ fetch(APPS_SCRIPT_URL+'?action=face_alert&employee_id='+encodeURIComponent(X.me())+'&kind=register&_='+Date.now()).catch(function(){}); }catch(e){}
+        setTimeout(fin, 1800); return; }
+      if(d && d.error==='NOT_YOU'){ big('Not saved'); X.msg('This face does not match the face saved for this account. If the saved face is wrong, ask your admin to reset it.'); return; }
+      X.msg('Could not save. Check your internet, then try again.'); b.disabled=false; big('Try again');
+    };
+  }
+  return { refresh:refresh, scan:scan };
+})();
+</script>
+<!-- JMB FACE ID CARD · END -->
 <script id="wcrtc-js">
 /* ══ WORK-FROM-HOME CAMERA · LIVE VIDEO (Jeth, Nov 7, 2026) ═══════════════════════════════════════════════════
    "The camera on my side lags — make it smooth like Discord." The wall used to get one still picture every 2 seconds
