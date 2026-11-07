@@ -26548,7 +26548,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-07-E';
+var PORTAL_BUILD='2026-11-07-F';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34999,8 +34999,8 @@ var WCAM = (function(){
   var OFFICE_RE=/^(OFFICE|OFFICE_LEARNED|GATE_OFF)$/;
   function ssGet(k){ try{ return sessionStorage.getItem(k+me()); }catch(e){ return null; } }
   function ssSet(k, v){ try{ if(v===null) sessionStorage.removeItem(k+me()); else sessionStorage.setItem(k+me(), v); }catch(e){} }
-  function explicit(){ return ssGet('wcam_wfh_')==='1'; }
-  function markWfh(){ ssSet('wcam_wfh_', '1'); }
+  function explicit(){ if(ssGet('wcam_wfh_')==='1') return true; try{ return localStorage.getItem('wcam_wfhday_'+me())===day(); }catch(e){ return false; } }
+  function markWfh(){ ssSet('wcam_wfh_', '1'); try{ localStorage.setItem('wcam_wfhday_'+me(), day()); }catch(e){} }   // Nov 7g: for the whole day on this laptop, every tab
   function offSave(){ ssSet('wcam_off_', S.offSince?JSON.stringify({ s:S.offSince, n:S.offN }):null); }
   function setNeed(need, why, ip, how){
     S.need=need; ssSet('wcam_need2_', need?'1':'0');
@@ -35010,6 +35010,7 @@ var WCAM = (function(){
   }
   function setWhy(why, grace, ip){
     why=String(why||''); ip=String(ip||'');
+    S.raw=(why||'none')+(grace?'+grace':''); S.rawIp=ip; S.rawAt=Date.now();   // Nov 7g: what the network check really said
     if(!why || grace) return;
     var now=Date.now();
     if(OFFICE_RE.test(why)){
@@ -35275,7 +35276,9 @@ var WCAM = (function(){
     S.cbSig=sig; S.cbAt=now;
     try{ fetch(SUPA_URL+'/rest/v1/wfh_cam_beat', { method:'POST', keepalive:true,
       headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' },
-      body:JSON.stringify({ employee_id:id, entry_id:String(eid).slice(0,80), need:!!S.need, ok:ok, st:String(S.st||'').slice(0,20) }) }).catch(function(){}); }catch(e){}
+      body:JSON.stringify({ employee_id:id, entry_id:String(eid).slice(0,80), need:!!S.need, ok:ok, st:String(S.st||'').slice(0,20),
+        why:String(S.raw||'').slice(0,60), ip:String(S.rawIp||S.ip||'').slice(0,60),
+        info:('known='+(S.known?1:0)+' off='+(S.offSince?Math.round((now-S.offSince)/1000)+'s/'+S.offN:'0')+' explicit='+(explicit()?1:0)+' checked='+(S.rawAt?Math.round((now-S.rawAt)/1000)+'s':'never')+' owns='+(function(){ try{ return trkOwns?1:0; }catch(e){ return '?'; } })()+' vis='+(document.hidden?0:1)).slice(0,160) }) }).catch(function(){}); }catch(e){}
   }
 
   /* ── the square ── */
