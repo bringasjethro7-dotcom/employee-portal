@@ -4964,7 +4964,7 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
       <div id="wfhreq-st" style="font-size:12px;color:#8a93a3;margin-top:6px;line-height:1.45;min-height:0;"></div>
     </div>
     <div style="margin-bottom:1rem;">
-      <div id="hcaptcha-container"></div>
+      <div id="hcaptcha-container" class="fid-hide"></div>
       <script>
         (function() {
           var container = document.getElementById('hcaptcha-container');
@@ -5006,7 +5006,7 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
     </div>
     <div class="login-error" id="login-error">Incorrect Contractor ID or PIN. Please try again.</div>
     </div><!-- end login-box -->
-    <div class="au-card-note" aria-hidden="true"><i></i>Protected by hCaptcha · one active device per account</div>
+    <div class="au-card-note" aria-hidden="true"><i></i>Face sign-in · one active device per account</div>
    </div><!-- end au-form-col -->
   </div><!-- end login-form-panel -->
 </div><!-- end login-screen -->
@@ -6895,7 +6895,21 @@ async function doLogin(auto) {
   const err = document.getElementById('login-error');
   const btn = document.getElementById('login-btn');
 
-  if (!captchaVerified && auto!==true) { showError('Please verify you\'re not a robot.'); return; }   // auto = office-network retry (Oct 8)
+  /* Nov 7j (Jeth): a face scan replaces the captcha. The captcha comes back only when this laptop has no usable camera
+     (or the face check cannot load). auto = office-network retry (Oct 8). */
+  if (auto!==true && window.FACEID && !window._fidCaptcha) {
+    var _fidId = (function(){ try{ return _faceIdOf(id) || String(id).toUpperCase(); }catch(e){ return String(id).toUpperCase(); } })();
+    if (window._fidOkFor !== _fidId) {
+      if (!id || !pin) { showError('Please enter your Contractor ID and PIN.'); return; }
+      if (window._fidBusy) return; window._fidBusy = true;
+      var _fidCap = function(){ window._fidCaptcha = true; var hc = document.getElementById('hcaptcha-container'); if (hc) hc.classList.remove('fid-hide'); };
+      FACEID.loginGate(id).then(function(r){ window._fidBusy = false;
+        if (r === 'ok') { window._fidOkFor = _fidId; doLogin(); }
+        else if (r === 'captcha') { _fidCap(); showError('No camera available on this laptop. Tick the captcha, then press Sign in.'); }
+      }, function(){ window._fidBusy = false; _fidCap(); showError('Tick the captcha, then press Sign in.'); });
+      return;
+    }
+  } else if (!captchaVerified && auto!==true) { var _hc0 = document.getElementById('hcaptcha-container'); if (_hc0) _hc0.classList.remove('fid-hide'); showError('Please verify you\'re not a robot.'); return; }
   if (!id || !pin) { showError('Please enter your Contractor ID and PIN.'); return; }
 
   btn.innerHTML = '<img class="btn-loader" src="/icons/jmb-loader-white-v1.svg" alt="">Signing in…';
@@ -14551,6 +14565,7 @@ async function startTimer() {
   if (!(await _sopAllowWork())) return;
   if (!(await NETG.allowWork())) return;   // 🛰 office network or a work-from-home code (Oct 6, 2026)
   if (window.WCAM && !(await WCAM.allowWork())) return;   // 📷 working from home: camera on + a face (Nov 5, 2026)
+  if (window.FACEID && !(await FACEID.allowWork())) return;   // working from home: face registered once (Nov 7, 2026)
   if (window.PA && !(await PA.allowWork())) return;       // working from home: sound check (Nov 7, 2026)
   if (window.JMBFeed && !(await JMBFeed.allowWork())) return;   // 📣 must-read / must-do / quiz posts addressed to me
   var f = trkFormFields();
@@ -14625,6 +14640,7 @@ async function resumeTask(entryId) {
   if (!(await _sopAllowWork())) return;     // 📚 resuming a paused task is starting work too
   if (!(await NETG.allowWork())) return;    // 🛰 same network rule on resume
   if (window.WCAM && !(await WCAM.allowWork())) return;    // 📷 same camera rule on resume (Nov 5, 2026)
+  if (window.FACEID && !(await FACEID.allowWork())) return;   // same face registration on resume (Nov 7, 2026)
   if (window.PA && !(await PA.allowWork())) return;        // same sound check on resume (Nov 7, 2026)
   if (window.JMBFeed && !(await JMBFeed.allowWork())) return;   // 📣 same feed rule on resume
   { var _pe0=null; for (var _q=0; _q<trkPaused.length; _q++) { if (trkPaused[_q].entry_id === entryId) { _pe0 = trkPaused[_q]; break; } } if (_pe0 && !(await TOOLG.pair(_pe0))) return; }   // 🔗 pair the tool on resume too (Oct 8)
@@ -26570,7 +26586,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-07-H';
+var PORTAL_BUILD='2026-11-07-I';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34114,6 +34130,14 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-07-I', version:'2026.11.07i', date:'November 7, 2026',
+    summary:'Face sign-in and face checks.',
+    items:[
+      'Signing in: the captcha is gone. After you press Sign in, look at the camera for a moment. If your laptop has no camera, the captcha comes back.',
+      'Working from home: register your face once. The portal asks at your first Start. After that it checks that the person on the camera is you.',
+      'If someone else is on your camera, a warning shows and your timer stops after 20 seconds. Your admin is told.',
+      'The portal keeps a face template (numbers, not a photo) and one small picture for the admin. Nothing else is recorded.'
+    ] },
   { build:'2026-11-07-H', version:'2026.11.07h', date:'November 7, 2026',
     summary:'30 seconds for the camera, and system error reports instead of appeals.',
     items:[
@@ -35167,7 +35191,9 @@ var WCAM = (function(){
   function warnStart(kind, secs){
     S.warnKind=kind; S.warnUntil=Date.now()+secs*1000;
     var msg=kind==='cam' ? 'Your camera is off. Working from home, the timer needs it on — turn it back on or the timer stops.'
-                         : 'We can\'t see your face on the camera. Sit in front of it or your timer stops.';
+                         : (kind==='id' ? 'The camera does not see '+(nm().split(',').pop().trim().split(' ')[0]||'you')+'. Only you can work on your timer. It stops if someone else stays on the camera.'
+                         : 'We can\'t see your face on the camera. Sit in front of it or your timer stops.');
+    if(kind==='id') log('face_mismatch_warn', 0, taskNote());
     try{ STOPAL.warn('cam', S.warnUntil, msg); }catch(e){}
     if(kind==='face') log('noface_warn', Math.round(GRACE/1000), taskNote());
     paint(); pres(true);
@@ -35180,8 +35206,8 @@ var WCAM = (function(){
     S.warnKind=''; S.warnUntil=0;
     try{ await stopTimer(); }catch(e){}
     try{ STOPAL.stopped('cam', 'Your timer stopped', kind==='cam' ? 'Your camera was off. Turn it on, then press Start / Resume.'
-      : 'Nobody was on the camera for '+Math.max(secs, GRACE/1000+WARN)+' seconds. Sit in front of the camera, then press Start / Resume.'); }catch(e){}
-    log(kind==='cam'?'cam_off_stop':'noface_stop', secs, note);
+      : kind==='id' ? 'Someone other than you was on the camera. Your admin has been told.' : 'Nobody was on the camera for '+Math.max(secs, GRACE/1000+WARN)+' seconds. Sit in front of the camera, then press Start / Resume.'); }catch(e){}
+    log(kind==='cam'?'cam_off_stop':(kind==='id'?'face_mismatch_stop':'noface_stop'), secs, note);
     S.noSince=0; paint(); pres(true);
   }
   function enforce(now){
@@ -35190,7 +35216,7 @@ var WCAM = (function(){
     if(onBreak()){ warnEnd(); S.noSince=0; return; }
     var camLive=!!(S.track && S.track.readyState==='live' && S.st==='live');
     if(!camLive){
-      if(S.warnKind==='face') warnEnd();
+      if(S.warnKind==='face' || S.warnKind==='id') warnEnd();
       if(!S.warnKind && !S.starting) warnStart('cam', CAMOFF);
     } else {
       if(S.warnKind==='cam') warnEnd();
@@ -35198,6 +35224,8 @@ var WCAM = (function(){
       if(S.face===false){ if(!S.noSince) S.noSince=now; }
       else if(S.face===true){ if(S.warnKind==='face'){ log('noface_back', Math.round((now-S.noSince)/1000), taskNote()); warnEnd(); } S.noSince=0; }
       if(S.face===false && !S.warnKind && now-S.noSince>=GRACE) warnStart('face', WARN);
+      if(S.idBad && !S.warnKind) warnStart('id', WARN);      // Nov 7j (FACEID): someone else on the camera
+      if(S.warnKind==='id' && !S.idBad) warnEnd();
     }
     if(S.warnKind && now>=S.warnUntil) fire();
   }
@@ -35360,6 +35388,7 @@ var WCAM = (function(){
     var live=S.st==='live', br=onBreak(), run=running(), s, lbl;
     if(!live){ s='off'; lbl=S.st==='starting'?'Starting camera…':'Camera off'; }
     else if(br && run){ s='bio'; lbl=br==='bio'?'Bio break':'On a break'; }
+    else if(S.warnKind==='id' || (S.idBad && run)){ s='noface'; lbl='Not you'; }
     else if(S.warnKind==='face' || (S.face===false && run)){ s='noface'; lbl='No face'; }
     else if(S.face===true || S.detFail){ s='ok'; lbl=run?'On camera':'On camera · timer off'; }
     else { s='wait'; lbl='Checking…'; }
@@ -35367,7 +35396,7 @@ var WCAM = (function(){
     var set=function(id, v){ var e=document.getElementById(id); if(e && e.textContent!==v) e.textContent=v; };
     set('wc-lbl', lbl);
     var adm=document.getElementById('wc-adm'); if(adm) adm.style.display=(live && watching())?'':'none';
-    if(S.warnKind){ set('wc-cd-n', String(Math.max(0, Math.ceil((S.warnUntil-Date.now())/1000)))); set('wc-cd-t', S.warnKind==='cam'?'Camera off':'No face on camera'); }
+    if(S.warnKind){ set('wc-cd-n', String(Math.max(0, Math.ceil((S.warnUntil-Date.now())/1000)))); set('wc-cd-t', S.warnKind==='cam'?'Camera off':(S.warnKind==='id'?'Not you on camera':'No face on camera')); }
     if(!live){
       set('wc-off-t', S.st==='denied'?'Camera blocked':(S.st==='nocam'?'No camera found':(S.st==='starting'?'Starting camera…':'Camera needed')));
       set('wc-off-s', S.st==='denied'?'Allow the camera: click the camera icon in the address bar → Allow.':(S.st==='nocam'?'Plug in a webcam, then click here.':'Working from home: keep your camera on while you work.'));
@@ -35469,6 +35498,245 @@ var WCAM = (function(){
 })();
 </script>
 <!-- JMB WFH CAMERA · END -->
+<!-- JMB FACE ID · START -->
+<style id="faceid-css">
+#fid-modal{ position:fixed; inset:0; z-index:100090; background:rgba(15,23,42,.62); display:flex; align-items:center; justify-content:center; padding:18px; }
+#fid-modal .fid-box{ width:100%; max-width:420px; background:#fff; color:#0f172a; border-radius:20px; padding:22px 22px 18px; box-shadow:0 30px 80px -30px rgba(0,0,0,.6); font-family:inherit; }
+#fid-modal .fid-t{ font-size:19px; font-weight:800; margin:0 0 6px; }
+#fid-modal .fid-s{ font-size:13.5px; color:#475569; line-height:1.55; margin:0 0 10px; }
+#fid-modal .fid-small{ font-size:11.5px; color:#94a3b8; margin:8px 0 6px; }
+#fid-modal .fid-v{ position:relative; width:100%; aspect-ratio:4/3; border-radius:14px; overflow:hidden; background:#0d0c13; margin:4px 0 10px; }
+#fid-modal .fid-v video{ width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:block; }
+#fid-modal .fid-ring{ position:absolute; left:50%; top:46%; width:42%; aspect-ratio:3/4; transform:translate(-50%,-50%); border:2px dashed rgba(255,255,255,.7); border-radius:50%; }
+#fid-modal .fid-c{ display:flex; gap:8px; align-items:flex-start; font-size:13px; color:#334155; line-height:1.45; margin:4px 0 8px; cursor:pointer; }
+#fid-modal .fid-c input{ margin-top:2px; width:16px; height:16px; accent-color:#ff6b1a; flex:0 0 auto; }
+#fid-modal .fid-msg{ min-height:18px; font-size:13px; font-weight:600; color:#c2410c; margin:2px 0 10px; }
+#fid-modal .fid-b{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
+#fid-modal button{ border:none; border-radius:11px; padding:10px 15px; font:700 13px/1 inherit; font-family:inherit; cursor:pointer; }
+#fid-modal .fid-pri{ background:#ff6b1a; color:#fff; } #fid-modal .fid-sec{ background:#f1f5f9; color:#0f172a; }
+#fid-modal button[disabled]{ opacity:.55; cursor:default; }
+#login-screen #hcaptcha-container.fid-hide{ display:none !important; }
+</style>
+<script id="faceid-js">
+/* ══ FACE ID (Jeth, Nov 7, 2026) ══════════════════════════════════════════════════════════════════════════════
+   "Make it possible for the portal to recognize the face of the VA … they can have someone or disguise as them …
+   instead of the captcha they will scan their face on the webcam, and after that they can log in."
+   • THE MODEL: @vladmandic/human 3.3.6 (face detector + mesh + 1024-number face description), loaded once from the
+     CDN and run on this computer. Tested on the 18 portal headshots (Nov 7): different people scored 0.16–0.58,
+     the same person under webcam-like blur, darkness and compression 0.67–1.00.
+   • THE MATCH happens on the server (Supabase face_verify): the portal sends the numbers, never sees anyone's
+     template, and gets back match / unsure / mismatch (match ≥ 0.60 · mismatch < 0.45, tunable in face_cfg).
+   • REGISTRATION (once): working from home, before the first Start. The VA agrees, the portal takes 5 frames and
+     sends their average plus one small picture for the admin. Auto-approved when it clearly matches the portal
+     headshot (≥ 0.62), otherwise the admin approves it.
+   • WHILE TIMED IN from home: a check every minute; a mismatch switches to a check every 6 s; 3 mismatches in a row
+     → the same 20-second warning as "no face", then the timer stops (face_mismatch_stop) and the admin is alerted.
+   • SIGN-IN: a face scan replaces the captcha. Not registered yet → a real face is enough (registration follows at
+     the first work-from-home Start). No camera on the laptop, or the camera busy → the captcha comes back. */
+var FACEID = (function(){
+  var V='3.3.6', B='https://cdn.jsdelivr.net/npm/@vladmandic/human@'+V;
+  var CFG={ modelBasePath:B+'/models/', backend:'webgl', cacheSensitivity:0, filter:{ enabled:false }, debug:false,
+    face:{ enabled:true, detector:{ rotation:true, maxDetected:1, minConfidence:0.3, return:false }, mesh:{ enabled:true }, iris:{ enabled:false },
+      description:{ enabled:true }, emotion:{ enabled:false }, antispoof:{ enabled:false }, liveness:{ enabled:false }, attention:{ enabled:false } },
+    body:{ enabled:false }, hand:{ enabled:false }, object:{ enabled:false }, gesture:{ enabled:false }, segmentation:{ enabled:false } };
+  var EVERY=60000, FAST=6000, BAD_N=3;
+  var S={ H:null, P:null, fail:false, status:'', stAt:0, stFor:'', busy:false, lastChk:0, bad:0, unsure:0, fast:false, alerted:0 };
+
+  function me(){ try{ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); }catch(e){ return ''; } }
+  function nm(){ try{ return String((window._currentEmpData||{}).full_name||'').split(',').pop().trim().split(' ')[0]; }catch(e){ return ''; } }
+  function toast(m){ try{ showToast(m); }catch(e){} }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function day(){ try{ if(typeof shiftDate==='function'){ var d=shiftDate(); if(d) return String(d).slice(0,10); } }catch(e){} return new Date().toISOString().slice(0,10); }
+  function rpc(fn, body){
+    return fetch(SUPA_URL+'/rest/v1/rpc/'+fn, { method:'POST', headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json' }, body:JSON.stringify(body) })
+      .then(function(r){ return r.json(); });
+  }
+  function camLog(kind, note){
+    var id=me(); if(!/^JMB\d{3}$/.test(id)) return;
+    try{ fetch(SUPA_URL+'/rest/v1/wfh_cam_log', { method:'POST', keepalive:true, headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' },
+      body:JSON.stringify({ day:day(), employee_id:id, kind:kind, secs:0, note:String(note||'').slice(0,280) }) }).catch(function(){}); }catch(e){}
+  }
+  function alertAdmin(kind, score, who){
+    var now=Date.now(); if(now-S.alerted<10*60*1000) return; S.alerted=now;
+    try{ fetch(APPS_SCRIPT_URL+'?action=face_alert&employee_id='+encodeURIComponent(who||me())+'&kind='+encodeURIComponent(kind)+'&score='+encodeURIComponent(score==null?'':score)+'&_='+now).catch(function(){}); }catch(e){}
+  }
+
+  /* ── the model ── */
+  function load(){
+    if(S.H) return Promise.resolve(S.H);
+    if(S.P) return S.P;
+    S.P=(async function(){
+      try{ var m=await import(B+'/dist/human.esm.js'); var Hc=m.Human||m.default; var h=new Hc(CFG); await h.load(); await h.warmup(); S.H=h; return h; }
+      catch(e){ S.fail=true; S.P=null; throw e; }
+    })();
+    return S.P;
+  }
+  async function embed(src){
+    var h=await load(), r=await h.detect(src), f=r && r.face && r.face[0];
+    if(!f || !f.embedding || !(f.score>=0.5)) return null;
+    return Array.prototype.slice.call(f.embedding);
+  }
+  function frame(video){
+    var w=video.videoWidth||640, h=video.videoHeight||480, c=document.createElement('canvas'); c.width=w; c.height=h;
+    c.getContext('2d').drawImage(video, 0, 0, w, h); return c;
+  }
+  function snap(src){
+    var c=document.createElement('canvas'); c.width=160; c.height=120;
+    var w=src.width||src.videoWidth||160, h=src.height||src.videoHeight||120, r=Math.max(160/w, 120/h), sw=160/r, sh=120/r;
+    c.getContext('2d').drawImage(src, (w-sw)/2, (h-sh)/2, sw, sh, 0, 0, 160, 120); return c.toDataURL('image/jpeg', 0.6);
+  }
+  function r4(v){ return Math.round(v*1e4)/1e4; }
+  function avg(list){ var n=list.length, o=new Array(1024).fill(0); list.forEach(function(e){ for(var i=0;i<1024;i++) o[i]+=e[i]/n; }); return o.map(r4); }
+  async function frames(video, n, gap){
+    var L=[], last=null;
+    for(var i=0; i<n*3 && L.length<n; i++){ var c=frame(video), e=await embed(c); if(e){ L.push(e); last=c; } await sleep(gap); }
+    return { list:L, last:last };
+  }
+  async function status(force){
+    var id=me(); if(!/^JMB\d{3}$/.test(id)) return '';
+    if(!force && S.stFor===id && S.status && Date.now()-S.stAt<5*60000) return S.status;
+    try{ var d=await rpc('face_status', { p_emp:id }); if(d && d.ok){ S.status=d.status; S.stAt=Date.now(); S.stFor=id; } }catch(e){}
+    return S.stFor===id ? S.status : '';
+  }
+
+  /* ── the box ── */
+  function modal(html){
+    var el=document.getElementById('fid-modal'); if(!el){ el=document.createElement('div'); el.id='fid-modal'; document.body.appendChild(el); }
+    el.innerHTML='<div class="fid-box" role="dialog" aria-modal="true">'+html+'</div>'; return el;
+  }
+  function close(){
+    var el=document.getElementById('fid-modal'); if(!el) return;
+    try{ var v=el.querySelector('video'); if(v && v.srcObject){ v.srcObject.getTracks().forEach(function(t){ t.stop(); }); v.srcObject=null; } }catch(e){}
+    el.remove();
+  }
+  function msg(t){ var m=document.getElementById('fid-msg'); if(m) m.textContent=t||''; }
+  async function openCam(el){
+    var st=await navigator.mediaDevices.getUserMedia({ video:{ width:{ ideal:640 }, height:{ ideal:480 }, facingMode:'user' }, audio:false });
+    var v=el.querySelector('video'); v.muted=true; v.setAttribute('playsinline',''); v.srcObject=st;
+    try{ await v.play(); }catch(e){}
+    for(var i=0;i<30 && !(v.videoWidth>0);i++) await sleep(100);
+    return v;
+  }
+
+  /* ── registration (once) ── */
+  function register(){
+    return new Promise(function(resolve){
+      var el=modal('<div class="fid-t">Register your face</div>'+
+        '<p class="fid-s">Working from home, the portal checks that the person on the camera is you. Register once: look straight at the camera, with light on your face.</p>'+
+        '<div class="fid-v"><video muted playsinline></video><i class="fid-ring"></i></div>'+
+        '<label class="fid-c"><input type="checkbox" id="fid-ok"> I agree to face checks while I work from home and when I sign in.</label>'+
+        '<p class="fid-small">The portal keeps a face template (numbers, not a photo) and one small picture so the admin can confirm it is you. Only the admin can see the picture.</p>'+
+        '<div class="fid-msg" id="fid-msg"></div>'+
+        '<div class="fid-b"><button type="button" class="fid-sec" data-a="later">Later</button><button type="button" class="fid-pri" data-a="scan">Scan my face</button></div>');
+      var vid=null, done=false;
+      function fin(v){ if(done) return; done=true; close(); resolve(v); }
+      openCam(el).then(function(v){ vid=v; }).catch(function(){ msg('The camera did not start. Allow the camera, then try again.'); });
+      load().catch(function(){});
+      el.onclick=async function(ev){
+        var b=ev.target && ev.target.closest && ev.target.closest('button[data-a]'); if(!b || b.disabled) return;
+        if(b.getAttribute('data-a')==='later'){ fin(false); return; }
+        if(!document.getElementById('fid-ok').checked){ msg('Tick the box to agree first.'); return; }
+        if(!vid){ msg('Waiting for the camera…'); return; }
+        b.disabled=true; msg('Getting the face check ready… the first time takes a few seconds.');
+        try{ await load(); }catch(e){ msg('The face check could not load. Check your internet, then try again.'); b.disabled=false; return; }
+        msg('Scanning… keep looking at the camera.');
+        var R=await frames(vid, 5, 350);
+        if(R.list.length<4){ msg('We could not see your face clearly. Sit in front of the camera with light on your face, then try again.'); b.disabled=false; return; }
+        var d=null; try{ d=await rpc('face_register', { p_emp:me(), p_emb:avg(R.list), p_snap:snap(R.last), p_device:(function(){ try{ return _devId(); }catch(e){ return ''; } })() }); }catch(e){}
+        if(d && !d.ok && d.error==='ALREADY'){ S.status=d.status; S.stAt=Date.now(); fin(true); return; }
+        if(!d || !d.ok){ msg('Could not save. Check your internet, then try again.'); b.disabled=false; return; }
+        S.status=d.status; S.stAt=Date.now(); S.stFor=me();
+        fin(true);
+        toast(d.status==='approved' ? 'Face registered.' : 'Face registered. Your admin will confirm it.');
+      };
+    });
+  }
+
+  /* Start / Resume: working from home, registration comes first */
+  async function allowWork(){
+    var id=me(); if(!/^JMB\d{3}$/.test(id)) return true;
+    var w=null; try{ w=WCAM.state(); }catch(e){} if(!w || !w.need) return true;
+    var st=await status(); if(!st || st==='approved' || st==='pending') return true;   // no answer from the server → never block work on our outage
+    return await register();
+  }
+
+  /* ── while timed in from home ── */
+  async function shiftTick(){
+    if(S.busy) return;
+    var id=me(); if(!/^JMB\d{3}$/.test(id)) return;
+    var W=null; try{ W=WCAM._S; }catch(e){} if(!W) return;
+    var run=false; try{ run=!!trkRunning; }catch(e){}
+    if(!run || !W.need){ S.bad=0; S.fast=false; if(W.idBad) W.idBad=false; return; }
+    if(W.st!=='live' || !W.video || !(W.video.videoWidth>0) || W.face!==true) return;
+    var now=Date.now(); if(now-S.lastChk<(S.fast?FAST:EVERY)) return;
+    if(S.fail) return;
+    S.busy=true; S.lastChk=now;
+    try{
+      if((await status())!=='approved'){ S.busy=false; return; }
+      var c=frame(W.video), e=await embed(c);
+      if(e){
+        var d=await rpc('face_verify', { p_emp:id, p_emb:e.map(r4), p_kind:'shift', p_snap:snap(c) });
+        if(d && d.ok && d.enrolled){
+          if(d.verdict==='mismatch'){
+            S.bad++; S.fast=true;
+            if(S.bad>=BAD_N && !W.idBad){ W.idBad=true; alertAdmin('shift', d.score); }
+          } else if(d.verdict==='match'){ S.bad=0; S.unsure=0; S.fast=false; if(W.idBad) W.idBad=false; }
+          else { S.unsure++; if(S.unsure===10) camLog('face_unsure', 'not sure it is '+id+' for 10 checks in a row (score '+d.score+')'); }
+        }
+      }
+    }catch(err){}
+    S.busy=false;
+  }
+  setInterval(function(){ try{ shiftTick(); }catch(e){} }, 2000);
+
+  /* ── sign-in: the face scan instead of the captcha ──
+     resolves 'ok' (go on), 'captcha' (no camera / camera busy / server down → the old captcha) or 'cancel' */
+  async function loginGate(raw){
+    var id=''; try{ id=_faceIdOf(raw); }catch(e){} if(!id) id=String(raw||'').trim().toUpperCase();
+    if(!/^JMB\d{3}$/.test(id)) return 'ok';                 // ADMIN / owners: no face template — the PIN decides
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return 'captcha';
+    try{ var devs=await navigator.mediaDevices.enumerateDevices(); if(devs && devs.length && !devs.some(function(d){ return d.kind==='videoinput'; })) return 'captcha'; }catch(e){}
+    return new Promise(function(resolve){
+      var el=modal('<div class="fid-t">Face sign-in</div><p class="fid-s">Look at the camera to sign in as <b>'+id+'</b>.</p>'+
+        '<div class="fid-v"><video muted playsinline></video><i class="fid-ring"></i></div><div class="fid-msg" id="fid-msg"></div>'+
+        '<div class="fid-b"><button type="button" class="fid-sec" data-a="cancel">Cancel</button><button type="button" class="fid-pri" data-a="retry" style="display:none">Try again</button></div>');
+      var vid=null, done=false, tries=0, misses=0;
+      function fin(r){ if(done) return; done=true; close(); resolve(r); }
+      function retry(on){ var b=el.querySelector('[data-a="retry"]'); if(b) b.style.display=on?'':'none'; }
+      el.onclick=function(ev){ var b=ev.target && ev.target.closest && ev.target.closest('button[data-a]'); if(!b) return;
+        if(b.getAttribute('data-a')==='cancel') fin('cancel'); else { retry(false); tries=0; if(vid) go(); else start(); } };
+      async function go(){
+        msg('Getting the face check ready…');
+        try{ await load(); }catch(e){ fin('captcha'); return; }
+        msg('Hold still…');
+        var R=await frames(vid, 3, 250);
+        if(done) return;
+        if(R.list.length<2){ msg('We cannot see your face. Sit in front of the camera with light on your face.'); retry(true); return; }
+        var d=null; try{ d=await rpc('face_verify', { p_emp:id, p_emb:avg(R.list), p_kind:'login', p_snap:snap(R.last) }); }catch(e){}
+        if(done) return;
+        if(!d || !d.ok){ fin('captcha'); return; }       // the face service is down → the old captcha
+        if(!d.enrolled){ fin('ok'); return; }             // not registered yet: a real face was seen
+        if(d.verdict==='match'){ msg('Welcome back.'); setTimeout(function(){ fin('ok'); }, 350); return; }
+        if(d.verdict==='mismatch'){ misses++; if(misses===2) alertAdmin('login', d.score, id); msg('This face does not match '+id+'. Only '+id+' can sign in to this account.'); retry(true); return; }
+        tries++;
+        if(tries<3){ msg('Almost there. Look straight at the camera.'); setTimeout(go, 500); return; }
+        msg('We could not confirm it is you. More light on your face helps. Try again.'); retry(true);
+      }
+      function start(){
+        openCam(el).then(function(v){ vid=v; go(); }).catch(function(e){
+          var n=e && e.name;
+          if(n==='NotAllowedError' || n==='SecurityError'){ msg('Allow the camera to sign in: click the camera icon in the address bar, choose Allow, then press Try again.'); retry(true); return; }
+          fin('captcha');                                  // no camera, or another app is using it → the old captcha
+        });
+      }
+      start();
+    });
+  }
+
+  return { allowWork:allowWork, register:register, loginGate:loginGate, status:status, load:load, _S:S };
+})();
+</script>
+<!-- JMB FACE ID · END -->
 <script id="wcrtc-js">
 /* ══ WORK-FROM-HOME CAMERA · LIVE VIDEO (Jeth, Nov 7, 2026) ═══════════════════════════════════════════════════
    "The camera on my side lags — make it smooth like Discord." The wall used to get one still picture every 2 seconds

@@ -1684,7 +1684,7 @@ setTimeout(function(){ try{ admSessEnsure(); }catch(e){} }, 1500);
 /* ── ADMIN-ONLY READS (Oct 15) ── get_appeals, admin_bootstrap and resolve_appeal now answer only the admin (owner token or
    admin password). A console restored from "keep me signed in" with neither shows ONE bar to unlock it — never a surprise
    prompt on load. Typing the password there mints the owner token, which is kept on this device for 14 days. */
-var ADM_LOCKED_RE=/[?&]action=(admin_bootstrap|get_appeals|resolve_appeal|trk_repair|trk_events)\b/;
+var ADM_LOCKED_RE=/[?&]action=(admin_bootstrap|get_appeals|resolve_appeal|trk_repair|trk_events|face_admin_list|face_admin_decide)\b/;
 var _admLockRetry=0;
 function admLocked(){
   if(ADM_SESS){ ADM_SESS=''; try{ sessionStorage.removeItem('adm_sess'); localStorage.removeItem('adm_sess_keep'); }catch(_e){} }   // expired or rotated token
@@ -10112,7 +10112,7 @@ var ADMAURA = (function(){
         inboxLoad(true);
       }).catch(function(e){ alert(admErr(e,null)); bs.forEach(function(b){ b.disabled=false; }); });
   };
-  var IB={ wfh:{ l:'Work-from-home code', ic:'laptop' }, rcdel:{ l:'Reddit deletion', ic:'warn' }, rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, tk:{ l:'System error report', ic:'warn' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
+  var IB={ wfh:{ l:'Work-from-home code', ic:'laptop' }, rcdel:{ l:'Reddit deletion', ic:'warn' }, rc:{ l:'Reddit coverage', ic:'cal' }, lunch:{ l:'Working lunch', ic:'fork' }, hours:{ l:'Hour appeal', ic:'clock' }, tk:{ l:'System error report', ic:'warn' }, face:{ l:'Face registration', ic:'warn' }, leave:{ l:'Leave', ic:'cal' }, coe:{ l:'COE', ic:'doc' }, dem:{ l:'Demerit', ic:'warn' }, pts:{ l:'Points', ic:'gift' } };
   function inboxLoad(force, quiet){
     if(force){ try{ jBust(); }catch(e){} }
     var boot=api('admin_bootstrap').then(function(b){ if(!b || !b.ok) throw new Error('boot'); return b; }).catch(function(){
@@ -10124,8 +10124,16 @@ var ADMAURA = (function(){
     var wn=(function(){ var pw=''; try{ pw=(typeof PASS!=='undefined' && PASS)||''; }catch(e){} if(!pw) return Promise.resolve({});   /* Oct 15: never PROMPT for the password while the dashboard loads — a 'keep me signed in' tab has a token but no password, and the prompt blocked the whole console */
       var g=function(a){ return fetch(API+'?action='+a+'&pass='+encodeURIComponent(pw)+'&_='+Date.now()).then(function(r){ return r.json(); }).catch(function(){ return {}; }); };
       return Promise.all([g('wfh_req_list'), g('office_net_status')]).then(function(x){ return { list:x[0]||{}, net:x[1]||{} }; }).catch(function(){ return {}; }); })();
-    return Promise.all([boot, lw, rc, wn]).then(function(R){
+    var fc=api('face_admin_list').catch(function(){ return {}; });   // Nov 7j: face registrations waiting for the admin
+    return Promise.all([boot, lw, rc, wn, fc]).then(function(R){
       var b=R[0]||{}, items=[];
+      (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.status==='pending'; }).forEach(function(x){
+        var pic=(window.FACEA && FACEA.pic) ? FACEA.pic(x.snap, 120, 90) : '';
+        items.push({ t:'face', name:x.employee_id, date:String(x.created_at||'').slice(0,10),
+          dt:pic+'New face registration · '+(x.score!=null ? 'matches their portal headshot <b>'+Math.round(x.score*100)+'%</b> (auto-approve needs 62%)' : 'no portal headshot on file to compare')+
+             '<br><span style="opacity:.75">Approve only if this is them. Until it is approved, the portal does not check their face.</span>',
+          ac:'<button class="bsm edit" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'approve\',this)">Approve</button><button class="bsm danger" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'reject\',this)">Reject</button>' });
+      });
       (((R[2]||{}).delreqs)||[]).forEach(function(q){
         items.push({ t:'rcdel', name:q.by_name||q.by, date:String(q.at||'').slice(0,10),
           dt:'Wants to delete <b>'+E(q.handle)+'</b> · '+E(RC_BASE[q.project]||q.project)+(q.status?' · '+E(q.status):'')+(q.reason?'<br><q>'+E(q.reason)+'</q>':''),
@@ -10238,12 +10246,12 @@ var ADMAURA = (function(){
     recount();
   }
   function recount(){
-    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, tk:0, leave:0, coe:0, dem:0, pts:0 };
+    var rows=document.querySelectorAll('#aa-i-body .aa-ib'), c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, tk:0, face:0, leave:0, coe:0, dem:0, pts:0 };
     var live=!!document.getElementById('aa-i-body') && S.cur==='inbox';
     if(live){ rows.forEach(function(r){ if(r.style.opacity==='0' || r.style.display==='none' || r.classList.contains('ib-old')) return; var m=(r.className.match(/t-(\w+)/)||[])[1]; if(m){ c[m]++; c.all++; } }); }
-    if(!live || S.iff!=='all'){ c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, tk:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ if(x.old) return; c[x.t]++; c.all++; }); }
+    if(!live || S.iff!=='all'){ c={ all:0, wfh:0, rcdel:0, rc:0, lunch:0, hours:0, tk:0, face:0, leave:0, coe:0, dem:0, pts:0 }; (S.ib||[]).forEach(function(x){ if(x.old) return; c[x.t]++; c.all++; }); }
     var ch=document.getElementById('aa-i-chips');
-    if(ch) ch.innerHTML=[['all','Everything'],['wfh','WFH codes'],['rcdel','Reddit deletions'],['rc','Reddit coverage'],['lunch','Working lunch'],['tk','System errors'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
+    if(ch) ch.innerHTML=[['all','Everything'],['wfh','WFH codes'],['rcdel','Reddit deletions'],['rc','Reddit coverage'],['lunch','Working lunch'],['face','Faces'],['tk','System errors'],['hours','Hour appeals'],['leave','Leave'],['coe','COE'],['dem','Demerits'],['pts','Points']]
       .filter(function(k){ return k[0]==='all' || c[k[0]]; })
       .map(function(k){ return '<button type="button" class="aa-chip'+(S.iff===k[0]?' on':'')+'" onclick="ADMAURA.iff(\''+k[0]+'\')">'+k[1]+' <i>'+c[k[0]]+'</i></button>'; }).join('');
     var n=document.getElementById('aa-hdr-n'); if(n){ n.textContent=c.all; n.classList.toggle('zero', !c.all); }
@@ -11378,7 +11386,7 @@ var WCAMA=(function(){
   function loadStops(){
     S.logAt=Date.now();
     var since=new Date(Date.now()-14*3600*1000).toISOString();
-    fetch(SUPA_URL+'/rest/v1/wfh_cam_log?select=employee_id,kind&at=gte.'+encodeURIComponent(since)+'&kind=in.(noface_stop,cam_off_stop,cam_lost_stop)&limit=1000', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } })
+    fetch(SUPA_URL+'/rest/v1/wfh_cam_log?select=employee_id,kind&at=gte.'+encodeURIComponent(since)+'&kind=in.(noface_stop,cam_off_stop,cam_lost_stop,face_mismatch_stop)&limit=1000', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } })
       .then(function(r){ return r.json(); }).then(function(rows){ var c={}; (Array.isArray(rows)?rows:[]).forEach(function(x){ c[x.employee_id]=(c[x.employee_id]||0)+1; }); S.stops=c; render(); }).catch(function(){});
   }
   function state(p){
@@ -11401,7 +11409,7 @@ var WCAMA=(function(){
     if(keys!==S.keys || !box.querySelector('.wca-h')){
       S.keys=keys;
       box.innerHTML='<div class="wca-h"><b>On camera · working from home</b><span>'+(ids.length?ids.length+' timed in off the office network':'Nobody timed in off the office network right now')+'</span><span class="sp"></span>'+
-        '<button type="button" onclick="WCAMA.log()">Camera log</button><button type="button" onclick="PAA.open()" style="background:linear-gradient(180deg,#ff8a3d,#f26716);color:#fff;border-color:transparent">Announce</button></div>'+
+        '<button type="button" onclick="FACEA.open()">Faces</button><button type="button" onclick="WCAMA.log()">Camera log</button><button type="button" onclick="PAA.open()" style="background:linear-gradient(180deg,#ff8a3d,#f26716);color:#fff;border-color:transparent">Announce</button></div>'+
         (ids.length?'<div class="wca-g">'+ids.map(function(e){ return '<div class="wca-t" data-e="'+E(e)+'"><div class="wca-v"><img alt="" style="display:none"><video class="wca-vid" muted autoplay playsinline style="display:none"></video><div class="wca-ph">Waiting for the picture…</div><span class="wca-old"></span><div class="wca-cd"></div></div>'+
           '<div class="wca-m"><b>'+E(nameOf(e, S.va[e].n))+'</b><div class="wca-s"><i></i><span></span></div><div class="wca-w"></div><span class="wca-x" style="display:none"></span></div></div>'; }).join('')+'</div>':'');
       ids.forEach(img);
@@ -11437,7 +11445,8 @@ var WCAMA=(function(){
   var KL={ noface_warn:'No face — warned', noface_back:'Face back', noface_stop:'Timer stopped — no face', cam_off_stop:'Timer stopped — camera off',
            start_blocked:'Start blocked', cam_denied:'Camera blocked', det_unavailable:'Face check could not load', cam_on:'Camera on',
            cam_need:'Camera required (off the office network)', cam_release:'Back on the office network', onsite_check:'Pressed "I\'m at the office"',
-           cam_lost_stop:'Timer stopped — no camera (portal closed, asleep or camera off)' };
+           cam_lost_stop:'Timer stopped — no camera (portal closed, asleep or camera off)',
+           face_mismatch_warn:'Someone else on the camera — warning', face_mismatch_stop:'Timer stopped — someone else on the camera', face_unsure:'Face not clearly confirmed' };
   function log(range){
     range=range||'24'; var hrs=+range||24;
     var el=document.getElementById('wca-log'); if(!el){ el=document.createElement('div'); el.id='wca-log'; document.body.appendChild(el); el.addEventListener('click', function(ev){ if(ev.target===el) el.remove(); }); }
@@ -11667,5 +11676,78 @@ var PAA=(function(){
 })();
 </script>
 <!-- JMB PA · ADMIN END -->
+
+<style id="facea-css">
+#facea{ position:fixed; inset:0; z-index:10050; background:rgba(15,17,34,.45); display:flex; align-items:flex-start; justify-content:center; padding:5vh 16px; overflow:auto; }
+#facea .fa-box{ width:100%; max-width:860px; background:#fff; border-radius:20px; padding:20px 22px; box-shadow:0 30px 80px -30px rgba(0,0,0,.5); font-family:inherit; color:#15172a; }
+#facea .fa-h{ display:flex; align-items:center; gap:10px; margin:0 0 6px; } #facea .fa-h b{ font-size:18px; font-weight:800; } #facea .fa-h .sp{ flex:1; }
+#facea .fa-h button, #facea .fa-row button{ height:30px; padding:0 12px; border-radius:999px; border:1px solid rgba(17,19,34,.12); background:#fff; font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; color:#4a4f66; }
+#facea .fa-h button:hover, #facea .fa-row button:hover{ border-color:#a855f7; color:#7c3aed; }
+#facea .fa-s{ font-size:12.5px; color:#6b7086; line-height:1.5; margin:0 0 12px; }
+#facea .fa-t{ font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#8e93a8; margin:16px 0 8px; }
+#facea .fa-row{ display:flex; align-items:center; gap:12px; padding:8px 10px; border-radius:12px; border:1px solid rgba(17,19,34,.08); margin-bottom:6px; font-size:13px; }
+#facea .fa-row .who{ font-weight:800; min-width:70px; } #facea .fa-row .meta{ flex:1; color:#4a4f66; }
+#facea .fa-chip{ display:inline-block; padding:2px 9px; border-radius:999px; font-size:11.5px; font-weight:800; }
+#facea .fa-chip.approved{ background:rgba(22,163,74,.12); color:#15803d; } #facea .fa-chip.pending{ background:rgba(217,119,6,.14); color:#b45309; }
+#facea .fa-chip.rejected, #facea .fa-chip.reset{ background:rgba(100,116,139,.14); color:#475569; }
+#facea .fa-pic{ width:96px; height:72px; object-fit:cover; border-radius:10px; background:#0d0c13; flex:0 0 auto; }
+#facea .fa-empty{ font-size:13px; color:#8e93a8; padding:6px 2px; }
+</style>
+<script id="facea-js">
+/* ══ FACE ID — the admin's side (Nov 7, 2026) ══
+   Registrations (approve / reject / reset) and the wrong-face pictures of the last 3 days. Templates never reach the
+   console — only the small pictures. Backend: face_admin_list / face_admin_decide (admin only). */
+var FACEA=(function(){
+  function E(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+  function pic(src, w, h){ src=String(src||''); if(!/^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/.test(src)) return '';
+    return '<img src="'+src+'" alt="" style="width:'+(w||96)+'px;height:'+(h||72)+'px;object-fit:cover;border-radius:10px;vertical-align:middle;margin-right:10px;background:#0d0c13">'; }
+  function when(t){ try{ return new Date(t).toLocaleString('en-US',{ timeZone:'Asia/Manila', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }); }catch(e){ return String(t||''); } }
+  function call(q){ return fetch(API+'?action='+q+'&_='+Date.now()).then(function(r){ return r.json(); }); }
+  function close(){ var el=document.getElementById('facea'); if(el) el.remove(); }
+  function render(d){
+    var el=document.getElementById('facea'); if(!el) return;
+    var regs=(d&&d.registrations)||[], bad=(d&&d.mismatches)||[], heads=(d&&d.headshots)||[];
+    var pend=regs.filter(function(x){ return x.status==='pending'; }), rest=regs.filter(function(x){ return x.status!=='pending'; });
+    var row=function(x, btns){ return '<div class="fa-row">'+(pic(x.snap)||'<span class="fa-pic"></span>')+'<span class="who">'+E(x.employee_id)+'</span>'+
+      '<span class="meta"><span class="fa-chip '+E(x.status)+'">'+E(x.status)+'</span> · '+when(x.created_at)+(x.score!=null?' · headshot match '+Math.round(x.score*100)+'%':'')+(x.decided_by?' · by '+E(x.decided_by):'')+'</span>'+btns+'</div>'; };
+    el.innerHTML='<div class="fa-box"><div class="fa-h"><b>Faces</b><span class="sp"></span><button type="button" data-a="reload">Reload</button><button type="button" data-a="close">Close</button></div>'+
+      '<p class="fa-s">Working from home, the portal checks that the person on the camera is the VA (match 60% or more; someone else is usually under 45%). Registrations that clearly match the portal headshot are approved automatically. '+heads.length+' portal headshots are on file as references.</p>'+
+      '<div class="fa-t">Waiting for you ('+pend.length+')</div>'+(pend.length?pend.map(function(x){ return row(x, '<button type="button" data-a="approve" data-e="'+E(x.employee_id)+'">Approve</button><button type="button" data-a="reject" data-e="'+E(x.employee_id)+'">Reject</button>'); }).join(''):'<div class="fa-empty">Nothing waiting.</div>')+
+      '<div class="fa-t">Someone else on the camera · last 3 days ('+bad.length+')</div>'+(bad.length?bad.map(function(x){ return '<div class="fa-row">'+(pic(x.snap)||'<span class="fa-pic"></span>')+'<span class="who">'+E(x.employee_id)+'</span><span class="meta">'+when(x.at)+' · '+(x.kind==='login'?'sign-in':'while working')+' · match '+Math.round((x.score||0)*100)+'% · '+E(x.note||'')+'</span></div>'; }).join(''):'<div class="fa-empty">None.</div>')+
+      '<div class="fa-t">All registrations ('+rest.length+')</div>'+(rest.length?rest.map(function(x){ return row(x, x.status==='approved'?'<button type="button" data-a="reset" data-e="'+E(x.employee_id)+'">Reset</button>':''); }).join(''):'<div class="fa-empty">No one has registered yet. Each VA registers at their first Start from home.</div>')+
+      '</div>';
+  }
+  function load(){
+    var el=document.getElementById('facea'); if(!el) return;
+    call('face_admin_list').then(function(d){
+      if(d && d.error==='UNAUTHORIZED'){ try{ admLocked(); }catch(e){} el.innerHTML='<div class="fa-box"><p class="fa-s">Your admin sign-in on this device has expired. Use “Enter admin password” at the top, then open Faces again.</p></div>'; return; }
+      if(!d || !d.ok){ el.innerHTML='<div class="fa-box"><p class="fa-s">Could not load faces'+(d&&d.error?': '+E(d.error):'')+'. The main backend needs version 2026-11-07c.</p></div>'; return; }
+      render(d);
+    }).catch(function(){ el.innerHTML='<div class="fa-box"><p class="fa-s">Could not reach the backend. Try again.</p></div>'; });
+  }
+  function open(){
+    var el=document.getElementById('facea'); if(!el){ el=document.createElement('div'); el.id='facea'; document.body.appendChild(el); }
+    el.innerHTML='<div class="fa-box"><p class="fa-s">Loading…</p></div>';
+    el.onclick=function(ev){
+      if(ev.target===el){ close(); return; }
+      var b=ev.target.closest && ev.target.closest('button[data-a]'); if(!b) return; var a=b.getAttribute('data-a');
+      if(a==='close') close(); else if(a==='reload') load(); else decide(b.getAttribute('data-e'), a, b, load);
+    };
+    load();
+  }
+  function decide(emp, d, btn, after){
+    var q={ approve:'Approve this face for '+emp+'?', reject:'Reject this registration? '+emp+' will be asked to register again.', reset:'Reset '+emp+'\'s face? They will be asked to register again at their next Start from home.' }[d];
+    if(!q || !confirm(q)) return;
+    if(btn) btn.disabled=true;
+    call('face_admin_decide&employee_id='+encodeURIComponent(emp)+'&decision='+encodeURIComponent(d)).then(function(r){
+      if(r && r.ok){ try{ showToast((d==='approve'?'Approved':(d==='reject'?'Rejected':'Reset'))+' · '+emp); }catch(e){}
+        try{ var it=btn && btn.closest('.aa-ib'); if(it) it.style.display='none'; }catch(e){}
+        if(after) after(); return; }
+      if(btn) btn.disabled=false; alert('Could not save: '+((r&&(r.message||r.error))||'no answer'));
+    }).catch(function(){ if(btn) btn.disabled=false; alert('Could not reach the backend. Try again.'); });
+  }
+  return { open:open, decide:decide, pic:pic };
+})();
+</script>
 </body>
 </html>
