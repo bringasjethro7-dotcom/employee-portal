@@ -7131,7 +7131,11 @@ var NETG = {
       if(d.office_learned){ try{ NETAUTO.alert(); }catch(_a){} }
       if(d.allowed){ if(this._graceUntil){ this._graceUntil=0; try{ showToast('✅ New office network recognised — carry on.'); }catch(_t){} } }
       /* Oct 8: on the office network in the last 2 h and the office IP just changed → keep working up to 15 min while it confirms */
-      else if(d.grace){ if(!this._graceUntil){ this._graceUntil=Date.now()+15*60*1000; try{ showToast('🛰 The office internet changed — confirming the new network. Keep working.'); }catch(_t){} }
+      else if(d.grace){
+        /* Nov 7h: the 15 minutes are kept per IP for the day — a reload used to start them over */
+        var gk='netg_grace_'+id, gv=null; try{ gv=JSON.parse(localStorage.getItem(gk)||'null'); }catch(_g){}
+        if(!gv || gv.ip!==(d.ip||'') || gv.day!==new Date().toDateString()){ gv={ ip:d.ip||'', day:new Date().toDateString(), until:Date.now()+15*60*1000 }; try{ localStorage.setItem(gk, JSON.stringify(gv)); }catch(_s){} }
+        if(!this._graceUntil){ this._graceUntil=gv.until; if(Date.now()<gv.until){ try{ showToast('🛰 The office internet changed — confirming the new network. Keep working.'); }catch(_t){} } }
         if(Date.now()<this._graceUntil) return true; }
       if(!d.allowed && d.why==='NETWORK_CODE_INVALID') this.setCode('');
       return !!d.allowed;
@@ -26548,7 +26552,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-07-F';
+var PORTAL_BUILD='2026-11-07-G';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -35011,7 +35015,7 @@ var WCAM = (function(){
   function setWhy(why, grace, ip){
     why=String(why||''); ip=String(ip||'');
     S.raw=(why||'none')+(grace?'+grace':''); S.rawIp=ip; S.rawAt=Date.now();   // Nov 7g: what the network check really said
-    if(!why || grace) return;
+    if(!why) return;
     var now=Date.now();
     if(OFFICE_RE.test(why)){
       S.why=why; S.ip=ip; S.known=true; S.lastRef=now;
@@ -35019,10 +35023,12 @@ var WCAM = (function(){
       if(S.need) setNeed(false, why, ip, '');
       return;
     }
-    if(!/^(CODE|PASS)$/.test(why) || !ip) return;
+    var refused=/^NETWORK_CODE_(REQUIRED|INVALID)$/.test(why);   // Nov 7h: a refusal from a non-office IP is off the office network too
+    if(!(/^(CODE|PASS)$/.test(why) || refused) || !ip) return;
     S.why=why; S.ip=ip; S.known=true; S.lastRef=now;
     if(S.need) return;
     if(explicit()){ setNeed(true, why, ip, 'work-from-home code typed'); return; }
+    if(refused && !grace){ setNeed(true, why, ip, 'not the office network and no work-from-home code'); return; }
     if(!S.offSince){ S.offSince=now; S.offN=1; offSave(); return; }
     S.offN++; offSave();
     if(now-S.offSince>=SUSTAIN && S.offN>=3) setNeed(true, why, ip, 'off the office network for '+Math.round((now-S.offSince)/60000)+' min');
