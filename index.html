@@ -14530,6 +14530,7 @@ async function startTimer() {
   if (!(await _sopAllowWork())) return;
   if (!(await NETG.allowWork())) return;   // 🛰 office network or a work-from-home code (Oct 6, 2026)
   if (window.WCAM && !(await WCAM.allowWork())) return;   // 📷 working from home: camera on + a face (Nov 5, 2026)
+  if (window.PA && !(await PA.allowWork())) return;       // working from home: sound check (Nov 7, 2026)
   if (window.JMBFeed && !(await JMBFeed.allowWork())) return;   // 📣 must-read / must-do / quiz posts addressed to me
   var f = trkFormFields();
   // Require project, plus category/task wherever the project/category provides them
@@ -14603,6 +14604,7 @@ async function resumeTask(entryId) {
   if (!(await _sopAllowWork())) return;     // 📚 resuming a paused task is starting work too
   if (!(await NETG.allowWork())) return;    // 🛰 same network rule on resume
   if (window.WCAM && !(await WCAM.allowWork())) return;    // 📷 same camera rule on resume (Nov 5, 2026)
+  if (window.PA && !(await PA.allowWork())) return;        // same sound check on resume (Nov 7, 2026)
   if (window.JMBFeed && !(await JMBFeed.allowWork())) return;   // 📣 same feed rule on resume
   { var _pe0=null; for (var _q=0; _q<trkPaused.length; _q++) { if (trkPaused[_q].entry_id === entryId) { _pe0 = trkPaused[_q]; break; } } if (_pe0 && !(await TOOLG.pair(_pe0))) return; }   // 🔗 pair the tool on resume too (Oct 8)
   if (trkRunning) { var rid = trkRunning.entry_id; _bankRunningToPaused(); _trkPost('tracker_pause', { entry_id: rid }); }
@@ -26546,7 +26548,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-05-B';
+var PORTAL_BUILD='2026-11-07-C';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34090,6 +34092,14 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-07-C', version:'2026.11.07', date:'November 7, 2026',
+    summary:'Announcements from the admin, and a sound check when you work from home.',
+    items:[
+      'The admin can now make announcements through the portal. You hear a chime, then the admin\'s voice, and a card shows the message. Press "I heard it" when it ends so the admin knows you got it.',
+      'If the admin pages you by name, the card says "Paging" with your name. Do what it asks right away.',
+      'Working from home, Start and Resume first run a quick sound check: press Play and type the number you hear. You do it again after 6 hours.',
+      'Keep your sound on while you work. If you play music or videos, keep them low so you can hear the chime, or use your headset.'
+    ] },
   { build:'2026-11-05-B', version:'2026.11.05b', date:'November 5, 2026',
     summary:'Camera fix for the office.',
     items:[
@@ -34951,6 +34961,7 @@ var WCAM = (function(){
   var S={ emp:'', need:false, why:'', known:false, lastRef:0, st:'off', stream:null, track:null, cap:null, video:null, cv:null, cx:null, small:null,
     det:null, detP:null, detFail:false, detBusy:false, lastDet:0, lastGood:0, face:null, noSince:0, warnKind:'', warnUntil:0,
     ch:null, chUp:false, admins:0, lastFrame:0, presSig:'', presAt:0, tile:null, starting:null, lastLog:{}, autoTry:0,
+    tracked:false, trk:[], stSig:'', stAt:0, watchAt:0, reAt:0, fails:0, upAt:0, chAt:0,
     ip:'', offSince:0, offN:0 };
 
   function me(){ try{ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); }catch(e){ return ''; } }
@@ -35149,31 +35160,72 @@ var WCAM = (function(){
     if(S.warnKind && now>=S.warnUntil) fire();
   }
 
-  /* ── the admin's view (Supabase Realtime: presence always, frames only while an admin watches) ── */
+  /* ── the admin's view (Nov 7c) ──
+     Supabase Realtime allows 5 presence updates per 30 s on a channel and SHUTS THE CHANNEL when a client goes over
+     (log "ClientPresenceRateLimitReached"). The status used to ride on presence and changed with every face flicker,
+     so the channel was closed within minutes and never rebuilt: the admin wall stayed empty.
+     Now: presence = who is on the wall, sent once per join; the live status is a broadcast ("st") on change and every
+     15 s; frames + status only while an admin watches (admin pings every 20 s); a closed channel is rebuilt. */
+  function watching(){ return S.admins>0 && Date.now()-(S.watchAt||0)<45000; }
   function chUp(){
     if(S.ch || !window.supaClient) return;
+    var now=Date.now(); if(now<(S.reAt||0)) return;
     try{
-      S.ch=supaClient.channel('wfh-cam', { config:{ presence:{ key:me() }, broadcast:{ self:false } } });
-      S.ch.on('presence', { event:'sync' }, function(){ try{ var st=S.ch.presenceState(), n=0; Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p && p.r==='admin') n++; }); }); S.admins=n; paint(); }catch(e){} });
-      S.ch.on('broadcast', { event:'ping' }, function(){ S.presSig=''; pres(true); });
-      S.ch.subscribe(function(s){ if(s==='SUBSCRIBED'){ S.chUp=true; S.presSig=''; pres(true); } else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED'){ S.chUp=false; } });
-    }catch(e){ S.ch=null; }
+      var ch=supaClient.channel('wfh-cam', { config:{ presence:{ key:me() }, broadcast:{ self:false } } });
+      S.ch=ch; S.chUp=false; S.tracked=false; S.stSig=''; S.stAt=0; S.upAt=0; S.chAt=now;
+      ch.on('presence', { event:'sync' }, function(){ if(ch!==S.ch) return; try{ var st=ch.presenceState(), n=0; Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p && p.r==='admin') n++; }); }); if(n>0 && !S.admins) S.stSig=''; S.admins=n; paint(); }catch(e){} });
+      ch.on('broadcast', { event:'ping' }, function(){ if(ch!==S.ch) return; S.watchAt=Date.now(); S.stSig=''; });
+      ch.subscribe(function(s){
+        if(ch!==S.ch) return;
+        if(s==='SUBSCRIBED'){ S.chUp=true; S.upAt=Date.now(); trackOnce(); S.stSig=''; status(true); }
+        else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED'){ chLost(); }
+      });
+    }catch(e){ S.ch=null; S.reAt=Date.now()+5000; }
   }
-  function chDown(){ try{ if(S.ch){ try{ S.ch.untrack(); }catch(_u){} supaClient.removeChannel(S.ch); } }catch(e){} S.ch=null; S.chUp=false; S.admins=0; S.presSig=''; }
+  /* the server closed it or it failed: drop it and build a new one after a pause (5 s, 10 s, 20 s … 60 s) */
+  function chLost(){
+    var up=S.upAt||0; chDown(true);
+    S.fails=(up && Date.now()-up>120000)?1:Math.min((S.fails||0)+1, 5);
+    S.reAt=Date.now()+Math.min(60000, 5000*Math.pow(2, S.fails-1));
+  }
+  function chDown(lost){
+    var ch=S.ch; S.ch=null; S.chUp=false; S.admins=0; S.tracked=false; S.stSig=''; S.presSig='';
+    if(!ch) return;
+    try{
+      if(!lost){ try{ ch.send({ type:'broadcast', event:'st', payload:{ e:me(), gone:1, t:Date.now() } }); }catch(_g){} try{ ch.untrack(); }catch(_u){} }
+      supaClient.removeChannel(ch);
+    }catch(e){}
+  }
+  /* presence: once per join — never more than 3 in 30 s (the server's limit is 5) */
+  function trackOnce(){
+    if(!S.ch || !S.chUp || S.tracked) return;
+    var now=Date.now(); S.trk=(S.trk||[]).filter(function(x){ return now-x<30000; });
+    if(S.trk.length>=3) return;
+    S.trk.push(now); S.tracked=true;
+    try{ var r=S.ch.track({ r:'va', e:me(), n:nm(), v:2, t:now }); if(r && r.catch) r.catch(function(){ S.tracked=false; }); }catch(e){ S.tracked=false; }
+  }
+  function stPayload(){
+    var r=null; try{ r=trkRunning; }catch(e){}
+    return { e:me(), n:nm(), s:S.st, f:(S.face===true?1:(S.face===false?0:-1)), w:r?1:0, b:onBreak()?1:0, k:S.warnKind||'', u:S.warnUntil||0, j:r?String(r.project||''):'', tk:r?String(r.task||r.category||''):'', d:S.detFail?1:0 };
+  }
+  /* the live status: a broadcast, only while an admin watches; on change (≥1 s apart) and every 15 s */
+  function status(force){
+    if(!S.ch || !S.chUp || !watching()) return;
+    var p=stPayload(), sig=JSON.stringify([p.s,p.f,p.w,p.b,p.k,p.u,p.j,p.tk,p.d]), now=Date.now();
+    if(sig===S.stSig && now-S.stAt<15000) return;
+    if(!force && now-S.stAt<1000) return;
+    S.stSig=sig; S.stAt=now; p.t=now;
+    try{ S.ch.send({ type:'broadcast', event:'st', payload:p }); }catch(e){}
+  }
   function pres(force){
     if(!want()){ if(S.ch) chDown(); return; }
     if(!S.ch){ chUp(); return; }
-    if(!S.chUp) return;
-    var r=null; try{ r=trkRunning; }catch(e){}
-    var p={ r:'va', e:me(), n:nm(), s:S.st, f:(S.face===true?1:(S.face===false?0:-1)), w:r?1:0, b:onBreak()?1:0, k:S.warnKind||'', u:S.warnUntil||0, j:r?String(r.project||''):'', tk:r?String(r.task||r.category||''):'', d:S.detFail?1:0 };
-    var sig=JSON.stringify([p.s,p.f,p.w,p.b,p.k,p.j,p.tk,p.d]), now=Date.now();
-    if(sig===S.presSig && now-S.presAt<60000) return;
-    if(!force && now-S.presAt<2500) return;
-    S.presSig=sig; S.presAt=now; p.t=now;
-    try{ S.ch.track(p); }catch(e){}
+    if(!S.chUp){ if(Date.now()-(S.chAt||0)>30000) chLost(); return; }   // never answered → rebuild
+    if(!S.tracked) trackOnce();
+    status(force);
   }
   function sendFrame(cv){
-    if(!S.ch || !S.chUp || S.admins<1 || !cv) return;
+    if(!S.ch || !S.chUp || !watching() || !cv) return;
     S.lastFrame=Date.now();
     try{
       if(!S.small){ S.small=document.createElement('canvas'); S.small.width=224; S.small.height=168; }
@@ -35243,7 +35295,7 @@ var WCAM = (function(){
     t.setAttribute('data-s', s); t.setAttribute('data-v', live?'1':'0'); t.classList.toggle('warn', !!S.warnKind);
     var set=function(id, v){ var e=document.getElementById(id); if(e && e.textContent!==v) e.textContent=v; };
     set('wc-lbl', lbl);
-    var adm=document.getElementById('wc-adm'); if(adm) adm.style.display=(live && S.admins>0)?'':'none';
+    var adm=document.getElementById('wc-adm'); if(adm) adm.style.display=(live && watching())?'':'none';
     if(S.warnKind){ set('wc-cd-n', String(Math.max(0, Math.ceil((S.warnUntil-Date.now())/1000)))); set('wc-cd-t', S.warnKind==='cam'?'Camera off':'No face on camera'); }
     if(!live){
       set('wc-off-t', S.st==='denied'?'Camera blocked':(S.st==='nocam'?'No camera found':(S.st==='starting'?'Starting camera…':'Camera needed')));
@@ -35326,7 +35378,7 @@ var WCAM = (function(){
           if(!S.det && !S.detFail) loadDet();
           var f=await detect(cv);
           if(f!==null){ S.face=f; S.lastGood=Date.now(); }
-          if(S.admins>0 && Date.now()-S.lastFrame>=FRAME_MS) sendFrame(cv);
+          if(watching() && Date.now()-S.lastFrame>=FRAME_MS) sendFrame(cv);
         }
       }catch(e){}
       S.detBusy=false;
@@ -35340,9 +35392,255 @@ var WCAM = (function(){
     window.addEventListener('pagehide', function(){ try{ if(S.stream) S.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} try{ chDown(); }catch(e){} });
   })();
   return { allowWork:allowWork, setWhy:setWhy, start:start, stop:stop, refresh:refresh, markWfh:markWfh, officeCheck:officeCheck,
-    state:function(){ return { need:S.need, why:S.why, ip:S.ip, offSince:S.offSince, offN:S.offN, st:S.st, face:S.face, warn:S.warnKind, admins:S.admins, det:!!S.det, detFail:S.detFail }; }, _S:S };
+    state:function(){ return { need:S.need, why:S.why, ip:S.ip, offSince:S.offSince, offN:S.offN, st:S.st, face:S.face, warn:S.warnKind, admins:S.admins, watching:watching(), ch:!!S.ch, chUp:S.chUp, tracked:S.tracked, fails:S.fails, det:!!S.det, detFail:S.detFail }; }, _S:S };
 })();
 </script>
 <!-- JMB WFH CAMERA · END -->
+<!-- JMB PA · ANNOUNCEMENTS (Nov 7, 2026) -->
+<style id="pa-css">
+#pa-ov{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.58);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);font-family:Inter,system-ui,sans-serif;animation:paIn .25s ease}
+@keyframes paIn{from{opacity:0}to{opacity:1}}
+#pa-ov .pa{width:min(470px,calc(100vw - 32px));background:#fff;border-radius:22px;padding:22px 22px 18px;box-shadow:0 30px 80px -20px rgba(15,23,42,.6);color:#0f172a;box-sizing:border-box}
+#pa-ov .pa-k{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#f26716}
+#pa-ov .pa-k i{width:8px;height:8px;border-radius:50%;background:#f26716;animation:paDot 1.2s infinite}
+@keyframes paDot{0%{box-shadow:0 0 0 0 rgba(242,103,22,.55)}100%{box-shadow:0 0 0 12px rgba(242,103,22,0)}}
+#pa-ov .pa-t{font-size:21px;font-weight:800;margin:8px 0 6px;line-height:1.25}
+#pa-ov .pa-b{font-size:14.5px;line-height:1.5;color:#334155;margin:0 0 10px;white-space:pre-wrap;word-break:break-word}
+#pa-ov .pa-w{display:flex;align-items:center;gap:3px;height:38px;margin:8px 0 12px}
+#pa-ov .pa-w span{flex:1;background:linear-gradient(180deg,#ff9a55,#f26716);border-radius:3px;height:12%;opacity:.35;transition:height .12s ease}
+#pa-ov.pa-on .pa-w span{opacity:1}
+#pa-ov .pa-s{font-size:12.5px;color:#64748b;margin:0 0 14px;line-height:1.45}
+#pa-ov .pa-btns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+#pa-ov button{border:none;border-radius:12px;padding:10px 16px;font:700 13.5px Inter,system-ui,sans-serif;cursor:pointer}
+#pa-ov .pa-pri{color:#fff;background:linear-gradient(180deg,#ff8a3d,#f26716)}
+#pa-ov .pa-pri[disabled]{opacity:.45;cursor:default}
+#pa-ov .pa-sec{background:#f1f5f9;color:#0f172a}
+#pa-ov.pa-late .pa{box-shadow:0 0 0 3px #ef4444,0 30px 80px -20px rgba(15,23,42,.6)}
+#pa-ov .pa-in{width:100%;box-sizing:border-box;font:800 30px Inter,system-ui,sans-serif;text-align:center;letter-spacing:.35em;padding:10px;border-radius:12px;border:1.5px solid #e2e8f0;margin:2px 0 12px;outline:none}
+#pa-ov .pa-in:focus{border-color:#f26716}
+#pa-ov .pa-err{color:#b91c1c;font-weight:700}
+</style>
+<script id="pa-js">
+/* ══ JMB PA — announcements from the admin (Jeth, Nov 7, 2026) ══════════════════════════════════════════════════
+   "I want to announce like at the airport: the chime, then my voice — paging someone, the client is looking for
+   them, or I need to ask something. Working from home they must have their sound on."
+   • The admin records a short message (or types one to be read aloud) and picks who hears it: everyone working from
+     home, everyone, or one person (paging). It arrives in a second over Supabase Realtime (channel "jmb-pa", broadcast
+     only), with a catch-up read of pa_msg in case the line dropped for a moment.
+   • Here: a card over everything, the chime, then the voice. "I heard it" when it ends; not pressed in 90 s →
+     logged as missed (the card stays, outlined red). Sound blocked by the browser → a "Play" button, logged.
+     Every step is a pa_ack row (+ a receipt broadcast) the admin sees live.
+   • Working from home (the same rule as the camera: off the office network), Start / Resume first run a sound check:
+     the chime and a spoken number to type in (or beeps to count). Passed once per 6 hours in this tab.
+   A web page cannot read the computer's volume or pause other tabs (YouTube, Spotify) — the sound check, the chime
+   at full volume and the "I heard it" receipt are how we make sure. */
+var PA=(function(){
+  var S={ ch:null, up:false, reAt:0, fails:0, upAt:0, chAt:0, ac:null, q:[], cur:null, lastCatch:0, title:'', tT:null, wT:null };
+  var MISS_MS=90000, FRESH_MS=10*60*1000, CHECK_MS=6*3600*1000;
+  function me(){ try{ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); }catch(e){ return ''; } }
+  function nm(){ try{ return String((window._currentEmpData||{}).full_name||''); }catch(e){ return ''; } }
+  function first(){ var s=nm(); if(s.indexOf(',')>=0){ var p=s.split(','); s=(p[1]||'').trim(); } return (s.split(/\s+/)[0]||'').trim(); }
+  function authed(){ return !!(document.body && document.body.classList.contains('app-authed')) && !!me() && me()!=='ADMIN'; }
+  function isWfh(){ try{ return !!(window.WCAM && WCAM.state().need); }catch(e){ return false; } }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function forMe(m){ var t=String(m.target||''), id=me(); if(!authed()) return false; return t==='all' || (t==='wfh' && isWfh()) || t===id; }
+  function doneGet(){ try{ return JSON.parse(sessionStorage.getItem('pa_done_'+me())||'[]'); }catch(e){ return []; } }
+  function doneHas(id){ return doneGet().indexOf(id)>=0; }
+  function doneAdd(id){ try{ var L=doneGet(); if(L.indexOf(id)<0){ L.push(id); sessionStorage.setItem('pa_done_'+me(), JSON.stringify(L.slice(-60))); } }catch(e){} }
+
+  /* ── sound ── */
+  function ac(){ try{ if(!S.ac){ var C=window.AudioContext||window.webkitAudioContext; if(C) S.ac=new C(); } if(S.ac && S.ac.state==='suspended') S.ac.resume().catch(function(){}); }catch(e){} return S.ac; }
+  ['pointerdown','keydown','touchstart'].forEach(function(ev){ document.addEventListener(ev, function(){ ac(); }, { capture:true, passive:true }); });   // any click unlocks sound for the rest of the session
+  async function ready(){ var a=ac(); if(!a) return null; if(a.state!=='running'){ try{ await Promise.race([ a.resume(), sleep(500) ]); }catch(e){} } return a.state==='running'?a:null; }
+  /* the chime: three bell tones going up (C–E–G), like an airport public-address chime */
+  async function chime(){
+    var a=await ready(); if(!a) return false;
+    var notes=[523.25, 659.25, 783.99], t0=a.currentTime+0.06, gap=0.58;
+    var comp=a.createDynamicsCompressor(); comp.connect(a.destination);
+    var master=a.createGain(); master.gain.value=0.95; master.connect(comp);
+    notes.forEach(function(f, i){
+      var t=t0+i*gap;
+      [[1,0.62,2.2],[2,0.2,1.2],[3,0.08,0.8],[4.16,0.035,0.5]].forEach(function(h){
+        var o=a.createOscillator(), g=a.createGain(); o.type='sine'; o.frequency.value=f*h[0];
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(h[1], t+0.012); g.gain.exponentialRampToValueAtTime(0.0001, t+h[2]);
+        o.connect(g); g.connect(master); o.start(t); o.stop(t+h[2]+0.05);
+      });
+    });
+    await sleep((gap*(notes.length-1)+1.5)*1000);
+    return true;
+  }
+  function beeps(n){ return (async function(){ var a=await ready(); if(!a) return false; for(var i=0;i<n;i++){ var o=a.createOscillator(), g=a.createGain(), t=a.currentTime+0.02; o.type='sine'; o.frequency.value=880; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.5,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+0.22); o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+0.25); await sleep(520); } return true; })(); }
+  function voiceOk(){ try{ return 'speechSynthesis' in window && speechSynthesis.getVoices().length>0; }catch(e){ return false; } }
+  try{ if('speechSynthesis' in window){ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged=function(){}; } }catch(e){}
+  function say(text){
+    return new Promise(function(res){
+      if(!('speechSynthesis' in window)){ res(false); return; }
+      try{
+        speechSynthesis.cancel();
+        var u=new SpeechSynthesisUtterance(String(text||'')), V=speechSynthesis.getVoices();
+        var v=V.filter(function(x){ return /^en(-|_)(US|GB|PH|AU)/i.test(x.lang) && /Google|Natural|Online/i.test(x.name); })[0] || V.filter(function(x){ return /^en/i.test(x.lang); })[0];
+        if(v) u.voice=v; u.rate=0.95; u.volume=1;
+        var done=false, fin=function(ok){ if(done) return; done=true; res(ok); };
+        u.onend=function(){ fin(true); }; u.onerror=function(){ fin(false); };
+        speechSynthesis.speak(u);
+        setTimeout(function(){ fin(true); }, 4000+String(text||'').length*95);
+      }catch(e){ res(false); }
+    });
+  }
+  function voice(url){
+    return new Promise(function(res){
+      try{
+        var au=new Audio(); au.preload='auto'; au.volume=1; au.src=url;
+        var done=false, fin=function(ok){ if(done) return; done=true; clearTimeout(t); res(ok); };
+        var t=setTimeout(function(){ fin(true); }, 130000);
+        au.onended=function(){ fin(true); }; au.onerror=function(){ fin(false); };
+        var p=au.play(); if(p && p.catch) p.catch(function(){ fin(false); });
+        S.audio=au;
+      }catch(e){ res(false); }
+    });
+  }
+
+  /* ── receipts ── */
+  function ack(m, status, note){
+    var id=me(); if(!/^JMB\d{3}$/.test(id)) return;
+    var key=(m&&m.id||'chk')+'|'+status; S.acked=S.acked||{}; if(m && S.acked[key]) return; if(m) S.acked[key]=1;
+    try{ fetch(SUPA_URL+'/rest/v1/pa_ack', { method:'POST', keepalive:true, headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' },
+      body:JSON.stringify({ pa_id:m?m.id:null, employee_id:id, status:status, note:String(note||'').slice(0,200) }) }).catch(function(){}); }catch(e){}
+    if(m && S.ch && S.up){ try{ S.ch.send({ type:'broadcast', event:'rcpt', payload:{ id:m.id, e:id, n:nm(), st:status, t:Date.now() } }); }catch(e){} }
+  }
+
+  /* ── the card ── */
+  function card(m, mode){
+    var el=document.getElementById('pa-ov'); if(!el){ el=document.createElement('div'); el.id='pa-ov'; document.body.appendChild(el); }
+    var paging=/^JMB\d{3}$/.test(String(m.target||''));
+    var kicker=paging?'Paging':'Announcement'+(m.by?' · '+esc(m.by):' · Admin');
+    var title=m.title||(paging?('Paging '+first()):'Announcement from the admin');
+    var sub={ playing:'Listening…', blocked:'Your browser held the sound back. Press Play to hear it.', ended:'Press "I heard it" so the admin knows you got it.', late:'The admin is waiting for you. Press "I heard it" so they know you got it.' }[mode]||'';
+    el.className=(mode==='playing'?'pa-on':'')+(mode==='late'?' pa-late':'');
+    el.innerHTML='<div class="pa" role="alertdialog" aria-modal="true" aria-label="Announcement"><div class="pa-k"><i></i>'+kicker+'</div>'+
+      '<div class="pa-t">'+esc(title)+'</div>'+(m.body?'<p class="pa-b">'+esc(m.body)+'</p>':'')+
+      '<div class="pa-w">'+new Array(28).join('<span></span>')+'</div><p class="pa-s">'+sub+'</p>'+
+      '<div class="pa-btns">'+(mode==='playing'?'':'<button type="button" class="pa-sec" data-a="again">'+(mode==='blocked'?'Play':'Play again')+'</button>')+
+      '<button type="button" class="pa-pri" data-a="ok"'+(mode==='playing'||mode==='blocked'?' disabled':'')+'>I heard it</button></div></div>';
+    el.onclick=function(ev){ var b=ev.target.closest && ev.target.closest('button[data-a]'); if(!b || b.disabled) return;
+      if(b.getAttribute('data-a')==='again'){ ac(); play(m, true); } else heard(m); };
+    wave(mode==='playing');
+  }
+  function wave(on){
+    clearInterval(S.wT); S.wT=null;
+    var bars=document.querySelectorAll('#pa-ov .pa-w span');
+    if(!on){ bars.forEach(function(b){ b.style.height='12%'; }); return; }
+    S.wT=setInterval(function(){ bars.forEach(function(b, i){ var h=18+Math.abs(Math.sin(Date.now()/170+i*0.7))*55+Math.random()*25; b.style.height=Math.min(100,h)+'%'; }); }, 120);
+  }
+  function flash(on){
+    try{
+      if(on){ if(S.tT) return; S.title=document.title; var k=0; S.tT=setInterval(function(){ document.title=(k++%2)?S.title:'Announcement · JMB Portal'; }, 1000);
+        if(document.hidden && window.Notification && Notification.permission==='granted'){ try{ new Notification('Announcement from the admin', { body:'Open the portal to hear it.', tag:'jmb-pa', requireInteraction:true }); }catch(_n){} } }
+      else { clearInterval(S.tT); S.tT=null; if(S.title) document.title=S.title; }
+    }catch(e){}
+  }
+
+  /* ── one announcement ── */
+  async function play(m, again){
+    if(S.busy) return; S.busy=true;
+    try{
+      S.cur=m; card(m, 'playing'); flash(true);
+      try{ if(S.audio){ S.audio.pause(); } }catch(_p){}
+      var ok=await chime();
+      if(ok){ ok=(m.kind==='voice') ? await voice(m.url) : (await say(m.body||m.title) || true); }
+      if(S.cur!==m) return;
+      if(!ok){ card(m, 'blocked'); ack(m, 'blocked', again?'after Play':''); return; }
+      ack(m, 'played');
+      card(m, m._late?'late':'ended');
+      if(!m._missT) m._missT=setTimeout(function(){ if(S.cur===m && !m._heard){ m._late=true; ack(m, 'missed'); card(m, 'late'); } }, MISS_MS);
+    } finally { S.busy=false; }
+  }
+  function heard(m){
+    m._heard=true; clearTimeout(m._missT); ack(m, 'heard');
+    try{ if(S.audio) S.audio.pause(); speechSynthesis.cancel(); }catch(e){}
+    var el=document.getElementById('pa-ov'); if(el) el.remove(); wave(false);
+    S.cur=null; flash(false); next();
+  }
+  function next(){ if(S.cur || !S.q.length) return; var m=S.q.shift(); if(!forMe(m)) { next(); return; } play(m); }
+  function take(p){
+    var m={ id:+p.id||0, target:String(p.target||''), kind:p.kind==='text'?'text':'voice', title:String(p.title||''), body:String(p.body||''), url:String(p.url||p.audio_url||''), by:String(p.by||p.by_name||''), at:p.at?(typeof p.at==='number'?p.at:Date.parse(p.at)):Date.now() };
+    if(!m.id || !forMe(m) || doneHas(m.id)) return;
+    if(Date.now()-m.at>FRESH_MS) return;
+    if(m.kind==='voice' && m.url.indexOf(SUPA_URL+'/storage/v1/object/public/proof/pa/')!==0) return;   // only our own recordings
+    doneAdd(m.id); S.q.push(m); next();
+  }
+  function catchUp(){
+    S.lastCatch=Date.now();
+    var since=new Date(Date.now()-3*60*1000).toISOString();
+    fetch(SUPA_URL+'/rest/v1/pa_msg?select=id,at,target,kind,title,body,audio_url,by_name&at=gte.'+encodeURIComponent(since)+'&order=at.asc&limit=20', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } })
+      .then(function(r){ return r.json(); }).then(function(rows){ (Array.isArray(rows)?rows:[]).forEach(take); }).catch(function(){});
+  }
+
+  /* ── the line (broadcast only: no presence, so no presence limits) ── */
+  function chUp(){
+    if(S.ch || !window.supaClient) return; var now=Date.now(); if(now<S.reAt) return;
+    try{
+      var ch=supaClient.channel('jmb-pa', { config:{ broadcast:{ self:false } } });
+      S.ch=ch; S.up=false; S.upAt=0; S.chAt=now;
+      ch.on('broadcast', { event:'pa' }, function(x){ if(ch===S.ch && x && x.payload) take(x.payload); });
+      ch.subscribe(function(s){ if(ch!==S.ch) return;
+        if(s==='SUBSCRIBED'){ S.up=true; S.upAt=Date.now(); catchUp(); }
+        else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED') lost(); });
+    }catch(e){ S.ch=null; S.reAt=now+5000; }
+  }
+  function drop(){ var ch=S.ch; S.ch=null; S.up=false; if(ch){ try{ supaClient.removeChannel(ch); }catch(e){} } }
+  function lost(){ var up=S.upAt||0; drop(); S.fails=(up && Date.now()-up>120000)?1:Math.min(S.fails+1, 5); S.reAt=Date.now()+Math.min(60000, 5000*Math.pow(2, S.fails-1)); }
+  setInterval(function(){
+    try{
+      if(!authed()){ if(S.ch) drop(); return; }
+      if(!S.ch) chUp(); else if(!S.up && Date.now()-S.chAt>30000) lost();
+      if(Date.now()-S.lastCatch>120000) catchUp();
+    }catch(e){}
+  }, 3000);
+
+  /* ── the sound check (working from home, before Start / Resume) ── */
+  function checked(){ try{ return Date.now()-(+sessionStorage.getItem('pa_chk_'+me())||0)<CHECK_MS; }catch(e){ return false; } }
+  function audioCheck(){
+    return new Promise(function(resolve){
+      var useVoice=voiceOk(), code=useVoice?String(10+Math.floor(Math.random()*90)):String(2+Math.floor(Math.random()*5)), tries=0, played=false;
+      var el=document.getElementById('pa-ov'); if(el) el.remove();
+      el=document.createElement('div'); el.id='pa-ov'; document.body.appendChild(el);
+      el.innerHTML='<div class="pa" role="dialog" aria-modal="true" aria-label="Sound check"><div class="pa-k"><i></i>Sound check</div>'+
+        '<div class="pa-t">Turn your sound on</div>'+
+        '<p class="pa-b">Working from home, the admin can make announcements through the portal, and you need to hear them. Turn your volume up (or put on your headset), press <b>Play</b>, then type '+(useVoice?'the number you hear.':'how many beeps you hear after the chime.')+'</p>'+
+        '<div class="pa-w">'+new Array(28).join('<span></span>')+'</div>'+
+        '<input class="pa-in" inputmode="numeric" maxlength="2" autocomplete="off" placeholder="'+(useVoice?'· ·':'·')+'" aria-label="What you heard">'+
+        '<p class="pa-s" id="pa-msg">Keep music and videos low so you can hear the chime.</p>'+
+        '<div class="pa-btns"><button type="button" class="pa-sec" data-a="close">Close</button><button type="button" class="pa-sec" data-a="play">Play</button><button type="button" class="pa-pri" data-a="ok">Check</button></div></div>';
+      var inp=el.querySelector('.pa-in'), msg=el.querySelector('#pa-msg');
+      function done(ok){ el.remove(); wave(false); resolve(ok); }
+      async function playIt(){
+        ac(); el.className='pa-on'; wave(true); msg.textContent='Listening…';
+        var ok=await chime();
+        if(ok) ok=useVoice ? await say('Your number is: '+code.split('').join(', ')+'. Again: '+code.split('').join(', ')+'.') : await beeps(+code);
+        el.className=''; wave(false); played=true;
+        msg.innerHTML=ok?'Type what you heard, then press <b>Check</b>.':'<span class="pa-err">The sound did not play. Unmute this tab (right-click the tab → Unmute site), turn the volume up, then press Play again.</span>';
+        try{ inp.focus(); }catch(e){}
+      }
+      el.onclick=function(ev){ var b=ev.target.closest && ev.target.closest('button[data-a]'); if(!b) return; var a=b.getAttribute('data-a');
+        if(a==='close'){ ack(null, 'check_fail', 'closed after '+tries+' tries'); done(false); return; }
+        if(a==='play'){ playIt(); return; }
+        if(!played){ msg.innerHTML='<span class="pa-err">Press Play first.</span>'; return; }
+        tries++;
+        if(String(inp.value||'').replace(/\D/g,'')===code){ try{ sessionStorage.setItem('pa_chk_'+me(), String(Date.now())); }catch(e){} ack(null, 'check_pass', tries+' '+(tries===1?'try':'tries')); done(true); }
+        else { inp.value=''; if(tries>=3){ code=useVoice?String(10+Math.floor(Math.random()*90)):String(2+Math.floor(Math.random()*5)); } msg.innerHTML='<span class="pa-err">Not quite. Turn the volume up and press Play again.</span>'; if(tries===3) ack(null, 'check_fail', '3 wrong'); } };
+      inp.addEventListener('keydown', function(ev){ if(ev.key==='Enter'){ var b=el.querySelector('button[data-a="ok"]'); if(b) b.click(); } });
+    });
+  }
+  /* the gate used by startTimer / resumeTask, right after the camera gate */
+  async function allowWork(){
+    if(!authed() || !isWfh() || checked()) return true;
+    return await audioCheck();
+  }
+  return { allowWork:allowWork, audioCheck:audioCheck, chime:chime, _take:take, _S:S, state:function(){ return { up:S.up, ch:!!S.ch, fails:S.fails, queue:S.q.length, cur:S.cur&&S.cur.id, checked:checked() }; } };
+})();
+</script>
+<!-- JMB PA · END -->
 </body>
 </html>

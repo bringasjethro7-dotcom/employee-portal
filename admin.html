@@ -11164,7 +11164,7 @@ document.addEventListener('visibilitychange', function(){ if(!document.hidden) L
    The face check itself runs on each VA's computer: no face → warning → their timer stops in 10 s; this wall shows
    the countdown live. "Camera log" lists every warning / stop (wfh_cam_log) for discussions. */
 var WCAMA=(function(){
-  var S={ sb:null, ch:null, on:false, up:false, va:{}, fr:{}, stops:{}, logAt:0, iv:null, keys:'', key:'admin-'+Math.random().toString(36).slice(2,9) };
+  var S={ sb:null, ch:null, on:false, up:false, va:{}, pv:{}, st:{}, fr:{}, stops:{}, logAt:0, iv:null, keys:'', key:'admin-'+Math.random().toString(36).slice(2,9), tracked:false, pingAt:0, fails:0, upAt:0, chAt:0, reT:null };
   function E(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
   function L(){ try{ return (typeof emps!=='undefined' && Array.isArray(emps)) ? emps : []; }catch(e){ return []; } }
   function nameOf(id, n){ id=String(id||'').toUpperCase(); var e=null; L().some(function(x){ if(String(x.employee_id||'').toUpperCase()===id){ e=x; return true; } return false; });
@@ -11175,30 +11175,63 @@ var WCAMA=(function(){
     try{ var lib=window.supabase||window.Supabase; if(lib && lib.createClient) S.sb=lib.createClient(SUPA_URL, SUPA_KEY); }catch(e){}
     return S.sb;
   }
-  function track(){ try{ if(S.ch && S.up && !document.hidden){ S.ch.track({ r:'admin', t:Date.now() }); S.ch.send({ type:'broadcast', event:'ping', payload:{ t:Date.now() } }); } }catch(e){} }
-  function open(){
-    if(S.on) return; var sb=client(); if(!sb){ setTimeout(open, 1500); return; }
-    S.on=true;
+  /* Nov 7c: Supabase closes a channel that sends more than 5 presence updates in 30 s. The admin joins ONCE (presence)
+     and says "I'm watching" with a broadcast ping every 20 s while this tab is visible; VAs send their status ("st")
+     and frames only while those pings come. A closed / failed channel is rebuilt automatically. */
+  function ping(){ try{ if(S.ch && S.up && !document.hidden){ S.pingAt=Date.now(); S.ch.send({ type:'broadcast', event:'ping', payload:{ t:Date.now() } }); } }catch(e){} }
+  function trackOnce(){ if(!S.ch || !S.up || S.tracked) return; S.tracked=true; try{ var r=S.ch.track({ r:'admin', t:Date.now() }); if(r && r.catch) r.catch(function(){ S.tracked=false; }); }catch(e){ S.tracked=false; } }
+  function join(){
+    if(!S.on || S.ch) return; var sb=client(); if(!sb){ S.reT=setTimeout(join, 1500); return; }
     try{
-      S.ch=sb.channel('wfh-cam', { config:{ presence:{ key:S.key }, broadcast:{ self:false } } });
-      S.ch.on('presence', { event:'sync' }, sync);
-      S.ch.on('broadcast', { event:'f' }, function(m){ var p=m && m.payload; if(!p || !p.e) return; S.fr[p.e]={ i:p.i, f:p.f, at:Date.now() }; img(p.e); });
-      S.ch.subscribe(function(s){ if(s==='SUBSCRIBED'){ S.up=true; track(); } else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED'){ S.up=false; } });
-    }catch(e){ S.ch=null; }
+      var ch=sb.channel('wfh-cam', { config:{ presence:{ key:S.key }, broadcast:{ self:false } } });
+      S.ch=ch; S.up=false; S.tracked=false; S.upAt=0; S.chAt=Date.now();
+      ch.on('presence', { event:'sync' }, function(){ if(ch===S.ch) sync(); });
+      ch.on('broadcast', { event:'f' }, function(m){ if(ch!==S.ch) return; var p=m && m.payload; if(!p || !p.e) return; S.fr[p.e]={ i:p.i, f:p.f, at:Date.now() }; img(p.e); });
+      ch.on('broadcast', { event:'st' }, function(m){ if(ch!==S.ch) return; var p=m && m.payload; if(!p || !p.e) return; if(p.gone){ delete S.st[p.e]; } else { p.at=Date.now(); S.st[p.e]=p; } merge(); render(); });
+      ch.subscribe(function(s){
+        if(ch!==S.ch) return;
+        if(s==='SUBSCRIBED'){ S.up=true; S.upAt=Date.now(); trackOnce(); ping(); }
+        else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED'){ lost(); }
+      });
+    }catch(e){ S.ch=null; S.reT=setTimeout(join, 5000); }
+  }
+  function drop(){ var ch=S.ch; S.ch=null; S.up=false; S.tracked=false; if(ch){ try{ S.sb.removeChannel(ch); }catch(e){} } }
+  function lost(){
+    var up=S.upAt||0; drop();
+    S.fails=(up && Date.now()-up>120000)?1:Math.min(S.fails+1, 5);
+    if(S.on){ clearTimeout(S.reT); S.reT=setTimeout(join, Math.min(60000, 5000*Math.pow(2, S.fails-1))); }
+  }
+  function open(){
+    if(S.on) return;
+    S.on=true; join();
     loadStops();
-    S.iv=setInterval(function(){ render(); if(Date.now()-S.logAt>60000) loadStops(); }, 1000);
+    S.iv=setInterval(function(){
+      var now=Date.now();
+      if(S.ch && !S.up && now-S.chAt>30000) lost();                 // never answered → rebuild
+      if(S.up && !document.hidden && now-S.pingAt>20000) ping();    // "still watching"
+      merge(); render(); if(now-S.logAt>60000) loadStops();
+    }, 1000);
     render();
   }
   function close(){
-    S.on=false; S.up=false; if(S.iv){ clearInterval(S.iv); S.iv=null; }
-    try{ if(S.ch){ try{ S.ch.untrack(); }catch(_u){} S.sb.removeChannel(S.ch); } }catch(e){} S.ch=null; S.va={}; S.keys='';
+    S.on=false; if(S.iv){ clearInterval(S.iv); S.iv=null; } clearTimeout(S.reT);
+    try{ if(S.ch){ try{ S.ch.untrack(); }catch(_u){} } }catch(e){} drop(); S.va={}; S.pv={}; S.st={}; S.keys='';
     var box=document.getElementById('aa-cam'); if(box) box.innerHTML='';
   }
-  document.addEventListener('visibilitychange', function(){ if(!S.on || !S.ch || !S.up) return; try{ if(document.hidden) S.ch.untrack(); else track(); }catch(e){} });
+  document.addEventListener('visibilitychange', function(){ if(S.on && !document.hidden) ping(); });
   function sync(){
     var st={}; try{ st=S.ch.presenceState(); }catch(e){}
-    var va={}; Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p && p.r==='va' && p.e){ if(!va[p.e] || (p.t||0)>(va[p.e].t||0)) va[p.e]=p; } }); });
-    S.va=va; render();
+    var pv={}; Object.keys(st).forEach(function(k){ (st[k]||[]).forEach(function(p){ if(p && p.r==='va' && p.e){ if(!pv[p.e] || (p.t||0)>(pv[p.e].t||0)) pv[p.e]=p; } }); });
+    S.pv=pv; merge(); render();
+  }
+  /* on the wall: everyone in presence, plus anyone whose status arrived in the last 45 s (their presence may be rejoining).
+     The status broadcast wins over presence; portals that have not reloaded yet still carry their status in presence. */
+  function merge(){
+    var now=Date.now(), va={};
+    Object.keys(S.st).forEach(function(e){ if(now-(S.st[e].at||0)>45000 && !S.pv[e]) delete S.st[e]; });
+    Object.keys(S.pv).forEach(function(e){ va[e]=S.pv[e]; });
+    Object.keys(S.st).forEach(function(e){ var a=S.st[e], b=va[e]; va[e]=(!b || a.s!==undefined && (a.t||0)>=(b.s===undefined?0:(b.t||0))) ? Object.assign({}, b||{}, a) : b; });
+    S.va=va;
   }
   function loadStops(){
     S.logAt=Date.now();
@@ -11208,6 +11241,7 @@ var WCAMA=(function(){
   }
   function state(p){
     var now=Date.now(), left=p.u?Math.max(0, Math.ceil((p.u-now)/1000)):0;
+    if(p.s===undefined) return { c:'', l:'Connecting…' };
     if(p.s!=='live') return p.w ? { c:'bad', l:'Camera off', bad:true, cd:'Camera off · timer stops in '+left+'s' } : { c:'bad', l:(p.s==='denied'?'Camera blocked':'Camera off') };
     if(p.k==='face' && p.w) return { c:'bad', l:'No face', bad:true, cd:'No face · timer stops in '+left+'s' };
     if(p.b && p.w) return { c:'bio', l:'Bio break' };
@@ -11216,7 +11250,7 @@ var WCAMA=(function(){
     if(p.f===0) return { c:'amb', l:'No face' };
     return { c:'', l:'Checking…' };
   }
-  function img(e){ var t=document.querySelector('#aa-cam .wca-t[data-e="'+e+'"]'), f=S.fr[e]; if(!t || !f) return; var p=S.va[e]; if(p && p.s!=='live') return;
+  function img(e){ var t=document.querySelector('#aa-cam .wca-t[data-e="'+e+'"]'), f=S.fr[e]; if(!t || !f) return; var p=S.va[e]; if(p && p.s!==undefined && p.s!=='live') return;
     var im=t.querySelector('img'); if(!im) return; if(im.getAttribute('src')!==f.i) im.setAttribute('src', f.i); im.style.display=''; var ph=t.querySelector('.wca-ph'); if(ph) ph.style.display='none'; }
   function render(){
     var box=document.getElementById('aa-cam'); if(!box || !S.on) return;
@@ -11225,7 +11259,7 @@ var WCAMA=(function(){
     if(keys!==S.keys || !box.querySelector('.wca-h')){
       S.keys=keys;
       box.innerHTML='<div class="wca-h"><b>On camera · working from home</b><span>'+(ids.length?ids.length+' timed in off the office network':'Nobody timed in off the office network right now')+'</span><span class="sp"></span>'+
-        '<button type="button" onclick="WCAMA.log()">Camera log</button></div>'+
+        '<button type="button" onclick="WCAMA.log()">Camera log</button><button type="button" onclick="PAA.open()" style="background:linear-gradient(180deg,#ff8a3d,#f26716);color:#fff;border-color:transparent">Announce</button></div>'+
         (ids.length?'<div class="wca-g">'+ids.map(function(e){ return '<div class="wca-t" data-e="'+E(e)+'"><div class="wca-v"><img alt="" style="display:none"><div class="wca-ph">Waiting for the picture…</div><span class="wca-old"></span><div class="wca-cd"></div></div>'+
           '<div class="wca-m"><b>'+E(nameOf(e, S.va[e].n))+'</b><div class="wca-s"><i></i><span></span></div><div class="wca-w"></div><span class="wca-x" style="display:none"></span></div></div>'; }).join('')+'</div>':'');
       ids.forEach(img);
@@ -11241,7 +11275,8 @@ var WCAMA=(function(){
       var x=t.querySelector('.wca-x'), n=S.stops[e]||0; x.style.display=n?'':'none'; x.textContent=n+' stop'+(n===1?'':'s')+' this shift';
       var old=t.querySelector('.wca-old'), age=f?Math.round((now-f.at)/1000):null;
       var ph=t.querySelector('.wca-ph'), im=t.querySelector('img');
-      if(p.s!=='live'){ ph.style.display='flex'; ph.textContent=p.s==='denied'?'Camera blocked on their side':(p.s==='starting'?'Camera starting…':'Camera is off'); im.style.display='none'; old.style.display='none'; }
+      if(p.s===undefined && !f){ ph.style.display='flex'; ph.textContent='Connecting…'; im.style.display='none'; old.style.display='none'; }
+      else if(p.s!==undefined && p.s!=='live'){ ph.style.display='flex'; ph.textContent=p.s==='denied'?'Camera blocked on their side':(p.s==='starting'?'Camera starting…':'Camera is off'); im.style.display='none'; old.style.display='none'; }
       else if(!f){ ph.style.display='flex'; ph.textContent='Waiting for the picture…'; im.style.display='none'; old.style.display='none'; }
       else { if(im.style.display==='none') img(e); if(age>10){ old.style.display=''; old.textContent='Picture '+age+'s old'; } else old.style.display='none'; }
     });
@@ -11273,5 +11308,211 @@ var WCAMA=(function(){
 })();
 </script>
 <!-- WFH CAMERA WALL · END -->
+<!-- JMB PA · ADMIN (Nov 7, 2026) -->
+<style id="paa-css">
+#paa{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.45);font-family:Inter,system-ui,sans-serif}
+#paa .pw{width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;background:#fff;border-radius:20px;padding:20px;box-shadow:0 30px 80px -20px rgba(15,23,42,.5);color:#0f172a;box-sizing:border-box}
+#paa .ph{display:flex;align-items:center;gap:10px;margin:0 0 14px}
+#paa .ph b{font-size:18px}
+#paa .sp{flex:1}
+#paa .lb{font-size:11.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:12px 0 6px}
+#paa .seg{display:flex;gap:6px;flex-wrap:wrap}
+#paa .seg button{border:1.5px solid #e2e8f0;background:#fff;border-radius:999px;padding:7px 13px;font:700 12.5px Inter,system-ui,sans-serif;color:#334155;cursor:pointer}
+#paa .seg button.on{border-color:#f26716;background:#fff4ec;color:#c2410c}
+#paa select,#paa input[type=text],#paa textarea{width:100%;box-sizing:border-box;border:1.5px solid #e2e8f0;border-radius:12px;padding:9px 11px;font:500 14px Inter,system-ui,sans-serif;color:#0f172a;outline:none}
+#paa textarea{min-height:84px;resize:vertical}
+#paa .rec{display:flex;align-items:center;gap:14px;margin:6px 0 2px}
+#paa .mic{width:76px;height:76px;border-radius:50%;border:none;cursor:pointer;color:#fff;font:800 12px Inter,system-ui,sans-serif;background:linear-gradient(180deg,#ff8a3d,#f26716);box-shadow:0 10px 24px -10px rgba(242,103,22,.8);flex:none;touch-action:none;user-select:none;-webkit-user-select:none}
+#paa .mic.live{background:linear-gradient(180deg,#f87171,#dc2626);animation:paaP 1.1s infinite}
+@keyframes paaP{0%{box-shadow:0 0 0 0 rgba(220,38,38,.5)}100%{box-shadow:0 0 0 16px rgba(220,38,38,0)}}
+#paa .meter{flex:1;height:10px;border-radius:999px;background:#f1f5f9;overflow:hidden}
+#paa .meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444);transition:width .08s}
+#paa .hint{font-size:12.5px;color:#64748b;line-height:1.45;margin:6px 0 0}
+#paa .chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 0}
+#paa .chips button{border:none;background:#f1f5f9;border-radius:999px;padding:6px 11px;font:600 12px Inter,system-ui,sans-serif;color:#334155;cursor:pointer}
+#paa .btns{display:flex;gap:8px;justify-content:flex-end;margin:16px 0 0;flex-wrap:wrap}
+#paa .btns button,#paa .ph button{border:none;border-radius:12px;padding:10px 16px;font:700 13.5px Inter,system-ui,sans-serif;cursor:pointer;background:#f1f5f9;color:#0f172a}
+#paa .btns .pri{color:#fff;background:linear-gradient(180deg,#ff8a3d,#f26716)}
+#paa .btns .pri[disabled]{opacity:.45;cursor:default}
+#paa .rc{margin:14px 0 0;border-top:1px solid #f1f5f9;padding-top:12px}
+#paa .rc-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px}
+#paa .rc-row b{font-weight:700;flex:1}
+#paa .st{padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:800}
+#paa .st.heard{background:#dcfce7;color:#166534}#paa .st.played{background:#e0f2fe;color:#075985}#paa .st.missed{background:#fee2e2;color:#991b1b}#paa .st.blocked{background:#fef3c7;color:#92400e}
+#paa .hist{font-size:12.5px;color:#475569}
+#paa .hist div{padding:4px 0;border-bottom:1px dashed #f1f5f9}
+</style>
+<script id="paa-js">
+/* ══ JMB PA — the admin's side (Jeth, Nov 7, 2026) ══════════════════════════════════════════════════════════════
+   Dashboard → Live team → "Announce". Pick who hears it (working from home · everyone · one person), hold the button
+   and talk (or type a message to be read aloud), then Send. The portal plays the chime, then the message, and each
+   VA's receipt comes back live: Played → Heard (they pressed "I heard it"), Missed (not pressed in 90 s), Sound
+   blocked. Recordings: storage proof/pa/…, messages: pa_msg, receipts: pa_ack. Broadcast-only channel "jmb-pa". */
+var PAA=(function(){
+  var S={ sb:null, ch:null, up:false, fails:0, upAt:0, reT:null, tgt:'wfh', one:'', mode:'talk', rec:null, stream:null, chunks:[], blob:null, mime:'', t0:0, secs:0, mT:null, an:null, last:null, rc:{}, pollT:null };
+  var PRESETS=['The client is looking for you. Please check the group chat now.','Please message the admin now.','Please join the call now.','Please check your Reddit Central tasks.'];
+  function E(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+  function people(){ var L=[]; try{ L=(typeof emps!=='undefined' && Array.isArray(emps))?emps:[]; }catch(e){}
+    return L.filter(function(x){ var id=String(x.employee_id||'').toUpperCase(); return /^JMB\d{3}$/.test(id) && !/inactive|resign|terminat|offboard|separat|archiv/i.test(String(x.status||x.employment_status||'')); })
+      .map(function(x){ var s=String(x.full_name||x.employee_id); if(s.indexOf(',')>=0){ var p=s.split(','); s=((p[1]||'').trim()+' '+p[0].trim()).trim(); } return { id:String(x.employee_id).toUpperCase(), n:s }; })
+      .sort(function(a,b){ return a.n.localeCompare(b.n); }); }
+  function nameOf(id){ var p=people().filter(function(x){ return x.id===id; })[0]; return p?p.n:id; }
+  function client(){ if(S.sb) return S.sb; try{ if(typeof adminSupaClient!=='undefined' && adminSupaClient) return (S.sb=adminSupaClient); }catch(e){} try{ var lib=window.supabase||window.Supabase; if(lib && lib.createClient) S.sb=lib.createClient(SUPA_URL, SUPA_KEY); }catch(e){} return S.sb; }
+  function H(){ return { apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json' }; }
+
+  /* the line: broadcast only, rebuilt if it closes */
+  function join(){
+    if(S.ch) return; var sb=client(); if(!sb){ S.reT=setTimeout(join, 1500); return; }
+    try{
+      var ch=sb.channel('jmb-pa', { config:{ broadcast:{ self:false } } }); S.ch=ch; S.up=false; S.upAt=0;
+      ch.on('broadcast', { event:'rcpt' }, function(m){ if(ch!==S.ch) return; var p=m&&m.payload; if(!p || !S.last || +p.id!==S.last.id) return; mark(p.e, p.st); });
+      ch.subscribe(function(s){ if(ch!==S.ch) return; if(s==='SUBSCRIBED'){ S.up=true; S.upAt=Date.now(); } else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED'){ var up=S.upAt; drop(); S.fails=(up && Date.now()-up>120000)?1:Math.min(S.fails+1,5); clearTimeout(S.reT); S.reT=setTimeout(join, Math.min(60000, 5000*Math.pow(2,S.fails-1))); } });
+    }catch(e){ S.ch=null; S.reT=setTimeout(join, 5000); }
+  }
+  function drop(){ var ch=S.ch; S.ch=null; S.up=false; if(ch){ try{ S.sb.removeChannel(ch); }catch(e){} } }
+
+  /* ── the panel ── */
+  function open(preTarget){
+    join();
+    if(preTarget && /^JMB\d{3}$/.test(preTarget)){ S.tgt='one'; S.one=preTarget; }
+    var el=document.getElementById('paa'); if(!el){ el=document.createElement('div'); el.id='paa'; document.body.appendChild(el); el.addEventListener('click', function(ev){ if(ev.target===el && !S.rec) close(); }); }
+    var ppl=people();
+    el.innerHTML='<div class="pw" role="dialog" aria-modal="true" aria-label="Announce"><div class="ph"><b>Announce</b><span class="sp"></span><button type="button" data-a="close">Close</button></div>'+
+      '<div class="lb">Who hears it</div><div class="seg" id="paa-tgt">'+
+        [['wfh','Working from home'],['all','Everyone signed in'],['one','One person (paging)']].map(function(o){ return '<button type="button" data-t="'+o[0]+'"'+(S.tgt===o[0]?' class="on"':'')+'>'+o[1]+'</button>'; }).join('')+'</div>'+
+      '<div id="paa-one" style="margin-top:8px;'+(S.tgt==='one'?'':'display:none')+'"><select id="paa-sel"><option value="">Choose a person…</option>'+ppl.map(function(p){ return '<option value="'+E(p.id)+'"'+(S.one===p.id?' selected':'')+'>'+E(p.n)+' · '+E(p.id)+'</option>'; }).join('')+'</select></div>'+
+      '<div class="lb">Message</div><div class="seg" id="paa-mode"><button type="button" data-m="talk"'+(S.mode==='talk'?' class="on"':'')+'>Talk</button><button type="button" data-m="type"'+(S.mode==='type'?' class="on"':'')+'>Type (read aloud)</button></div>'+
+      '<div id="paa-talk" style="margin-top:10px;'+(S.mode==='talk'?'':'display:none')+'"><div class="rec"><button type="button" class="mic" id="paa-mic">Hold<br>to talk</button><div style="flex:1"><div class="meter"><i id="paa-lvl"></i></div><p class="hint" id="paa-rs">Hold the button while you talk and let go when you are done (up to 60 seconds). Or click once to start and again to stop.</p></div></div>'+
+        '<div class="lb" style="margin-top:10px">Title on their screen (optional)</div><input type="text" id="paa-ttl" maxlength="120" placeholder="e.g. Team update"></div>'+
+      '<div id="paa-type" style="margin-top:10px;'+(S.mode==='type'?'':'display:none')+'"><textarea id="paa-txt" maxlength="600" placeholder="Type what the portal should say…"></textarea><div class="chips">'+PRESETS.map(function(p,i){ return '<button type="button" data-p="'+i+'">'+E(p)+'</button>'; }).join('')+'</div></div>'+
+      '<div class="btns"><button type="button" data-a="listen" id="paa-listen" style="display:none">Listen first</button><button type="button" class="pri" data-a="send" id="paa-send" disabled>Send</button></div>'+
+      '<div class="rc" id="paa-rc"'+(S.last?'':' style="display:none"')+'></div>'+
+      '<div class="lb">Recent</div><div class="hist" id="paa-hist">Loading…</div></div>';
+    el.querySelector('.pw').addEventListener('click', onClick);
+    var sel=el.querySelector('#paa-sel'); if(sel) sel.addEventListener('change', function(){ S.one=sel.value; can(); });
+    var tx=el.querySelector('#paa-txt'); if(tx) tx.addEventListener('input', can);
+    var mic=el.querySelector('#paa-mic'); bindMic(mic);
+    if(S.blob) recDone(true); can(); drawRc(); hist();
+  }
+  function close(){ stopRec(true); clearInterval(S.pollT); S.pollT=null; var el=document.getElementById('paa'); if(el) el.remove(); }
+  function onClick(ev){
+    var b=ev.target.closest && ev.target.closest('button'); if(!b) return;
+    if(b.hasAttribute('data-t')){ S.tgt=b.getAttribute('data-t'); document.querySelectorAll('#paa-tgt button').forEach(function(x){ x.classList.toggle('on', x===b); }); document.getElementById('paa-one').style.display=S.tgt==='one'?'':'none'; can(); return; }
+    if(b.hasAttribute('data-m')){ S.mode=b.getAttribute('data-m'); document.querySelectorAll('#paa-mode button').forEach(function(x){ x.classList.toggle('on', x===b); }); document.getElementById('paa-talk').style.display=S.mode==='talk'?'':'none'; document.getElementById('paa-type').style.display=S.mode==='type'?'':'none'; can(); return; }
+    if(b.hasAttribute('data-p')){ var t=document.getElementById('paa-txt'); t.value=PRESETS[+b.getAttribute('data-p')]; can(); return; }
+    var a=b.getAttribute('data-a');
+    if(a==='close') close(); else if(a==='listen') listen(); else if(a==='send') send();
+  }
+  function target(){ return S.tgt==='one' ? S.one : S.tgt; }
+  function can(){
+    var ok=!!target() && (S.mode==='talk' ? !!S.blob && !S.rec : !!String((document.getElementById('paa-txt')||{}).value||'').trim());
+    var b=document.getElementById('paa-send'); if(b) b.disabled=!ok || !!S.sending;
+    var l=document.getElementById('paa-listen'); if(l) l.style.display=(S.mode==='talk' && S.blob && !S.rec)?'':'none';
+  }
+
+  /* ── recording ── */
+  function bindMic(mic){
+    if(!mic) return; var downAt=0, toggled=false;
+    mic.addEventListener('pointerdown', function(ev){ ev.preventDefault(); S.down=true; if(S.rec){ stopRec(); toggled=false; return; } downAt=Date.now(); toggled=false; startRec(); });
+    mic.addEventListener('pointerup', function(){ S.down=false; if(!S.rec || !downAt) return; if(Date.now()-downAt<600){ toggled=true; downAt=0; rs('Recording… click the button again to stop.'); return; } downAt=0; stopRec(); });
+    mic.addEventListener('pointercancel', function(){ S.down=false; });
+    mic.addEventListener('pointerleave', function(){ if(S.rec && downAt && Date.now()-downAt>=600){ downAt=0; stopRec(); } });
+  }
+  function rs(t){ var e=document.getElementById('paa-rs'); if(e) e.textContent=t; }
+  async function startRec(){
+    S.blob=null; S.chunks=[]; can();
+    try{ S.stream=await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } }); }
+    catch(e){ rs('The microphone is blocked. Allow it for this site (the icon in the address bar), then try again.'); return; }
+    var types=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'];
+    S.mime=''; for(var i=0;i<types.length;i++){ try{ if(window.MediaRecorder && MediaRecorder.isTypeSupported(types[i])){ S.mime=types[i]; break; } }catch(_t){} }
+    try{ S.rec=new MediaRecorder(S.stream, S.mime?{ mimeType:S.mime, audioBitsPerSecond:48000 }:undefined); }catch(e){ try{ S.rec=new MediaRecorder(S.stream); }catch(e2){ rs('Recording is not supported in this browser.'); kill(); return; } }
+    S.mime=(S.rec.mimeType||S.mime||'audio/webm').split(';')[0];
+    S.rec.ondataavailable=function(ev){ if(ev.data && ev.data.size) S.chunks.push(ev.data); };
+    S.rec.onstop=function(){ var secs=Math.round((Date.now()-S.t0)/1000); kill(); if(S._discard){ S._discard=false; S.chunks=[]; return; } var b=new Blob(S.chunks, { type:S.mime }); S.chunks=[]; if(secs<1 || b.size<1500){ rs('Too short. Hold the button a little longer.'); S.blob=null; can(); return; } S.blob=b; S.secs=Math.min(120, secs); recDone(false); };
+    S.t0=Date.now(); S.rec.start(250); if(!S.down) rs('Recording… click the button again to stop.');
+    var mic=document.getElementById('paa-mic'); if(mic){ mic.classList.add('live'); mic.innerHTML='Recording<br>0:00'; }
+    meter(true);
+    S.mT=setInterval(function(){ var s=Math.round((Date.now()-S.t0)/1000); var m=document.getElementById('paa-mic'); if(m) m.innerHTML='Recording<br>'+Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); if(s>=60) stopRec(); }, 250);
+    can();
+  }
+  function stopRec(discard){ if(!S.rec) return; if(discard) S._discard=true; try{ S.rec.stop(); }catch(e){ kill(); } }
+  function kill(){ clearInterval(S.mT); S.mT=null; meter(false); try{ if(S.stream) S.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} S.stream=null; S.rec=null;
+    var mic=document.getElementById('paa-mic'); if(mic){ mic.classList.remove('live'); mic.innerHTML='Hold<br>to talk'; } can(); }
+  function meter(on){
+    var lvl=document.getElementById('paa-lvl');
+    if(!on){ if(S.an){ try{ S.an.ctx.close(); }catch(e){} cancelAnimationFrame(S.an.raf); S.an=null; } if(lvl) lvl.style.width='0'; return; }
+    try{ var C=window.AudioContext||window.webkitAudioContext, ctx=new C(), src=ctx.createMediaStreamSource(S.stream), an=ctx.createAnalyser(); an.fftSize=512; src.connect(an); var d=new Uint8Array(an.fftSize);
+      S.an={ ctx:ctx, raf:0 }; (function loop(){ an.getByteTimeDomainData(d); var pk=0; for(var i=0;i<d.length;i++){ var v=Math.abs(d[i]-128); if(v>pk) pk=v; } var l=document.getElementById('paa-lvl'); if(l) l.style.width=Math.min(100, pk/128*160)+'%'; if(S.an) S.an.raf=requestAnimationFrame(loop); })(); }catch(e){}
+  }
+  function recDone(){ rs('Recorded '+S.secs+' s. Press Send, or "Listen first". Hold the button again to redo it.'); can(); }
+  function listen(){ if(!S.blob) return; try{ var u=URL.createObjectURL(S.blob), a=new Audio(u); a.onended=function(){ URL.revokeObjectURL(u); }; a.play(); }catch(e){} }
+
+  /* ── send ── */
+  async function send(){
+    var tg=target(); if(!tg || S.sending) return;
+    var text=String((document.getElementById('paa-txt')||{}).value||'').trim(), title=String((document.getElementById('paa-ttl')||{}).value||'').trim();
+    if(S.mode==='talk' && !S.blob) return; if(S.mode==='type' && !text) return;
+    S.sending=true; can(); var b=document.getElementById('paa-send'); if(b) b.textContent='Sending…';
+    try{
+      var sb=client(), url=null;
+      if(S.mode==='talk'){
+        var ext=/mp4/.test(S.mime)?'m4a':(/ogg/.test(S.mime)?'ogg':'webm');
+        var path='pa/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.'+ext;
+        var up=await sb.storage.from('proof').upload(path, S.blob, { contentType:S.mime, upsert:false });
+        if(up.error) throw new Error('upload: '+(up.error.message||up.error));
+        url=sb.storage.from('proof').getPublicUrl(path).data.publicUrl;
+      }
+      if(tg.length===6 && !title && S.mode==='talk') title='Paging '+String(nameOf(tg)).split(' ')[0];
+      var row={ target:tg, kind:S.mode==='talk'?'voice':'text', title:title||null, body:S.mode==='type'?text:null, audio_url:url, secs:S.mode==='talk'?S.secs:null, by_name:'Admin' };
+      var r=await fetch(SUPA_URL+'/rest/v1/pa_msg', { method:'POST', headers:Object.assign(H(), { Prefer:'return=representation' }), body:JSON.stringify(row) });
+      var j=await r.json(); var m=Array.isArray(j)?j[0]:j; if(!m || !m.id) throw new Error((j&&j.message)||'save failed');
+      var payload={ id:m.id, at:Date.parse(m.at)||Date.now(), target:m.target, kind:m.kind, title:m.title||'', body:m.body||'', url:m.audio_url||'', by:'Admin' };
+      if(S.ch && S.up){ try{ await S.ch.send({ type:'broadcast', event:'pa', payload:payload }); }catch(_b){} }
+      S.last={ id:m.id, at:Date.now(), target:tg, label:(m.title||(m.kind==='voice'?'Voice message':String(m.body||'').slice(0,60))) }; S.rc={};
+      S.blob=null; if(document.getElementById('paa-txt')) document.getElementById('paa-txt').value=''; if(document.getElementById('paa-ttl')) document.getElementById('paa-ttl').value='';
+      rs('Sent. Hold the button to record another one.');
+      drawRc(); poll(); hist();
+      try{ showToast('Announcement sent'); }catch(_t){}
+    }catch(e){ alertMsg('Could not send: '+(e&&e.message||e)); }
+    finally{ S.sending=false; if(b) b.textContent='Send'; can(); }
+  }
+  function alertMsg(t){ var e=document.getElementById('paa-rs')||document.getElementById('paa-rc'); if(e){ e.style.display=''; e.textContent=t; } }
+
+  /* ── receipts ── */
+  var RANK={ blocked:1, played:2, missed:3, heard:4 }, LBL={ played:'Played', heard:'Heard', missed:'Missed', blocked:'Sound blocked' };
+  function mark(e, st){ if(!e || !RANK[st]) return; var cur=S.rc[e]; if(!cur || RANK[st]>RANK[cur]){ S.rc[e]=st; drawRc(); } }
+  function poll(){
+    clearInterval(S.pollT); var id=S.last&&S.last.id; if(!id) return; var n=0;
+    var go=function(){ if(!S.last || S.last.id!==id || ++n>40){ clearInterval(S.pollT); S.pollT=null; return; }
+      fetch(SUPA_URL+'/rest/v1/pa_ack?select=employee_id,status&pa_id=eq.'+id+'&limit=500', { headers:H() }).then(function(r){ return r.json(); }).then(function(rows){ if(!S.last || S.last.id!==id) return; (Array.isArray(rows)?rows:[]).forEach(function(x){ mark(x.employee_id, x.status); }); }).catch(function(){}); };
+    go(); S.pollT=setInterval(go, 5000);
+  }
+  function drawRc(){
+    var box=document.getElementById('paa-rc'); if(!box || !S.last) return; box.style.display='';
+    var ids=Object.keys(S.rc).sort(function(a,b){ return RANK[S.rc[a]]-RANK[S.rc[b]] || nameOf(a).localeCompare(nameOf(b)); });
+    var heard=ids.filter(function(e){ return S.rc[e]==='heard'; }).length;
+    box.innerHTML='<div class="lb" style="margin-top:0">Who got it · '+E(S.last.label)+'</div>'+
+      (ids.length?ids.map(function(e){ return '<div class="rc-row"><b>'+E(nameOf(e))+'</b><span class="st '+S.rc[e]+'">'+LBL[S.rc[e]]+'</span></div>'; }).join('')+'<p class="hint">'+heard+' of '+ids.length+' pressed "I heard it". Missed = not pressed within 90 seconds.</p>'
+        :'<p class="hint">Waiting for their portals… Only people signed in to the portal'+(S.last.target==='wfh'?' and working from home':'')+' receive it.</p>');
+  }
+  function hist(){
+    var box=document.getElementById('paa-hist'); if(!box) return;
+    var since=new Date(Date.now()-3*86400000).toISOString();
+    fetch(SUPA_URL+'/rest/v1/pa_msg?select=id,at,target,kind,title,body,secs&at=gte.'+encodeURIComponent(since)+'&order=at.desc&limit=8', { headers:H() }).then(function(r){ return r.json(); }).then(function(rows){
+      rows=Array.isArray(rows)?rows:[]; if(!rows.length){ box.textContent='No announcements in the last 3 days.'; return; }
+      var ids=rows.map(function(x){ return x.id; }).join(',');
+      return fetch(SUPA_URL+'/rest/v1/pa_ack?select=pa_id,employee_id,status&pa_id=in.('+ids+')&limit=2000', { headers:H() }).then(function(r){ return r.json(); }).then(function(acks){
+        var by={}; (Array.isArray(acks)?acks:[]).forEach(function(a){ var o=by[a.pa_id]=by[a.pa_id]||{}; if(!o[a.employee_id] || RANK[a.status]>RANK[o[a.employee_id]]) o[a.employee_id]=a.status; });
+        box.innerHTML=rows.map(function(x){ var o=by[x.id]||{}, k=Object.keys(o), h=k.filter(function(e){ return o[e]==='heard'; }).length, ms=k.filter(function(e){ return o[e]==='missed'; }).map(nameOf);
+          var who=x.target==='wfh'?'Working from home':(x.target==='all'?'Everyone':nameOf(x.target));
+          var when=new Date(x.at).toLocaleString('en-PH',{ timeZone:'Asia/Manila', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+          return '<div><b>'+E(when)+'</b> · '+E(who)+' · '+E(x.title||(x.kind==='voice'?'Voice '+(x.secs||'')+'s':String(x.body||'').slice(0,50)))+' · '+h+'/'+k.length+' heard'+(ms.length?' · missed: '+E(ms.join(', ')):'')+'</div>'; }).join('');
+      });
+    }).catch(function(){ box.textContent='Could not load the history.'; });
+  }
+  return { open:open, close:close, _send:send, _S:S };
+})();
+</script>
+<!-- JMB PA · ADMIN END -->
 </body>
 </html>
