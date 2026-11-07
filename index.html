@@ -26548,7 +26548,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-07-D';
+var PORTAL_BUILD='2026-11-07-E';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34092,6 +34092,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-07-E', version:'2026.11.07e', date:'November 7, 2026',
+    summary:'Working from home: no camera, no timer.',
+    items:[
+      'Working from home, your timer only runs while the portal is open with your camera on.',
+      'If you close the portal, your laptop goes to sleep, or your camera stays off, the timer stops by itself within 3 minutes, and the time after your camera went off is not paid.',
+      'Keep the portal open while you work. You can minimize it or work in other tabs. Just do not close it.'
+    ] },
   { build:'2026-11-07-C', version:'2026.11.07', date:'November 7, 2026',
     summary:'Announcements from the admin, and a sound check when you work from home.',
     items:[
@@ -34961,7 +34968,7 @@ var WCAM = (function(){
   var S={ emp:'', need:false, why:'', known:false, lastRef:0, st:'off', stream:null, track:null, cap:null, video:null, cv:null, cx:null, small:null,
     det:null, detP:null, detFail:false, detBusy:false, lastDet:0, lastGood:0, face:null, noSince:0, warnKind:'', warnUntil:0,
     ch:null, chUp:false, admins:0, lastFrame:0, presSig:'', presAt:0, tile:null, starting:null, lastLog:{}, autoTry:0,
-    tracked:false, trk:[], stSig:'', stAt:0, watchAt:0, reAt:0, fails:0, upAt:0, chAt:0, rtc:null,
+    tracked:false, trk:[], stSig:'', stAt:0, watchAt:0, reAt:0, fails:0, upAt:0, chAt:0, rtc:null, cbSig:'', cbAt:0,
     ip:'', offSince:0, offN:0 };
 
   function me(){ try{ return String((window._currentEmpData||{}).employee_id||'').toUpperCase(); }catch(e){ return ''; } }
@@ -35249,6 +35256,28 @@ var WCAM = (function(){
       body:JSON.stringify({ day:day(), employee_id:id, kind:kind, secs:Math.max(0, Math.min(86400, Math.round(secs||0))), note:String(note||'').slice(0,280) }) }).catch(function(){}); }catch(e){}
   }
 
+  /* ── the camera beat (Nov 7f) ──
+     Jeth: "If there's no camera, the portal timer should not work at all. That is the main rule."
+     While a timer runs, this portal tells the server whether the camera rule is met: once a minute working from home,
+     every 5 minutes on the office network, and at once when it changes (wfh_cam_beat: need = working from home,
+     ok = the camera is live, or not needed, or a break). The main backend stops a working-from-home timer when no good
+     beat has come for 3 minutes (portal closed, laptop asleep, browser crashed, camera off) and pays only up to the last
+     good one. */
+  function camBeat(){
+    var id=me(); if(!/^JMB\d{3}$/.test(id)) return;
+    var r=null; try{ r=trkRunning; }catch(e){}
+    var eid=r && (r.entry_id||r.id); if(!eid) return;
+    var camLive=!!(S.track && S.track.readyState==='live' && S.st==='live');
+    var ok=!S.need || camLive || !!onBreak(), now=Date.now();
+    var sig=(S.need?1:0)+':'+(ok?1:0)+':'+eid, every=S.need?60000:300000;
+    if(sig===S.cbSig && now-S.cbAt<every) return;
+    if(sig!==S.cbSig && now-S.cbAt<4000) return;
+    S.cbSig=sig; S.cbAt=now;
+    try{ fetch(SUPA_URL+'/rest/v1/wfh_cam_beat', { method:'POST', keepalive:true,
+      headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json', Prefer:'return=minimal' },
+      body:JSON.stringify({ employee_id:id, entry_id:String(eid).slice(0,80), need:!!S.need, ok:ok, st:String(S.st||'').slice(0,20) }) }).catch(function(){}); }catch(e){}
+  }
+
   /* ── the square ── */
   function build(){
     if(S.tile) return S.tile;
@@ -35369,6 +35398,7 @@ var WCAM = (function(){
     if(id!==S.emp){ S.emp=id; S.known=false; S.lastRef=0; S.need=false; S.offSince=0; S.offN=0;
       try{ S.need=!!id && sessionStorage.getItem('wcam_need2_'+id)==='1'; var o=JSON.parse(sessionStorage.getItem('wcam_off_'+id)||'null'); if(o && o.s && Date.now()-o.s<2*3600*1000){ S.offSince=o.s; S.offN=o.n||1; } }catch(e){} }
     if(!authed()){ if(S.stream) stop('signout'); if(S.ch) chDown(); paint(); return; }
+    try{ camBeat(); }catch(_cb){}   // Nov 7f: the server's camera rule
     var now=Date.now();
     if(now-(S._place||0)>1500){ S._place=now; place(); }
     var every=!S.known?60000:(inShift()?(S.need?NEEDCHK:(S.offSince?FAST:15*60*1000)):15*60*1000);   // Nov 5e
