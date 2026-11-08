@@ -8709,11 +8709,11 @@ function auTick(){
 }
 
 // Cinematic sign-in chime: warm pad swell + bell arpeggio + soft sub + sparkle tail (~2.2s, no file, no copyright)
-function auPlayChime(){
+function auPlayChimeClassic(){
   try{
     if (window.__AURA_CHIME_URL__){ var a = new Audio(window.__AURA_CHIME_URL__); a.volume = 0.55; a.play().catch(function(){}); return; }
     var ctx = auAudio(); if (!ctx) return;
-    if (ctx.state !== 'running'){ ctx.resume().then(function(){ if (ctx.state === 'running') auPlayChime(); }).catch(function(){}); return; }
+    if (ctx.state !== 'running'){ ctx.resume().then(function(){ if (ctx.state === 'running') auPlayChimeClassic(); }).catch(function(){}); return; }
     var now = ctx.currentTime;
     var master = ctx.createGain(); master.gain.value = 0.0001; master.connect(ctx.destination);
     master.gain.exponentialRampToValueAtTime(0.42, now + 0.01);
@@ -8752,6 +8752,66 @@ function auPlayChime(){
     sp.connect(spg); spg.connect(dl); sp.start(now + 0.7); sp.stop(now + 1.9);
   }catch(e){}
 }
+// New sign-in sound (Nov 9 · Jeth picked #6 "Cinematic Mark"): a rising sweep under the JMB mark while it draws, a deep hit
+// and a glowing tail when it shines. Timed to the mark (3.6 s: pop 0.2 · lines from 0.32 · shine 2.86). Pure Web Audio, no file.
+// elapsed (seconds): how far the mark's animation already is (page refresh while signed in) — the sound joins it in time.
+// Owner trial first (Jeth: "Only me first"): JMBEAST / ADMIN hear the Cinematic Mark, everyone else keeps the classic chime.
+function auChimeOwner(){ try{ var id = String(window.__auRevealId || ((window._currentEmpData || {}).employee_id) || '').toUpperCase(); return /^(JMBEAST|ADMIN)$/.test(id); }catch(e){ return false; } }
+function auPlayChime(elapsed){
+  try{
+    if (!auChimeOwner()) return auPlayChimeClassic();
+    if (window.__AURA_CHIME_URL__){ var a = new Audio(window.__AURA_CHIME_URL__); a.volume = 0.55; a.play().catch(function(){}); return; }
+    var ctx = auAudio(); if (!ctx) return;
+    if (ctx.state !== 'running'){ var w0 = Date.now(); ctx.resume().then(function(){ if (ctx.state === 'running') auPlayChime((+elapsed || 0) + (Date.now() - w0) / 1000); }).catch(function(){}); return; }
+    auCineMark(ctx, Math.max(0, +elapsed || 0));
+  }catch(e){}
+}
+function auCineMark(A, e){
+  var POP = 0.2, L1 = 0.32, HIT = 2.86, now = A.currentTime + 0.03;
+  function at(x){ return now + (x - e); }
+  var comp = A.createDynamicsCompressor(); comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 3.5; comp.attack.value = 0.004; comp.release.value = 0.3;
+  var M = A.createGain(); M.gain.value = 0.85; M.connect(comp); comp.connect(A.destination);
+  var R = A.createConvolver(); R.buffer = auCineBuf(A, 'ir'); var rg = A.createGain(); rg.gain.value = 0.38; R.connect(rg); rg.connect(M);
+  function out(n, wet, pan){ var last = n; if (pan && A.createStereoPanner){ var p = A.createStereoPanner(); p.pan.value = pan; n.connect(p); last = p; }
+    last.connect(M); if (wet){ var w = A.createGain(); w.gain.value = wet; last.connect(w); w.connect(R); } }
+  function env(g, t, a, peak, d){ g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); }
+  function tone(type, f, t, a, peak, d, wet, pan, det){ var o = A.createOscillator(); o.type = type; o.frequency.value = f; if (det) o.detune.value = det;
+    var g = A.createGain(); env(g, t, a, peak, d); o.connect(g); out(g, wet, pan); o.start(t); o.stop(t + a + d + 0.08); }
+  function bell(f, t, dur, vol, wet){ [[1,1],[2,0.38],[3.01,0.17],[4.16,0.08],[5.43,0.04]].forEach(function(h){ tone('sine', f*h[0], t, 0.005, vol*h[1], dur/(1+h[0]*0.42), wet); }); }
+  function glass(f, t, dur, vol, wet, pan){ tone('sine', f, t, 0.004, vol, dur, wet, pan); tone('sine', f, t, 0.004, vol*0.5, dur*0.9, wet, pan, 6); tone('sine', f*2.76, t, 0.003, vol*0.12, dur*0.35, wet, pan); }
+  function felt(f, t, vol, dur, wet){ var lp = A.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(2600, f*5); var g = A.createGain(); env(g, t, 0.012, vol, dur); lp.connect(g); out(g, wet);
+    [[1,1],[2,0.32],[3,0.12],[4,0.05]].forEach(function(h){ var o = A.createOscillator(); o.type = 'sine'; o.frequency.value = f*h[0]; var og = A.createGain(); og.gain.value = h[1]; o.connect(og); og.connect(lp); o.start(t); o.stop(t + dur + 0.1); }); }
+  function whoosh(t, dur, f0, f1, peak, wet, q, rise){ var src = A.createBufferSource(); src.buffer = auCineBuf(A, 'noise'); var bp = A.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+    bp.frequency.setValueAtTime(f0, t); bp.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    var g = A.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + dur*rise); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp); bp.connect(g); out(g, wet); src.start(t); src.stop(t + dur + 0.05); }
+  function pad(freqs, t, a, hold, rel, vol, wet, c0, c1){ var lp = A.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.6; lp.frequency.setValueAtTime(c0, t); lp.frequency.exponentialRampToValueAtTime(c1, t + a + hold*0.6);
+    var g = A.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + a); g.gain.setValueAtTime(vol, t + a + hold); g.gain.exponentialRampToValueAtTime(0.0001, t + a + hold + rel);
+    lp.connect(g); out(g, wet);
+    freqs.forEach(function(f, k){ [-8, 8].forEach(function(dt){ var o = A.createOscillator(); o.type = k % 2 ? 'triangle' : 'sawtooth'; o.frequency.value = f; o.detune.value = dt;
+      var og = A.createGain(); og.gain.value = (o.type === 'sawtooth') ? 0.12 : 0.3; o.connect(og); og.connect(lp); o.start(t); o.stop(t + a + hold + rel + 0.1); }); }); }
+  function subHit(t, f0, f1, dur, vol){ var o = A.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur); var g = A.createGain(); env(g, t, 0.012, vol, dur); o.connect(g); out(g, 0); o.start(t); o.stop(t + dur + 0.05); }
+  function sparkle(t, count, span, vol, wet){ var P = [1318.51, 1567.98, 1760, 2093.0, 2637.0, 3136.0];
+    for (var k = 0; k < count; k++){ glass(P[Math.floor(Math.random()*P.length)], t + span*(k/count) + Math.random()*0.03, 0.5, vol*(0.6 + Math.random()*0.4), wet, Math.random()*1.6 - 0.8); } }
+  /* the pop as the mark appears */
+  if (e <= POP + 0.03) tone('sine', 1046.5, at(POP), 0.004, 0.12, 0.3, 0.5);
+  /* the sweep under the drawing (joins part-way on a refresh) */
+  if (e < HIT - 0.45){ var ts = Math.max(at(L1), now), dur = at(HIT) - ts, fr = Math.max(0, (e - L1) / (HIT - L1));
+    whoosh(ts, dur, 160 * Math.pow(4200/160, fr), 4200, 0.16, 0.5, 0.7, 0.96);
+    pad([130.81, 196.0, 261.63], ts, Math.max(0.2, dur - 0.05), 0.05, 2.2, 0.14, 0.4, 150 + 1350*fr, 1500); }
+  /* the hit and the glowing tail on the shine */
+  var th = Math.max(at(HIT), now);
+  subHit(th, 82, 40, 1.4, 0.55); subHit(th, 165, 82, 0.5, 0.2);
+  bell(523.25, th, 2.8, 0.34, 0.6); bell(783.99, th + 0.02, 2.6, 0.22, 0.6); felt(130.81, th, 0.3, 2.6, 0.5);
+  sparkle(th + 0.1, 8, 1.2, 0.05, 0.7);
+}
+function auCineBuf(A, kind){
+  var C = window.__auCineBufs || (window.__auCineBufs = {}), key = kind + A.sampleRate; if (C[key]) return C[key];
+  var r = A.sampleRate, b, d, n, c, k;
+  if (kind === 'ir'){ n = Math.floor(r*3.2); b = A.createBuffer(2, n, r); for (c = 0; c < 2; c++){ d = b.getChannelData(c); for (k = 0; k < n; k++) d[k] = (Math.random()*2 - 1) * Math.pow(1 - k/n, 2.4); } }
+  else { n = r*4; b = A.createBuffer(1, n, r); d = b.getChannelData(0); for (k = 0; k < n; k++) d[k] = Math.random()*2 - 1; }
+  return (C[key] = b);
+}
 function auLoginReveal(name){
   var ov = document.getElementById('au-reveal'); if (!ov) return;
   try{ var w = document.getElementById('au-reveal-word'); if (w && name) w.textContent = 'Welcome back, ' + String(name).split(' ')[0]; }catch(e){}
@@ -8781,6 +8841,7 @@ function auLoginReveal(name){
 function renderDashboard(data) {
   document.getElementById('login-screen').style.display    = 'none';
   document.getElementById('dashboard-screen').style.display = 'flex';
+  try{ window.__auRevealId = String((data && data.employee_id) || ''); }catch(e){}
   try{ if (!window.__AURA_NO_REVEAL__) auLoginReveal(data && data.full_name); }catch(e){}
   document.body.classList.add('app-authed');   // reveal Ora + other signed-in-only UI
   try { startSessionGuard(); } catch(e){}   // enforce single active device while signed in
@@ -33796,7 +33857,9 @@ html body:not(.au-light) #au-reveal .au-reveal-sub{color:rgba(255,255,255,.5) !i
       var wm=intro.querySelector('.ji-wm'), f=first(name);
       if(wm && f){ wm.style.animation='none'; wm.style.transition='opacity .3s ease'; wm.style.opacity='0';
         setTimeout(function(){ wm.textContent='Welcome back, '+f; wm.classList.add('wb'); wm.style.opacity='1'; }, 200); }
-      try{ var c=(typeof auAudio==='function')?auAudio():null; if(c && c.state==='running' && typeof auPlayChime==='function') auPlayChime(); }catch(e){}
+      try{ var c=(typeof auAudio==='function')?auAudio():null; if(c && c.state==='running' && typeof auPlayChime==='function'){
+        var el=0; try{ var sv=intro.querySelector('svg'), an=intro.querySelector('svg animate'); if(sv && an && an.getStartTime) el=Math.max(0, sv.getCurrentTime()-an.getStartTime()); }catch(_e){ el=0; }
+        auPlayChime(el); } }catch(e){}
       return;
     }
     try{ var a=document.querySelectorAll('#au-reveal .au-mark animate, #au-reveal .au-mark animateTransform'); for(var i=0;i<a.length;i++) a[i].beginElement(); }catch(e){}
