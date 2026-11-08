@@ -26586,7 +26586,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-09-A';
+var PORTAL_BUILD='2026-11-09-B';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34130,6 +34130,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-09-B', version:'2026.11.09b', date:'November 9, 2026',
+    summary:'The eyes step of the face check is easier.',
+    items:[
+      'When you close your eyes for the face check, you hear a soft beep once the portal sees them closed. Then open them.',
+      'If the camera cannot read your eyes, the portal asks you to turn your head to one side and back instead.',
+      'A face scan no longer starts over at the eyes step. The angles you already did are kept.'
+    ] },
   { build:'2026-11-09-A', version:'2026.11.09a', date:'November 9, 2026',
     summary:'A stronger face check when you work from home.',
     items:[
@@ -35716,22 +35723,54 @@ var FACEID = (function(){
     try{ var t=document.createElement('canvas'); t.width=48; t.height=36; var x=t.getContext('2d'); x.drawImage(cv, cv.width*0.25, cv.height*0.15, cv.width*0.5, cv.height*0.7, 0, 0, 48, 36);
       var d=x.getImageData(0,0,48,36).data, sm=0; for(var i=0;i<d.length;i+=4) sm+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; return sm/(d.length/4); }catch(e){ return 128; }
   }
-  /* eyes closed, then open — measured against this person's own open eyes. 'pass' | 'fail' | 'n/a' (no eye points) */
-  async function eyesStep(video, ms, stop){
-    var h=await load(), base=[], phase=0, t0=Date.now(), seen=false;
+  /* eyes closed, then open (Nov 9b). Two signals, either one is enough:
+     • the eyelid ratio dips 20% under this person's own open level (from the straight-look frames when we have them),
+     • the dark iris/pupil in the eye area fades (closed lids are skin) — for faces where the mesh barely moves the lids.
+     A head tilt up/down is not a close (a tilted photo changes the ratio too). A soft beep when the close is seen.
+     'pass' | 'fail' | 'n/a' (no eye points). this.last = what was measured, for the camera log. */
+  function pctl(a, p){ if(!a.length) return 0; var v=a.slice().sort(function(x,y){ return x-y; }); return v[Math.min(v.length-1, Math.floor(v.length*p))]; }
+  function eyeDark(cv, m){
+    try{
+      if(!cv || !m || m.length<468) return null;
+      var x=cv.getContext('2d'), out=[];
+      [[33,133,159,145],[362,263,386,374]].forEach(function(I){
+        var a=m[I[0]], b=m[I[1]], t=m[I[2]], u=m[I[3]]; if(!a||!b||!t||!u) return;
+        var w=Math.abs(b[0]-a[0]), cx=(a[0]+b[0])/2, cy=(t[1]+u[1])/2; if(!(w>6)) return;
+        var bw=Math.round(w*0.9), bh=Math.max(4, Math.round(w*0.5)), x0=Math.round(cx-bw/2), y0=Math.round(cy-bh/2);
+        var d=x.getImageData(x0, y0, bw, bh).data, L=[];
+        for(var i=0;i<d.length;i+=4) L.push(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]);
+        if(L.length<20) return; var med=pctl(L,0.5), lo=pctl(L,0.08); if(med>8) out.push((med-lo)/med);
+      });
+      return out.length ? out.reduce(function(s,v){ return s+v; },0)/out.length : null;
+    }catch(e){ return null; }
+  }
+  function beep(){ try{ var A=window.AudioContext||window.webkitAudioContext; if(!A) return; var c=new A(), t=c.currentTime, o=c.createOscillator(), g=c.createGain();
+    o.type='sine'; o.frequency.value=988; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.12,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.22);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+0.25); setTimeout(function(){ try{ c.close(); }catch(e){} }, 600); }catch(e){} }
+  async function eyesStep(video, ms, stop, hint){
+    var h=await load(), t0=Date.now(), seen=false, ears=[], darks=[], pitches=[], phase=0, low=9, dlow=9;
+    eyesStep.last={ open:0, low:0, dark:0, dlow:0, how:'' };
     while(Date.now()-t0<ms){
       if(stop && stop()) return 'fail';
-      var r=await h.detect(frame(video), NO_DESC), f=r && r.face && r.face[0], ear=f ? earOf(f.mesh) : null;
+      var cv=frame(video), r=await h.detect(cv, NO_DESC), f=r && r.face && r.face[0], ear=f ? earOf(f.mesh) : null;
       if(ear!=null){ seen=true;
-        if(phase===0 && base.length<3) base.push(ear);
-        var open=Math.max(median(base), 0.18);
-        if(phase===0 && base.length>=2 && ear<0.66*open) phase=1;
-        else if(phase===1 && ear>0.84*open) return 'pass';
+        var dk=eyeDark(cv, f.mesh), pitch=(f.rotation && f.rotation.angle && typeof f.rotation.angle.pitch==='number') ? f.rotation.angle.pitch : null;
+        ears.push(ear); if(dk!=null) darks.push(dk); if(pitch!=null) pitches.push(pitch);
+        var eOpen=Math.max(hint||0, pctl(ears, 0.8)), dOpen=darks.length>=3 ? pctl(darks, 0.8) : 0;
+        var p0=pitches.length ? pctl(pitches, 0.5) : null, tilted=(pitch!=null && p0!=null && Math.abs(pitch-p0)>0.14);
+        if(ear<low) low=ear; if(dk!=null && dk<dlow) dlow=dk;
+        var byLid=ears.length>=3 && ear<0.8*eOpen && !tilted, byDark=dOpen>0.12 && dk!=null && dk<0.6*dOpen && !tilted;
+        if(phase===0 && (byLid || byDark)){ phase=1; eyesStep.last.how=byLid ? (byDark ? 'lids + iris' : 'lids') : 'iris'; beep(); }
+        else if(phase===1 && ear>0.88*eOpen && (dk==null || !dOpen || dk>0.75*dOpen)){
+          eyesStep.last={ open:eOpen, low:low, dark:dOpen, dlow:dlow, how:eyesStep.last.how }; return 'pass'; }
+        eyesStep.last={ open:eOpen, low:low, dark:dOpen, dlow:(dlow<9?dlow:0), how:eyesStep.last.how };
       }
-      await sleep(90);
+      await sleep(80);
     }
     return seen ? 'fail' : 'n/a';
   }
+  function eyesNote(){ var L=eyesStep.last||{}; function f2(v){ return (Math.round((v||0)*100)/100).toFixed(2); }
+    return 'eyes open '+f2(L.open)+' · lowest '+f2(L.low>8?0:L.low)+(L.dark?' · iris '+f2(L.dark)+' → '+f2(L.dlow):''); }
   /* turn the head away and back. 'pass' | 'fail' | 'n/a' */
   async function turnStep(video, ms, stop){
     var h=await load(), t0=Date.now(), away=false, seen=false;
@@ -35746,13 +35785,19 @@ var FACEID = (function(){
   }
   async function guided(vid, ui){
     var h; try{ h=await load(); }catch(e){ return { err:'The face check could not load. Check your internet, then try again.' }; }
-    var all=[], snapCv=null;
+    var all=[], snapCv=null, openE=[], eyesAlt=false;
     for(var i=0;i<GSTEPS.length;i++){
       var st=GSTEPS[i]; ui.step(i, 'on'); ui.big(st.t); await sleep(1100);
       if(st.k==='eyes'){
-        var ev=await eyesStep(vid, 12000, ui.stop);
+        var ev=await eyesStep(vid, 15000, ui.stop, openE.length ? median(openE) : 0);
         if(ui.stop()) return { err:'closed' };
-        if(ev==='fail'){ ui.step(i, ''); return { err:'We did not see your eyes close and open. Look at the camera, close your eyes for a second, then open them.' }; }
+        if(ev==='fail'){   /* Nov 9b: some faces don't show a close to the camera — a head turn instead, the angles already taken are kept */
+          ui.msg('We could not read your eyes. Turn your head to one side, then look back at the camera.'); ui.big('Turn your head to one side, then back');
+          var tv=await turnStep(vid, 12000, ui.stop); if(ui.stop()) return { err:'closed' };
+          if(tv!=='pass'){ ui.step(i, ''); return { err:'We could not read your eyes or the head turn. Light on your face, look at the camera, then try again.' }; }
+          eyesAlt=true; try{ camLog('eye_stats', 'scan: eyes step replaced by a head turn · '+eyesNote()); }catch(_l){}
+          ui.msg('');
+        }
         ui.step(i, 'done'); continue;
       }
       var got=0, tries=0, miss=0;
@@ -35770,6 +35815,7 @@ var FACEID = (function(){
         if(!ok && miss<st.n*5){ miss++; ui.msg(st.k==='mid' ? 'Look straight at the camera.' : 'Turn your head a little more.'); await sleep(350); continue; }
         ui.msg(''); all.push(Array.prototype.slice.call(f.embedding)); got++;
         if(st.k==='mid' && !snapCv) snapCv=cv;
+        if(st.k==='mid'){ try{ var e0=earOf(f.mesh); if(e0!=null) openE.push(e0); }catch(_e){} }
         await sleep(300);
       }
       if(got<st.n){ ui.step(i, ''); return { err:'That step did not work. Light on your face, only you in the picture, then try again.' }; }
@@ -35794,7 +35840,7 @@ var FACEID = (function(){
         '<div class="fid-steps"><i></i><i></i><i></i><i></i></div><div class="fid-big" id="fid-big">Get ready</div>'+
         '<div class="fid-v"><video muted playsinline></video><i class="fid-ring"></i></div>'+
         '<label class="fid-c on"><input type="checkbox" id="fid-ok"> I agree to face checks when I sign in and while I work from home.</label>'+
-        '<p class="fid-small">About 20 seconds: look straight, turn a little left and right, then close and open your eyes. Light on your face, only you in the picture. The portal keeps face templates (numbers, not photos) and one small picture for your admin.</p>'+
+        '<p class="fid-small">About 20 seconds: look straight, turn a little left and right, then close and open your eyes (a soft beep means we saw it). Light on your face, only you in the picture. The portal keeps face templates (numbers, not photos) and one small picture for your admin.</p>'+
         '<div class="fid-msg" id="fid-msg"></div><div class="fid-b"><button type="button" class="fid-sec" data-a="close">'+(opt.closeLabel||'Close')+'</button><button type="button" class="fid-pri" data-a="go">Start the scan</button></div>');
       var vid=null, done=false;
       function fin(v){ if(done) return; done=true; close(); resolve(v); }
@@ -35849,8 +35895,8 @@ var FACEID = (function(){
     async function attempt(){
       step(0,'on'); big('Turn your head to one side, then back'); var a=await turnStep(W.video, 12000, stopIt); if(stopIt()) return null;
       if(a==='fail'){ step(0,''); return 'Turn your head a little to the side, then look back at the camera.'; } step(0,'done');
-      step(1,'on'); big('Close your eyes for a second, then open them'); var b=await eyesStep(W.video, 12000, stopIt); if(stopIt()) return null;
-      if(b==='fail'){ step(1,''); return 'Close your eyes for a second, then open them.'; } step(1,'done');
+      step(1,'on'); big('Close your eyes for a second, then open them'); var b=await eyesStep(W.video, 10000, stopIt); if(stopIt()) return null;
+      if(b==='fail'){ try{ camLog('eye_stats', 'quick check: eyes not readable, head turn counted · '+eyesNote()); }catch(_l){} } step(1,'done');
       step(2,'on'); big('Look straight at the camera');
       for(var i=0;i<4 && !stopIt();i++){
         var R=await frames(W.video, 2, 200); if(!R.list.length){ await sleep(400); continue; }
@@ -35924,9 +35970,14 @@ var FACEID = (function(){
         try{ await Promise.race([ load(), sleep(30000).then(function(){ throw new Error('slow'); }) ]); }
         catch(e){ camLog('face_unavailable', 'Start/Resume without a face match: the face check did not load'); fin(true); return; }
         /* Nov 9 (v2): a photo or a paused video can't close and open its eyes */
-        msg('Close your eyes for a second, then open them.', true);
-        var lv=await eyesStep(W.video, 12000, function(){ return done; }); if(done) return;
-        if(lv==='fail'){ camLog('start_refused', 'eyes did not close and open at Start/Resume'); msg('We did not see your eyes close and open. Look at the camera, close your eyes for a second, then open them. Press Try again.'); retry(true); return; }
+        msg('Close your eyes for a second, then open them. A soft beep means we saw it.', true);
+        var lv=await eyesStep(W.video, 15000, function(){ return done; }); if(done) return;
+        if(lv==='fail'){   /* Nov 9b: a head turn instead (a photo can't do either) */
+          msg('We could not read your eyes. Turn your head to one side, then look back at the camera.', true);
+          var tv=await turnStep(W.video, 12000, function(){ return done; }); if(done) return;
+          if(tv!=='pass'){ camLog('start_refused', 'eyes and head turn not seen at Start/Resume · '+eyesNote()); msg('We could not see your eyes close or your head turn. Light on your face, look at the camera, then press Try again.'); retry(true); return; }
+          camLog('eye_stats', 'Start/Resume: eyes not readable, head turn used · '+eyesNote());
+        }
         if(lv==='n/a') camLog('start_refused', 'eye check could not read the eyes at Start/Resume — matched on the face only');
         var last=null;
         for(var i=0; i<4 && !done; i++){
@@ -39021,7 +39072,7 @@ html body.jp.jp.jp.jp.app-authed #points-card #points-hist:empty{ display:none !
     var ji=document.getElementById('jmb-intro');
     if(ji){ try{ var mo=new MutationObserver(function(){ if(ji.classList.contains('out')){ mo.disconnect(); flyMark(ji.querySelector('.ji-in > svg, .ji-in > img')); } }); mo.observe(ji, { attributes:true, attributeFilter:['class'] }); }catch(e){} }
     var rv=document.getElementById('au-reveal');
-    if(rv) rv.addEventListener('animationstart', function(e){ if(e.target===rv && /au-reveal-out/.test(e.animationName||'')) flyMark(rv.querySelector('.au-mark') || document.getElementById('au-reveal-logo')); });
+    if(rv && rv.addEventListener) try{ rv.addEventListener('animationstart', function(e){ if(e.target===rv && /au-reveal-out/.test(e.animationName||'')) flyMark(rv.querySelector('.au-mark') || document.getElementById('au-reveal-logo')); }); }catch(e){}
   })();
 
   function check(){ set(want()); themeSync(); keepClosed(); chrome(); try{ overview(); }catch(e){} try{ aurora(); }catch(e){} pageTitle(); scrolled(); try{ pill(); }catch(e){}
