@@ -26586,7 +26586,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-07-K';
+var PORTAL_BUILD='2026-11-09-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34130,6 +34130,15 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-09-A', version:'2026.11.09a', date:'November 9, 2026',
+    summary:'A stronger face check when you work from home.',
+    items:[
+      'Before your next timer from home, do a one-time face scan of about 20 seconds: look straight, turn a little left and right, then close and open your eyes. Your admin approves it.',
+      'Start and Resume now ask you to close and open your eyes, then check that the face on the camera is yours.',
+      'Now and then while you work, a quick face check appears with a sound: turn your head, then close and open your eyes. You have 60 seconds. If you miss it, a warning shows and your timer stops 20 seconds later.',
+      'If the camera cannot confirm it is you for about 2 minutes, your timer stops. Sit facing the camera with light on your face.',
+      'Virtual cameras such as OBS, ManyCam and Snap Camera are not allowed. Use your own webcam.'
+    ] },
   { build:'2026-11-07-K', version:'2026.11.07k', date:'November 7, 2026',
     summary:'Register your face in My Profile.',
     items:[
@@ -35139,6 +35148,18 @@ var WCAM = (function(){
     S.starting=(async function(){
       try{
         var st=await navigator.mediaDevices.getUserMedia({ video:{ width:{ ideal:640 }, height:{ ideal:480 }, facingMode:'user', frameRate:{ ideal:15, max:20 } }, audio:false });
+        /* Nov 9 (Face ID v2): a virtual camera (OBS, ManyCam, Snap Camera, XSplit, mmhmm…) can play a recording of
+           someone. Use the real webcam instead if there is one; otherwise refuse. */
+        var VIRT=/\bobs\b|virtual|manycam|snap camera|xsplit|mmhmm|splitcam|\bvcam\b|e2esoft|fake ?cam|chromacam|nvidia broadcast|webcamoid|camtwist/i;   // not OBSBOT (a real webcam)
+        var _lb=String((st.getVideoTracks()[0]||{}).label||'');
+        if(VIRT.test(_lb)){
+          try{ st.getTracks().forEach(function(t){ t.stop(); }); }catch(_s){}
+          var real=null; try{ (await navigator.mediaDevices.enumerateDevices()).forEach(function(d){ if(!real && d.kind==='videoinput' && d.label && !VIRT.test(d.label)) real=d; }); }catch(_e){}
+          st=null;
+          if(real){ try{ st=await navigator.mediaDevices.getUserMedia({ video:{ deviceId:{ exact:real.deviceId }, width:{ ideal:640 }, height:{ ideal:480 }, frameRate:{ ideal:15, max:20 } }, audio:false }); }catch(_r){ st=null; } }
+          if(!st){ S.virt=_lb; log('virtual_cam', 0, 'refused: '+_lb); var ve=new Error('virtual'); ve.name='VirtualCamera'; throw ve; }
+          log('virtual_cam', 0, 'switched from '+_lb+' to '+String((st.getVideoTracks()[0]||{}).label||'the webcam'));
+        }
         S.stream=st; S.track=st.getVideoTracks()[0];
         try{ S.cap=('ImageCapture' in window)?new ImageCapture(S.track):null; }catch(_i){ S.cap=null; }
         S.track.addEventListener('ended', function(){ S.stream=null; S.track=null; S.cap=null; S.st='off'; S.face=null; try{ if(S.rtc) S.rtc.closeAll(true); }catch(_r){} paint(); pres(true); });
@@ -35146,7 +35167,7 @@ var WCAM = (function(){
         return true;
       }catch(e){
         S.stream=null; S.track=null; S.cap=null;
-        var n=e&&e.name; S.st=(n==='NotAllowedError'||n==='SecurityError')?'denied':((n==='NotFoundError'||n==='OverconstrainedError'||n==='NotReadableError')?'nocam':'error');
+        var n=e&&e.name; S.st=(n==='VirtualCamera')?'virtual':((n==='NotAllowedError'||n==='SecurityError')?'denied':((n==='NotFoundError'||n==='OverconstrainedError'||n==='NotReadableError')?'nocam':'error'));
         return false;
       }finally{ paint(); pres(true); }
     })();
@@ -35208,9 +35229,10 @@ var WCAM = (function(){
     S.warnKind=kind; S.warnUntil=Date.now()+secs*1000;
     var msg=kind==='cam' ? 'Your camera is off. Working from home, the timer needs it on — turn it back on or the timer stops.'
                          : kind==='eyes' ? 'Your eyes have been closed. Open your eyes and stay awake, or your timer stops.'
-                         : (kind==='id' ? 'The camera does not see '+(nm().split(',').pop().trim().split(' ')[0]||'you')+'. Only you can work on your timer. It stops if someone else stays on the camera.'
+                         : (kind==='id' ? (S.idWhy==='live' ? 'Do the quick face check on your screen now (turn your head, close and open your eyes), or your timer stops.' : S.idWhy==='unsure' ? 'We can\'t confirm it\'s you on the camera. Face it with light on your face, or your timer stops.'   // Nov 8 (Jeth: "Stop on doubt")
+                                                               : 'The camera does not see '+(nm().split(',').pop().trim().split(' ')[0]||'you')+'. Only you can work on your timer. It stops if someone else stays on the camera.')
                          : 'We can\'t see your face on the camera. Sit in front of it or your timer stops.');
-    if(kind==='id') log('face_mismatch_warn', 0, taskNote());
+    if(kind==='id') log(S.idWhy==='live'?'live_warn':(S.idWhy==='unsure'?'face_unsure_warn':'face_mismatch_warn'), 0, taskNote());
     if(kind==='eyes') log('eyes_closed_warn', 10, taskNote());
     try{ STOPAL.warn('cam', S.warnUntil, msg); }catch(e){}
     if(kind==='face') log('noface_warn', Math.round(GRACE/1000), taskNote());
@@ -35224,8 +35246,8 @@ var WCAM = (function(){
     S.warnKind=''; S.warnUntil=0;
     try{ await stopTimer(); }catch(e){}
     try{ STOPAL.stopped('cam', 'Your timer stopped', kind==='cam' ? 'Your camera was off. Turn it on, then press Start / Resume.'
-      : kind==='id' ? 'Someone other than you was on the camera. Your admin has been told.' : kind==='eyes' ? 'Your eyes were closed for 30 seconds. Wake up, then press Start / Resume.' : 'Nobody was on the camera for '+Math.max(secs, GRACE/1000+WARN)+' seconds. Sit in front of the camera, then press Start / Resume.'); }catch(e){}
-    log(kind==='cam'?'cam_off_stop':(kind==='id'?'face_mismatch_stop':(kind==='eyes'?'eyes_closed_stop':'noface_stop')), kind==='eyes'?30:secs, note);
+      : kind==='id' ? (S.idWhy==='live' ? 'You did not do the quick face check. Press Start / Resume when you are back at your computer.' : S.idWhy==='unsure' ? 'We could not confirm it was you on the camera for 2 minutes. Face the camera with light on your face, then press Start / Resume.' : 'Someone other than you was on the camera. Your admin has been told.') : kind==='eyes' ? 'Your eyes were closed for 30 seconds. Wake up, then press Start / Resume.' : 'Nobody was on the camera for '+Math.max(secs, GRACE/1000+WARN)+' seconds. Sit in front of the camera, then press Start / Resume.'); }catch(e){}
+    log(kind==='cam'?'cam_off_stop':(kind==='id'?(S.idWhy==='live'?'live_stop':(S.idWhy==='unsure'?'face_unsure_stop':'face_mismatch_stop')):(kind==='eyes'?'eyes_closed_stop':'noface_stop')), kind==='eyes'?30:secs, note);
     S.noSince=0; paint(); pres(true);
   }
   function enforce(now){
@@ -35372,7 +35394,7 @@ var WCAM = (function(){
       '<div class="wc-cd"><span id="wc-cd-t">No face on camera</span><b id="wc-cd-n">10</b><span>timer stops</span></div>';
     t.addEventListener('click', function(ev){
       if(ev && ev.target && ev.target.closest && ev.target.closest('[data-o]')){ ev.stopPropagation(); officeCheck(); return; }   // Nov 5e
-      if(S.st!=='live'){ start().then(function(ok){ if(!ok) gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':'error')); }); return; }
+      if(S.st!=='live'){ start().then(function(ok){ if(!ok) gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':(S.st==='virtual'?'virtual':'error'))); }); return; }
       toast('📷 Working from home: your camera stays on while you work. The face check runs on this computer — nothing is recorded.');
     });
     S.tile=t; return t;
@@ -35419,7 +35441,7 @@ var WCAM = (function(){
     var adm=document.getElementById('wc-adm'); if(adm) adm.style.display=(live && watching())?'':'none';
     if(S.warnKind){ set('wc-cd-n', String(Math.max(0, Math.ceil((S.warnUntil-Date.now())/1000)))); set('wc-cd-t', S.warnKind==='cam'?'Camera off':(S.warnKind==='id'?'Not you on camera':(S.warnKind==='eyes'?'Eyes closed':'No face on camera'))); }
     if(!live){
-      set('wc-off-t', S.st==='denied'?'Camera blocked':(S.st==='nocam'?'No camera found':(S.st==='starting'?'Starting camera…':'Camera needed')));
+      set('wc-off-t', S.st==='denied'?'Camera blocked':(S.st==='nocam'?'No camera found':(S.st==='virtual'?'Virtual camera not allowed':(S.st==='starting'?'Starting camera…':'Camera needed'))));
       set('wc-off-s', S.st==='denied'?'Allow the camera: click the camera icon in the address bar → Allow.':(S.st==='nocam'?'Plug in a webcam, then click here.':'Working from home: keep your camera on while you work.'));
       set('wc-off-b', S.st==='starting'?'Please wait…':(S.st==='denied'?'Try again':'Turn on camera'));
     }
@@ -35436,6 +35458,7 @@ var WCAM = (function(){
             nocam:['No camera found','Working from home, the timer needs a camera. Plug in a webcam (or close other apps using it — Zoom, Discord, Teams), then press <b>Try again</b>.'],
             slow:['Still getting the face check ready','Your internet is slow to load it the first time. Wait a few seconds, then press Start again.'],
             error:['The camera didn\'t start','Close other apps that might be using it (Zoom, Discord, Teams), then press <b>Try again</b>.'],
+            virtual:['Use your real webcam','The portal found only a virtual camera'+(S.virt?' (<b>'+esc(S.virt)+'</b>)':'')+'. Working from home, the timer needs your own webcam — virtual cameras (OBS, ManyCam, Snap Camera…) are not allowed. Close that app, plug in or turn on your webcam, then press <b>Try again</b>.'],
             notoffice:['This laptop is not on the office network', (ip?'The portal sees this laptop on the internet address <b>'+esc(ip)+'</b>, which is not the office internet.':'The portal could not confirm the office network from this laptop just now.')+
               ' If you are at the office: turn off any VPN or proxy (browser extensions too), make sure the laptop is on the office Wi-Fi and not a phone hotspot, then press <b>Check again</b>. If it still says this, tell the admin. They can see this check in the camera log.'] }[kind]||['Camera',''];
     var busy=(kind==='checking'||kind==='loading'), vid=(S.stream && kind!=='denied' && kind!=='nocam' && kind!=='notoffice');
@@ -35443,13 +35466,13 @@ var WCAM = (function(){
       (vid?'<div class="wg-v"><video muted autoplay playsinline></video><i class="wg-ring"></i></div>':'')+
       '<div class="wg-b">'+(busy?'':'<button type="button" class="wg-sec" data-a="close">Close</button>')+
       (busy?'':(kind==='notoffice'?'<button type="button" class="wg-pri" data-a="office">Check again</button>':'<button type="button" class="wg-sec" data-a="office">I\'m at the office</button>'))+
-      ((kind==='denied'||kind==='nocam'||kind==='error')?'<button type="button" class="wg-pri" data-a="retry">Try again</button>':'')+'</div>'+
+      ((kind==='denied'||kind==='nocam'||kind==='error'||kind==='virtual')?'<button type="button" class="wg-pri" data-a="retry">Try again</button>':'')+'</div>'+
       '<p class="wg-s" style="font-size:11.5px;margin:12px 0 0;color:#94a3b8">Working from home, your camera is shared with the admin while you work. The face check runs on this computer and nothing is recorded.</p></div>';
     if(vid){ try{ var v=el.querySelector('video'); v.srcObject=S.stream; var p=v.play(); if(p&&p.catch) p.catch(function(){}); }catch(e){} }
     el.onclick=function(ev){ var b=ev.target.closest && ev.target.closest('button[data-a]'); if(!b) return;
       if(b.getAttribute('data-a')==='close') gateClose();
       else if(b.getAttribute('data-a')==='office') officeCheck();
-      else { start().then(function(ok){ if(ok){ gateClose(); toast('📷 Camera on — press Start / Resume.'); } else gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':'error')); }); } };
+      else { start().then(function(ok){ if(ok){ gateClose(); toast('📷 Camera on — press Start / Resume.'); } else gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':(S.st==='virtual'?'virtual':'error'))); }); } };
   }
   function gateClose(){ var el=document.getElementById('wcam-gate'); if(el){ try{ var v=el.querySelector('video'); if(v) v.srcObject=null; }catch(e){} el.remove(); } }
 
@@ -35458,7 +35481,7 @@ var WCAM = (function(){
     var id=me(); if(!id || id==='ADMIN') return true;
     if(!S.known || Date.now()-S.lastRef>10*60*1000) await Promise.race([ refresh(), sleep(9000) ]);
     if(!S.need) return true;
-    if(!S.stream){ var ok=await start(); if(!ok){ gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':'error')); log('start_blocked', 0, 'camera '+S.st); return false; } }
+    if(!S.stream){ var ok=await start(); if(!ok){ gate(S.st==='denied'?'denied':(S.st==='nocam'?'nocam':(S.st==='virtual'?'virtual':'error'))); log('start_blocked', 0, 'camera '+S.st); return false; } }
     place(); paint();
     if(S.detFail) return true;          // the face check could not load here — the camera alone (logged once as det_unavailable)
     if(!S.det) loadDet();
@@ -35490,7 +35513,7 @@ var WCAM = (function(){
     var every=!S.known?60000:(inShift()?(S.need?NEEDCHK:(S.offSince?FAST:15*60*1000)):15*60*1000);   // Nov 5e
     if((!S.known || now-S.lastRef>=every) && !S._rp && now-(S._rTry||0)>=Math.min(every,60000)){ S._rTry=now; refresh(); }
     if(!want()){ if(S.stream) stop('idle'); if(S.ch) chDown(); paint(); return; }
-    if(!S.stream && S.known && !S.starting && S.st!=='denied' && S.st!=='nocam' && now-S.autoTry>15000){ S.autoTry=now; start(); }
+    if(!S.stream && S.known && !S.starting && S.st!=='denied' && S.st!=='nocam' && S.st!=='virtual' && now-S.autoTry>15000){ S.autoTry=now; start(); }
     if(S.stream && S.video && !S.video.srcObject) mountVideo();
     if(S.stream && !S.detBusy && now-S.lastDet>=DET_MS){
       S.detBusy=true; S.lastDet=now;
@@ -35562,9 +35585,15 @@ var FACEID = (function(){
     face:{ enabled:true, detector:{ rotation:true, maxDetected:1, minConfidence:0.3, return:false }, mesh:{ enabled:true }, iris:{ enabled:false },
       description:{ enabled:true }, emotion:{ enabled:false }, antispoof:{ enabled:false }, liveness:{ enabled:false }, attention:{ enabled:false } },
     body:{ enabled:false }, hand:{ enabled:false }, object:{ enabled:false }, gesture:{ enabled:false }, segmentation:{ enabled:false } };
-  var WITH_DESC={ face:{ description:{ enabled:true } } }, NO_DESC={ face:{ description:{ enabled:false } } };
-  var EVERY=60000, FAST=6000, BAD_N=3, EYE_MS=2000, EYE_CLOSED_MS=10000;
-  var S={ H:null, P:null, fail:false, status:'', head:false, stAt:0, stFor:'', busy:false, lastChk:0, bad:0, unsure:0, fast:false, alerted:{},
+  /* Nov 9 (v2): the description pass also looks for a SECOND face (someone next to or behind them is noticed); the
+     eye pass stays on one face. Human keeps the last config, so both say how many faces they want. */
+  var WITH_DESC={ face:{ detector:{ maxDetected:2 }, description:{ enabled:true } } }, NO_DESC={ face:{ detector:{ maxDetected:1 }, description:{ enabled:false } } };
+  var EVERY=30000, FAST=6000, BAD_N=3, EYE_MS=2000, EYE_CLOSED_MS=10000;   // Nov 9 (v2): every 30 s (was 60)
+  /* Nov 8 (Jeth: "Stop on doubt" — a VA ran the timer with someone else on the camera): "not sure" (0.45–0.60) used to
+     never stop anything. Now no confirmed match for DOUBT_MS (at least DOUBT_N unsure checks, every 6 s once in doubt)
+     = the same 20-second warning and stop as someone else. Start / Resume needs a live match (startMatch). */
+  var DOUBT_MS=120000, DOUBT_N=3;
+  var S={ H:null, P:null, fail:false, status:'', head:false, stAt:0, stFor:'', busy:false, lastChk:0, bad:0, unsure:0, fast:false, alerted:{}, lastMatch:0,
     eyeBusy:false, eyeAt:0, ears:[], closedSince:0, eyeLog:0, eyeN:0, eyeClosedN:0, eyeMin:1 };
   var ID_RE=/^(JMB\d{3}|JMBEAST|ADMIN)$/;
 
@@ -35597,8 +35626,11 @@ var FACEID = (function(){
     return S.P;
   }
   async function embed(src){
-    var h=await load(), r=await h.detect(src, WITH_DESC), f=r && r.face && r.face[0];
-    if(!f || !f.embedding || !(f.score>=0.5)) return null;
+    var h=await load(), r=await h.detect(src, WITH_DESC), L=(r && r.face) || [];
+    L=L.filter(function(x){ return x && x.score>=0.5; }).sort(function(a,b){ return ((b.box&&b.box[2])||0)-((a.box&&a.box[2])||0); });   // the biggest face is the one in front
+    S.faces=L.length;
+    var f=L[0];
+    if(!f || !f.embedding) return null;
     return Array.prototype.slice.call(f.embedding);
   }
   function frame(video){
@@ -35620,7 +35652,7 @@ var FACEID = (function(){
   async function status(force, who){
     var id=who||me(); if(!ID_RE.test(id)) return '';
     if(!force && S.stFor===id && S.status && Date.now()-S.stAt<5*60000) return S.status;
-    try{ var d=await rpc('face_status', { p_emp:id }); if(d && d.ok){ S.status=d.status; S.head=!!d.headshot; S.stAt=Date.now(); S.stFor=id; } }catch(e){}
+    try{ var d=await rpc('face_status', { p_emp:id }); if(d && d.ok){ S.status=d.status; S.head=!!d.headshot; S.needsScan=!!d.needs_scan; S.waiting=!!d.waiting; S.stAt=Date.now(); S.stFor=id; } }catch(e){}
     return S.stFor===id ? S.status : '';
   }
 
@@ -35662,41 +35694,261 @@ var FACEID = (function(){
     if(d.status==='pending') alertAdmin('register', d.score, id);
     return { status:d.status };
   }
-  function register(){
-    var id=me();
+  function register(){   // Nov 9 (v2): the guided scan; resolves 'approved' | 'waiting' | false
+    return scanFlow({ title:'Register your face', sub:'Working from home, the portal checks that the person on the camera is you. Register once — your admin approves it.',
+      waitNote:'You can start your timer from home once it is approved.' });
+  }
+
+  /* ══ FACE ID v2 (Jeth, Nov 9: "register it more accurate … recognize their face very accurate … their face who is
+     registered will only work on the camera … so they can't deceive the portal by replacing other heads") ══
+     • guided(): the scan — straight (4 looks), a little left, a little right, then eyes closed and open (a photo can't);
+       only one face, enough light, close enough. Every look is kept as its own sample (face_enroll2), so later checks
+       compare against several angles instead of one average. The admin approves it — or it is approved by itself when
+       it clearly matches the HR headshot (≥ 0.62).
+     • Start / Resume: eyes closed and open, then a match.
+     • While working from home: a quick check at a random moment every 30–60 minutes (turn the head, close and open the
+       eyes, and a match), 60 seconds to do it — then the usual 20-second warning and the timer stops.
+     • Faces saved by the old quick scan at sign-in do this scan once before their next timer. */
+  var GSTEPS=[ { t:'Look straight at the camera', n:4, k:'mid' }, { t:'Turn your head a little to the left', n:2, k:'side' },
+               { t:'Turn your head a little to the right', n:2, k:'side' }, { t:'Close your eyes for a second, then open them', n:0, k:'eyes' } ];
+  function median(a){ if(!a.length) return 0; var v=a.slice().sort(function(x,y){ return x-y; }); return v[Math.floor(v.length/2)]; }
+  function bright(cv){
+    try{ var t=document.createElement('canvas'); t.width=48; t.height=36; var x=t.getContext('2d'); x.drawImage(cv, cv.width*0.25, cv.height*0.15, cv.width*0.5, cv.height*0.7, 0, 0, 48, 36);
+      var d=x.getImageData(0,0,48,36).data, sm=0; for(var i=0;i<d.length;i+=4) sm+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; return sm/(d.length/4); }catch(e){ return 128; }
+  }
+  /* eyes closed, then open — measured against this person's own open eyes. 'pass' | 'fail' | 'n/a' (no eye points) */
+  async function eyesStep(video, ms, stop){
+    var h=await load(), base=[], phase=0, t0=Date.now(), seen=false;
+    while(Date.now()-t0<ms){
+      if(stop && stop()) return 'fail';
+      var r=await h.detect(frame(video), NO_DESC), f=r && r.face && r.face[0], ear=f ? earOf(f.mesh) : null;
+      if(ear!=null){ seen=true;
+        if(phase===0 && base.length<3) base.push(ear);
+        var open=Math.max(median(base), 0.18);
+        if(phase===0 && base.length>=2 && ear<0.66*open) phase=1;
+        else if(phase===1 && ear>0.84*open) return 'pass';
+      }
+      await sleep(90);
+    }
+    return seen ? 'fail' : 'n/a';
+  }
+  /* turn the head away and back. 'pass' | 'fail' | 'n/a' */
+  async function turnStep(video, ms, stop){
+    var h=await load(), t0=Date.now(), away=false, seen=false;
+    while(Date.now()-t0<ms){
+      if(stop && stop()) return 'fail';
+      var r=await h.detect(frame(video), NO_DESC), f=r && r.face && r.face[0];
+      var yaw=f && f.rotation && f.rotation.angle ? f.rotation.angle.yaw : null;
+      if(yaw!=null){ seen=true; var ay=Math.abs(yaw); if(!away && ay>=0.16) away=true; else if(away && ay<=0.12) return 'pass'; }
+      await sleep(110);
+    }
+    return seen ? 'fail' : 'n/a';
+  }
+  async function guided(vid, ui){
+    var h; try{ h=await load(); }catch(e){ return { err:'The face check could not load. Check your internet, then try again.' }; }
+    var all=[], snapCv=null;
+    for(var i=0;i<GSTEPS.length;i++){
+      var st=GSTEPS[i]; ui.step(i, 'on'); ui.big(st.t); await sleep(1100);
+      if(st.k==='eyes'){
+        var ev=await eyesStep(vid, 12000, ui.stop);
+        if(ui.stop()) return { err:'closed' };
+        if(ev==='fail'){ ui.step(i, ''); return { err:'We did not see your eyes close and open. Look at the camera, close your eyes for a second, then open them.' }; }
+        ui.step(i, 'done'); continue;
+      }
+      var got=0, tries=0, miss=0;
+      while(got<st.n && tries<st.n*12){
+        tries++; if(ui.stop()) return { err:'closed' };
+        var cv=frame(vid);
+        if(bright(cv)<55){ ui.msg('Too dark. Turn on a light or face a window.'); await sleep(450); continue; }
+        var r=await h.detect(cv, WITH_DESC), L=((r && r.face) || []).filter(function(x){ return x && x.score>=0.5; });
+        if(L.length>1){ ui.msg('Only you in the picture, please.'); await sleep(450); continue; }
+        var f=L[0];
+        if(!f || !f.embedding || !(f.score>=0.6)){ ui.msg('We cannot see your face clearly. Keep it inside the circle.'); await sleep(350); continue; }
+        var bw=(f.boxRaw && f.boxRaw[2]) || 0.3; if(bw<0.16){ ui.msg('Come a little closer to the camera.'); await sleep(350); continue; }
+        var yaw=f.rotation && f.rotation.angle ? Math.abs(f.rotation.angle.yaw||0) : null;
+        var ok=yaw==null || (st.k==='mid' ? yaw<=0.3 : yaw>=0.08);
+        if(!ok && miss<st.n*5){ miss++; ui.msg(st.k==='mid' ? 'Look straight at the camera.' : 'Turn your head a little more.'); await sleep(350); continue; }
+        ui.msg(''); all.push(Array.prototype.slice.call(f.embedding)); got++;
+        if(st.k==='mid' && !snapCv) snapCv=cv;
+        await sleep(300);
+      }
+      if(got<st.n){ ui.step(i, ''); return { err:'That step did not work. Light on your face, only you in the picture, then try again.' }; }
+      ui.step(i, 'done');
+    }
+    var mean=avg(all), worst=1; all.forEach(function(e){ var x=h.match.similarity(e, mean); if(x<worst) worst=x; });
+    if(worst<0.55) return { err:'The scan was not steady. Keep only your face in the picture and try again.' };
+    return { mean:mean, poses:all.map(function(e){ return e.map(r4); }), snap:snap(snapCv || frame(vid)) };
+  }
+  async function enroll(id, cap){
+    var d=null; try{ d=await rpc('face_enroll2', { p_emp:id, p_emb:cap.mean, p_poses:cap.poses, p_snap:cap.snap, p_device:(function(){ try{ return _devId(); }catch(e){ return ''; } })() }); }catch(e){}
+    if(d && d.ok){ S.stAt=0; S.needsScan=false;
+      if(d.status==='approved'){ S.status='approved'; S.stFor=id; } else alertAdmin('register', d.head, id);
+      camLog('face_scan_done', (d.status==='approved' ? 'approved (HR photo '+d.head+')' : 'waiting for the admin')+(d.flag ? ' · '+d.flag : '')); }
+    return d;
+  }
+  /* the scan box (My Profile, Start / Resume, sign-in). Resolves 'approved' | 'waiting' | false */
+  function scanFlow(opt){
+    opt=opt||{}; var id=opt.id||me();
     return new Promise(function(resolve){
-      var el=modal('<div class="fid-t">Register your face</div>'+
-        '<p class="fid-s">Working from home, the portal checks that the person on the camera is you. Register once: look straight at the camera, with light on your face.</p>'+
+      var el=modal('<div class="fid-t">'+(opt.title||'Register your face')+'</div>'+(opt.sub?'<p class="fid-s">'+opt.sub+'</p>':'')+
+        '<div class="fid-steps"><i></i><i></i><i></i><i></i></div><div class="fid-big" id="fid-big">Get ready</div>'+
         '<div class="fid-v"><video muted playsinline></video><i class="fid-ring"></i></div>'+
-        '<label class="fid-c on"><input type="checkbox" id="fid-ok"> I agree to face checks while I work from home and when I sign in.</label>'+
-        '<p class="fid-small">The portal keeps a face template (numbers, not a photo) and one small picture so the admin can confirm it is you. Only the admin can see the picture.</p>'+
-        '<div class="fid-msg" id="fid-msg"></div>'+
-        '<div class="fid-b"><button type="button" class="fid-sec" data-a="later">Later</button><button type="button" class="fid-pri" data-a="scan">Scan my face</button></div>');
+        '<label class="fid-c on"><input type="checkbox" id="fid-ok"> I agree to face checks when I sign in and while I work from home.</label>'+
+        '<p class="fid-small">About 20 seconds: look straight, turn a little left and right, then close and open your eyes. Light on your face, only you in the picture. The portal keeps face templates (numbers, not photos) and one small picture for your admin.</p>'+
+        '<div class="fid-msg" id="fid-msg"></div><div class="fid-b"><button type="button" class="fid-sec" data-a="close">'+(opt.closeLabel||'Close')+'</button><button type="button" class="fid-pri" data-a="go">Start the scan</button></div>');
       var vid=null, done=false;
       function fin(v){ if(done) return; done=true; close(); resolve(v); }
-      openCam(el).then(function(v){ vid=v; }).catch(function(){ msg('The camera did not start. Allow the camera, then try again.'); });
+      var ui={ big:function(t){ var b=document.getElementById('fid-big'); if(b) b.textContent=t; },
+               step:function(i, cls){ var b=el.querySelectorAll('.fid-steps i')[i]; if(b) b.className=cls; },
+               msg:function(t, good){ msg(t, good); }, stop:function(){ return done; } };
+      openCam(el).then(function(v){ vid=v; }).catch(function(){ msg('The camera did not start. Allow the camera (the camera icon in the address bar), then try again.'); });
       load().catch(function(){});
       el.onclick=async function(ev){
         var b=ev.target && ev.target.closest && ev.target.closest('button[data-a]'); if(!b || b.disabled) return;
-        if(b.getAttribute('data-a')==='later'){ fin(false); return; }
+        if(b.getAttribute('data-a')==='close'){ fin(false); return; }
         if(!document.getElementById('fid-ok').checked){ msg('Tick the box to agree first.'); return; }
         if(!vid){ msg('Waiting for the camera…'); return; }
-        b.disabled=true; msg('Getting the face check ready… the first time takes a few seconds.');
-        try{ await load(); }catch(e){ msg('The face check could not load. Check your internet, then try again.'); b.disabled=false; return; }
-        msg('Scanning… keep looking at the camera.');
-        var r=await doRegister(id, vid);
-        if(r.err){ msg(r.err); b.disabled=false; return; }
-        fin(true); toast(r.status==='approved' ? 'Face registered.' : 'Face registered. Your admin will confirm it.');
+        b.disabled=true; msg('Getting the face check ready… the first time takes a few seconds.', true);
+        var cap=await guided(vid, ui); if(done) return;
+        if(cap.err){ if(cap.err!=='closed'){ msg(cap.err); ui.big('Try again'); b.disabled=false; } return; }
+        ui.big('Saving…');
+        var d=await enroll(id, cap); if(done) return;
+        if(d && d.ok && d.status==='approved'){ ui.big('Done'); msg('Face registered. It matches your HR photo, so it is approved.', true); setTimeout(function(){ fin('approved'); }, 1300); return; }
+        if(d && d.ok){ ui.big('Sent'); msg('Sent to your admin for approval.'+(opt.waitNote ? ' '+opt.waitNote : ''), true); setTimeout(function(){ fin('waiting'); }, 2200); return; }
+        if(d && d.error==='NOT_YOU'){ ui.big('Not saved'); msg('This face does not match the face approved for '+id+'. Only '+id+' can scan for this account. If the saved face is wrong, ask your admin to reset it.'); return; }
+        ui.big('Try again'); msg('Could not save. Check your internet, then try again.'); b.disabled=false;
       };
     });
+  }
+  function infoBox(title, text){
+    return new Promise(function(resolve){
+      var el=modal('<div class="fid-t">'+title+'</div><p class="fid-s">'+text+'</p><div class="fid-b"><button type="button" class="fid-pri" data-a="ok">OK</button></div>');
+      el.onclick=function(ev){ var b=ev.target && ev.target.closest && ev.target.closest('button[data-a]'); if(!b) return; close(); resolve(false); };
+    });
+  }
+
+  /* ── the quick check at a random moment while working from home ── */
+  function chime(){ try{ var A=window.AudioContext||window.webkitAudioContext, c=new A(), t=c.currentTime; [880,1175,1568].forEach(function(f,i){ var o=c.createOscillator(), g=c.createGain(); o.type='sine'; o.frequency.value=f; g.gain.setValueAtTime(0.0001,t+i*0.16); g.gain.exponentialRampToValueAtTime(0.18,t+i*0.16+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+i*0.16+0.5); o.connect(g); g.connect(c.destination); o.start(t+i*0.16); o.stop(t+i*0.16+0.6); }); setTimeout(function(){ try{ c.close(); }catch(e){} }, 1600); }catch(e){} }
+  function onBreakNow(){
+    try{ if(typeof trkInBioBreak==='function' && trkInBioBreak()) return true; }catch(e){}
+    try{ var r=trkRunning; if(r && /break|lunch/i.test(String(r.category||'')+' '+String(r.task||''))) return true; }catch(e){}
+    return false;
+  }
+  function nextLiveIn(){ return (30 + Math.random()*30)*60*1000; }
+  function liveCheck(W, id){
+    S.liveOn=true; chime();
+    var el=modal('<div class="fid-t">Quick face check</div><p class="fid-s">Working from home, the portal checks now and then that it is you at the computer. It takes about 10 seconds.</p>'+
+      '<div class="fid-steps"><i></i><i></i><i></i></div><div class="fid-big" id="fid-big">Look at the camera</div><div class="fid-v"><video muted playsinline autoplay></video><i class="fid-ring"></i></div>'+
+      '<div class="fid-msg" id="fid-msg"></div>');
+    try{ var v=el.querySelector('video'); v.srcObject=W.stream; var p=v.play(); if(p&&p.catch) p.catch(function(){}); }catch(e){}
+    var t0=Date.now(), LIMIT=60000, done=false, failed=false;
+    function big(t){ var b=document.getElementById('fid-big'); if(b) b.textContent=t; }
+    function step(i, c){ var b=el.querySelectorAll('.fid-steps i')[i]; if(b) b.className=c; }
+    function stopIt(){ var r=false; try{ r=!trkRunning; }catch(e){ r=true; } return done || r; }   // the timer stopped: nothing left to check
+    function miss(){ if(failed || done) return; failed=true; camLog('live_fail', 'quick face check not done in 60 s'); alertAdmin('live', null); if(!W.idBad){ W.idWhy='live'; W.idBad=true; } }
+    async function attempt(){
+      step(0,'on'); big('Turn your head to one side, then back'); var a=await turnStep(W.video, 12000, stopIt); if(stopIt()) return null;
+      if(a==='fail'){ step(0,''); return 'Turn your head a little to the side, then look back at the camera.'; } step(0,'done');
+      step(1,'on'); big('Close your eyes for a second, then open them'); var b=await eyesStep(W.video, 12000, stopIt); if(stopIt()) return null;
+      if(b==='fail'){ step(1,''); return 'Close your eyes for a second, then open them.'; } step(1,'done');
+      step(2,'on'); big('Look straight at the camera');
+      for(var i=0;i<4 && !stopIt();i++){
+        var R=await frames(W.video, 2, 200); if(!R.list.length){ await sleep(400); continue; }
+        var d=null; try{ d=await rpc('face_verify', { p_emp:id, p_emb:avg(R.list), p_kind:'live', p_snap:snap(R.last) }); }catch(e){}
+        if(!d || !d.ok || !d.enrolled) return 'ok';                      // the face service is down: never block on our side
+        if(d.verdict==='match'){ S.lastMatch=Date.now(); step(2,'done'); return 'ok'; }
+        if(d.verdict==='mismatch') return 'This face does not match '+id+'. Only '+id+' can work on this timer.';
+        await sleep(300);
+      }
+      step(2,''); return 'Look straight at the camera with light on your face.';
+    }
+    var timer=setTimeout(miss, LIMIT);
+    (async function(){
+      while(!stopIt()){
+        var r=await attempt(); if(r===null) break;
+        if(r==='ok'){ done=true; clearTimeout(timer); camLog('live_pass', 'quick face check done in '+Math.round((Date.now()-t0)/1000)+' s'); big('Thanks, that\'s you'); msg('', true);
+          if(W.idWhy==='live' && W.idBad) W.idBad=false; setTimeout(function(){ close(); }, 900); break; }
+        msg(r); if(Date.now()-t0>=LIMIT) miss();
+        await sleep(700);
+      }
+      clearTimeout(timer);
+      if(!done) setTimeout(function(){ close(); }, 400);
+      S.liveOn=false; S.nextLive=Date.now()+nextLiveIn();
+    })();
+  }
+  function liveTick(){
+    if(S.liveOn) return;
+    var id=me(); if(!/^JMB\d{3}$/.test(id)) return;
+    var c0=camState(); if(!c0) return; var W=c0.W, now=Date.now();
+    if(!c0.run || !W.need){ S.nextLive=0; return; }
+    if(!S.nextLive){ S.nextLive=now+nextLiveIn(); return; }
+    if(now<S.nextLive || !c0.ok || S.fail || W.warnKind || onBreakNow() || document.getElementById('fid-modal')) return;
+    if(S.status!=='approved' && !S.head) return;
+    liveCheck(W, id);
   }
 
   /* Start / Resume from home: a face to compare with must exist (scan or headshot) */
   async function allowWork(){
     var id=me(); if(!/^JMB\d{3}$/.test(id)) return true;
     var w=null; try{ w=WCAM.state(); }catch(e){} if(!w || !w.need) return true;
-    var st=await status(); if(!st || st==='approved' || st==='pending' || S.head) return true;   // no answer from the server → never block work on our outage
-    return await register();
+    var st=await status(true); if(!st) return true;                 // no answer from the server → never block work on our outage
+    if(st==='approved' || S.head){
+      if(S.needsScan){                                              // Nov 9 (v2): the old quick scan → the guided scan, once
+        var r=await scanFlow({ title:'One-time face scan', sub:'Before your next timer: a 20-second scan so the portal knows your face from every angle. You only do this once.', closeLabel:'Later',
+          waitNote:'You can keep working meanwhile.' });
+        if(!r) return false;
+        await status(true);
+      }
+      return await startMatch(id);                                  // Nov 8: it has to be them, now — not just a face on file
+    }
+    if(st==='pending' || S.waiting){ await infoBox('Waiting for your admin', 'Your face scan is waiting for your admin\'s approval. You can start your timer from home once it is approved.'); return false; }
+    var rr=await register(); if(rr==='approved') return await startMatch(id);
+    return false;
+  }
+  /* Nov 8 (Jeth: "Stop on doubt"): Start / Resume from home looks at the camera and needs a MATCH (score ≥ 0.60).
+     Someone else → refused + the admin is told. Not sure after 4 tries → refused with what to do. The face check
+     not loading / the face service down → let them work (never block work on our outage), logged for the admin. */
+  function startMatch(id){
+    var W=null; try{ W=WCAM._S; }catch(e){}
+    if(!W || !W.video || !(W.video.videoWidth>0)) return Promise.resolve(true);   // the camera gate before this one decides about the camera
+    var el=modal('<div class="fid-t">Checking it\'s you</div><p class="fid-s">Look at the camera, then close and open your eyes when asked. Only you can start your timer.</p>'+
+      '<div class="fid-msg" id="fid-msg"></div><div class="fid-b"><button type="button" class="fid-sec" data-a="close">Close</button><button type="button" class="fid-pri" data-a="retry" style="display:none">Try again</button></div>');
+    return new Promise(function(resolve){
+      var done=false;
+      function fin(v){ if(done) return; done=true; close(); resolve(v); }
+      function retry(on){ var b=el.querySelector('[data-a="retry"]'); if(b){ b.style.display=on?'':'none'; b.disabled=false; } }
+      el.onclick=function(ev){ var b=ev.target && ev.target.closest && ev.target.closest('button[data-a]'); if(!b || b.disabled) return;
+        if(b.getAttribute('data-a')==='close'){ fin(false); return; } retry(false); run(); };
+      async function run(){
+        msg('Getting the face check ready…', true);
+        try{ await Promise.race([ load(), sleep(30000).then(function(){ throw new Error('slow'); }) ]); }
+        catch(e){ camLog('face_unavailable', 'Start/Resume without a face match: the face check did not load'); fin(true); return; }
+        /* Nov 9 (v2): a photo or a paused video can't close and open its eyes */
+        msg('Close your eyes for a second, then open them.', true);
+        var lv=await eyesStep(W.video, 12000, function(){ return done; }); if(done) return;
+        if(lv==='fail'){ camLog('start_refused', 'eyes did not close and open at Start/Resume'); msg('We did not see your eyes close and open. Look at the camera, close your eyes for a second, then open them. Press Try again.'); retry(true); return; }
+        if(lv==='n/a') camLog('start_refused', 'eye check could not read the eyes at Start/Resume — matched on the face only');
+        var last=null;
+        for(var i=0; i<4 && !done; i++){
+          msg(i ? 'Hold still… look straight at the camera.' : 'Hold still…', true);
+          var R=await frames(W.video, 2, 250); if(done) return;
+          if(!R.list.length){ await sleep(500); continue; }
+          var d=null; try{ d=await rpc('face_verify', { p_emp:id, p_emb:avg(R.list), p_kind:'start', p_snap:snap(R.last) }); }catch(e){}
+          if(done) return;
+          if(!d || !d.ok || !d.enrolled){ fin(true); return; }   // the face service is down / nothing to compare with → never block on our side
+          last=d;
+          if(d.verdict==='match'){ S.lastMatch=Date.now(); S.bad=0; S.unsure=0; S.fast=false; try{ W.idBad=false; }catch(x){} msg('It\'s you. Starting…', true); setTimeout(function(){ fin(true); }, 350); return; }
+          if(d.verdict==='mismatch'){ alertAdmin('shift', d.score); camLog('start_refused', 'someone else at Start/Resume (score '+d.score+')');
+            msg('This face does not match '+id+'. Only '+id+' can start this timer.'); retry(true); return; }
+          await sleep(300);
+        }
+        if(done) return;
+        camLog('start_refused', 'could not confirm '+id+' at Start/Resume'+(last?' (score '+last.score+')':' (no clear face)'));
+        msg('We could not confirm it is you. Face the camera with light on your face, then press Try again. If it keeps happening, scan your face again in My Profile → Face ID.');
+        retry(true);
+      }
+      run();
+    });
   }
 
   /* ── while timed in from home: identity every minute ── */
@@ -35709,20 +35961,24 @@ var FACEID = (function(){
     if(S.busy) return;
     var id=me(); if(!/^JMB\d{3}$/.test(id)) return;
     var c0=camState(); if(!c0) return; var W=c0.W;
-    if(!c0.run || !W.need){ S.bad=0; S.fast=false; if(W.idBad) W.idBad=false; return; }
+    if(!c0.run || !W.need){ S.bad=0; S.unsure=0; S.fast=false; S.lastMatch=0; if(W.idBad) W.idBad=false; return; }
     if(!c0.ok || S.fail) return;
-    var now=Date.now(); if(now-S.lastChk<(S.fast?FAST:EVERY)) return;
+    var now=Date.now(); if(!S.lastMatch) S.lastMatch=now;   // the timer just started: its doubt clock starts here (Start already matched)
+    if(now-S.lastChk<(S.fast?FAST:EVERY)) return;
     S.busy=true; S.lastChk=now;
     try{
       var st=await status();
       if(st==='approved' || S.head){
         var c=frame(W.video), e=await embed(c);
+        if(S.faces>1 && now-(S.second||0)>10*60*1000){ S.second=now; camLog('second_face', 'two faces on the camera while '+id+' works'); alertAdmin('second', null); }
+        if(e){ var c2=frame(W.video), e2=await embed(c2); if(e2) e=avg([e, e2]); }   // two frames: one bad frame can't decide
         if(e){
           var d=await rpc('face_verify', { p_emp:id, p_emb:e.map(r4), p_kind:'shift', p_snap:snap(c) });
           if(d && d.ok && d.enrolled){
-            if(d.verdict==='mismatch'){ S.bad++; S.fast=true; if(S.bad>=BAD_N && !W.idBad){ W.idBad=true; alertAdmin('shift', d.score); } }
-            else if(d.verdict==='match'){ S.bad=0; S.unsure=0; S.fast=false; if(W.idBad) W.idBad=false; }
-            else { S.unsure++; if(S.unsure===10) camLog('face_unsure', 'not sure it is '+id+' for 10 checks in a row (score '+d.score+')'); }
+            if(d.verdict==='mismatch'){ S.bad++; S.fast=true; if(S.bad>=BAD_N && !W.idBad){ W.idWhy='other'; W.idBad=true; alertAdmin('shift', d.score); } }
+            else if(d.verdict==='match'){ S.bad=0; S.unsure=0; S.fast=false; S.lastMatch=now; if(W.idBad && W.idWhy!=='live') W.idBad=false; }   // a missed quick check is only cleared by doing it
+            else { S.unsure++; S.fast=true; if(S.unsure===10) camLog('face_unsure', 'not sure it is '+id+' for 10 checks in a row (score '+d.score+')');
+                   if(S.unsure>=DOUBT_N && now-S.lastMatch>=DOUBT_MS && !W.idBad){ W.idWhy='unsure'; W.idBad=true; alertAdmin('shift', d.score); } }
           }
         }
       }
@@ -35754,7 +36010,7 @@ var FACEID = (function(){
     }catch(err){}
     S.eyeBusy=false;
   }
-  setInterval(function(){ try{ shiftTick(); }catch(e){} try{ eyeTick(); }catch(e){} }, 1000);
+  setInterval(function(){ try{ shiftTick(); }catch(e){} try{ eyeTick(); }catch(e){} try{ liveTick(); }catch(e){} }, 1000);
 
   /* ── sign-in: the face scan instead of the captcha ──
      resolves 'ok' (go on), 'captcha' (no camera / camera busy / face service down) or 'cancel' (not allowed in) */
@@ -35778,6 +36034,12 @@ var FACEID = (function(){
         var b=ev.target && ev.target.closest && ev.target.closest('button[data-a]'); if(!b || b.disabled) return; var a=b.getAttribute('data-a');
         if(a==='cancel'){ fin('cancel'); return; }
         if(a==='retry'){ show('retry', false); tries=0; if(vid) go(); else start(); return; }
+        if(a==='reg'){   // Nov 9 (v2): the guided scan, approved by the admin (or by itself on a clear HR-photo match)
+          if(!document.getElementById('fid-ok').checked){ msg('Tick the box to agree first.'); return; }
+          done=true; close();
+          var rg=await scanFlow({ id:id, title:'Register your face', sub:'There is no face on file for <b>'+id+'</b> yet. A 20-second scan — your admin approves it, then you can sign in.', waitNote:'You can sign in once it is approved.' });
+          resolve(rg==='approved' ? 'ok' : 'cancel'); return;
+        }
         if(a==='reg' || a==='send'){
           if(a==='reg' && !document.getElementById('fid-ok').checked){ msg('Tick the box to agree first.'); return; }
           b.disabled=true; msg('Scanning… keep looking at the camera.', true);
@@ -35822,7 +36084,7 @@ var FACEID = (function(){
     });
   }
 
-  return { allowWork:allowWork, register:register, loginGate:loginGate, status:status, load:load, earOf:earOf, _S:S,
+  return { allowWork:allowWork, register:register, loginGate:loginGate, status:status, load:load, earOf:earOf, _S:S, scanFlow:scanFlow, _v2:{ guided:guided, eyesStep:eyesStep, turnStep:turnStep, liveTick:liveTick, enroll:enroll },
     _h:{ modal:modal, close:close, msg:msg, openCam:openCam, frame:frame, snap:snap, avg:avg, rpc:rpc, me:me, sleep:sleep, WITH_DESC:WITH_DESC } };
 })();
 </script>
@@ -35856,7 +36118,8 @@ var FIDCARD=(function(){
     var chip='Not registered', cls='no', txt='Register your face so the portal can recognise you when you sign in and when you work from home. It takes about 15 seconds.', btn='Register my face';
     if(d && d.ok){
       if(d.waiting){ chip='Waiting for approval'; cls='wait'; txt='Your new face scan is waiting for your admin. Your current face keeps working until then.'; btn='Scan again'; }
-      else if(d.status==='approved' && /admin/i.test(d.by||'')){ chip='Registered'; cls='ok'; txt='Approved by your admin'+(d.samples?'. The portal has also learned '+d.samples+' more look'+(d.samples>1?'s':'')+' of you from your sign-ins.':'.')+' Got a new laptop or webcam? Register again.'; btn='Register again'; }
+      else if(d.status==='approved' && d.needs_scan){ chip='Scan needed'; cls='wait'; txt='Do the new face scan once (about 20 seconds: straight, left, right, eyes closed and open). Until then you can\'t start your timer from home.'; btn='Start the scan'; }
+      else if(d.status==='approved' && (/admin/i.test(d.by||'') || d.guided)){ chip='Registered'; cls='ok'; txt='Approved by your admin'+(d.samples?'. The portal has also learned '+d.samples+' more look'+(d.samples>1?'s':'')+' of you from your sign-ins.':'.')+' Got a new laptop or webcam? Register again.'; btn='Register again'; }
       else if(d.status==='approved'){ chip='Saved at sign-in'; cls='wait'; txt='Your face was saved from a quick scan when you signed in on '+E(when(d.saved_at))+'. Register properly here for better accuracy. Your admin approves it.'; btn='Register my face'; }
       else if(d.status==='rejected' || d.status==='reset'){ chip='Register again'; cls='no'; txt='Your admin asked you to register your face again.'; }
       else if(d.status==='pending'){ chip='Waiting for approval'; cls='wait'; txt='Your face is waiting for your admin.'; btn='Scan again'; }
@@ -35878,57 +36141,9 @@ var FIDCARD=(function(){
     try{ var t=document.createElement('canvas'); t.width=48; t.height=36; var x=t.getContext('2d'); x.drawImage(cv, cv.width*0.25, cv.height*0.15, cv.width*0.5, cv.height*0.7, 0, 0, 48, 36);
       var d=x.getImageData(0,0,48,36).data, s=0; for(var i=0;i<d.length;i+=4) s+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; return s/(d.length/4); }catch(e){ return 128; }
   }
-  function scan(){
+  function scan(){   // Nov 9 (v2): one scan box for everything — FACEID.scanFlow
     if(S.busy) return; S.busy=true;
-    var el=X.modal('<div class="fid-t">Register your face</div><div class="fid-steps"><i></i><i></i><i></i></div>'+
-      '<div class="fid-big" id="fid-big">Get ready</div><div class="fid-v"><video muted playsinline></video><i class="fid-ring"></i></div>'+
-      '<label class="fid-c on"><input type="checkbox" id="fid-ok"> I agree to face checks when I sign in and while I work from home.</label>'+
-      '<p class="fid-small">Face the camera with light on your face. Only you in the picture. The portal keeps a face template (numbers, not a photo) and one small picture for your admin.</p>'+
-      '<div class="fid-msg" id="fid-msg"></div><div class="fid-b"><button type="button" class="fid-sec" data-a="close">Close</button><button type="button" class="fid-pri" data-a="go">Start the scan</button></div>');
-    var vid=null, done=false;
-    function fin(){ if(done) return; done=true; S.busy=false; X.close(); refresh(); }
-    function big(t){ var b=document.getElementById('fid-big'); if(b) b.textContent=t; }
-    function step(i, cls){ var b=el.querySelectorAll('.fid-steps i')[i]; if(b) b.className=cls; }
-    X.openCam(el).then(function(v){ vid=v; }).catch(function(){ X.msg('The camera did not start. Allow the camera (the camera icon in the address bar), then try again.'); });
-    FACEID.load().catch(function(){});
-    el.onclick=async function(ev){
-      var b=ev.target && ev.target.closest && ev.target.closest('button[data-a]'); if(!b || b.disabled) return;
-      if(b.getAttribute('data-a')==='close'){ fin(); return; }
-      if(!document.getElementById('fid-ok').checked){ X.msg('Tick the box to agree first.'); return; }
-      if(!vid){ X.msg('Waiting for the camera…'); return; }
-      b.disabled=true; X.msg('Getting the face check ready…', true);
-      var h; try{ h=await FACEID.load(); }catch(e){ X.msg('The face check could not load. Check your internet, then try again.'); b.disabled=false; return; }
-      X.msg('');
-      var all=[], snapCv=null;
-      for(var i=0;i<STEPS.length;i++){
-        var st=STEPS[i], got=0, tries=0, yawMiss=0; step(i, 'on'); big(st.t); await X.sleep(1300);
-        while(got<st.n && tries<st.n*8){
-          tries++; if(done) return;
-          var cv=X.frame(vid);
-          if(bright(cv)<55){ X.msg('Too dark. Turn on a light or face a window.'); await X.sleep(500); continue; }
-          var r=await h.detect(cv, X.WITH_DESC), f=r && r.face && r.face[0];
-          if(!f || !f.embedding || !(f.score>=0.6)){ X.msg('We cannot see your face clearly. Keep it inside the circle.'); await X.sleep(350); continue; }
-          if(r.face.length>1){ X.msg('Only you in the picture, please.'); await X.sleep(500); continue; }
-          var yaw=f.rotation && f.rotation.angle ? Math.abs(f.rotation.angle.yaw||0) : null;
-          var yawOk=yaw==null || (st.yaw==='mid' ? yaw<=0.35 : yaw>=0.05);
-          if(!yawOk && yawMiss<st.n*3){ yawMiss++; X.msg(st.yaw==='mid'?'Look straight at the camera.':'Turn your head a little more.'); await X.sleep(350); continue; }   // never get stuck on the angle
-          X.msg(''); all.push(Array.prototype.slice.call(f.embedding)); got++; if(st.yaw==='mid' && !snapCv) snapCv=cv;
-          await X.sleep(350);
-        }
-        if(got<st.n){ X.msg('That step did not work. Light on your face, only you in the picture, then press Start the scan again.'); step(i, ''); b.disabled=false; big('Try again'); return; }
-        step(i, 'done');
-      }
-      // every frame must be the same person (someone stepping in, a photo held up…)
-      var mean=X.avg(all), worst=1; all.forEach(function(e){ var s=h.match.similarity(e, mean); if(s<worst) worst=s; });
-      if(worst<0.55){ X.msg('The scan was not steady. Keep only your face in the picture and try again.'); b.disabled=false; big('Try again'); return; }
-      big('Saving…');
-      var d=null; try{ d=await X.rpc('face_enroll', { p_emp:X.me(), p_emb:mean, p_snap:X.snap(snapCv||X.frame(vid)), p_device:(function(){ try{ return _devId(); }catch(e){ return ''; } })() }); }catch(e){}
-      if(d && d.ok){ big('Done'); X.msg('Sent to your admin for approval. Your current face keeps working until then.', true);
-        try{ fetch(APPS_SCRIPT_URL+'?action=face_alert&employee_id='+encodeURIComponent(X.me())+'&kind=register&_='+Date.now()).catch(function(){}); }catch(e){}
-        setTimeout(fin, 1800); return; }
-      if(d && d.error==='NOT_YOU'){ big('Not saved'); X.msg('This face does not match the face saved for this account. If the saved face is wrong, ask your admin to reset it.'); return; }
-      X.msg('Could not save. Check your internet, then try again.'); b.disabled=false; big('Try again');
-    };
+    return FACEID.scanFlow({ title:'Register your face' }).then(function(r){ S.busy=false; refresh(); return r; });
   }
   return { refresh:refresh, scan:scan };
 })();
@@ -38005,8 +38220,8 @@ html body.jp.jp.jp.jp.app-authed .au-sf-out:hover{ background:var(--ro-l) !impor
   html body.jp.jp.jp.jp.app-authed #dashboard-screen, html body.jp.jp.jp.jp.app-authed.light #dashboard-screen{ padding-left:256px !important; }
   html body.jp.jp.jp.jp.app-authed #dashboard-screen > header, html body.jp.jp.jp.jp.app-authed.au-light #dashboard-screen > header, html body.jp.jp.jp.jp.app-authed.light #dashboard-screen > header{
     position:sticky !important; top:12px !important; z-index:60 !important; box-sizing:border-box !important;
-    height:64px !important; min-height:64px !important; padding:0 10px 0 18px !important;
-    margin:12px calc(max(34px, (100% - 1172px) / 2) - 10px) 0 calc(max(34px, (100% - 1172px) / 2) - 18px) !important;
+    height:58px !important; min-height:58px !important; padding:0 10px 0 18px !important;
+    margin:10px 12px 0 4px !important;   /* round 7: the page fills the width, so the header lines up with the 22px content edge */
     display:flex !important; align-items:center !important; justify-content:space-between !important; flex-wrap:nowrap !important;
     background:transparent !important; border:1px solid transparent !important; border-radius:20px !important; box-shadow:none !important;
     -webkit-backdrop-filter:none !important; backdrop-filter:none !important;
@@ -38017,8 +38232,8 @@ html body.jp.jp.jp.jp.app-authed .au-sf-out:hover{ background:var(--ro-l) !impor
     -webkit-backdrop-filter:blur(22px) saturate(1.3) !important; backdrop-filter:blur(22px) saturate(1.3) !important; }
   html body.jp.jp.jp.jp.app-authed #dashboard-screen > header::before, html body.jp.jp.jp.jp.app-authed #dashboard-screen > header::after{ display:none !important; }
   html body.jp.jp.jp.jp.app-authed #dashboard-screen > header #jp-title{ display:flex !important; }
-  html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content{ padding-top:14px !important; }
-  html body.jp.jp.jp.jp.app-authed #notif-panel{ top:88px !important; }
+  html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content{ max-width:none !important; padding:10px 22px 40px !important; }
+  html body.jp.jp.jp.jp.app-authed #notif-panel{ top:80px !important; }
 }
 html body.jp.jp.jp.jp.app-authed #dashboard-screen > header #jp-title{ display:none; flex-direction:column; justify-content:center; gap:1px; min-width:0; flex:1 1 auto; }
 html body.jp.jp.jp.jp.app-authed #jp-title .jp-t{ font-size:23px; font-weight:750; letter-spacing:-.026em; line-height:1.15; color:#5B4038; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -38233,6 +38448,187 @@ html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .tab-panel.jp-i
   html body.jp.jp.jp.jp.app-authed #dashboard-screen .tabs #jp-pill{ transition:none !important; }
 }
 
+/* ═══ ROUND 7 (Nov 8) ═══ "it looks spacious … make it full" · Ora as a four-point sparkle beside Messages · no Productivity module · a fuller Feed */
+
+/* ── Ora lives in the header now: the greeting card loses her orb, "Ask Ora" label and border particles ── */
+html body.jp.jp.jp.jp.app-authed #dashboard-hero .au-ora, html body.jp.jp.jp.jp.app-authed #dashboard-hero > canvas.au-ora-fx, html body.jp.jp.jp.jp.app-authed #dashboard-hero > i.ora-ring{ display:none !important; }
+html body.jp.jp.jp.jp.app-authed.jp-orahdr #sprout-fab{ display:none !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero.au-has-ora, html body.jp.jp.jp.jp.app-authed #dashboard-hero{ grid-template-columns:minmax(0,1fr) auto !important; grid-template-areas:"info aside" "stats aside" !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero::after{ display:none !important; }
+html body.jp.jp.jp.jp.app-authed #jp-ora{ position:relative; flex:none; display:inline-flex; align-items:center; justify-content:center; width:42px; height:42px; padding:0; margin:0; border-radius:50%; cursor:pointer;
+  background:linear-gradient(140deg, #FFFFFF 0%, var(--ro-l) 45%, var(--la-l) 100%); border:1px solid rgba(91,64,56,.08); color:var(--la-d);
+  box-shadow:0 1px 2px rgba(91,64,56,.05), 0 8px 18px -12px rgba(169,155,219,.7); transition:box-shadow .25s ease, border-color .25s ease, transform .25s var(--jp-ease), background .25s ease; -webkit-tap-highlight-color:transparent; }
+html body.jp.jp.jp.jp.app-authed #jp-ora:hover{ border-color:var(--la-m); box-shadow:0 12px 24px -12px var(--la-c); transform:translateY(-1px); }
+html body.jp.jp.jp.jp.app-authed #jp-ora:focus-visible{ outline:none; box-shadow:0 0 0 3px rgba(220,211,240,.9); }
+html body.jp.jp.jp.jp.app-authed #jp-ora svg{ width:24px; height:24px; overflow:visible; display:block; pointer-events:none; }
+html body.jp.jp.jp.jp.app-authed #jp-ora .jo-big{ transform-box:fill-box; transform-origin:50% 50%; animation:jpOraTw 5.2s ease-in-out infinite; }
+html body.jp.jp.jp.jp.app-authed #jp-ora .jo-sm{ transform-box:fill-box; transform-origin:50% 50%; animation:jpOraTw2 5.2s ease-in-out infinite; }
+html body.jp.jp.jp.jp.app-authed #jp-ora::before{ content:''; position:absolute; inset:-3px; border-radius:50%; pointer-events:none; opacity:0;
+  background:conic-gradient(from 0deg, var(--pe-c), var(--ro-c), var(--la-c), var(--sk-c), var(--pe-c));
+  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px)); mask:radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px)); transition:opacity .3s ease; }
+html body.jp.jp.jp.jp.app-authed #jp-ora.open{ background:var(--la-m); border-color:transparent; box-shadow:0 10px 22px -12px var(--la-c); }
+html body.jp.jp.jp.jp.app-authed #jp-ora.think::before{ opacity:1; animation:jpSpin 1.3s linear infinite; }
+html body.jp.jp.jp.jp.app-authed #jp-ora.think .jo-big{ animation:jpOraSpin 1.6s var(--jp-ease) infinite; }
+html body.jp.jp.jp.jp.app-authed #jp-ora.alert{ background:linear-gradient(140deg, #FFFFFF, var(--bu-l) 50%, var(--bu-m)); color:var(--bu-d); box-shadow:0 0 0 3px rgba(250,227,166,.7), 0 10px 22px -12px var(--bu-c); }
+html body.jp.jp.jp.jp.app-authed #jp-ora .jo-b{ position:absolute; top:-5px; right:-5px; min-width:18px; height:18px; padding:0 4px; border-radius:9px; background:var(--ro-c); color:#FFFFFF; border:2px solid #FFFFFF; font:800 10px/14px var(--jp-font); text-align:center; display:none; }
+html body.jp.jp.jp.jp.app-authed #jp-ora.alert .jo-b:not(:empty){ display:block; }
+@keyframes jpOraTw{ 0%,100%{ transform:scale(1) rotate(0deg); } 45%{ transform:scale(.84) rotate(-12deg); } 55%{ transform:scale(.84) rotate(-12deg); } }
+@keyframes jpOraTw2{ 0%,30%,100%{ transform:scale(1); opacity:1; } 45%{ transform:scale(1.5); opacity:.55; } 60%{ transform:scale(.6); opacity:1; } }
+@keyframes jpOraSpin{ from{ transform:rotate(0deg) scale(.9); } to{ transform:rotate(90deg) scale(.9); } }
+@keyframes jpSpin{ to{ transform:rotate(360deg); } }
+
+/* ── Productivity has its home in the tools now: no sidebar item, no Overview card ── */
+html body.jp.jp.jp.jp.app-authed #tabbtn-myprod, html body.jp.jp.jp.jp.app-authed #dashboard-screen .tabs .tab-btn[onclick*="switchTab('myprod'"], html body.jp.jp.jp.jp.app-authed #overview-content > #myprod-card{ display:none !important; }
+
+/* ── FULLER PAGES: the greeting card only on Overview, a shorter greeting card, 12px between cards ── */
+html body.jp.jp.jp.jp.app-authed.jp-offov #dashboard-hero{ display:none !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero, html body.jp.jp.jp.jp.app-authed.au-dock #dashboard-hero{ padding:18px 22px 20px !important; gap:10px 22px !important; min-height:0 !important; margin-bottom:12px !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero .hero-name, html body.jp.jp.jp.jp.app-authed.au-dock #dashboard-hero .hero-name{ font-size:clamp(28px,2.3vw,38px) !important; line-height:1.08 !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero .hero-greet{ margin-bottom:6px !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero .hero-stats, html body.jp.jp.jp.jp.app-authed.au-dock #dashboard-hero .hero-stats{ gap:10px !important; padding-top:2px !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero .hero-aside, html body.jp.jp.jp.jp.app-authed.au-dock #dashboard-hero .hero-aside{ margin:0 !important; padding:14px 16px 14px !important; align-self:center !important; }
+html body.jp.jp.jp.jp.app-authed #jp-ov{ gap:12px; margin:0 0 12px !important; }
+html body.jp.jp.jp.jp.app-authed #jp-ov .jp-card{ padding:15px 18px; border-radius:20px; }
+html body.jp.jp.jp.jp.app-authed #overview-content > .card, html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .tab-panel > .card{ margin-bottom:12px !important; }
+html body.jp.jp.jp.jp.app-authed #overview-content > .card[id]{ padding:14px 18px !important; }
+@media (min-width:1080px){
+  html body.jp.jp.jp.jp.app-authed #overview-content, html body.jp.jp.jp.jp.app-authed #overview-content.jp-noab{ column-gap:12px !important; }
+  /* QA and Recent activity side by side, same height */
+  html body.jp.jp.jp.jp.app-authed #overview-content.jp-noab > #myqa-card:not(#jp-x):not(#jp-y){ grid-column:1 !important; align-self:stretch !important; }
+  html body.jp.jp.jp.jp.app-authed #overview-content.jp-noab > #activity-card:not(#jp-x):not(#jp-y){ grid-column:2 !important; grid-row:auto !important; align-self:stretch !important; }
+}
+@media (min-width:1000px){
+  html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .section-eyebrow{ margin-top:6px !important; margin-bottom:8px !important; }
+}
+
+/* ── THE FEED: the header already says "Feed", so no second heading; posts on the left, a side rail (Needs you · Pinned · Recent · how it works) on the right ── */
+html body.jp.jp.jp.jp.app-authed #tab-feed > div:first-child:not(#feed-mount){ display:none !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed{ padding-bottom:24px !important; }
+@media (min-width:1200px){
+  html body.jp.jp.jp.jp.app-authed #tab-feed.tab-panel.active.jp-fgrid{ display:grid !important; grid-template-columns:minmax(0,1fr) clamp(280px,25%,340px); column-gap:14px; align-items:start; }
+  html body.jp.jp.jp.jp.app-authed #tab-feed.jp-fgrid > #feed-mount{ grid-column:1; min-width:0; }
+  html body.jp.jp.jp.jp.app-authed #tab-feed.jp-fgrid > #jp-frail{ grid-column:2; display:flex; }
+}
+html body.jp.jp.jp.jp.app-authed #jp-frail{ display:none; flex-direction:column; gap:12px; position:sticky; top:84px; max-height:calc(100vh - 100px); overflow:auto; scrollbar-width:none; }
+html body.jp.jp.jp.jp.app-authed #jp-frail::-webkit-scrollbar{ display:none; }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jp-card{ background:linear-gradient(90deg, var(--jp-c), var(--jp-cm)) 0 0 / 100% 4px no-repeat, #FFFFFF; border:1px solid rgba(91,64,56,.08); border-radius:20px; box-shadow:var(--jp-shadow); padding:14px 16px; min-width:0; }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-need{ --jp-c:var(--ro-c); --jp-cm:var(--ro-m); --jp-cl:var(--ro-l); --jp-cd:var(--ro-d); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-need.ok{ --jp-c:var(--sa-c); --jp-cm:var(--sa-m); --jp-cl:var(--sa-l); --jp-cd:var(--sa-d); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-pin{ --jp-c:var(--bu-c); --jp-cm:var(--bu-m); --jp-cl:var(--bu-l); --jp-cd:var(--bu-d); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-rec{ --jp-c:var(--la-c); --jp-cm:var(--la-m); --jp-cl:var(--la-l); --jp-cd:var(--la-d); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-how{ --jp-c:var(--sk-c); --jp-cm:var(--sk-m); --jp-cl:var(--sk-l); --jp-cd:var(--sk-d); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jp-k{ display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:rgba(91,64,56,.58); margin-bottom:8px; }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jp-k b{ letter-spacing:0; font-size:12px; font-weight:750; color:var(--jp-cd); background:var(--jp-cl); border-radius:100px; padding:2px 9px; }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-i{ display:flex; flex-direction:column; gap:2px; width:100%; text-align:left; border:0; background:transparent; border-radius:12px; padding:7px 9px 7px 12px; margin:0 0 2px; cursor:pointer; position:relative; font-family:var(--jp-font); color:#5B4038; transition:background .2s ease; }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-i::before{ content:''; position:absolute; left:2px; top:9px; bottom:9px; width:3px; border-radius:3px; background:var(--jp-cm); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-i:hover{ background:var(--jp-cl); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-i b{ font-size:13px; font-weight:650; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-i span{ font-size:11.5px; color:rgba(91,64,56,.55); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-i em{ font-style:normal; font-weight:700; color:var(--jp-cd); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-empty{ font-size:13px; color:rgba(91,64,56,.62); padding:2px 2px 4px; }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-how p{ margin:0; font-size:12.5px; line-height:1.5; color:rgba(91,64,56,.72); }
+html body.jp.jp.jp.jp.app-authed #jp-frail .jf-r-how p b{ color:#5B4038; }
+
+/* the posts: wider column, white cards with a pastel top line, lighter header row, tighter text and comments */
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf{ max-width:none !important; margin:0 !important; font-family:var(--jp-font) !important; color:#5B4038 !important; --ink:#5B4038; --ink2:rgba(91,64,56,.78); --ink3:rgba(91,64,56,.55); --line:rgba(91,64,56,.09); --jv:#5B4A8C; --jo:#F2A285; --jo2:#E58F70; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-head{ position:sticky; top:76px; z-index:5; margin:0 0 12px !important; padding:6px; border-radius:16px; background:rgba(255,247,242,.86); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); border:1px solid rgba(255,255,255,.9); box-shadow:0 10px 24px -20px rgba(91,64,56,.4); }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-tabs button{ border:1px solid transparent !important; background:transparent !important; color:rgba(91,64,56,.72) !important; padding:7px 14px !important; font:650 13px var(--jp-font) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-tabs button:hover{ background:#FFFFFF !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-tabs button.on{ background:#FFFFFF !important; color:#5B4038 !important; border-color:rgba(91,64,56,.08) !important; box-shadow:0 1px 2px rgba(91,64,56,.06), 0 6px 14px -10px rgba(91,64,56,.35) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-tabs button i{ background:var(--ro-c) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-btn{ border-color:rgba(91,64,56,.10) !important; background:#FFFFFF !important; color:#5B4038 !important; font-family:var(--jp-font) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-btn.pri, html body.jp.jp.jp.jp.app-authed #tab-feed .jf-btn.req{ background:linear-gradient(135deg, #F2A285, #E99AAE) !important; color:#FFFFFF !important; border-color:transparent !important; box-shadow:0 10px 22px -12px rgba(233,154,174,.9) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-post{ --jp-c:var(--pe-c); --jp-cm:var(--la-m); scroll-margin-top:140px;
+  background:linear-gradient(90deg, var(--jp-c), var(--jp-cm)) 0 0 / 100% 4px no-repeat, #FFFFFF !important; border:1px solid rgba(91,64,56,.08) !important; border-radius:20px !important; box-shadow:var(--jp-shadow) !important; padding:16px 20px 8px !important; margin-bottom:12px !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-post.pinned{ --jp-c:var(--bu-c); --jp-cm:var(--pe-m); }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-post.need{ --jp-c:var(--ro-c); --jp-cm:var(--ro-m); border-color:var(--ro-m) !important; box-shadow:0 0 0 3px rgba(253,238,242,.9), var(--jp-shadow) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed header.jf-ph{ position:static !important; height:auto !important; min-height:0 !important; padding:0 !important; margin:0 0 8px !important; background:none !important; border:0 !important; box-shadow:none !important; -webkit-backdrop-filter:none !important; backdrop-filter:none !important; border-radius:0 !important; display:flex !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-ph .jf-av{ width:38px !important; height:38px !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-pn2{ font-size:14px !important; font-weight:700 !important; color:#5B4038 !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-pt{ color:rgba(91,64,56,.55) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-adm{ background:var(--la-l) !important; color:var(--la-d) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-chip.pin{ background:var(--bu-l) !important; color:var(--bu-d) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-chip.req{ background:var(--ro-l) !important; color:var(--ro-d) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-chip.new{ background:var(--sk-l) !important; color:var(--sk-d) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-title{ font-size:17px !important; font-weight:750 !important; letter-spacing:-.01em; color:#5B4038 !important; margin:2px 0 6px !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-body{ font-size:14.5px !important; line-height:1.55 !important; color:rgba(70,48,42,.92) !important; margin-bottom:8px !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-body.jp-clamp{ max-height:10.9em; overflow:hidden; -webkit-mask-image:linear-gradient(180deg, #000 62%, transparent); mask-image:linear-gradient(180deg, #000 62%, transparent); margin-bottom:0 !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jp-more{ display:inline-flex; align-items:center; gap:6px; margin:2px 0 10px; padding:5px 12px; border:1px solid var(--pe-m); background:var(--pe-l); color:var(--pe-d); border-radius:100px; font:650 12.5px var(--jp-font); cursor:pointer; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jp-more:hover{ background:var(--pe-m); }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-rxbar{ border-top-color:rgba(91,64,56,.07) !important; padding-top:6px !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-rx{ font-size:18px !important; padding:3px 5px !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-rx.on{ background:var(--pe-l) !important; box-shadow:inset 0 0 0 2px var(--pe-m) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-rx i{ background:#5B4038 !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-cwrap{ border-top-color:rgba(91,64,56,.07) !important; margin-top:6px !important; padding-top:2px !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-ctog{ color:rgba(91,64,56,.72) !important; font-family:var(--jp-font) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-cbub{ background:var(--pe-l) !important; color:#5B4038 !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-cin{ background:#FFF5F0 !important; border:1px solid rgba(91,64,56,.06); }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-sendc{ background:linear-gradient(135deg, #F2A285, #E99AAE) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-done{ background:var(--sa-l) !important; color:var(--sa-d) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-lock{ background:var(--bu-l) !important; color:var(--bu-d) !important; border-color:var(--bu-m) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-req-note{ color:var(--ro-d) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-poll, html body.jp.jp.jp.jp.app-authed #tab-feed .jf-quizinfo{ background:#FFFAF7 !important; border-color:rgba(91,64,56,.08) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-po.sel{ border-color:var(--la-c) !important; background:var(--la-l) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-bar{ background:var(--la-m) !important; }
+html body.jp.jp.jp.jp.app-authed #tab-feed .jf-empty{ color:rgba(91,64,56,.6) !important; background:#FFFFFF; border:1px dashed rgba(91,64,56,.14); border-radius:20px; }
+@media (prefers-reduced-motion:reduce){ html body.jp.jp.jp.jp.app-authed #jp-ora *, html body.jp.jp.jp.jp.app-authed #jp-ora::before{ animation:none !important; } }
+
+/* ═══ ROUND 7b (Nov 9) · the same pastel finish on every form, button, table and pop-up inside the portal ═══ */
+/* fields: white, soft cocoa line, lavender focus ring */
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content :is(.field-input, input[type="text"], input[type="number"], input[type="date"], input[type="time"], input[type="email"], input[type="search"], select, textarea):not([type="checkbox"]):not([type="radio"]){
+  background:#FFFFFF !important; border:1px solid rgba(91,64,56,.13) !important; border-radius:12px !important; color:#5B4038 !important; box-shadow:0 1px 2px rgba(91,64,56,.04) inset !important;
+  transition:border-color .2s ease, box-shadow .2s ease !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content :is(.field-input, input, select, textarea):focus{ outline:none !important; border-color:var(--la-c) !important; box-shadow:0 0 0 3px rgba(220,211,240,.75) !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content :is(.field-input, input, textarea)::placeholder{ color:rgba(91,64,56,.4) !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .field-label{ color:rgba(91,64,56,.66) !important; font-weight:650 !important; letter-spacing:.02em !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content input[type="checkbox"], html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content input[type="radio"]{ accent-color:#E58F70 !important; }
+/* the main button: peach into rose; the quiet one: white */
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .btn-primary, html body.jp.jp.jp.jp.app-authed .wl-warn-box .btn-primary{
+  background:linear-gradient(135deg, #F2A285, #E99AAE) !important; color:#FFFFFF !important; border:0 !important; border-radius:12px !important;
+  box-shadow:0 10px 22px -12px rgba(233,154,174,.9) !important; text-shadow:none !important; transition:transform .2s var(--jp-ease), box-shadow .2s ease, filter .2s ease !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .btn-primary:hover{ transform:translateY(-1px) !important; box-shadow:0 14px 26px -12px rgba(233,154,174,1) !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .btn-primary:disabled{ filter:grayscale(.4) !important; opacity:.6 !important; transform:none !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content :is(.btn-secondary, .btn-ghost, .ghost){ background:#FFFFFF !important; color:#5B4038 !important; border:1px solid rgba(91,64,56,.12) !important; border-radius:12px !important; }
+/* tables: a cream head, soft rows, peach on hover */
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content table{ border-collapse:separate !important; border-spacing:0 !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content table thead th{ background:#FFF4EE !important; color:rgba(91,64,56,.66) !important; font-size:11px !important; font-weight:700 !important; letter-spacing:.08em !important; text-transform:uppercase !important; border-bottom:1px solid rgba(91,64,56,.08) !important; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content table thead th:first-child{ border-top-left-radius:12px; } html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content table thead th:last-child{ border-top-right-radius:12px; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content table tbody td{ border-bottom:1px solid rgba(91,64,56,.06) !important; color:#5B4038; }
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content table tbody tr:hover td{ background:#FFF7F2 !important; }
+/* empty states: dashed pastel, not blank */
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content :is(.empty-state, .ta-empty, .cfy-no-entries){ background:linear-gradient(135deg, #FFFFFF, #FFF7F2) !important; border:1px dashed rgba(229,143,112,.35) !important; border-radius:16px !important; color:rgba(91,64,56,.62) !important; }
+/* card titles a touch stronger */
+html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .card-head{ color:#5B4038 !important; }
+
+/* pop-ups: the face scan, the camera prompt, warnings — the same pastel box */
+html body.jp.jp.jp.jp.app-authed #fid-modal, html body.jp.jp.jp.jp.app-authed #wcam-gate{ background:rgba(91,64,56,.38) !important; -webkit-backdrop-filter:blur(10px) saturate(1.1) !important; backdrop-filter:blur(10px) saturate(1.1) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-box, html body.jp.jp.jp.jp.app-authed #wcam-gate .wg{
+  background:linear-gradient(90deg, #F2A285, #E99AAE 33%, #A99BDB 66%, #8DB6DE) 0 0 / 100% 4px no-repeat, #FFFFFF !important; color:#5B4038 !important; border-radius:24px !important;
+  box-shadow:0 1px 2px rgba(91,64,56,.06), 0 40px 80px -30px rgba(91,64,56,.55) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal :is(.fid-t, .fid-big), html body.jp.jp.jp.jp.app-authed #wcam-gate .wg-t{ color:#5B4038 !important; letter-spacing:-.01em; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-s, html body.jp.jp.jp.jp.app-authed #wcam-gate .wg-s{ color:rgba(91,64,56,.72) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-small{ color:rgba(91,64,56,.5) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-v{ border-radius:18px !important; box-shadow:0 0 0 3px #FFFFFF, 0 0 0 5px var(--la-m) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-ring{ border-color:rgba(255,241,234,.9) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-steps i{ background:#F3ECE8 !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-steps i.on{ background:linear-gradient(90deg, #F2A285, #E99AAE) !important; animation:jpPulseBar 1.2s ease-in-out infinite; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-steps i.done{ background:var(--sa-c) !important; }
+@keyframes jpPulseBar{ 0%,100%{ opacity:1; } 50%{ opacity:.55; } }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-msg{ color:var(--ro-d) !important; } html body.jp.jp.jp.jp.app-authed #fid-modal .fid-msg.good{ color:var(--sa-d) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-c input{ accent-color:#E58F70 !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-pri, html body.jp.jp.jp.jp.app-authed #wcam-gate .wg-pri{ background:linear-gradient(135deg, #F2A285, #E99AAE) !important; color:#FFFFFF !important; border-radius:12px !important; box-shadow:0 10px 22px -12px rgba(233,154,174,.9) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-modal .fid-sec, html body.jp.jp.jp.jp.app-authed #wcam-gate .wg-sec{ background:#FFF4EE !important; color:#5B4038 !important; border:1px solid rgba(91,64,56,.08) !important; border-radius:12px !important; }
+html body.jp.jp.jp.jp.app-authed .wl-warn-box, html body.jp.jp.jp.jp.app-authed .wl-vol-box{ border-radius:24px !important; }
+
+/* the Face ID card in My Profile */
+html body.jp.jp.jp.jp.app-authed #fid-card{ background:linear-gradient(90deg, var(--la-c), var(--la-m)) 0 0 / 100% 4px no-repeat, #FFFFFF !important; border:1px solid rgba(91,64,56,.08) !important; border-radius:20px !important; box-shadow:var(--jp-shadow) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-card .fidc-h b{ color:#5B4038 !important; }
+html body.jp.jp.jp.jp.app-authed #fid-card p{ color:rgba(91,64,56,.72) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-card .fidc-chip.ok{ background:var(--sa-l) !important; color:var(--sa-d) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-card .fidc-chip.wait{ background:var(--bu-l) !important; color:var(--bu-d) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-card .fidc-chip.no{ background:var(--ro-l) !important; color:var(--ro-d) !important; }
+html body.jp.jp.jp.jp.app-authed #fid-card button{ background:linear-gradient(135deg, #F2A285, #E99AAE) !important; color:#FFFFFF !important; border-radius:12px !important; box-shadow:0 10px 22px -12px rgba(233,154,174,.9) !important; }
+
 /* the sign-in screen is Jeth's own design (Nov 7): this layer never touches #login-screen, the intro or the sign-in reveal */
 </style>
 <script id="jmb-pastel-js">
@@ -38316,7 +38712,7 @@ html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .tab-panel.jp-i
   }
   function scrolled(){ var se=document.scrollingElement||document.documentElement||{}, y=se.scrollTop||window.pageYOffset||0; var v=on && y>6; if(v!==B.classList.contains('jp-scrolled')) B.classList.toggle('jp-scrolled', v); }
   window.addEventListener('scroll', scrolled, { passive:true });
-  document.addEventListener('click', function(e){ if(on && e.target && e.target.closest && e.target.closest('.tab-btn')) setTimeout(function(){ pageTitle(); try{ pill(); }catch(x){} }, 0); }, true);
+  document.addEventListener('click', function(e){ if(on && e.target && e.target.closest && e.target.closest('.tab-btn')) setTimeout(function(){ try{ heroTab(); }catch(x){} pageTitle(); try{ pill(); }catch(x){} try{ feedFold(); }catch(x){} }, 0); }, true);
 
   /* the sliding pill behind the open page (desktop) */
   var PILL=null, pillFresh=false;
@@ -38426,7 +38822,85 @@ html body.jp.jp.jp.jp.app-authed #dashboard-screen .main-content .tab-panel.jp-i
     }
     ovFeed(); ovGoal();
   }
-  function check(){ set(want()); themeSync(); keepClosed(); chrome(); try{ overview(); }catch(e){} try{ aurora(); }catch(e){} pageTitle(); scrolled(); try{ pill(); }catch(e){} }
+  /* ── ROUND 7 · Ora as a four-point sparkle beside Messages (Jeth: "instead of it live on the hero card … an aura icon
+     beside the message icon … like a star with four sides"). Opens the same Ora; mirrors her mood (thinking / alert). ── */
+  var ORA_SVG='<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="jpOraG" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">'+
+    '<stop offset="0" stop-color="#F2A285"/><stop offset=".5" stop-color="#E99AAE"/><stop offset="1" stop-color="#A99BDB"/></linearGradient></defs>'+
+    '<path class="jo-big" fill="url(#jpOraG)" d="M11 2.5C11.6 7.6 14.4 10.4 19.5 11 14.4 11.6 11.6 14.4 11 19.5 10.4 14.4 7.6 11.6 2.5 11 7.6 10.4 10.4 7.6 11 2.5Z"/>'+
+    '<path class="jo-sm" fill="#A99BDB" d="M19 14.5C19.2 16.3 19.9 17 21.5 17.2 19.9 17.4 19.2 18.1 19 19.9 18.8 18.1 18.1 17.4 16.5 17.2 18.1 17 18.8 16.3 19 14.5Z"/></svg>';
+  function oraBtn(){
+    var b=document.getElementById('jp-ora');
+    if(!on){ if(b) b.remove(); if(B.classList.contains('jp-orahdr')) B.classList.remove('jp-orahdr'); return; }
+    var hr=document.querySelector('#dashboard-screen > header .header-right'); if(!hr) return;
+    if(!b){ b=document.createElement('button'); b.type='button'; b.id='jp-ora'; b.title='Ask Ora'; b.setAttribute('aria-label','Ask Ora, the portal assistant');
+      b.innerHTML=ORA_SVG+'<span class="jo-b"></span>';
+      b.addEventListener('click', function(){ try{ sproutToggle(); }catch(e){} setTimeout(oraBtn, 60); }); }
+    var ref=document.getElementById('msg-fab');
+    if(b.parentNode!==hr || (ref && ref.parentNode===hr && b.nextSibling!==ref)) hr.insertBefore(b, ref && ref.parentNode===hr ? ref : hr.firstChild);
+    var h=document.getElementById('dashboard-hero'), think=!!(h && h.classList.contains('ora-think')), alert=!!(h && h.classList.contains('ora-alert')), open=false;
+    try{ open=!!(window.Ora && Ora.opened); }catch(e){}
+    if(b.classList.contains('think')!==think) b.classList.toggle('think', think);
+    if(b.classList.contains('alert')!==alert) b.classList.toggle('alert', alert);
+    if(b.classList.contains('open')!==open) b.classList.toggle('open', open);
+    var bd=document.querySelector('.au-ora-ask .ora-badge'), n=bd ? String(bd.textContent||'').trim() : '', jb=b.querySelector('.jo-b');
+    if(jb && jb.textContent!==n) jb.textContent=n;
+    var vis=!!b.offsetParent; if(vis!==B.classList.contains('jp-orahdr')) B.classList.toggle('jp-orahdr', vis);   /* the floating Ora bubble hides only while this one shows */
+  }
+
+  /* ── ROUND 7 · fuller pages: the greeting card belongs to Overview; Productivity is gone (the tools compute it) ── */
+  function heroTab(){
+    var ov=document.getElementById('tab-overview'), off=on && !!ov && !ov.classList.contains('active');
+    if(off!==B.classList.contains('jp-offov')) B.classList.toggle('jp-offov', off);
+    if(on){ var mp=document.getElementById('tab-myprod'); if(mp && mp.classList.contains('active')) goTab('overview'); }
+  }
+
+  /* ── ROUND 7 · the Feed: a side rail (Needs you · Pinned · Recent · how it works) and long posts folded to a few lines ── */
+  var FR={ sig:'', open:{} };
+  var REQ={ ack:'Must read', react:'React to confirm', done:'Must do', quiz:'Quiz' };
+  function fdate(iso){ try{ return new Date(iso).toLocaleDateString('en-US',{ month:'short', day:'numeric', timeZone:'Asia/Manila' }); }catch(e){ return ''; } }
+  function ftitle(p){ var t=String(p.title||p.body||'Announcement').replace(/\*\*/g,'').replace(/\s+/g,' ').trim(); return t.length>80 ? t.slice(0,78)+'…' : t; }
+  function feedRail(){
+    var tf=document.getElementById('tab-feed'), rail=document.getElementById('jp-frail');
+    if(!on || !tf){ if(rail) rail.remove(); if(tf && tf.classList.contains('jp-fgrid')) tf.classList.remove('jp-fgrid'); FR.sig=''; return; }
+    if(!tf.classList.contains('jp-fgrid')) tf.classList.add('jp-fgrid');
+    var jl=document.getElementById('jf-list');   /* the feed rewrites its list on every refresh: fold + rail follow at once, not 800 ms later */
+    if(jl && FR.list!==jl){ FR.list=jl; try{ new MutationObserver(function(){ if(!on) return; FR.sig=''; try{ feedFold(); }catch(e){} try{ feedRail(); }catch(e){} }).observe(jl, { childList:true }); }catch(e){} }
+    if(!rail){ rail=document.createElement('aside'); rail.id='jp-frail'; rail.setAttribute('aria-label','Feed shortcuts'); tf.appendChild(rail); FR.sig='';
+      rail.addEventListener('click', function(e){ var it=e.target.closest && e.target.closest('[data-pid]'); if(!it) return;
+        var id=it.getAttribute('data-pid'); try{ window.JMBFeed.open(id); }catch(x){} }); }
+    var ps=[]; try{ ps=((window.JMBFeed && window.JMBFeed.state && window.JMBFeed.state.posts) || []).filter(function(p){ return p && !p._draft; }); }catch(e){}
+    var byId={}; ps.forEach(function(p){ byId[String(p.id)]=p; });
+    var need=[]; Array.prototype.forEach.call(document.querySelectorAll('#jf-list .jf-post.need'), function(a){ var id=String(a.id||'').replace(/^jfp-/,''); if(byId[id]) need.push(byId[id]); });
+    var pins=ps.filter(function(p){ return p.pinned; }).slice(0,3), rec=ps.slice(0,6);
+    var loaded=false; try{ loaded=!!window.JMBFeed.state.loaded; }catch(e){}
+    var sig=[loaded?1:0, need.map(function(p){ return p.id; }).join(','), pins.map(function(p){ return p.id; }).join(','), rec.map(function(p){ return p.id+':'+String(p.title||'').length; }).join(',')].join('|');
+    if(sig===FR.sig) return; FR.sig=sig;
+    function item(p, extra){ return '<button type="button" class="jf-r-i" data-pid="'+esc(p.id)+'"><b>'+esc(ftitle(p))+'</b><span>'+(extra||'')+esc(fdate(p.created_at))+'</span></button>'; }
+    var h='<section class="jp-card jf-r-need'+(need.length?'':' ok')+'"><div class="jp-k"><span>Needs you</span>'+(need.length?'<b>'+need.length+'</b>':'')+'</div>'+
+      (need.length ? need.map(function(p){ return item(p, '<em>'+esc(REQ[p.required]||'Action needed')+'</em> · '); }).join('') : '<div class="jf-r-empty">'+(loaded?'You\'re all caught up.':'Loading…')+'</div>')+'</section>';
+    if(pins.length) h+='<section class="jp-card jf-r-pin"><div class="jp-k"><span>Pinned</span></div>'+pins.map(function(p){ return item(p); }).join('')+'</section>';
+    if(rec.length) h+='<section class="jp-card jf-r-rec"><div class="jp-k"><span>Recent posts</span></div>'+rec.map(function(p){ return item(p); }).join('')+'</section>';
+    h+='<section class="jp-card jf-r-how"><div class="jp-k"><span>How it works</span></div><p>React, comment and reply on any post. Posts marked <b>Must read</b>, <b>Must do</b> or <b>Quiz</b> need your action before the time tracker starts.</p></section>';
+    rail.innerHTML=h;
+  }
+  function feedFold(){
+    if(!on) return; var tf=document.getElementById('tab-feed'); if(!tf || !tf.classList.contains('active')) return;
+    var L=document.querySelectorAll('#jf-list .jf-post .jf-body:not([data-jpc])');
+    for(var i=0;i<L.length;i++){ var b=L[i], a=b.closest('.jf-post'); if(!b.offsetParent) continue; b.setAttribute('data-jpc','1');
+      var id=String(a && a.id || '').replace(/^jfp-/,'');
+      if(!a || a.classList.contains('need') || a.querySelector('.jf-chip.req') || FR.open[id]) continue;   /* posts that ask for an action always show in full */
+      if(b.scrollHeight<=260) continue;
+      b.classList.add('jp-clamp');
+      var m=document.createElement('button'); m.type='button'; m.className='jp-more'; m.textContent='See more'; m.setAttribute('data-for', id);
+      b.parentNode.insertBefore(m, b.nextSibling); }
+  }
+  document.addEventListener('click', function(e){
+    var m=e.target && e.target.closest && e.target.closest('#tab-feed .jp-more'); if(!m) return;
+    var a=m.closest('.jf-post'), b=a && a.querySelector('.jf-body.jp-clamp'); FR.open[m.getAttribute('data-for')||'']=1;
+    if(b) b.classList.remove('jp-clamp'); m.remove(); });
+
+  function check(){ set(want()); themeSync(); keepClosed(); chrome(); try{ overview(); }catch(e){} try{ aurora(); }catch(e){} pageTitle(); scrolled(); try{ pill(); }catch(e){}
+    try{ heroTab(); }catch(e){} try{ oraBtn(); }catch(e){} try{ feedRail(); }catch(e){} try{ feedFold(); }catch(e){} }
   try{ new MutationObserver(check).observe(B, { attributes:true, attributeFilter:['class'] }); }catch(e){}
   setInterval(check, 800); check();
 

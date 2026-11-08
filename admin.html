@@ -10233,8 +10233,9 @@ var ADMAURA = (function(){
       (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.new_at; }).forEach(function(x){   // Nov 7l: guided scan from My Profile
         var np=(window.FACEA && FACEA.pic) ? FACEA.pic(x.new_snap, 120, 90) : '', op=(window.FACEA && FACEA.pic) ? FACEA.pic(x.snap, 120, 90) : '';
         items.push({ t:'face', name:x.employee_id, date:String(x.new_at||'').slice(0,10),
-          dt:np+op+'New face scan from My Profile (left) · saved face now (right)'+(x.new_score!=null ? ' · matches the saved face <b>'+Math.round(x.new_score*100)+'%</b>' : '')+
-             '<br><span style="opacity:.75">Approve only if this is them. Until you approve, the saved face keeps working.</span>',
+          dt:np+op+'New face scan (left) · saved face now (right)'+(x.new_head!=null ? ' · matches their HR photo <b>'+Math.round(x.new_head*100)+'%</b>' : ' · no HR photo to compare')+(x.new_score!=null ? ' · matches the saved face <b>'+Math.round(x.new_score*100)+'%</b>' : '')+
+             (x.new_flag ? '<br><span style="display:inline-block;margin-top:4px;background:#fff1f2;color:#be123c;border:1px solid rgba(225,29,72,.3);border-radius:8px;padding:2px 8px;font-weight:700">Check this one: '+E(x.new_flag)+'</span>' : '')+
+             '<br><span style="opacity:.75">Approve only if this is them (compare with their HR photo). Until you approve, the saved face keeps working.</span>',
           ac:'<button class="bsm edit" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'approve_new\',this)">Approve new scan</button><button class="bsm danger" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'reject_new\',this)">Reject</button>' });
       });
       (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.status==='pending' && !x.new_at; }).forEach(function(x){
@@ -11496,7 +11497,7 @@ var WCAMA=(function(){
   function loadStops(){
     S.logAt=Date.now();
     var since=new Date(Date.now()-14*3600*1000).toISOString();
-    fetch(SUPA_URL+'/rest/v1/wfh_cam_log?select=employee_id,kind&at=gte.'+encodeURIComponent(since)+'&kind=in.(noface_stop,cam_off_stop,cam_lost_stop,face_mismatch_stop,face_unsure_stop,eyes_closed_stop)&limit=1000', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } })
+    fetch(SUPA_URL+'/rest/v1/wfh_cam_log?select=employee_id,kind&at=gte.'+encodeURIComponent(since)+'&kind=in.(noface_stop,cam_off_stop,cam_lost_stop,face_mismatch_stop,face_unsure_stop,eyes_closed_stop,live_stop,face_lost_stop)&limit=1000', { headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY } })
       .then(function(r){ return r.json(); }).then(function(rows){ var c={}; (Array.isArray(rows)?rows:[]).forEach(function(x){ c[x.employee_id]=(c[x.employee_id]||0)+1; }); S.stops=c; render(); }).catch(function(){});
   }
   function state(p){
@@ -11559,6 +11560,8 @@ var WCAMA=(function(){
            face_mismatch_warn:'Someone else on the camera — warning', face_mismatch_stop:'Timer stopped — someone else on the camera', face_unsure:'Face not clearly confirmed',
            face_unsure_warn:'Could not confirm it is them for 2 min — warning', face_unsure_stop:'Timer stopped — could not confirm it was them (2 min)',
            start_refused:'Start / Resume refused — face did not match', face_unavailable:'Started without a face match (face check did not load)',
+           live_pass:'Quick face check done', live_fail:'Quick face check missed (60 s)', live_warn:'Quick face check missed — warning', live_stop:'Timer stopped — quick face check not done',
+           second_face:'Two faces on the camera', virtual_cam:'Virtual camera (OBS, ManyCam…)', face_scan_done:'New face scan sent', face_lost_stop:'Timer stopped by the server — no face match for 6 min',
            eyes_closed_warn:'Eyes closed — warning', eyes_closed_stop:'Timer stopped — eyes closed (asleep)', eye_stats:'Eye check (for tuning)' };
   function log(range){
     range=range||'24'; var hrs=+range||24;
@@ -11822,11 +11825,11 @@ var FACEA=(function(){
     var regs=(d&&d.registrations)||[], bad=(d&&d.mismatches)||[], heads=(d&&d.headshots)||[];
     var neu=regs.filter(function(x){ return x.new_at; }), pend=regs.filter(function(x){ return x.status==='pending' && !x.new_at; }), rest=regs.filter(function(x){ return x.status!=='pending'; });
     var row=function(x, btns){ return '<div class="fa-row">'+(pic(x.snap)||'<span class="fa-pic"></span>')+'<span class="who">'+E(x.employee_id)+'</span>'+
-      '<span class="meta"><span class="fa-chip '+E(x.status)+'">'+E(x.status)+'</span> · '+when(x.created_at)+(x.score!=null?' · headshot match '+Math.round(x.score*100)+'%':'')+(x.decided_by?' · by '+E(x.decided_by):'')+'</span>'+btns+'</div>'; };
+      '<span class="meta"><span class="fa-chip '+E(x.status)+'">'+E(x.status)+'</span> · '+when(x.created_at)+(x.score!=null?' · headshot match '+Math.round(x.score*100)+'%':'')+(x.decided_by?' · by '+E(x.decided_by):'')+(x.status==='approved'&&!x.guided?' · <b style="color:#b45309">old quick scan — new scan due</b>':'')+'</span>'+btns+'</div>'; };
     el.innerHTML='<div class="fa-box"><div class="fa-h"><b>Faces</b><span class="sp"></span><button type="button" data-a="reload">Reload</button><button type="button" data-a="close">Close</button></div>'+
       '<p class="fa-s">Working from home, the portal checks that the person on the camera is the VA (match 60% or more; someone else is usually under 45%). Registrations that clearly match the portal headshot are approved automatically. '+heads.length+' portal headshots are on file as references.</p>'+
       '<div class="fa-t">New scans from My Profile ('+neu.length+')</div>'+(neu.length?neu.map(function(x){ return '<div class="fa-row">'+(pic(x.new_snap)||'<span class="fa-pic"></span>')+(pic(x.snap)||'<span class="fa-pic"></span>')+'<span class="who">'+E(x.employee_id)+'</span>'+
-        '<span class="meta">new scan (left) · saved face (right) · '+when(x.new_at)+(x.new_score!=null?' · matches the saved face '+Math.round(x.new_score*100)+'%':'')+'</span>'+
+        '<span class="meta">new scan (left) · saved face (right) · '+when(x.new_at)+(x.new_head!=null?' · HR photo '+Math.round(x.new_head*100)+'%':' · no HR photo')+(x.new_score!=null?' · saved face '+Math.round(x.new_score*100)+'%':'')+(x.new_flag?' · <b style="color:#be123c">'+E(x.new_flag)+'</b>':'')+'</span>'+
         '<button type="button" data-a="approve_new" data-e="'+E(x.employee_id)+'">Approve</button><button type="button" data-a="reject_new" data-e="'+E(x.employee_id)+'">Reject</button></div>'; }).join(''):'<div class="fa-empty">None.</div>')+
       '<div class="fa-t">Waiting for you ('+pend.length+')</div>'+(pend.length?pend.map(function(x){ return row(x, '<button type="button" data-a="approve" data-e="'+E(x.employee_id)+'">Approve</button><button type="button" data-a="reject" data-e="'+E(x.employee_id)+'">Reject</button>'); }).join(''):'<div class="fa-empty">Nothing waiting.</div>')+
       '<div class="fa-t">Someone else on the camera · last 3 days ('+bad.length+')</div>'+(bad.length?bad.map(function(x){ return '<div class="fa-row">'+(pic(x.snap)||'<span class="fa-pic"></span>')+'<span class="who">'+E(x.employee_id)+'</span><span class="meta">'+when(x.at)+' · '+(x.kind==='login'?'sign-in':'while working')+' · match '+Math.round((x.score||0)*100)+'% · '+E(x.note||'')+'</span></div>'; }).join(''):'<div class="fa-empty">None.</div>')+
