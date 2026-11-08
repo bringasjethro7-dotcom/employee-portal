@@ -10230,20 +10230,20 @@ var ADMAURA = (function(){
     var fc=api('face_admin_list').catch(function(){ return {}; });   // Nov 7j: face registrations waiting for the admin
     return Promise.all([boot, lw, rc, wn, fc]).then(function(R){
       var b=R[0]||{}, items=[];
-      (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.new_at; }).forEach(function(x){   // Nov 7l: guided scan from My Profile
+      (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.new_at && !(window.FACEA && FACEA.gone && FACEA.gone(x.employee_id, 'new', x.new_at)); }).forEach(function(x){   // Nov 7l: guided scan from My Profile
         var np=(window.FACEA && FACEA.pic) ? FACEA.pic(x.new_snap, 120, 90) : '', op=(window.FACEA && FACEA.pic) ? FACEA.pic(x.snap, 120, 90) : '';
         items.push({ t:'face', name:x.employee_id, date:String(x.new_at||'').slice(0,10),
           dt:np+op+'New face scan (left) · saved face now (right)'+(x.new_head!=null ? ' · matches their HR photo <b>'+Math.round(x.new_head*100)+'%</b>' : ' · no HR photo to compare')+(x.new_score!=null ? ' · matches the saved face <b>'+Math.round(x.new_score*100)+'%</b>' : '')+
              (x.new_flag ? '<br><span style="display:inline-block;margin-top:4px;background:#fff1f2;color:#be123c;border:1px solid rgba(225,29,72,.3);border-radius:8px;padding:2px 8px;font-weight:700">Check this one: '+E(x.new_flag)+'</span>' : '')+
              '<br><span style="opacity:.75">Approve only if this is them (compare with their HR photo). Until you approve, the saved face keeps working.</span>',
-          ac:'<button class="bsm edit" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'approve_new\',this)">Approve new scan</button><button class="bsm danger" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'reject_new\',this)">Reject</button>' });
+          ac:'<button class="bsm edit" data-fst="'+E(x.new_at)+'" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'approve_new\',this)">Approve new scan</button><button class="bsm danger" data-fst="'+E(x.new_at)+'" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'reject_new\',this)">Reject</button>' });
       });
-      (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.status==='pending' && !x.new_at; }).forEach(function(x){
+      (((R[4]||{}).registrations)||[]).filter(function(x){ return x && x.status==='pending' && !x.new_at && !(window.FACEA && FACEA.gone && FACEA.gone(x.employee_id, 'reg', x.created_at)); }).forEach(function(x){
         var pic=(window.FACEA && FACEA.pic) ? FACEA.pic(x.snap, 120, 90) : '';
         items.push({ t:'face', name:x.employee_id, date:String(x.created_at||'').slice(0,10),
           dt:pic+'New face registration · '+(x.score!=null ? 'matches their portal headshot <b>'+Math.round(x.score*100)+'%</b> (auto-approve needs 62%)' : 'no portal headshot on file to compare')+
              '<br><span style="opacity:.75">Approve only if this is them. Until it is approved, the portal does not check their face.</span>',
-          ac:'<button class="bsm edit" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'approve\',this)">Approve</button><button class="bsm danger" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'reject\',this)">Reject</button>' });
+          ac:'<button class="bsm edit" data-fst="'+E(x.created_at)+'" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'approve\',this)">Approve</button><button class="bsm danger" data-fst="'+E(x.created_at)+'" onclick="FACEA.decide(\''+E(x.employee_id)+'\',\'reject\',this)">Reject</button>' });
       });
       (((R[2]||{}).delreqs)||[]).forEach(function(q){
         items.push({ t:'rcdel', name:q.by_name||q.by, date:String(q.at||'').slice(0,10),
@@ -11854,18 +11854,36 @@ var FACEA=(function(){
     };
     load();
   }
+  /* Nov 9 (Jeth: "Could not save: NOTHING_WAITING"): the first click had already saved, but decide() returned nothing, so the
+     one-click guard gave the buttons back after 0.65 s while the save was still running, and a list refresh fetched before
+     the save landed could draw the card again. Now: decide() returns the save itself (buttons stay busy until it answers),
+     a saved card is removed and remembered (a stale list cannot bring that same scan back), and "nothing waiting"
+     means it was already saved, so it is treated as done, not as an error. */
+  var TOMB={};
+  function gone(emp, k, st){ var t=TOMB[String(emp||'').toUpperCase()+'|'+k]; if(!t) return false;
+    var age=Date.now()-t.at; if(t.st==='*') return age<120000; return age<15*60000 && t.st===String(st||''); }
+  function bury(emp, d, btn){ var k=/_new$/.test(d)?'new':'reg'; var st=''; try{ st=(btn && btn.getAttribute && btn.getAttribute('data-fst'))||''; }catch(e){}
+    TOMB[String(emp||'').toUpperCase()+'|'+k]={ st:st||'*', at:Date.now() }; }
+  function settle(emp, d, btn, msg, after){
+    bury(emp, d, btn);
+    try{ toast(msg); }catch(e){}
+    try{ var it=btn && btn.closest && btn.closest('.aa-ib'); if(it) it.parentNode.removeChild(it); }catch(e){}
+    try{ jBust(); }catch(e){}
+    try{ if(window.ADMAURA && ADMAURA.inboxLoad) setTimeout(function(){ try{ ADMAURA.inboxLoad(true, true); }catch(_e){} }, 600); }catch(e){}
+    if(after) try{ after(); }catch(e){}
+  }
   function decide(emp, d, btn, after){
     var q={ approve_new:'Approve the new face scan for '+emp+'? It replaces the saved face.', reject_new:'Reject the new face scan for '+emp+'? Their saved face stays.', approve:'Approve this face for '+emp+'?', reject:'Reject this registration? '+emp+' will be asked to register again.', reset:'Reset '+emp+'\'s face? They will be asked to register again at their next Start from home.' }[d];
-    if(!q || !confirm(q)) return;
+    if(!q || !confirm(q)) return false;
     if(btn) btn.disabled=true;
-    call('face_admin_decide&employee_id='+encodeURIComponent(emp)+'&decision='+encodeURIComponent(d)).then(function(r){
-      if(r && r.ok){ try{ showToast((/^approve/.test(d)?'Approved':(/^reject/.test(d)?'Rejected':'Reset'))+' · '+emp); }catch(e){}
-        try{ var it=btn && btn.closest('.aa-ib'); if(it) it.style.display='none'; }catch(e){}
-        if(after) after(); return; }
-      if(btn) btn.disabled=false; alert('Could not save: '+((r&&(r.message||r.error))||'no answer'));
-    }).catch(function(){ if(btn) btn.disabled=false; alert('Could not reach the backend. Try again.'); });
+    var label=(/^approve/.test(d)?'Approved':(/^reject/.test(d)?'Rejected':'Reset'));
+    return call('face_admin_decide&employee_id='+encodeURIComponent(emp)+'&decision='+encodeURIComponent(d)).then(function(r){
+      if(r && r.ok){ settle(emp, d, btn, label+' · '+emp, after); return { ok:true }; }
+      if(r && r.error==='NOTHING_WAITING'){ settle(emp, d, btn, 'Already saved · '+emp+' (nothing left waiting)', after); return { ok:true }; }
+      if(btn) btn.disabled=false; alert('Could not save: '+((r&&(r.message||r.error))||'no answer')); return false;
+    }).catch(function(){ if(btn) btn.disabled=false; alert('Could not reach the backend. Try again.'); return false; });
   }
-  return { open:open, decide:decide, pic:pic };
+  return { open:open, decide:decide, pic:pic, gone:gone };
 })();
 </script>
 </body>
