@@ -26654,7 +26654,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-09-G';
+var PORTAL_BUILD='2026-11-09-H';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34464,6 +34464,12 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-09-H', version:'2026.11.09h', date:'November 9, 2026',
+    summary:'The face scan is easier to finish.',
+    items:[
+      'The close-your-eyes step now notices a blink more easily.',
+      'If the camera still cannot see your eyes close or your head turn, your scan is not lost. It goes to your admin, who checks your picture and approves it.'
+    ] },
   { build:'2026-11-09-G', version:'2026.11.09g', date:'November 9, 2026',
     summary:'Night mode is here.',
     items:[
@@ -36126,11 +36132,11 @@ var FACEID = (function(){
         var dk=eyeDark(cv, f.mesh), pitch=(f.rotation && f.rotation.angle && typeof f.rotation.angle.pitch==='number') ? f.rotation.angle.pitch : null;
         ears.push(ear); if(dk!=null) darks.push(dk); if(pitch!=null) pitches.push(pitch);
         var eOpen=Math.max(hint||0, pctl(ears, 0.8)), dOpen=darks.length>=3 ? pctl(darks, 0.8) : 0;
-        var p0=pitches.length ? pctl(pitches, 0.5) : null, tilted=(pitch!=null && p0!=null && Math.abs(pitch-p0)>0.14);
+        var p0=pitches.length ? pctl(pitches, 0.5) : null, tilted=(pitch!=null && p0!=null && Math.abs(pitch-p0)>0.30);   // Nov 9H: was 0.14 — closing the eyes moves the pitch estimate on some faces
         if(ear<low) low=ear; if(dk!=null && dk<dlow) dlow=dk;
         var byLid=ears.length>=3 && ear<0.8*eOpen && !tilted, byDark=dOpen>0.12 && dk!=null && dk<0.6*dOpen && !tilted;
         if(phase===0 && (byLid || byDark)){ phase=1; eyesStep.last.how=byLid ? (byDark ? 'lids + iris' : 'lids') : 'iris'; beep(); }
-        else if(phase===1 && ear>0.88*eOpen && (dk==null || !dOpen || dk>0.75*dOpen)){
+        else if(phase===1 && ear>0.80*eOpen && (dk==null || !dOpen || dk>0.70*dOpen)){   // Nov 9H: reopen at 80 % (was 88 %)
           eyesStep.last={ open:eOpen, low:low, dark:dOpen, dlow:dlow, how:eyesStep.last.how }; return 'pass'; }
         eyesStep.last={ open:eOpen, low:low, dark:dOpen, dlow:(dlow<9?dlow:0), how:eyesStep.last.how };
       }
@@ -36154,7 +36160,7 @@ var FACEID = (function(){
   }
   async function guided(vid, ui){
     var h; try{ h=await load(); }catch(e){ return { err:'The face check could not load. Check your internet, then try again.' }; }
-    var all=[], snapCv=null, openE=[], eyesAlt=false;
+    var all=[], snapCv=null, openE=[], eyesAlt=false, noLive=false;
     for(var i=0;i<GSTEPS.length;i++){
       var st=GSTEPS[i]; ui.step(i, 'on'); ui.big(st.t); await sleep(1100);
       if(st.k==='eyes'){
@@ -36163,8 +36169,8 @@ var FACEID = (function(){
         if(ev==='fail'){   /* Nov 9b: some faces don't show a close to the camera — a head turn instead, the angles already taken are kept */
           ui.msg('We could not read your eyes. Turn your head to one side, then look back at the camera.'); ui.big('Turn your head to one side, then back');
           var tv=await turnStep(vid, 12000, ui.stop); if(ui.stop()) return { err:'closed' };
-          if(tv!=='pass'){ ui.step(i, ''); return { err:'We could not read your eyes or the head turn. Light on your face, look at the camera, then try again.' }; }
-          eyesAlt=true; try{ camLog('eye_stats', 'scan: eyes step replaced by a head turn · '+eyesNote()); }catch(_l){}
+          if(tv!=='pass'){ noLive=true; try{ camLog('eye_stats', 'scan: eyes and head turn not read, sent to the admin · '+eyesNote()); }catch(_l){} }   /* Nov 9H (new VA stuck at the eyes step): the scan is kept, never auto-approved — the admin checks the picture */
+          else { eyesAlt=true; try{ camLog('eye_stats', 'scan: eyes step replaced by a head turn · '+eyesNote()); }catch(_l){} }
           ui.msg('');
         }
         ui.step(i, 'done'); continue;
@@ -36192,10 +36198,11 @@ var FACEID = (function(){
     }
     var mean=avg(all), worst=1; all.forEach(function(e){ var x=h.match.similarity(e, mean); if(x<worst) worst=x; });
     if(worst<0.55) return { err:'The scan was not steady. Keep only your face in the picture and try again.' };
-    return { mean:mean, poses:all.map(function(e){ return e.map(r4); }), snap:snap(snapCv || frame(vid)) };
+    return { mean:mean, poses:all.map(function(e){ return e.map(r4); }), snap:snap(snapCv || frame(vid)), nolive:noLive };
   }
   async function enroll(id, cap){
-    var d=null; try{ d=await rpc('face_enroll2', { p_emp:id, p_emb:cap.mean, p_poses:cap.poses, p_snap:cap.snap, p_device:(function(){ try{ return _devId(); }catch(e){ return ''; } })() }); }catch(e){}
+    var q={ p_emp:id, p_emb:cap.mean, p_poses:cap.poses, p_snap:cap.snap, p_device:(function(){ try{ return _devId(); }catch(e){ return ''; } })() }; if(cap.nolive) q.p_nolive=true;   // Nov 9H
+    var d=null; try{ d=await rpc('face_enroll2', q); }catch(e){}
     if(d && d.ok){ S.stAt=0; S.needsScan=false;
       if(d.status==='approved'){ S.status='approved'; S.stFor=id; } else alertAdmin('register', d.head, id);
       camLog('face_scan_done', (d.status==='approved' ? 'approved (HR photo '+d.head+')' : 'waiting for the admin')+(d.flag ? ' · '+d.flag : '')); }
@@ -36229,7 +36236,7 @@ var FACEID = (function(){
         ui.big('Saving…');
         var d=await enroll(id, cap); if(done) return;
         if(d && d.ok && d.status==='approved'){ ui.big('Done'); msg('Face registered. It matches your HR photo, so it is approved.', true); setTimeout(function(){ fin('approved'); }, 1300); return; }
-        if(d && d.ok){ ui.big('Sent'); msg('Sent to your admin for approval.'+(opt.waitNote ? ' '+opt.waitNote : ''), true); setTimeout(function(){ fin('waiting'); }, 2200); return; }
+        if(d && d.ok){ ui.big('Sent'); msg('Sent to your admin for approval.'+(cap.nolive ? ' The camera could not see your eyes close, so your admin checks your picture.' : '')+(opt.waitNote ? ' '+opt.waitNote : ''), true); setTimeout(function(){ fin('waiting'); }, cap.nolive ? 3600 : 2200); return; }
         if(d && d.error==='NOT_YOU'){ ui.big('Not saved'); msg('This face does not match the face approved for '+id+'. Only '+id+' can scan for this account. If the saved face is wrong, ask your admin to reset it.'); return; }
         ui.big('Try again'); msg('Could not save. Check your internet, then try again.'); b.disabled=false;
       };
