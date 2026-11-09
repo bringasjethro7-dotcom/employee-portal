@@ -26654,7 +26654,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-10-A';
+var PORTAL_BUILD='2026-11-10-B';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34467,9 +34467,9 @@ var PORTAL_NOTES=[
   { build:'2026-11-10-A', version:'2026.11.10a', date:'November 10, 2026',
     summary:'See how your month is going.',
     items:[
-      'A line across the top of your Overview now follows your scorecard day by day this month.',
-      'It shows the direction only: improving, steady or dipping. Your scores are still revealed with the monthly announcement.',
-      'It adds a new point each day, so it fills in as the month goes on.'
+      'A line across the top of your Overview now shows how your scorecard is moving: your last three months, then this month day by day.',
+      'It tells you if you are at your peak, improving, steady or dipping. This month\'s score is still revealed with the monthly announcement.',
+      'A new point is added each day as the month goes on.'
     ] },
   { build:'2026-11-09-H', version:'2026.11.09h', date:'November 9, 2026',
     summary:'The face scan is easier to finish.',
@@ -39648,10 +39648,14 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
      VAs asked for the daily movement of their scorecard on the greeting card. This draws the month so far as one free line
      between the name and the world clock — no box, no axes, no numbers. Data: Supabase sc_trend (shape only: each day
      scaled around the month's first point, because the month's scores stay held until the announcement), written each day
-     by the portal backend's scorecard snapshot (10a). The owner sees the team's line. Nothing shows until a point exists. */
+     by the portal backend's scorecard snapshot (10a). The owner sees the team's line. Nothing shows until a point exists.
+     Nov 10b (Jeth: "it doesn't need a minimum of days — pull out the scores they are having … so they can see if they are on
+     their peak, increasing, decreasing"): the line opens with the last 3 finalized months, then this month's days. */
   var JL={ data:null, at:0, busy:false, emp:'' };
-  var JL_WORD={ up:'Improving', flat:'Steady', down:'Dipping' };
+  var JL_WORD={ up:'Improving', flat:'Steady', down:'Dipping', peak:'At your peak' };
+  var JL_MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
   var JL_ICO={ up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 16 10 10 14 14 20 7"/><polyline points="15 7 20 7 20 12"/></svg>',
+    peak:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.8l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3.1-5.4 3.1 1.2-6L3.3 9.1l6.1-.7z"/></svg>',
     flat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 8 10 14 14 10 20 17"/><polyline points="15 17 20 17 20 12"/></svg>' };
   function jlMonth(){ return new Date(Date.now()+8*3600e3).toISOString().slice(0,7); }   /* the month in the Philippines */
@@ -39664,7 +39668,7 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
     fetch(SUPA_URL+'/rest/v1/rpc/sc_trend', { method:'POST', headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json' },
       body:JSON.stringify({ p_emp:isOwner()?'__team':id, p_month:jlMonth() }) })
       .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(d){ if(d && d.days) JL.data=d; })
+      .then(function(d){ if(d && d.days){ JL.data=d; if(!d.days.length) JL.at=Date.now()-25*60000; } })   /* nothing yet → ask again in 5 min */
       .catch(function(){})
       .then(function(){ JL.busy=false; });
   }
@@ -39680,6 +39684,15 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
     var x=R-hr.left+44, x2=(ar ? ar.left : ir.right)-hr.left-34, y=ir.top-hr.top+2, y2=(sr && sr.top>ir.top+60 ? sr.top : ir.bottom)-hr.top-8;
     return { x:x, y:y, w:x2-x, h:y2-y };
   }
+  function jlMonName(s){ return JL_MON[(+String(s).split('-')[1]||1)-1]; }
+  /* the hover text for point i: what it is and how it moved from the point before */
+  function jlStep(d, K, i){
+    var what=(K[i]==='m') ? jlMonName(d.days[i])+' · final score' : jlFmt(d.days[i])+' · this month so far';
+    if(!i) return what;
+    var by=(K[i-1]==='m') ? jlMonName(d.days[i-1]) : 'the day before';
+    var mv=(d.y[i]>d.y[i-1]+0.02) ? 'up from '+by : ((d.y[i]<d.y[i-1]-0.02) ? 'down from '+by : 'about the same as '+by);
+    return what+' · '+mv;
+  }
   function jlFmt(s){ var M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; var p=String(s).split('-'); return M[(+p[1]||1)-1]+' '+(+p[2]||''); }
   function jlRender(){
     var h=document.getElementById('dashboard-hero'), el=document.getElementById('jp-line'), d=JL.data;
@@ -39691,9 +39704,9 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
     if(el.__k===key) return;
     var replay=(el.__dk!==dk); el.__k=key; el.__dk=dk;
     el.classList.toggle('still', !replay);
-    var W=Math.round(g.w), H=Math.round(g.h), n=d.days.length, pl=6, pr=10, pt=26, pb=10;
+    var W=Math.round(g.w), H=Math.round(g.h), n=d.days.length, pl=6, pr=10, pt=26, pb=18, K=d.kinds||[];   /* K: 'm' a finalized month · 'd' a day this month */
     function f(v){ return (Math.round(v*10)/10).toString(); }
-    var cap='<div class="jl-cap">'+(team ? 'Team this month' : 'My month')+'</div>', svg, word='', note='';
+    var cap='<div class="jl-cap">'+(team ? 'Team scorecard' : 'My scorecard')+'</div>', svg, word='', note='';
     if(n===1){   /* the first point of the month: a dotted path ahead, today's point breathing at its start */
       var y0=pt+(H-pt-pb)/2;
       svg='<path class="jl-base" d="M'+f(pl+8)+' '+f(y0)+' L'+f(W-pr)+' '+f(y0)+'"/>'+
@@ -39702,19 +39715,24 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
       el.innerHTML=cap+'<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+svg+'</svg>'+note;
       return;
     }
-    var t0=Date.parse(d.days[0]), t1=Date.parse(d.days[n-1]), span=Math.max(1, t1-t0);
+    /* spacing: a step that touches a month point is 3 units, a day-to-day step 1 — the months keep their room and the days
+       fill in as this month goes on */
+    var X=[0]; for(var q=1;q<n;q++) X.push(X[q-1]+((K[q]==='m'||K[q-1]==='m') ? 3 : 1)); var XT=Math.max(1, X[n-1]);
     var lo=Math.min(0, Math.min.apply(null, d.y)), hi=Math.max(0, Math.max.apply(null, d.y)), rg=Math.max(hi-lo, .7), mid=(hi+lo)/2; lo=mid-rg/2; hi=mid+rg/2;   /* small moves stay small */
-    var P=d.y.map(function(v, i){ var t=Date.parse(d.days[i]); return [pl+(W-pl-pr)*((t-t0)/span), pt+(H-pt-pb)*(1-(v-lo)/(hi-lo))]; });
+    var P=d.y.map(function(v, i){ return [pl+(W-pl-pr)*(X[i]/XT), pt+(H-pt-pb)*(1-(v-lo)/(hi-lo))]; });
     var line='M'+f(P[0][0])+' '+f(P[0][1]);
     for(var i=0;i<n-1;i++){ var a=P[Math.max(0,i-1)], b=P[i], c=P[i+1], e=P[Math.min(n-1,i+2)];
       line+=' C'+[b[0]+(c[0]-a[0])/6, b[1]+(c[1]-a[1])/6, c[0]-(e[0]-b[0])/6, c[1]-(e[1]-b[1])/6, c[0], c[1]].map(f).join(' '); }
     var area=line+' L'+f(P[n-1][0])+' '+H+' L'+f(P[0][0])+' '+H+' Z', pts='';
     for(i=0;i<n-1;i++){
-      var st=i ? (d.y[i]>d.y[i-1]+0.02 ? 'up from the day before' : (d.y[i]<d.y[i-1]-0.02 ? 'down from the day before' : 'about the same')) : 'start of the month';
-      pts+='<g class="jl-pt"><circle class="jl-hit" cx="'+f(P[i][0])+'" cy="'+f(P[i][1])+'" r="10"/><circle class="jl-d" cx="'+f(P[i][0])+'" cy="'+f(P[i][1])+'" r="2.4" style="animation-delay:'+(0.3+1.8*((P[i][0]-pl)/Math.max(1,W-pl-pr))).toFixed(2)+'s"/><title>'+jlFmt(d.days[i])+' · '+st+'</title></g>';
+      var st=jlStep(d, K, i);
+      pts+='<g class="jl-pt'+(K[i]==='m'?' jl-m':'')+'"><circle class="jl-hit" cx="'+f(P[i][0])+'" cy="'+f(P[i][1])+'" r="10"/><circle class="jl-d" cx="'+f(P[i][0])+'" cy="'+f(P[i][1])+'" r="2.4" style="animation-delay:'+(0.3+1.8*((P[i][0]-pl)/Math.max(1,W-pl-pr))).toFixed(2)+'s"/><title>'+st+'</title></g>';
     }
-    var L=P[n-1], k=(d.dir==='up'||d.dir==='down') ? d.dir : 'flat';
-    pts+='<g class="jl-pt"><circle class="jl-hit" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="11"/><circle class="jl-ring" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="4.6"/><circle class="jl-now" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="5"/><title>'+jlFmt(d.days[n-1])+' · latest · '+JL_WORD[k].toLowerCase()+'</title></g>';
+    var L=P[n-1], k=d.peak ? 'peak' : ((d.dir==='up'||d.dir==='down') ? d.dir : 'flat'), labs='', seenCur=false;
+    /* small month names under the line: each finalized month, and this month at its first day */
+    for(i=0;i<n;i++){ var lb=''; if(K[i]==='m') lb=jlMonName(d.days[i]).slice(0,3); else if(!seenCur){ seenCur=true; lb=jlMonName(d.days[i]).slice(0,3)+(i===n-1 && i>0 ? ' · now' : ''); }
+      if(lb) labs+='<text class="jl-lab" x="'+f(Math.min(Math.max(P[i][0], 12), W-22))+'" y="'+(H-2)+'" text-anchor="middle">'+lb+'</text>'; }
+    pts+='<g class="jl-pt"><circle class="jl-hit" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="11"/><circle class="jl-ring" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="4.6"/><circle class="jl-now" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="5"/><title>'+jlStep(d, K, n-1)+'</title></g>';
     svg='<defs><linearGradient id="jlS" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="'+W+'" y2="0"><stop offset="0" class="jl-s0"/><stop offset=".55" class="jl-s1"/><stop offset="1" class="jl-s2"/></linearGradient>'+
         '<linearGradient id="jlF" gradientUnits="userSpaceOnUse" x1="0" y1="'+pt+'" x2="0" y2="'+H+'"><stop offset="0" class="jl-f0"/><stop offset="1" class="jl-f1"/></linearGradient>'+
         '<linearGradient id="jlM" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".22" stop-color="#fff" stop-opacity="1"/><stop offset=".9" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity=".4"/></linearGradient>'+
@@ -39723,10 +39741,10 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
       '<g class="jl-float"><path class="jl-area" d="'+area+'" fill="url(#jlF)" mask="url(#jlMask)"/>'+
       '<path class="jl-glow" d="'+line+'" pathLength="1" stroke="url(#jlS)" filter="url(#jlBlur)"/>'+
       '<path class="jl-line" d="'+line+'" pathLength="1" stroke="url(#jlS)"/>'+
-      '<path class="jl-run" d="'+line+'" pathLength="1"/>'+pts+'</g>';
-    word='<div class="jl-word '+k+'">'+JL_ICO[k]+JL_WORD[k]+'</div>';
+      '<path class="jl-run" d="'+line+'" pathLength="1"/>'+pts+'</g>'+labs;
+    word='<div class="jl-word '+k+'">'+JL_ICO[k]+(k==='peak' && team ? 'Team at its peak' : JL_WORD[k])+'</div>';
     el.innerHTML=cap+word+'<svg viewBox="0 0 '+W+' '+H+'">'+svg+'</svg>';
-    el.setAttribute('aria-label', (team ? 'Team this month: ' : 'My month: ')+JL_WORD[k]);
+    el.setAttribute('aria-label', (team ? 'Team scorecard: ' : 'My scorecard: ')+JL_WORD[k]);
   }
   window.jpLineRender=function(){ try{ jlLoad(); jlRender(); }catch(e){} };
 
@@ -39777,6 +39795,9 @@ html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-float{ animation:j
 html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-d{ fill:var(--jl-dot); stroke:var(--jl-b); stroke-width:1.7; opacity:0; animation:jlFade .35s ease forwards;
   transform-box:fill-box; transform-origin:center; transition:transform .18s ease; }
 html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-pt{ pointer-events:auto; cursor:default; }
+/* Nov 10b: finalized months are solid points with their names under the line */
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-m .jl-d{ fill:var(--jl-b); stroke:var(--jl-dot); stroke-width:1.8; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-lab{ font:750 9.5px/1 var(--jp-font); letter-spacing:.12em; text-transform:uppercase; fill:var(--jl-ink); opacity:0; animation:jlFade .6s ease 1.1s forwards; }
 html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-hit{ fill:transparent; stroke:none; pointer-events:all; }
 html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-pt:hover .jl-d{ transform:scale(1.8); }
 html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-now{ fill:var(--jl-c); stroke:var(--jl-dot); stroke-width:2.2; opacity:0; animation:jlFade .4s ease 2s forwards; }
@@ -39794,7 +39815,7 @@ html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-note{ position:abs
   opacity:0; animation:jlFade .6s ease .6s forwards; }
 /* re-drawn after a resize: no replay of the entrance, the running light and the breathing dot carry on */
 html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line.still :is(.jl-line, .jl-glow){ animation:none; stroke-dashoffset:0; }
-html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line.still :is(.jl-area, .jl-d, .jl-now, .jl-cap, .jl-word, .jl-note, .jl-base){ animation:none; opacity:1; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line.still :is(.jl-area, .jl-d, .jl-now, .jl-cap, .jl-word, .jl-note, .jl-base, .jl-lab){ animation:none; opacity:1; }
 html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line.still .jl-word{ transform:none; }
 @keyframes jlDraw{ to{ stroke-dashoffset:0; } }
 @keyframes jlFade{ to{ opacity:1; } }
@@ -39805,7 +39826,7 @@ html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line.still .jl-word{ transf
 @media (prefers-reduced-motion: reduce){
   html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line *{ animation:none !important; }
   html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line :is(.jl-line, .jl-glow){ stroke-dashoffset:0; }
-  html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line :is(.jl-area, .jl-d, .jl-now, .jl-cap, .jl-word, .jl-note, .jl-base){ opacity:1; }
+  html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line :is(.jl-area, .jl-d, .jl-now, .jl-cap, .jl-word, .jl-note, .jl-base, .jl-lab){ opacity:1; }
   html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line :is(.jl-run, .jl-ring){ display:none; }
 }
 </style>
