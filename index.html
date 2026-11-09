@@ -2586,6 +2586,8 @@
   .chat-send-btn:hover { opacity: 0.85; }
 
   /* ── Chat media (photos/GIFs), unsend, group create ── */
+  .chat-input-wrap.eod-ro > * { display:none !important; }
+  .chat-input-wrap.eod-ro::before { content:'Only the portal posts here. Press End of Day; once the portal approves it, your EOD appears in this chat.'; display:block; width:100%; padding:10px 14px; border-radius:12px; background:rgba(148,163,184,.12); color:var(--text-2); font-size:12.5px; line-height:1.45; text-align:center; }
   .chat-media-btn { width:34px; height:34px; border-radius:50%; border:none; background:transparent; color:var(--text-2); cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; }
   .chat-media-btn:hover { color:var(--orange-1); background:rgba(255,107,26,.1); }
   .chat-media-btn.gif { font-size:11px; letter-spacing:.02em; border:1px solid var(--border); border-radius:8px; width:auto; padding:0 8px; height:30px; }
@@ -18245,7 +18247,10 @@ function selectChat(empId, name) {
 
   // One-click EOD button shows only inside the EOD channel
   var eodBtn = document.getElementById('eod-send-btn');
-  if (eodBtn) eodBtn.style.display = (empId === 'ch:eod') ? 'inline-flex' : 'none';
+  if (eodBtn) eodBtn.style.display = 'none';   // Nov 9: retired — the portal posts the EOD itself once it approves it
+  // Nov 9 (Jeth): "This chat is only for receiving, not sending." EOD Reports is read-only — only the portal posts there.
+  var _eodRo = (empId === 'ch:eod') && !/^(JMBEAST|ADMIN)$/i.test(String(chatEmpId || ''));
+  var _ciw = document.querySelector('.chat-input-wrap'); if (_ciw) _ciw.classList.toggle('eod-ro', _eodRo);
   // Tetris challenge button shows only in 1-on-1 DMs (not group/channels)
   var gameBtn = document.getElementById('chat-game-btn');
   if (gameBtn) gameBtn.style.display = (empId !== 'group' && empId.indexOf('ch:') !== 0) ? 'inline-flex' : 'none';
@@ -26649,7 +26654,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-09-E';
+var PORTAL_BUILD='2026-11-09-F';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -33909,9 +33914,9 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
   function announce(r){
     var c=sb(); if(!c) return;
     var nm=empName(), sl=r.checks && +r.checks.sessions_left||0;
-    c.from('messages').insert([{ sender_id:'PORTAL', sender_name:'JMB Portal', message:nm+'’s EOD has been approved by the portal. ✅', receiver_id:null, is_read:false }]).then(function(){}, function(){});
-    var note=(sl && r.expl)?('\n📉 '+pl(sl,'session')+' not finished — reason: “'+r.expl+'”'):'';
-    c.from('messages').insert([{ sender_id:r.emp, sender_name:(typeof chatEmpName!=='undefined'&&chatEmpName)||nm, message:'EOD approved by the portal ✅'+note, receiver_id:null, channel_id:'eod', is_read:false }]).then(function(){}, function(){});
+    var note=(sl && r.expl)?('\n'+pl(sl,'session')+' not finished. Reason: \u201c'+r.expl+'\u201d'):'';
+    /* Nov 9 (Jeth): the approval goes to the EOD Reports chat, posted by the portal — the VA no longer posts there */
+    c.from('messages').insert([{ sender_id:'PORTAL', sender_name:'JMB Portal', message:nm+'\u2019s EOD has been approved by the portal. \u2705'+note, receiver_id:null, channel_id:'eod', is_read:false }]).then(function(){}, function(){});
   }
   var REV={
     begin:function(G){
@@ -34029,9 +34034,18 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
     };
     return true;
   }
+  function eodRo(){ try{ return currentChat==='ch:eod' && !/^(JMBEAST|ADMIN)$/i.test(String((typeof chatEmpId!=='undefined'&&chatEmpId)||'')); }catch(e){ return false; } }
+  function wrapChatSend(){
+    if(window.__eodChatWrap || typeof window.sendMessage!=='function' || typeof window._chatSendMedia!=='function') return !!window.__eodChatWrap; window.__eodChatWrap=1;
+    var sm=window.sendMessage, md=window._chatSendMedia;
+    var no=function(){ try{ showToast('Only the portal posts in EOD Reports. Press End of Day; your EOD appears here once it is approved.'); }catch(e){} };
+    window.sendMessage=function(){ if(eodRo()){ no(); var i=document.getElementById('chat-input'); if(i) i.value=''; return; } return sm.apply(this, arguments); };
+    window._chatSendMedia=function(){ if(eodRo()){ no(); return Promise.resolve(); } return md.apply(this, arguments); };
+    return true;
+  }
   window.EODGATE={ collect:collect, REV:REV, showList:showList, reasonsOf:reasonsOf };
   var tries=0, iv=setInterval(function(){
-    var a=wrapAsk(), b=wrapSubmit(), c=wrapAppeal();
+    var a=wrapAsk(), b=wrapSubmit(), c=wrapAppeal(); wrapChatSend();
     if(document.getElementById('eod-send-btn') || tries>3) retireSend();
     if((a && b && c) || ++tries>60){ clearInterval(iv); }
   }, 500);
@@ -34450,6 +34464,12 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-09-F', version:'2026.11.09f', date:'November 9, 2026',
+    summary:'EOD Reports is now read-only.',
+    items:[
+      'You can no longer type or send anything in the EOD Reports chat.',
+      'Press End of Day. When the portal approves it, the portal posts your EOD there for you.'
+    ] },
   { build:'2026-11-09-E', version:'2026.11.09e', date:'November 9, 2026',
     summary:'New rule: no approved End of Day, no pay for the day.',
     items:[
@@ -39531,7 +39551,7 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
   function isOwner(){ return OWNER.test(me()); }
   function nightOn(){ return isOwner() && ls('jp_night')==='1'; }   /* night mode stays owner-only after the roll-out */
   /* the night colours live in /jp-night.css (VAs never download it); loaded the first time night is wanted */
-  var NIGHT_V='e48c62881c', nightCss=null, nightReady=false, nightWait=[];
+  var NIGHT_V='7c033b659b', nightCss=null, nightReady=false, nightWait=[];
   function nightLoad(cb){
     if(nightReady){ if(cb) cb(); return; }
     if(cb) nightWait.push(cb);
