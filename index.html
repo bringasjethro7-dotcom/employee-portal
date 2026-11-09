@@ -17005,6 +17005,8 @@ function setMonthlyTrackedHours() {
       var h = mins / 60;
       el.textContent = h.toFixed(1) + 'h';
       var rg = document.getElementById('sum-regular'); if (rg) rg.textContent = h.toFixed(1) + 'h';
+      el.setAttribute('data-raw', h.toFixed(2)); el.setAttribute('data-emp', String(id));
+      try { if (window.EODP) EODP.paint(id); } catch(_ep) {}   // Nov 9: days with no approved EOD are Pending — not in the total
     }).catch(function(){});
 }
 function renderAttSummary() {
@@ -18314,7 +18316,7 @@ async function loadMessages(force) {
 
 // Avatar markup for a chat participant (photo if known, else colored initials)
 function chatAvatarFor(id, name) {
-  if (id === 'ADMIN') return '<img src="' + ADMIN_LOGO + '" class="cmsg-ava-img" style="background:#eef0f4;padding:3px;object-fit:contain;">';
+  if (id === 'ADMIN' || id === 'PORTAL') return '<img src="' + ADMIN_LOGO + '" class="cmsg-ava-img" style="background:#eef0f4;padding:3px;object-fit:contain;">';
   var url = presencePhotos[id] || employeePhotos[id];
   if (url) return '<img src="' + url + '" class="cmsg-ava-img" alt="">';
   return '<div class="cmsg-ava-fb" style="background:' + bubbleColorFor(id) + ';">' + bubbleInitials(id, name) + '</div>';
@@ -26647,7 +26649,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-09-D';
+var PORTAL_BUILD='2026-11-09-E';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -33709,14 +33711,38 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
 })();
 </script>
 
-<script id="pc-eod-gate">
-/* ── END-OF-SHIFT POST CHECK GATE (Jeth + the client, Oct 27) ──
-   "Before they can do their EOD they need to do a final check of those posts." A VA who did Reddit work today can't
-   end the day while posts they logged this shift still have no verdict in Reddit Central (stayed up / removed by mods /
-   spam filter). One small call to the Reddit backend (pc_eod, own session). It never blocks when that backend can't be
-   reached within 8 s or doesn't know the action yet (fails open), or when the VA did no Reddit work today. */
+<script id="eod-gate">
+/* ── "NO APPROVED EOD, NO PAY" (Jeth, Nov 9 2026) ──
+   "No EOD for the day, no recorded hours or payment… not subject for appeal."
+   1. End of Day first checks the VA's tools. Reddit work: every post has a verdict (backend pc_eod + Reddit Central),
+      today's karma is recorded on every account with work today, the health-check list is done — those block. Sessions
+      left are the only thing a VA can get past, with an explanation in English (40+ characters).
+      Reddit Central publishes the VA's day to Supabase rc_eod_audit; posts are also asked from the Reddit backend.
+   2. The EOD goes to the portal (Supabase eod_submit). About 75 s later the portal checks the tools again and decides
+      (eod_decide refuses before 45 s). Approved → "<Name>'s EOD has been approved by the portal." in the group chat
+      (Portal Messages) + the explanation in the EOD channel. The VA no longer sends the EOD.
+   3. A day with work-log hours and no approved EOD (from Nov 9) is Pending: not in the VA's total hours, not on the
+      payslip, no system-error report. Only the admin can release it (admin console).
+   Kept the old safety: an unreachable Reddit backend no longer lets the EOD through silently. */
 (function(){
-  var RC_PAGE='https://internals.jmbvirtuals.com/reddit.html', fails=0;
+  var RC_PAGE='https://internals.jmbvirtuals.com/reddit.html', EOD_FROM='2026-11-09', REVIEW_MS=75000, MIN_EXPL=40;
+  function emp(){ var d=window._currentEmpData||{}; return String(d.employee_id||(typeof attEmpId!=='undefined'&&attEmpId)||'').trim().toUpperCase(); }
+  function empName(){
+    var d=window._currentEmpData||{}, n=String(d.full_name||(typeof chatEmpName!=='undefined'&&chatEmpName)||'').trim();
+    if(n.indexOf(',')>0){ var p=n.split(','); n=(p.slice(1).join(' ').trim()+' '+p[0].trim()).trim(); }
+    return n||emp();
+  }
+  function sb(){ return (typeof supaClient!=='undefined' && supaClient) ? supaClient : null; }
+  function bizDay(){ try{ return portalBizDate(); }catch(e){ return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'}); } }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function fmtDay(d){ try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); }catch(e){ return d; } }
+  function pl(n,w){ return n+' '+w+(n===1?'':'s'); }
+  function timeout(p, ms){ return Promise.race([ p, new Promise(function(res){ setTimeout(function(){ res(null); }, ms); }) ]); }
+  function rpc(fn, args, tries){
+    var c=sb(); if(!c) return Promise.resolve(null); tries=tries||3;
+    return timeout(c.rpc(fn, args).then(function(r){ return (r && !r.error) ? r.data : { ok:false, error:'RPC', message:String((r&&r.error&&r.error.message)||'') }; }, function(){ return null; }), 15000)
+      .then(function(d){ if((!d || d.error==='RPC') && tries>1) return new Promise(function(res){ setTimeout(function(){ res(rpc(fn, args, tries-1)); }, 2500); }); return d; });
+  }
   function didReddit(){
     try{
       var L=[]; try{ L=(_loadTodayCache()||[]).slice(); }catch(e){}
@@ -33726,64 +33752,291 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
       return L.some(function(e){ return e && /reddit/i.test(String(e.project||'')+' '+String(e.category||'')+' '+String(e.task||'')); });
     }catch(e){ return true; }
   }
-  function ask(emp){
+  function askPosts(e){
     if(typeof RC_API_URL==='undefined' || !RC_API_URL) return Promise.resolve(null);
-    var u=RC_API_URL+'?action=pc_eod&employee_id='+encodeURIComponent(emp)+'&sess='+encodeURIComponent((typeof JMB_SESS!=='undefined'&&JMB_SESS)||'')+'&_='+Date.now();
-    return Promise.race([ fetch(u).then(function(r){ return r.json(); }).catch(function(){ return null; }), new Promise(function(res){ setTimeout(function(){ res(null); }, 25000); }) ]);   // Nov 9: 8 s → 25 s (the check was timing out and letting EOD through)
+    var u=RC_API_URL+'?action=pc_eod&employee_id='+encodeURIComponent(e)+'&sess='+encodeURIComponent((typeof JMB_SESS!=='undefined'&&JMB_SESS)||'')+'&_='+Date.now();
+    return timeout(fetch(u).then(function(r){ return r.json(); }).catch(function(){ return null; }), 25000);
   }
-  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-  function tm(t){ var m=String(t||'').match(/\s(\d{1,2}):(\d{2})/); if(!m) return ''; var h=+m[1]; return ((h%12)||12)+':'+m[2]+' '+(h<12?'AM':'PM'); }
-  function close(){ var o=document.getElementById('pc-eod-ov'); if(o) o.remove(); }
-  function show(r, emp, proceed){
-    close();
-    var n=r.pending, mins=n;   // 1 min per post
-    if(r.unknown){ r.posts=[]; }
-    var o=document.createElement('div'); o.id='pc-eod-ov';
-    o.style.cssText='position:fixed;inset:0;z-index:100600;background:rgba(15,23,42,.5);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:18px';
-    o.innerHTML='<div style="width:min(480px,100%);max-height:86vh;overflow:auto;background:#fff;color:#0f172a;border-radius:22px;padding:22px 22px 18px;box-shadow:0 30px 80px -20px rgba(0,0,0,.45);font-family:inherit">'+
-      '<div style="font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#db2777">Before you end your day</div>'+
-      '<div style="font-size:20px;font-weight:800;letter-spacing:-.01em;margin:4px 0 6px">'+(r.unknown?'Confirm your Reddit posts are checked':'Check your '+n+' Reddit post'+(n===1?'':'s'))+'</div>'+
-      (r.unknown?'<div style="font-size:13.5px;line-height:1.55;color:#475569">Reddit Central didn\'t answer in time, so the portal can\'t confirm your posts from this shift are checked. Open <b>Reddit Central</b>, make sure every post has a verdict (stayed up, removed by mods or spam filter), then press <b>I\'m done — check again</b>.</div>':'<div style="font-size:13.5px;line-height:1.55;color:#475569">You logged '+n+' post'+(n===1?'':'s')+' this shift'+(r.accounts?' on '+r.accounts+' account'+(r.accounts===1?'':'s'):'')+' that '+(n===1?'has':'have')+' no verdict yet. Open <b>Reddit Central</b> and mark each one: <b>stayed up</b>, <b>removed by mods</b> or <b>spam filter</b>. You have about '+mins+' minute'+(mins===1?'':'s')+' for it (1 minute per post) — keep your portal timer running on Reddit while you check.</div>')+
-      '<div style="margin:12px 0 4px;border:1px solid #e2e8f0;border-radius:14px;padding:6px 12px;max-height:200px;overflow:auto">'+(r.posts||[]).map(function(p){ return '<div style="display:flex;gap:8px;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #e2e8f0;font-size:13px"><span><b>'+esc(p.h)+'</b> · '+esc(p.r)+'</span><span style="color:#64748b">'+esc(tm(p.t))+'</span></div>'; }).join('')+'</div>'+
-      '<div id="pc-eod-msg" style="font-size:12px;color:#b45309;min-height:16px;margin-top:6px"></div>'+
-      '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px">'+
-        '<button type="button" data-x="cancel" style="border:1px solid #e2e8f0;background:#fff;color:#0f172a;font:inherit;font-weight:700;font-size:13.5px;padding:10px 14px;border-radius:12px;cursor:pointer">Not yet</button>'+
-        '<button type="button" data-x="again" style="border:1px solid #e2e8f0;background:#fff;color:#0f172a;font:inherit;font-weight:700;font-size:13.5px;padding:10px 14px;border-radius:12px;cursor:pointer">I\'m done — check again</button>'+
-        '<button type="button" data-x="open" style="border:0;background:linear-gradient(135deg,#ec4899,#8b5cf6);color:#fff;font:inherit;font-weight:800;font-size:13.5px;padding:10px 16px;border-radius:12px;cursor:pointer">Open Reddit Central</button>'+
-      '</div></div>';
-    document.body.appendChild(o);
-    o.addEventListener('click', function(e){
-      var b=e.target.closest && e.target.closest('[data-x]'); if(e.target===o){ close(); return; } if(!b) return;
-      var x=b.getAttribute('data-x');
-      if(x==='cancel'){ close(); return; }
-      if(x==='open'){ try{ window.open(RC_PAGE+'?tab=today','rc-central'); }catch(_o){ location.href=RC_PAGE; } return; }
-      if(x==='again'){ b.disabled=true; b.textContent='Checking…';
-        ask(emp).then(function(r2){ b.disabled=false; b.textContent='I\'m done — check again';
-          if(!r2 || !r2.ok){ fails++; if(fails>=3){ close(); proceed(); return; }   /* Nov 9: unreachable no longer lets EOD through (only after 3 failed tries, so an outage can't trap anyone) */
-            var m0=document.getElementById('pc-eod-msg'); if(m0) m0.textContent='Reddit Central didn\'t answer — make sure every post is checked, then try again.'; return; }
-          if(!(r2.pending>0)){ close(); proceed(); return; }
-          show(r2, emp, proceed); var m=document.getElementById('pc-eod-msg'); if(m) m.textContent='Still '+r2.pending+' post'+(r2.pending===1?'':'s')+' without a verdict — finish them in Reddit Central, then try again.'; }); }
+  function askAudit(e, day){
+    var c=sb(); if(!c) return Promise.resolve(null);
+    return timeout(c.from('rc_eod_audit').select('*').eq('employee_id', e).eq('day', day).limit(1)
+      .then(function(r){ return (r && !r.error && r.data && r.data[0]) || null; }, function(){ return null; }), 12000);
+  }
+  function reasonsOf(c){
+    var L=[]; if(!c || !c.reddit) return '';
+    if(!c.audit) L.push('Reddit Central had not reported your day');
+    if(c.posts_unknown) L.push('Reddit Central could not confirm your posts');
+    if(c.posts) L.push(pl(c.posts,'post')+' without a verdict');
+    if(c.karma) L.push('karma not recorded today on '+pl(c.karma,'account'));
+    if(c.hc) L.push(pl(c.hc,'health check')+' not done');
+    return L.join(' · ');
+  }
+  /* everything the End of Day checks, in one object (also what is saved with the EOD) */
+  function collect(e, day){
+    day=day||bizDay();
+    if(!didReddit()) return Promise.resolve({ reddit:false, day:day, blocking:0, sessions_left:0, unknown:false, reasons:'' });
+    return Promise.all([ askPosts(e).then(function(r){ return (r&&r.ok)?r:askPosts(e); }), askAudit(e, day) ]).then(function(v){
+      var P=v[0], A=v[1], c={ reddit:true, day:day };
+      c.posts_unknown=!(P && P.ok);
+      c.audit=!!A; c.audit_at=(A&&A.at)||'';
+      c.posts=Math.max((P&&P.ok)?(+P.pending||0):0, A?(+A.posts_unchecked||0):0);
+      c.post_list=((P&&P.posts)||[]).slice(0,30);
+      c.karma=A?(+A.karma_missing||0):0; c.karma_list=A?(A.karma_list||[]):[];
+      c.hc=A?(+A.hc_left||0):0; c.hc_list=A?(A.hc_list||[]):[]; c.hc_assigned=A?(+A.hc_assigned||0):0;
+      c.sessions_left=A?(+A.sessions_left||0):0; c.sessions_due=A?(+A.due||0):0;
+      c.blocking=c.posts+c.karma+c.hc+(c.audit?0:1);
+      c.unknown=c.posts_unknown;
+      c.reasons=reasonsOf(c);
+      return c;
     });
   }
-  function wrap(){
-    if(window.__pcEodWrap || typeof window.askEOD!=='function') return !!window.__pcEodWrap; window.__pcEodWrap=1;
-    var orig=window.askEOD, busy=false; fails=0;
+
+  /* ── 1 · the End of Day checklist ── */
+  var CSS='#eodg-ov{position:fixed;inset:0;z-index:100600;background:rgba(15,23,42,.5);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:18px}'+
+    '#eodg-ov .bx{width:min(520px,100%);max-height:90vh;overflow:auto;background:#fff;color:#0f172a;border-radius:22px;padding:22px 22px 18px;box-shadow:0 30px 80px -20px rgba(0,0,0,.45);font-family:inherit}'+
+    '#eodg-ov .ey{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#db2777}'+
+    '#eodg-ov h3{font-size:20px;font-weight:800;letter-spacing:-.01em;margin:4px 0 4px}'+
+    '#eodg-ov .sub{font-size:13px;line-height:1.5;color:#475569;margin-bottom:12px}'+
+    '#eodg-ov .it{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #e2e8f0;border-radius:14px;margin-bottom:8px}'+
+    '#eodg-ov .it .ic{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:900;color:#fff;margin-top:1px}'+
+    '#eodg-ov .it.ok .ic{background:#16a34a}#eodg-ov .it.no .ic{background:#e11d48}#eodg-ov .it.warn .ic{background:#d97706}'+
+    '#eodg-ov .it.no{border-color:#fecdd3;background:#fff7f8}#eodg-ov .it.warn{border-color:#fde68a;background:#fffbeb}'+
+    '#eodg-ov .it b{font-size:13.5px}#eodg-ov .it .d{font-size:12.5px;color:#475569;line-height:1.45;margin-top:2px}'+
+    '#eodg-ov .it .ls{font-size:12px;color:#64748b;margin-top:4px;word-break:break-word}'+
+    '#eodg-ov textarea{width:100%;box-sizing:border-box;min-height:84px;border:1px solid #cbd5e1;border-radius:12px;padding:10px 12px;font:inherit;font-size:13.5px;resize:vertical;margin-top:8px}'+
+    '#eodg-ov .msg{font-size:12.5px;color:#b45309;min-height:16px;margin-top:6px}'+
+    '#eodg-ov .bt{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}'+
+    '#eodg-ov .bt button{border:1px solid #e2e8f0;background:#fff;color:#0f172a;font:inherit;font-weight:700;font-size:13.5px;padding:10px 14px;border-radius:12px;cursor:pointer}'+
+    '#eodg-ov .bt button.pr{border:0;background:linear-gradient(135deg,#ec4899,#8b5cf6);color:#fff;font-weight:800}'+
+    '#eodg-ov .bt button[disabled]{opacity:.45;cursor:not-allowed}'+
+    '#eodr-card{position:fixed;right:18px;bottom:18px;z-index:100500;width:min(380px,calc(100vw - 36px));background:#fff;color:#0f172a;border-radius:18px;padding:16px 16px 14px;box-shadow:0 24px 60px -18px rgba(15,23,42,.45);border:1px solid #f1f5f9;font-family:inherit}'+
+    '#eodr-card .t{font-size:15px;font-weight:800;margin-bottom:4px}#eodr-card .d{font-size:12.5px;line-height:1.5;color:#475569}'+
+    '#eodr-card .pb{height:6px;border-radius:6px;background:#f1f5f9;overflow:hidden;margin-top:10px}#eodr-card .pb i{display:block;height:100%;width:0;background:linear-gradient(90deg,#fb923c,#ec4899,#8b5cf6);transition:width linear}'+
+    '#eodr-card .x{float:right;border:0;background:none;font-size:18px;line-height:1;color:#94a3b8;cursor:pointer}'+
+    '#eodr-card.ok{border-color:#bbf7d0}#eodr-card.ok .t{color:#15803d}#eodr-card.no{border-color:#fecdd3}#eodr-card.no .t{color:#be123c}';
+  function css(){ if(document.getElementById('eodg-css')) return; var s=document.createElement('style'); s.id='eodg-css'; s.textContent=CSS; document.head.appendChild(s); }
+  function closeOv(){ var o=document.getElementById('eodg-ov'); if(o) o.remove(); }
+  function item(state, title, desc, list){
+    return '<div class="it '+state+'"><span class="ic">'+(state==='ok'?'✓':(state==='no'?'!':'…'))+'</span><div><b>'+esc(title)+'</b>'+(desc?'<div class="d">'+desc+'</div>':'')+
+      (list && list.length?'<div class="ls">'+list.map(esc).join(' · ')+'</div>':'')+'</div></div>';
+  }
+  var _fails=0;
+  function showList(c, proceed, keepTxt){
+    css(); closeOv();
+    var sl=+c.sessions_left||0, h='';
+    if(!c.audit) h+=item('no','Reddit Central hasn\'t reported your day', 'Open <b>Reddit Central</b> on the Today tab and leave it open for a moment. It sends your day to the portal by itself. Then press <b>Check again</b>.');
+    if(c.posts_unknown) h+=item('no','Posts: Reddit Central didn\'t answer', 'The portal couldn\'t confirm your posts from this shift. Make sure every post has a verdict, then press <b>Check again</b>.');
+    else h+=c.posts?item('no', pl(c.posts,'post')+' without a verdict', 'Mark each one in Reddit Central: <b>stayed up</b>, <b>removed by mods</b> or <b>spam filter</b> (about 1 minute per post, with your timer on Reddit).', (c.post_list||[]).map(function(p){ return (p.h||'')+(p.r?' · '+p.r:''); })):item('ok','Posts checked','Every post you logged has a verdict.');
+    if(c.audit){
+      h+=c.karma?item('no','Karma not recorded today on '+pl(c.karma,'account'), 'In Reddit Central tap the karma on each account and type what Reddit shows now.', c.karma_list):item('ok','Karma recorded','Today\'s karma is in for every account you work.');
+      h+=c.hc?item('no', pl(c.hc,'health check')+' left', 'Finish your list in Reddit Central → <b>Health check</b>.', c.hc_list):item('ok','Health check done', c.hc_assigned?('All '+c.hc_assigned+' accounts on your list are checked.'):'Nothing on your list today.');
+      h+=sl?item('warn', sl+' of '+c.sessions_due+' session'+(c.sessions_due===1?'':'s')+' not finished', 'This is the only thing you can leave open. Explain why below, in English, in full sentences.'):item('ok','Sessions done', c.sessions_due?('All '+c.sessions_due+' sessions are finished.'):'No sessions were due today.');
+    }
+    var blockers=(+c.blocking||0)>0 || c.posts_unknown, canUnknown=_fails>=3 && c.posts_unknown && !(c.blocking>0);
+    var o=document.createElement('div'); o.id='eodg-ov';
+    o.innerHTML='<div class="bx" role="dialog" aria-modal="true"><div class="ey">Before you end your day</div><h3>Your End of Day checklist</h3>'+
+      '<div class="sub">The portal checks your tools first. Your hours for <b>'+esc(fmtDay(c.day))+'</b> count only when your End of Day is approved.</div>'+h+
+      (sl && c.audit?'<textarea id="eodg-tx" placeholder="Why '+(sl===1?'is 1 session':'are '+sl+' sessions')+' not finished? Write it in English (at least '+MIN_EXPL+' characters)."></textarea>':'')+
+      '<div class="msg" id="eodg-msg">'+(canUnknown?'The portal still can\'t reach Reddit Central. You can end your day, but if it can\'t confirm your posts when it reviews your EOD, the day stays Pending until management releases it.':'')+'</div>'+
+      '<div class="bt"><button type="button" data-x="cancel">Not yet</button><button type="button" data-x="open">Open Reddit Central</button><button type="button" data-x="again">Check again</button>'+
+      '<button type="button" class="pr" data-x="go"'+((blockers && !canUnknown)?' disabled':'')+'>End my day</button></div></div>';
+    document.body.appendChild(o);
+    var tx=document.getElementById('eodg-tx'); if(tx && keepTxt) tx.value=keepTxt;
+    o.addEventListener('click', function(ev){
+      var b=ev.target.closest && ev.target.closest('[data-x]'); if(ev.target===o){ closeOv(); return; } if(!b) return;
+      var x=b.getAttribute('data-x'), m=document.getElementById('eodg-msg'), t=document.getElementById('eodg-tx'), keep=t?t.value:'';
+      if(x==='cancel'){ closeOv(); return; }
+      if(x==='open'){ try{ window.open(RC_PAGE+'?tab=today','rc-central'); }catch(_o){ location.href=RC_PAGE; } return; }
+      if(x==='again'){ b.disabled=true; b.textContent='Checking…';
+        collect(emp(), c.day).then(function(c2){ if(c2.posts_unknown) _fails++; showList(c2, proceed, keep);
+          var m2=document.getElementById('eodg-msg'); if(m2 && !m2.textContent) m2.textContent=(c2.blocking>0||c2.posts_unknown)?'Still not done: '+c2.reasons+'.':'All clear.'; });
+        return; }
+      if(x==='go'){
+        var v=t?String(t.value||'').trim():'';
+        if(sl && c.audit){
+          if(v.length<MIN_EXPL){ if(m) m.textContent='Explain the unfinished sessions in at least '+MIN_EXPL+' characters.'; return; }
+          try{ if(typeof _tagalogish==='function' && _tagalogish(v)){ if(m) m.textContent='English only, please. Rewrite your explanation in English.'; return; } }catch(_t){}
+        }
+        window.__eodG={ day:c.day, checks:c, expl:v, at:Date.now() };
+        closeOv(); proceed();
+      }
+    });
+  }
+  function wrapAsk(){
+    if(window.__eodGateWrap || typeof window.askEOD!=='function') return !!window.__eodGateWrap; window.__eodGateWrap=1;
+    var orig=window.askEOD, busy=false;
     window.askEOD=function(){
       var self=this, args=arguments, go=function(){ return orig.apply(self, args); };
-      var d=window._currentEmpData||{}, emp=String(d.employee_id||(typeof attEmpId!=='undefined'&&attEmpId)||'');
       try{ if(!getActiveSession()) return go(); }catch(_a){}
-      if(!emp || !didReddit()) return go();
-      if(busy) return; busy=true;
-      try{ showToast('Checking your Reddit posts…'); }catch(_t){}
-      ask(emp).then(function(r){ return (r && r.ok) ? r : ask(emp); }).then(function(r){ busy=false;   // Nov 9: one automatic retry
-        if(r && r.ok && !(r.pending>0)) return go();   // every post has a verdict
-        if(!r || !r.ok){ fails=1; show({ pending:0, accounts:0, posts:[], unknown:true }, emp, go); return; }   // Nov 9: can't confirm → no longer passes silently
-        show(r, emp, go);
+      var e=emp(); if(!e) return go();
+      if(busy) return; busy=true; _fails=0;
+      var day=bizDay();
+      if(!didReddit()){ busy=false; window.__eodG={ day:day, checks:{ reddit:false, day:day, blocking:0, sessions_left:0, unknown:false, reasons:'' }, expl:'', at:Date.now() }; return go(); }
+      try{ showToast('Checking your tools before End of Day…'); }catch(_t){}
+      collect(e, day).then(function(c){ busy=false; if(c.posts_unknown) _fails=1;
+        if(!(c.blocking>0) && !c.posts_unknown && !(c.sessions_left>0)){ window.__eodG={ day:day, checks:c, expl:'', at:Date.now() }; return go(); }   // all clear
+        showList(c, go);
+      }, function(){ busy=false; showList({ reddit:true, day:day, audit:false, posts_unknown:true, blocking:1, sessions_left:0 }, go); });
+    };
+    return true;
+  }
+
+  /* ── 2 · the review after the EOD ── */
+  function key(e){ return 'jmb_eodr_'+e; }
+  function load(e){ try{ return JSON.parse(localStorage.getItem(key(e))||'null'); }catch(x){ return null; } }
+  function save(r){ try{ localStorage.setItem(key(r.emp), JSON.stringify(r)); }catch(x){} }
+  var _barT=0;
+  function card(state, r, extra){
+    css(); var o=document.getElementById('eodr-card'); if(!o){ o=document.createElement('div'); o.id='eodr-card'; document.body.appendChild(o); }
+    o.className=state==='approved'?'ok':(state==='not_approved'?'no':'');
+    var day=fmtDay(r.day), html='';
+    if(state==='review'){
+      html='<div class="t">Your End of Day is with the portal</div><div class="d">It\'s checking your tools. You\'ll see the result here in about 1–2 minutes. Keep the portal open.'+(extra?'<br>'+esc(extra):'')+'</div><div class="pb"><i id="eodr-bar"></i></div>';
+    } else if(state==='approved'){
+      html='<button class="x" data-x="close" aria-label="Close">×</button><div class="t">EOD approved ✓</div><div class="d">Your hours for <b>'+esc(day)+'</b> count. The portal posted it in Messages. Thank you, see you next shift.</div>';
+    } else if(state==='not_approved'){
+      html='<button class="x" data-x="close" aria-label="Close">×</button><div class="t">EOD not approved</div><div class="d">'+(r.reasons?esc(r.reasons)+'.<br>':'')+'Your hours for <b>'+esc(day)+'</b> are <b>Pending</b>: not in your total hours and not on your payslip. This can\'t be appealed or reported as a system error. Only management can release it.</div>';
+    } else {
+      html='<button class="x" data-x="close" aria-label="Close">×</button><div class="t">The review didn\'t finish</div><div class="d">The portal couldn\'t reach the server. It will finish the review the next time you open the portal.</div>';
+    }
+    o.innerHTML=html;
+    o.onclick=function(ev){ var b=ev.target.closest && ev.target.closest('[data-x]'); if(b) o.remove(); };
+    if(state==='review'){
+      var left=Math.max(3000, REVIEW_MS-(Date.now()-(r.at||Date.now()))), bar=document.getElementById('eodr-bar');
+      if(bar){ var done=Math.min(1, 1-left/REVIEW_MS); bar.style.width=(done*100)+'%'; clearTimeout(_barT); _barT=setTimeout(function(){ bar.style.transitionDuration=(left/1000)+'s'; bar.style.width='96%'; }, 60); }
+    }
+  }
+  function announce(r){
+    var c=sb(); if(!c) return;
+    var nm=empName(), sl=r.checks && +r.checks.sessions_left||0;
+    c.from('messages').insert([{ sender_id:'PORTAL', sender_name:'JMB Portal', message:nm+'’s EOD has been approved by the portal. ✅', receiver_id:null, is_read:false }]).then(function(){}, function(){});
+    var note=(sl && r.expl)?('\n📉 '+pl(sl,'session')+' not finished — reason: “'+r.expl+'”'):'';
+    c.from('messages').insert([{ sender_id:r.emp, sender_name:(typeof chatEmpName!=='undefined'&&chatEmpName)||nm, message:'EOD approved by the portal ✅'+note, receiver_id:null, channel_id:'eod', is_read:false }]).then(function(){}, function(){});
+  }
+  var REV={
+    begin:function(G){
+      var e=emp(); if(!e) return;
+      var day=(G && G.day)||bizDay(); if(day<EOD_FROM) return;
+      var start=function(checks, expl){
+        var r={ emp:e, day:day, at:Date.now(), checks:checks||{}, expl:expl||'' };
+        save(r); card('review', r);
+        try{ fetch(APPS_SCRIPT_URL+'?action=eod_mark&employee_id='+encodeURIComponent(e)+'&date='+encodeURIComponent(day)+'&_='+Date.now()).catch(function(){}); }catch(_m){}   // receipt for the "EOD not sent" check
+        REV.submit(r).then(function(){ setTimeout(function(){ REV.decide(r, 0); }, REVIEW_MS); });
+      };
+      if(G && G.checks && Date.now()-(G.at||0)<45*60000) start(G.checks, G.expl);
+      else collect(e, day).then(function(c){ start(c, ''); });
+    },
+    submit:function(r){
+      return rpc('eod_submit', { p_emp:r.emp, p_day:r.day, p_name:empName(), p_checks:r.checks, p_expl:r.expl||'' }).then(function(d){ r.sub=!!(d && d.ok); save(r); return d; });
+    },
+    decide:function(r, n){
+      if(r.status) return;
+      var cur=load(r.emp); if(cur && cur.day===r.day && cur.status) return;   // another tab finished it
+      var p=(r.checks && r.checks.reddit) ? collect(r.emp, r.day) : Promise.resolve(r.checks && r.checks.day ? r.checks : { reddit:false, day:r.day, blocking:0, sessions_left:0, unknown:false, reasons:'' });
+      p.then(function(c){
+        var f=Object.assign({}, c);
+        if(c.reddit && !c.audit && r.checks && r.checks.audit){   // Reddit Central was closed after the EOD — keep what it said at End of Day
+          ['audit','karma','karma_list','hc','hc_list','hc_assigned','sessions_left','sessions_due'].forEach(function(k){ f[k]=r.checks[k]; });
+        }
+        if(c.reddit && c.posts_unknown && n<4){ card('review', r, 'Reddit Central is slow to answer. Trying again…'); setTimeout(function(){ REV.decide(r, n+1); }, 45000); return; }
+        f.blocking=f.reddit?((+f.posts||0)+(+f.karma||0)+(+f.hc||0)+(f.audit?0:1)):0;
+        f.reasons=reasonsOf(f);
+        if(f.reddit && (+f.sessions_left||0)>0 && !(String(r.expl||'').trim().length>=MIN_EXPL)) f.reasons=(f.reasons?f.reasons+' · ':'')+'unfinished sessions with no explanation';
+        return (r.sub ? Promise.resolve({ ok:true }) : REV.submit(r)).then(function(){ return rpc('eod_decide', { p_emp:r.emp, p_day:r.day, p_checks:f }); }).then(function(d){
+          if(!d || !d.ok){
+            if(d && d.error==='TOO_SOON'){ setTimeout(function(){ REV.decide(r, n); }, ((+d.wait||10)*1000)+1500); return; }
+            if(d && d.error==='NO_EOD'){ r.sub=false; save(r); }
+            if(n<6){ setTimeout(function(){ REV.decide(r, n+1); }, 30000); return; }
+            card('error', r); return;
+          }
+          r.status=d.status; r.reasons=d.reasons||f.reasons||''; r.done=Date.now(); save(r);
+          if(d.status==='approved' && d.post) announce(r);
+          card(d.status, r);
+          try{ EODP.paint(); }catch(_p){}
+        });
+      });
+    },
+    resume:function(){
+      var e=emp(); if(!e || !sb()) return false;
+      var r=load(e);
+      if(r && !r.status && r.day>=EOD_FROM){
+        card('review', r);
+        var wait=Math.max(0, REVIEW_MS-(Date.now()-(r.at||0)));
+        setTimeout(function(){ REV.decide(r, 0); }, wait+500);
+      }
+      /* an EOD sent from another laptop that never got its review */
+      var t=bizDay(), y=new Date(new Date(t+'T12:00:00Z').getTime()-2*86400000).toISOString().slice(0,10);
+      rpc('eod_my_days', { p_emp:e, p_from:(y<EOD_FROM?EOD_FROM:y), p_to:t }).then(function(rows){
+        (Array.isArray(rows)?rows:[]).forEach(function(x){
+          if(x.status!=='review' || (r && r.day===x.biz_date)) return;
+          var rr={ emp:e, day:x.biz_date, at:Date.parse(x.submitted_at)||Date.now(), checks:{ reddit:didReddit(), day:x.biz_date }, expl:'', sub:true };
+          save(rr); setTimeout(function(){ REV.decide(rr, 0); }, Math.max(0, REVIEW_MS-(Date.now()-rr.at))+500);
+        });
+      });
+      return true;
+    }
+  };
+  function wrapSubmit(){
+    if(window.__eodSubWrap || typeof window.submitEOD!=='function') return !!window.__eodSubWrap; window.__eodSubWrap=1;
+    var orig=window.submitEOD;
+    window.submitEOD=function(){ var G=window.__eodG; window.__eodG=null; var out=orig.apply(this, arguments); try{ REV.begin(G); }catch(_b){} return out; };
+    return true;
+  }
+  /* the old "Send my EOD" button: the portal sends it now */
+  function retireSend(){
+    window.sendEodReport=function(){ try{ showToast('The portal sends your EOD once it approves it. Just press End of Day.'); }catch(e){} };
+    var b=document.getElementById('eod-send-btn'); if(b){ b.style.display='none'; }
+  }
+
+  /* ── 3 · pending hours in the VA's own view ── */
+  var EODP={
+    paint:function(id){
+      var el=document.getElementById('sum-hours'), e=String(id||el&&el.getAttribute('data-emp')||emp()).toUpperCase(); if(!el || !e || !sb()) return;
+      var base=parseFloat(el.getAttribute('data-raw')); if(isNaN(base)) return;
+      var mk=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'}).slice(0,7), from=mk+'-01';
+      var last=new Date(Date.UTC(+mk.slice(0,4), +mk.slice(5,7), 0)).toISOString().slice(0,10);
+      rpc('eod_pending', { p_from:from, p_to:last, p_emp:e }, 2).then(function(rows){
+        if(!Array.isArray(rows)) return;
+        var td=(e===emp())?bizDay():new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'}), today=0, past=0, days=[];
+        rows.forEach(function(x){ var h=+x.prod||0; if(x.biz_date===td && x.status!=='not_approved') today+=h; else { past+=h; days.push(fmtDay(x.biz_date)+' · '+h.toFixed(1)+'h'); } });
+        if(parseFloat(el.getAttribute('data-raw'))!==base) return;   // the hours were refreshed meanwhile — that refresh paints again
+        el.textContent=Math.max(0, base-today-past).toFixed(1)+'h';
+        var rg=document.getElementById('sum-regular'); if(rg) rg.textContent=el.textContent;
+        var n=document.getElementById('sum-hours-pend');
+        if(!n){ n=document.createElement('div'); n.id='sum-hours-pend'; n.style.cssText='font-size:11px;line-height:1.4;color:#b45309;margin-top:2px'; var lab=el.nextElementSibling; (lab||el).insertAdjacentElement('afterend', n); }
+        var t=[]; if(today>0) t.push('Today\'s '+today.toFixed(1)+'h count once your End of Day is approved.');
+        if(past>0) t.push('Pending, no approved EOD: '+days.join(', ')+'. Only management can release it.');
+        n.textContent=t.join(' '); n.style.display=t.length?'':'none';
+      });
+    }
+  };
+  window.EODP=EODP;
+  /* a system-error report can't be made for a day that has no approved EOD */
+  function wrapAppeal(){
+    if(window.__eodApWrap || typeof window._postAppeal!=='function') return !!window.__eodApWrap; window.__eodApWrap=1;
+    var orig=window._postAppeal;
+    window._postAppeal=function(payload, cb){
+      var self=this, args=arguments, d=String((payload&&payload.date)||'');
+      if(!(payload && payload.ticket) || d<EOD_FROM || !sb()) return orig.apply(self, args);
+      rpc('eod_my_days', { p_emp:emp(), p_from:d, p_to:d }, 2).then(function(rows){
+        var x=Array.isArray(rows)?rows[0]:null;
+        if(Array.isArray(rows) && !(x && (x.status==='approved' || x.status==='released'))){
+          try{ cb(false, { error:'EOD_PENDING', message:'There is no approved End of Day for '+fmtDay(d)+'. Those hours are Pending and can\'t be reported as a system error. Only management can release them.' }); }catch(_c){}
+          return;
+        }
+        orig.apply(self, args);
       });
     };
     return true;
   }
-  if(!wrap()){ var n=0, iv=setInterval(function(){ if(wrap() || ++n>40) clearInterval(iv); }, 500); }
+  window.EODGATE={ collect:collect, REV:REV, showList:showList, reasonsOf:reasonsOf };
+  var tries=0, iv=setInterval(function(){
+    var a=wrapAsk(), b=wrapSubmit(), c=wrapAppeal();
+    if(document.getElementById('eod-send-btn') || tries>3) retireSend();
+    if((a && b && c) || ++tries>60){ clearInterval(iv); }
+  }, 500);
+  var rt=0, riv=setInterval(function(){ if(REV.resume() || ++rt>1800) clearInterval(riv); }, 2000);
+  setInterval(function(){ try{ if(document.getElementById('sum-hours')) EODP.paint(); }catch(_p){} }, 10*60000);
 })();
 </script>
 
@@ -34197,6 +34450,14 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-09-E', version:'2026.11.09e', date:'November 9, 2026',
+    summary:'New rule: no approved End of Day, no pay for the day.',
+    items:[
+      'When you press End of Day, the portal checks your tool first. In Reddit Central every post needs a verdict, today\'s karma must be recorded on every account you work, and your health-check list must be done.',
+      'Unfinished sessions are the only thing you can leave open. The portal asks you to explain why, in English.',
+      'About 1 to 2 minutes after your End of Day, the portal tells you if it is approved and posts it in Messages. You no longer send your EOD yourself.',
+      'A day without an approved End of Day is Pending. Its hours are not in your total hours or on your payslip, and it can\'t be appealed or reported as a system error. Only management can release it.'
+    ] },
   { build:'2026-11-09-D', version:'2026.11.09d', date:'November 9, 2026',
     summary:'Reddit: End of Day waits until your posts are checked.',
     items:[
@@ -38144,9 +38405,6 @@ html body.jp [style*="color:#262262"]{ color:#8570CD !important; }
 html body.jp [style*="background:rgba(38,34,98,.14)"]{ background:rgba(133,112,205,.14) !important; }
 html body.jp [style*="border-top:1px dashed rgba(168,85,247,.8)"]{ border-top:1px dashed rgba(185,169,227,.8) !important; }
 html body.jp [style*="border:1px solid #e2e8f0"]{ border:1px solid #E2E9F0 !important; }
-html body.jp [style*="color:#db2777"]{ color:#DE738D !important; }
-html body.jp [style*="border-bottom:1px dashed #e2e8f0"]{ border-bottom:1px dashed #E2E9F0 !important; }
-html body.jp [style*="background:linear-gradient(135deg,#ec4899,#8b5cf6)"]{ background:linear-gradient(135deg,#E99AAE,#A99BDB) !important; }
 html body.jp [fill="#0b1020" i]{ fill:#4B3530 !important; }
 html body.jp [fill="#1d2330" i]{ fill:#493631 !important; }
 html body.jp [fill="#8fd3ff" i]{ fill:#AAC7E4 !important; }
@@ -39273,7 +39531,7 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
   function isOwner(){ return OWNER.test(me()); }
   function nightOn(){ return isOwner() && ls('jp_night')==='1'; }   /* night mode stays owner-only after the roll-out */
   /* the night colours live in /jp-night.css (VAs never download it); loaded the first time night is wanted */
-  var NIGHT_V='4e0a0c6ea6', nightCss=null, nightReady=false, nightWait=[];
+  var NIGHT_V='e48c62881c', nightCss=null, nightReady=false, nightWait=[];
   function nightLoad(cb){
     if(nightReady){ if(cb) cb(); return; }
     if(cb) nightWait.push(cb);

@@ -1406,6 +1406,17 @@ body{background-attachment:initial !important}
         <div id="pg-preview"></div>
         <div id="pg-disburse"></div>
       </div>
+      <!-- NO APPROVED EOD, NO PAY (Nov 9): days with hours and no approved End of Day. Only the owner releases them. -->
+      <div class="paygen" id="eodp-card">
+        <div class="paygen-title">Pending days · no approved End of Day</div>
+        <div class="paygen-sub">From Nov 9: a day with hours but no End of Day approved by the portal is not in the VA's total hours or on the payslip, and can't be appealed. Release a day here only when you decide it should be paid.</div>
+        <div class="paygen-controls">
+          <label>From <input class="sinp" type="date" id="eodp-from" style="width:150px;"></label>
+          <label>To <input class="sinp" type="date" id="eodp-to" style="width:150px;"></label>
+          <button class="bsm" onclick="eodpLoad()" style="color:var(--o3);border-color:rgba(255,107,26,.35);">Show pending days</button>
+        </div>
+        <div id="eodp-list"></div>
+      </div>
       <div class="tw">
         <table id="pay-table">
           <thead><tr>
@@ -1684,7 +1695,7 @@ setTimeout(function(){ try{ admSessEnsure(); }catch(e){} }, 1500);
 /* ── ADMIN-ONLY READS (Oct 15) ── get_appeals, admin_bootstrap and resolve_appeal now answer only the admin (owner token or
    admin password). A console restored from "keep me signed in" with neither shows ONE bar to unlock it — never a surprise
    prompt on load. Typing the password there mints the owner token, which is kept on this device for 14 days. */
-var ADM_LOCKED_RE=/[?&]action=(admin_bootstrap|get_appeals|resolve_appeal|trk_repair|trk_events|face_admin_list|face_admin_decide)\b/;
+var ADM_LOCKED_RE=/[?&]action=(admin_bootstrap|get_appeals|resolve_appeal|trk_repair|trk_events|face_admin_list|face_admin_decide|eod_admin)\b/;
 var _admLockRetry=0;
 function admLocked(){
   if(ADM_SESS){ ADM_SESS=''; try{ sessionStorage.removeItem('adm_sess'); localStorage.removeItem('adm_sess_keep'); }catch(_e){} }   // expired or rotated token
@@ -3535,11 +3546,21 @@ async function pgPreview(){
       for(var ci=0;ci<HP.carried.length;ci++){ var _c1=HP.carried[ci], cm=await _projHrs(_c1.project,_c1.from,_c1.to); Object.keys(cm).forEach(function(id){ (_carry[id]=_carry[id]||[]).push({ p:_c1.project, h:cm[id], f:_c1.from, t:_c1.to }); }); }
     }catch(_hr){ box.innerHTML='<div class="es" style="padding:10px 0;color:#f87171">Could not read the new-project (on hold) hours — try again so nobody is paid held hours.</div>'; return; }
     var _sumH=function(a){ return (a||[]).reduce(function(s2,x){ return s2+x.h; },0); };
+    /* Nov 9 (Jeth): "No EOD for the day, no recorded hours or payment." Days with no approved / released End of Day
+       are left out of the payslip (portal API 2026-11-09c, eod_admin). If the check can't answer, nothing is generated. */
+    var _pend={};
+    if(to>=EODP_FROM){
+      var _pd=null; try{ var _pr=await fetch(API+'?action=eod_admin&op=list&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+'&_='+Date.now()); _pd=await _pr.json(); }catch(_pe){}
+      if(!_pd || !_pd.ok || !Array.isArray(_pd.rows)){ box.innerHTML='<div class="es" style="padding:10px 0;color:#f87171">Could not check which days have no approved End of Day'+((_pd&&_pd.error)?' ('+payEsc(_pd.error)+')':'')+'. Payslips from Nov 9 on leave those days out, so nothing is generated until this check answers. If the portal API is older than 2026-11-09c, run GitHub → jmb-backends → Actions → Deploy Apps Script backends, then Preview again.</div>'; return; }
+      _pd.rows.forEach(function(x){ var id=String(x.employee_id); (_pend[id]=_pend[id]||[]).push({ d:x.date, h:(source==='attendance')?((+x.prod||0)+(+x.idle||0)):((+x.prod||0)+(incIdle?(+x.idle||0):0)) }); });
+    }
+    var _pendH=function(id){ return (_pend[id]||[]).concat(_pend[String(id).toUpperCase()]||[]).filter(function(x,i,a){ return a.indexOf(x)===i; }).reduce(function(s2,x){ return s2+x.h; },0); };
     _pgRows=[];
     (payEmps||[]).forEach(function(e){
       var id=String(e.employee_id); var wl=wlByEmp[id]||{prod:0,idle:0}; var att=attByEmp[id]||{clocked:0,night:0,morning:0};
       var hours = (source==='attendance') ? (att.clocked - (incIdle?0:wl.idle)) : (wl.prod + (incIdle?wl.idle:0));
       hours = hours - _sumH(_hold[id]) + _sumH(_carry[id]);
+      var _pH=_pendH(id); hours = hours - _pH;   // Nov 9: Pending days (no approved End of Day) are not paid
       hours=Math.max(0, Math.round(hours*100)/100); if(hours<=0) return;
       var shift = (att.night > att.morning) ? 'night' : 'morning';
       var rate=(_rOn[id]!=null ? parseFloat(_rOn[id]) : parseFloat(e.rate))||0, hourly=rate/240, basic=hours*hourly;
@@ -3550,7 +3571,7 @@ async function pgPreview(){
         shift = (ndH>=hours/2 || (typeof DOUBLE_SHIFT_ADM!=='undefined' && DOUBLE_SHIFT_ADM.indexOf(id.toUpperCase())>=0)) ? 'night' : 'morning';
       }
       var nightD = (ndH!==null) ? ndH*hourly*0.05 : (shift==='night' ? basic*0.05 : 0);
-      _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, ndH:ndH, ndUntimed:ndUntimed, incentive:0, gross:basic+nightD, held:_hold[id]||[], carry:_carry[id]||[] });
+      _pgRows.push({ id:id, name:e.full_name||id, hours:hours, hourly:hourly, shift:shift, basic:basic, nightD:nightD, ndH:ndH, ndUntimed:ndUntimed, incentive:0, gross:basic+nightD, held:_hold[id]||[], carry:_carry[id]||[], pend:(_pend[id]||_pend[String(id).toUpperCase()]||[]) });
     });
     var _hb='';
     if(HP.held.length || HP.carried.length){
@@ -3572,7 +3593,8 @@ async function pgPreview(){
       _pgRows.map(function(x,i){
         var sh = x.shift==='night' ? '<span style="color:#a78bfa"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px\"><path d=\"M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z\"/></svg> Night</span>' : '<span style="color:var(--t2)"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-3px\"><circle cx=\"12\" cy=\"14\" r=\"4\"/><path d=\"M12 3v3M4 14H1M23 14h-3M2 20h20\"/></svg> Morning</span>';
         var _hn=(x.held||[]).map(function(z){ return '<div style="font-size:11px;color:#c2410c">⏸ '+payEsc(z.p)+' '+z.h.toFixed(2)+'h on hold → next cutoff</div>'; }).join('')+
-                (x.carry||[]).map(function(z){ return '<div style="font-size:11px;color:#15803d">➕ '+payEsc(z.p)+' '+z.h.toFixed(2)+'h from '+pholdFmt(z.f)+' – '+pholdFmt(z.t)+'</div>'; }).join('');
+                (x.carry||[]).map(function(z){ return '<div style="font-size:11px;color:#15803d">➕ '+payEsc(z.p)+' '+z.h.toFixed(2)+'h from '+pholdFmt(z.f)+' – '+pholdFmt(z.t)+'</div>'; }).join('')+
+                ((x.pend||[]).length?'<div style="font-size:11px;color:#b45309">⏳ '+(x.pend.reduce(function(a,z){ return a+z.h; },0)).toFixed(2)+'h Pending, no approved End of Day: '+x.pend.map(function(z){ return pholdFmt(z.d); }).join(', ')+'</div>':'');
         return '<tr><td>'+payEsc(x.name)+_hn+'</td><td>'+sh+'</td><td>'+x.hours.toFixed(2)+'h</td><td>₱'+x.basic.toLocaleString(undefined,{maximumFractionDigits:2})+'</td><td>'+(x.nightD>0?('₱'+x.nightD.toLocaleString(undefined,{maximumFractionDigits:2})):'—')+(x.ndH!=null?('<div style="font-size:11px;color:var(--t3)">'+x.ndH.toFixed(2)+'h × 5%'+(x.ndUntimed>0.05?(' · '+x.ndUntimed.toFixed(2)+'h untimed, counted as day'):'')+'</div>'):'')+'</td>'+
           '<td><input class="sinp" type="number" min="0" step="any" placeholder="0" value="" style="width:104px" oninput="pgIncChange('+i+',this.value)"></td>'+
           '<td id="pg-gross-'+i+'"><b>₱'+x.gross.toLocaleString(undefined,{maximumFractionDigits:2})+'</b></td></tr>';
@@ -3588,6 +3610,36 @@ function pgIncChange(i, val){
   var cell=document.getElementById('pg-gross-'+i); if(cell) cell.innerHTML='<b>₱'+x.gross.toLocaleString(undefined,{maximumFractionDigits:2})+'</b>';
   var tot=_pgRows.reduce(function(s,r){ return s+r.gross; },0);
   var te=document.getElementById('pg-tot-gross'); if(te) te.textContent='₱'+tot.toLocaleString(undefined,{maximumFractionDigits:2});
+}
+var EODP_FROM='2026-11-09';
+function eodpRange(){
+  var f=document.getElementById('eodp-from'), t=document.getElementById('eodp-to');
+  if(f && !f.value){ var d=new Date(Date.now()+8*3600000), y=d.getUTCFullYear(), m=('0'+(d.getUTCMonth()+1)).slice(-2), dd=d.getUTCDate();
+    f.value=y+'-'+m+'-'+(dd<=15?'01':'16'); t.value=d.toISOString().slice(0,10); }
+  return { from:f?f.value:'', to:t?t.value:'' };
+}
+async function eodpLoad(){
+  var R=eodpRange(), box=document.getElementById('eodp-list'); if(!box) return;
+  if(!R.from || !R.to){ alert('Pick a From and To date.'); return; }
+  box.innerHTML='<div class="es" style="padding:10px 0">Loading…</div>';
+  var d=null; try{ var r=await fetch(API+'?action=eod_admin&op=list&from='+encodeURIComponent(R.from)+'&to='+encodeURIComponent(R.to)+'&_='+Date.now()); d=await r.json(); }catch(e){}
+  if(!d || !d.ok){ box.innerHTML='<div class="es" style="padding:10px 0;color:#f87171">Could not load'+((d&&d.error)?' ('+payEsc(d.error)+')':'')+'. The portal API needs 2026-11-09c: GitHub → jmb-backends → Actions → Deploy Apps Script backends.</div>'; return; }
+  var rows=d.rows||[]; if(!rows.length){ box.innerHTML='<div class="es" style="padding:10px 0">No pending days in this range.</div>'; return; }
+  var lbl={ none:'No End of Day', review:'Being reviewed', not_approved:'Not approved' }, td=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+  box.innerHTML='<div class="tw"><table><thead><tr><th>Contractor</th><th>Day</th><th>Hours</th><th>Status</th><th>Why</th><th></th></tr></thead><tbody>'+rows.map(function(x){
+    var st=(x.date===td && x.status==='none')?'Shift not ended yet':(lbl[x.status]||x.status);
+    return '<tr><td>'+payEsc(x.name)+'<div style="font-size:11px;color:var(--t3)">'+payEsc(x.employee_id)+'</div></td><td>'+payEsc(pholdFmt(x.date))+'</td><td>'+(+x.prod||0).toFixed(2)+'h'+((+x.idle||0)?'<div style="font-size:11px;color:var(--t3)">+'+(+x.idle).toFixed(2)+'h idle</div>':'')+'</td>'+
+      '<td>'+payEsc(st)+'</td><td style="max-width:340px;font-size:12px">'+payEsc(x.reasons||'')+(x.explanation?'<div style="font-size:11.5px;color:var(--t2);margin-top:3px">Sessions: “'+payEsc(x.explanation)+'”</div>':'')+'</td>'+
+      '<td><button class="bsm" onclick="eodpRelease(\''+payEsc(x.employee_id)+'\',\''+payEsc(x.date)+'\',this)">Release</button></td></tr>';
+  }).join('')+'</tbody></table></div>';
+}
+async function eodpRelease(id, day, btn){
+  var note=prompt('Release '+id+' · '+day+'? Those hours will count and be paid.\n\nWhy are you releasing it? (kept with the day)');
+  if(note==null) return;
+  if(btn){ btn.disabled=true; btn.textContent='Releasing…'; }
+  var d=null; try{ var r=await fetch(API+'?action=eod_admin&op=release&employee_id='+encodeURIComponent(id)+'&date='+encodeURIComponent(day)+'&note='+encodeURIComponent(note)+'&_='+Date.now()); d=await r.json(); }catch(e){}
+  if(d && d.ok){ if(btn){ btn.textContent='Released ✓'; } setTimeout(eodpLoad, 600); }
+  else { if(btn){ btn.disabled=false; btn.textContent='Release'; } alert('Could not release'+((d&&d.error)?' ('+d.error+')':'')+'.'); }
 }
 var DOUBLE_SHIFT_ADM=['JMB010','JMB014'];   // Nicole + Hamto: night-shift VAs with a 6 AM client — always labelled night
 async function pgGenerate(){
