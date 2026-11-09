@@ -26654,7 +26654,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-09-H';
+var PORTAL_BUILD='2026-11-10-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34464,6 +34464,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-10-A', version:'2026.11.10a', date:'November 10, 2026',
+    summary:'See how your month is going.',
+    items:[
+      'A line across the top of your Overview now follows your scorecard day by day this month.',
+      'It shows the direction only: improving, steady or dipping. Your scores are still revealed with the monthly announcement.',
+      'It adds a new point each day, so it fills in as the month goes on.'
+    ] },
   { build:'2026-11-09-H', version:'2026.11.09h', date:'November 9, 2026',
     summary:'The face scan is easier to finish.',
     items:[
@@ -39637,8 +39644,94 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
   }
   window.jpWmRender=function(){ try{ var el=document.getElementById('header-company-name'); if(el) el.__jpk=''; wordmark(); }catch(e){} };
 
+  /* ═══ HERO DAILY LINE (Nov 10 · Jeth: "We should do like this without box" · "And animating") ═══
+     VAs asked for the daily movement of their scorecard on the greeting card. This draws the month so far as one free line
+     between the name and the world clock — no box, no axes, no numbers. Data: Supabase sc_trend (shape only: each day
+     scaled around the month's first point, because the month's scores stay held until the announcement), written each day
+     by the portal backend's scorecard snapshot (10a). The owner sees the team's line. Nothing shows until a point exists. */
+  var JL={ data:null, at:0, busy:false, emp:'' };
+  var JL_WORD={ up:'Improving', flat:'Steady', down:'Dipping' };
+  var JL_ICO={ up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 16 10 10 14 14 20 7"/><polyline points="15 7 20 7 20 12"/></svg>',
+    flat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 8 10 14 14 10 20 17"/><polyline points="15 17 20 17 20 12"/></svg>' };
+  function jlMonth(){ return new Date(Date.now()+8*3600e3).toISOString().slice(0,7); }   /* the month in the Philippines */
+  function jlLoad(){
+    var id=me(); if(!id || !on) return;
+    if(window.__jpLineMock){ JL.data=window.__jpLineMock; JL.emp=id; return; }
+    if(JL.busy || (JL.emp===id && Date.now()-JL.at<30*60000)) return;
+    if(typeof SUPA_URL==='undefined' || typeof SUPA_KEY==='undefined') return;
+    JL.busy=true; JL.emp=id; JL.at=Date.now();
+    fetch(SUPA_URL+'/rest/v1/rpc/sc_trend', { method:'POST', headers:{ apikey:SUPA_KEY, Authorization:'Bearer '+SUPA_KEY, 'Content-Type':'application/json' },
+      body:JSON.stringify({ p_emp:isOwner()?'__team':id, p_month:jlMonth() }) })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){ if(d && d.days) JL.data=d; })
+      .catch(function(){})
+      .then(function(){ JL.busy=false; });
+  }
+  /* the open space on the card: right of the name block, left of the world clock, above the tiles */
+  function jlBox(h){
+    var hr=h.getBoundingClientRect(), info=h.querySelector('.hero-info'), aside=h.querySelector('.hero-aside'), stats=h.querySelector('.hero-stats');
+    if(!info || !hr.width) return null;
+    var R=0;
+    ['#hero-greet','#hero-name','#hero-role','#hero-id','#hero-scgraph'].forEach(function(s){ var e=h.querySelector(s); if(!e || !e.offsetParent) return;
+      try{ var rg=document.createRange(); rg.selectNodeContents(e); var b=rg.getBoundingClientRect(); if(b.width) R=Math.max(R, b.right); }catch(_r){} });
+    var ir=info.getBoundingClientRect(); if(!R) R=ir.left+Math.min(ir.width, 320);
+    var ar=(aside && aside.offsetParent) ? aside.getBoundingClientRect() : null, sr=(stats && stats.offsetParent) ? stats.getBoundingClientRect() : null;
+    var x=R-hr.left+44, x2=(ar ? ar.left : ir.right)-hr.left-34, y=ir.top-hr.top+2, y2=(sr && sr.top>ir.top+60 ? sr.top : ir.bottom)-hr.top-8;
+    return { x:x, y:y, w:x2-x, h:y2-y };
+  }
+  function jlFmt(s){ var M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; var p=String(s).split('-'); return M[(+p[1]||1)-1]+' '+(+p[2]||''); }
+  function jlRender(){
+    var h=document.getElementById('dashboard-hero'), el=document.getElementById('jp-line'), d=JL.data;
+    if(!on || !h || !h.offsetParent || !d || !d.days || !d.days.length || !d.y || d.y.length!==d.days.length || window.innerWidth<900){ if(el) el.remove(); return; }
+    var g=jlBox(h); if(!g || g.w<170 || g.h<64){ if(el) el.remove(); return; }
+    if(!el){ el=document.createElement('div'); el.id='jp-line'; h.appendChild(el); }
+    el.style.left=Math.round(g.x)+'px'; el.style.top=Math.round(g.y)+'px'; el.style.width=Math.round(g.w)+'px'; el.style.height=Math.round(g.h)+'px';
+    var team=isOwner(), dk=JSON.stringify([d.days, d.y, d.dir, team]), key=dk+'|'+Math.round(g.w)+'x'+Math.round(g.h);
+    if(el.__k===key) return;
+    var replay=(el.__dk!==dk); el.__k=key; el.__dk=dk;
+    el.classList.toggle('still', !replay);
+    var W=Math.round(g.w), H=Math.round(g.h), n=d.days.length, pl=6, pr=10, pt=26, pb=10;
+    function f(v){ return (Math.round(v*10)/10).toString(); }
+    var cap='<div class="jl-cap">'+(team ? 'Team this month' : 'My month')+'</div>', svg, word='', note='';
+    if(n===1){   /* the first point of the month: a dotted path ahead, today's point breathing at its start */
+      var y0=pt+(H-pt-pb)/2;
+      svg='<path class="jl-base" d="M'+f(pl+8)+' '+f(y0)+' L'+f(W-pr)+' '+f(y0)+'"/>'+
+        '<circle class="jl-ring" cx="'+f(pl)+'" cy="'+f(y0)+'" r="4.6"/><circle class="jl-now" cx="'+f(pl)+'" cy="'+f(y0)+'" r="5"><title>'+jlFmt(d.days[0])+' · today</title></circle>';
+      note='<div class="jl-note">'+(team ? 'The team line starts today — one point a day.' : 'Your line starts today — one point a day.')+'</div>';
+      el.innerHTML=cap+'<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+svg+'</svg>'+note;
+      return;
+    }
+    var t0=Date.parse(d.days[0]), t1=Date.parse(d.days[n-1]), span=Math.max(1, t1-t0);
+    var lo=Math.min(0, Math.min.apply(null, d.y)), hi=Math.max(0, Math.max.apply(null, d.y)), rg=Math.max(hi-lo, .7), mid=(hi+lo)/2; lo=mid-rg/2; hi=mid+rg/2;   /* small moves stay small */
+    var P=d.y.map(function(v, i){ var t=Date.parse(d.days[i]); return [pl+(W-pl-pr)*((t-t0)/span), pt+(H-pt-pb)*(1-(v-lo)/(hi-lo))]; });
+    var line='M'+f(P[0][0])+' '+f(P[0][1]);
+    for(var i=0;i<n-1;i++){ var a=P[Math.max(0,i-1)], b=P[i], c=P[i+1], e=P[Math.min(n-1,i+2)];
+      line+=' C'+[b[0]+(c[0]-a[0])/6, b[1]+(c[1]-a[1])/6, c[0]-(e[0]-b[0])/6, c[1]-(e[1]-b[1])/6, c[0], c[1]].map(f).join(' '); }
+    var area=line+' L'+f(P[n-1][0])+' '+H+' L'+f(P[0][0])+' '+H+' Z', pts='';
+    for(i=0;i<n-1;i++){
+      var st=i ? (d.y[i]>d.y[i-1]+0.02 ? 'up from the day before' : (d.y[i]<d.y[i-1]-0.02 ? 'down from the day before' : 'about the same')) : 'start of the month';
+      pts+='<g class="jl-pt"><circle class="jl-hit" cx="'+f(P[i][0])+'" cy="'+f(P[i][1])+'" r="10"/><circle class="jl-d" cx="'+f(P[i][0])+'" cy="'+f(P[i][1])+'" r="2.4" style="animation-delay:'+(0.3+1.8*((P[i][0]-pl)/Math.max(1,W-pl-pr))).toFixed(2)+'s"/><title>'+jlFmt(d.days[i])+' · '+st+'</title></g>';
+    }
+    var L=P[n-1], k=(d.dir==='up'||d.dir==='down') ? d.dir : 'flat';
+    pts+='<g class="jl-pt"><circle class="jl-hit" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="11"/><circle class="jl-ring" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="4.6"/><circle class="jl-now" cx="'+f(L[0])+'" cy="'+f(L[1])+'" r="5"/><title>'+jlFmt(d.days[n-1])+' · latest · '+JL_WORD[k].toLowerCase()+'</title></g>';
+    svg='<defs><linearGradient id="jlS" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="'+W+'" y2="0"><stop offset="0" class="jl-s0"/><stop offset=".55" class="jl-s1"/><stop offset="1" class="jl-s2"/></linearGradient>'+
+        '<linearGradient id="jlF" gradientUnits="userSpaceOnUse" x1="0" y1="'+pt+'" x2="0" y2="'+H+'"><stop offset="0" class="jl-f0"/><stop offset="1" class="jl-f1"/></linearGradient>'+
+        '<linearGradient id="jlM" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".22" stop-color="#fff" stop-opacity="1"/><stop offset=".9" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity=".4"/></linearGradient>'+
+        '<mask id="jlMask" maskUnits="userSpaceOnUse" x="0" y="0" width="'+W+'" height="'+H+'"><rect x="0" y="0" width="'+W+'" height="'+H+'" fill="url(#jlM)"/></mask>'+
+        '<filter id="jlBlur" filterUnits="userSpaceOnUse" x="-30" y="-30" width="'+(W+60)+'" height="'+(H+60)+'"><feGaussianBlur stdDeviation="4.5"/></filter></defs>'+
+      '<g class="jl-float"><path class="jl-area" d="'+area+'" fill="url(#jlF)" mask="url(#jlMask)"/>'+
+      '<path class="jl-glow" d="'+line+'" pathLength="1" stroke="url(#jlS)" filter="url(#jlBlur)"/>'+
+      '<path class="jl-line" d="'+line+'" pathLength="1" stroke="url(#jlS)"/>'+
+      '<path class="jl-run" d="'+line+'" pathLength="1"/>'+pts+'</g>';
+    word='<div class="jl-word '+k+'">'+JL_ICO[k]+JL_WORD[k]+'</div>';
+    el.innerHTML=cap+word+'<svg viewBox="0 0 '+W+' '+H+'">'+svg+'</svg>';
+    el.setAttribute('aria-label', (team ? 'Team this month: ' : 'My month: ')+JL_WORD[k]);
+  }
+  window.jpLineRender=function(){ try{ jlLoad(); jlRender(); }catch(e){} };
+
   function check(){ set(want()); nightSync(); themeSync(); keepClosed(); chrome(); try{ overview(); }catch(e){} try{ aurora(); }catch(e){} pageTitle(); scrolled(); try{ pill(); }catch(e){}
-    try{ heroTab(); }catch(e){} try{ oraBtn(); }catch(e){} try{ feedRail(); }catch(e){} try{ feedFold(); }catch(e){} try{ nilMark(); }catch(e){} try{ ptsCard(); }catch(e){} try{ moonBtn(); }catch(e){} try{ greet(); }catch(e){} try{ brandMark(); }catch(e){} try{ wordmark(); }catch(e){} }
+    try{ heroTab(); }catch(e){} try{ oraBtn(); }catch(e){} try{ feedRail(); }catch(e){} try{ feedFold(); }catch(e){} try{ nilMark(); }catch(e){} try{ ptsCard(); }catch(e){} try{ moonBtn(); }catch(e){} try{ jlLoad(); jlRender(); }catch(e){} try{ greet(); }catch(e){} try{ brandMark(); }catch(e){} try{ wordmark(); }catch(e){} }
   try{ new MutationObserver(check).observe(B, { attributes:true, attributeFilter:['class'] }); }catch(e){}
   setInterval(check, 800); check();
 
@@ -39656,6 +39749,66 @@ html body.jp.jp-night.jp-shim #jp-news-l > .jp-empty:only-child::after{ backgrou
 })();
 </script>
 <!-- JMB PASTEL · END -->
+<style id="jp-heroline-css">
+/* ── HERO DAILY LINE (Nov 10 · Jeth: "We should do like this without box" · "And animating") ──
+   One free line across the greeting card, between the name and the world clock: draws itself in, a light runs along it,
+   today's point breathes. No box, no axes, no numbers. Colours live in custom properties only (the night file is generated
+   from colour literals, so this block adds nothing to it — the night values are set here by hand). */
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line{ position:absolute; z-index:1; pointer-events:none;
+  --jl-a:#F4A07F; --jl-b:#E2779A; --jl-c:#9C88D8; --jl-fill:rgba(226,119,154,.20); --jl-ink:rgba(91,64,56,.48); --jl-dot:#FFFFFF; --jl-run:#FFFFFF;
+  --jl-up:#3E6B4C; --jl-flat:#35597E; --jl-down:#8C3B53; }
+html body.jp.jp.jp.jp.jp-night.app-authed #dashboard-hero #jp-line{ --jl-fill:rgba(226,119,154,.26); --jl-ink:rgba(244,230,222,.52); --jl-dot:#241B22; --jl-run:#FFF4EE;
+  --jl-up:#A9D7B5; --jl-flat:#A9CBEA; --jl-down:#F2A9BC; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line svg{ position:absolute; left:0; top:0; width:100%; height:100%; overflow:visible; display:block; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-s0{ stop-color:var(--jl-a); }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-s1{ stop-color:var(--jl-b); }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-s2{ stop-color:var(--jl-c); }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-f0{ stop-color:var(--jl-fill); }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-f1{ stop-color:var(--jl-fill); stop-opacity:0; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-line{ fill:none; stroke-width:3; stroke-linecap:round; stroke-linejoin:round;
+  stroke-dasharray:1; stroke-dashoffset:1; animation:jlDraw 1.9s cubic-bezier(.65,0,.35,1) .25s forwards; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-glow{ fill:none; stroke-width:10; stroke-linecap:round; stroke-linejoin:round; opacity:.3;
+  stroke-dasharray:1; stroke-dashoffset:1; animation:jlDraw 1.9s cubic-bezier(.65,0,.35,1) .25s forwards; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-area{ opacity:0; animation:jlFade 1.1s ease 1.5s forwards; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-base{ fill:none; stroke:var(--jl-ink); stroke-width:1.6; stroke-linecap:round; stroke-dasharray:2 7; opacity:0; animation:jlFade .8s ease .2s forwards; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-run{ fill:none; stroke:var(--jl-run); stroke-width:3.2; stroke-linecap:round; opacity:0;
+  stroke-dasharray:.07 1.3; stroke-dashoffset:.07; animation:jlRun 7s cubic-bezier(.45,0,.25,1) 2.6s infinite; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-float{ animation:jlFloat 6.5s ease-in-out 2.4s infinite alternate; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-d{ fill:var(--jl-dot); stroke:var(--jl-b); stroke-width:1.7; opacity:0; animation:jlFade .35s ease forwards;
+  transform-box:fill-box; transform-origin:center; transition:transform .18s ease; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-pt{ pointer-events:auto; cursor:default; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-hit{ fill:transparent; stroke:none; pointer-events:all; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-pt:hover .jl-d{ transform:scale(1.8); }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-now{ fill:var(--jl-c); stroke:var(--jl-dot); stroke-width:2.2; opacity:0; animation:jlFade .4s ease 2s forwards; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-ring{ fill:none; stroke:var(--jl-c); stroke-width:1.6; opacity:0; transform-box:fill-box; transform-origin:center;
+  animation:jlRing 2.6s ease-out 2.3s infinite; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-cap{ position:absolute; left:0; top:0; display:flex; align-items:center; gap:7px; font:800 10px/1 var(--jp-font);
+  letter-spacing:.16em; text-transform:uppercase; color:var(--jl-ink); white-space:nowrap; opacity:0; animation:jlFade .6s ease .15s forwards; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-word{ position:absolute; right:0; top:-1px; display:inline-flex; align-items:center; gap:5px; font:750 12px/1 var(--jp-font);
+  white-space:nowrap; opacity:0; animation:jlRise .55s cubic-bezier(.2,1,.3,1) 2.05s forwards; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-word svg{ position:static; width:13px; height:13px; flex:none; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-word.up{ color:var(--jl-up); }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-word.flat{ color:var(--jl-flat); }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-word.down{ color:var(--jl-down); }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line .jl-note{ position:absolute; left:0; bottom:0; font:600 11.5px/1.3 var(--jp-font); color:var(--jl-ink); white-space:nowrap;
+  opacity:0; animation:jlFade .6s ease .6s forwards; }
+/* re-drawn after a resize: no replay of the entrance, the running light and the breathing dot carry on */
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line.still :is(.jl-line, .jl-glow){ animation:none; stroke-dashoffset:0; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line.still :is(.jl-area, .jl-d, .jl-now, .jl-cap, .jl-word, .jl-note, .jl-base){ animation:none; opacity:1; }
+html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line.still .jl-word{ transform:none; }
+@keyframes jlDraw{ to{ stroke-dashoffset:0; } }
+@keyframes jlFade{ to{ opacity:1; } }
+@keyframes jlRise{ from{ opacity:0; transform:translateY(5px); } to{ opacity:1; transform:none; } }
+@keyframes jlRun{ 0%{ stroke-dashoffset:.07; opacity:0; } 7%{ opacity:.95; } 58%{ opacity:.95; } 66%{ stroke-dashoffset:-1.07; opacity:0; } 100%{ stroke-dashoffset:-1.07; opacity:0; } }
+@keyframes jlRing{ 0%{ opacity:.6; transform:scale(1); } 100%{ opacity:0; transform:scale(3.4); } }
+@keyframes jlFloat{ from{ transform:translateY(1.5px); } to{ transform:translateY(-2.5px); } }
+@media (prefers-reduced-motion: reduce){
+  html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line *{ animation:none !important; }
+  html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line :is(.jl-line, .jl-glow){ stroke-dashoffset:0; }
+  html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line :is(.jl-area, .jl-d, .jl-now, .jl-cap, .jl-word, .jl-note, .jl-base){ opacity:1; }
+  html body.jp.jp.jp.jp.app-authed #dashboard-hero #jp-line :is(.jl-run, .jl-ring){ display:none; }
+}
+</style>
 <!-- JMB PRO LOGIN · START -->
 <style id="jp-login-css">
 /* Professional sign-in (Jeth, Nov 9: "very professional", no kid-looking doodles): one white frame on a soft grey page —
