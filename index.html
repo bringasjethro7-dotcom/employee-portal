@@ -26647,7 +26647,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-09-C';
+var PORTAL_BUILD='2026-11-09-D';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -33716,7 +33716,7 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
    spam filter). One small call to the Reddit backend (pc_eod, own session). It never blocks when that backend can't be
    reached within 8 s or doesn't know the action yet (fails open), or when the VA did no Reddit work today. */
 (function(){
-  var RC_PAGE='https://internals.jmbvirtuals.com/reddit.html';
+  var RC_PAGE='https://internals.jmbvirtuals.com/reddit.html', fails=0;
   function didReddit(){
     try{
       var L=[]; try{ L=(_loadTodayCache()||[]).slice(); }catch(e){}
@@ -33729,7 +33729,7 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
   function ask(emp){
     if(typeof RC_API_URL==='undefined' || !RC_API_URL) return Promise.resolve(null);
     var u=RC_API_URL+'?action=pc_eod&employee_id='+encodeURIComponent(emp)+'&sess='+encodeURIComponent((typeof JMB_SESS!=='undefined'&&JMB_SESS)||'')+'&_='+Date.now();
-    return Promise.race([ fetch(u).then(function(r){ return r.json(); }).catch(function(){ return null; }), new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); }) ]);
+    return Promise.race([ fetch(u).then(function(r){ return r.json(); }).catch(function(){ return null; }), new Promise(function(res){ setTimeout(function(){ res(null); }, 25000); }) ]);   // Nov 9: 8 s → 25 s (the check was timing out and letting EOD through)
   }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function tm(t){ var m=String(t||'').match(/\s(\d{1,2}):(\d{2})/); if(!m) return ''; var h=+m[1]; return ((h%12)||12)+':'+m[2]+' '+(h<12?'AM':'PM'); }
@@ -33737,12 +33737,13 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
   function show(r, emp, proceed){
     close();
     var n=r.pending, mins=n;   // 1 min per post
+    if(r.unknown){ r.posts=[]; }
     var o=document.createElement('div'); o.id='pc-eod-ov';
     o.style.cssText='position:fixed;inset:0;z-index:100600;background:rgba(15,23,42,.5);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:18px';
     o.innerHTML='<div style="width:min(480px,100%);max-height:86vh;overflow:auto;background:#fff;color:#0f172a;border-radius:22px;padding:22px 22px 18px;box-shadow:0 30px 80px -20px rgba(0,0,0,.45);font-family:inherit">'+
       '<div style="font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#db2777">Before you end your day</div>'+
-      '<div style="font-size:20px;font-weight:800;letter-spacing:-.01em;margin:4px 0 6px">Check your '+n+' Reddit post'+(n===1?'':'s')+'</div>'+
-      '<div style="font-size:13.5px;line-height:1.55;color:#475569">You logged '+n+' post'+(n===1?'':'s')+' this shift'+(r.accounts?' on '+r.accounts+' account'+(r.accounts===1?'':'s'):'')+' that '+(n===1?'has':'have')+' no verdict yet. Open <b>Reddit Central</b> and mark each one: <b>stayed up</b>, <b>removed by mods</b> or <b>spam filter</b>. You have about '+mins+' minute'+(mins===1?'':'s')+' for it (1 minute per post) — keep your portal timer running on Reddit while you check.</div>'+
+      '<div style="font-size:20px;font-weight:800;letter-spacing:-.01em;margin:4px 0 6px">'+(r.unknown?'Confirm your Reddit posts are checked':'Check your '+n+' Reddit post'+(n===1?'':'s'))+'</div>'+
+      (r.unknown?'<div style="font-size:13.5px;line-height:1.55;color:#475569">Reddit Central didn\'t answer in time, so the portal can\'t confirm your posts from this shift are checked. Open <b>Reddit Central</b>, make sure every post has a verdict (stayed up, removed by mods or spam filter), then press <b>I\'m done — check again</b>.</div>':'<div style="font-size:13.5px;line-height:1.55;color:#475569">You logged '+n+' post'+(n===1?'':'s')+' this shift'+(r.accounts?' on '+r.accounts+' account'+(r.accounts===1?'':'s'):'')+' that '+(n===1?'has':'have')+' no verdict yet. Open <b>Reddit Central</b> and mark each one: <b>stayed up</b>, <b>removed by mods</b> or <b>spam filter</b>. You have about '+mins+' minute'+(mins===1?'':'s')+' for it (1 minute per post) — keep your portal timer running on Reddit while you check.</div>')+
       '<div style="margin:12px 0 4px;border:1px solid #e2e8f0;border-radius:14px;padding:6px 12px;max-height:200px;overflow:auto">'+(r.posts||[]).map(function(p){ return '<div style="display:flex;gap:8px;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #e2e8f0;font-size:13px"><span><b>'+esc(p.h)+'</b> · '+esc(p.r)+'</span><span style="color:#64748b">'+esc(tm(p.t))+'</span></div>'; }).join('')+'</div>'+
       '<div id="pc-eod-msg" style="font-size:12px;color:#b45309;min-height:16px;margin-top:6px"></div>'+
       '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px">'+
@@ -33758,13 +33759,15 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
       if(x==='open'){ try{ window.open(RC_PAGE+'?tab=today','rc-central'); }catch(_o){ location.href=RC_PAGE; } return; }
       if(x==='again'){ b.disabled=true; b.textContent='Checking…';
         ask(emp).then(function(r2){ b.disabled=false; b.textContent='I\'m done — check again';
-          if(!r2 || !r2.ok || !(r2.pending>0)){ close(); proceed(); return; }
+          if(!r2 || !r2.ok){ fails++; if(fails>=3){ close(); proceed(); return; }   /* Nov 9: unreachable no longer lets EOD through (only after 3 failed tries, so an outage can't trap anyone) */
+            var m0=document.getElementById('pc-eod-msg'); if(m0) m0.textContent='Reddit Central didn\'t answer — make sure every post is checked, then try again.'; return; }
+          if(!(r2.pending>0)){ close(); proceed(); return; }
           show(r2, emp, proceed); var m=document.getElementById('pc-eod-msg'); if(m) m.textContent='Still '+r2.pending+' post'+(r2.pending===1?'':'s')+' without a verdict — finish them in Reddit Central, then try again.'; }); }
     });
   }
   function wrap(){
     if(window.__pcEodWrap || typeof window.askEOD!=='function') return !!window.__pcEodWrap; window.__pcEodWrap=1;
-    var orig=window.askEOD, busy=false;
+    var orig=window.askEOD, busy=false; fails=0;
     window.askEOD=function(){
       var self=this, args=arguments, go=function(){ return orig.apply(self, args); };
       var d=window._currentEmpData||{}, emp=String(d.employee_id||(typeof attEmpId!=='undefined'&&attEmpId)||'');
@@ -33772,8 +33775,9 @@ html body.app-authed.au-light #dashboard-hero .hero-name{
       if(!emp || !didReddit()) return go();
       if(busy) return; busy=true;
       try{ showToast('Checking your Reddit posts…'); }catch(_t){}
-      ask(emp).then(function(r){ busy=false;
-        if(!r || !r.ok || !(r.pending>0)) return go();   // nothing left, or the Reddit backend can't say → never block
+      ask(emp).then(function(r){ return (r && r.ok) ? r : ask(emp); }).then(function(r){ busy=false;   // Nov 9: one automatic retry
+        if(r && r.ok && !(r.pending>0)) return go();   // every post has a verdict
+        if(!r || !r.ok){ fails=1; show({ pending:0, accounts:0, posts:[], unknown:true }, emp, go); return; }   // Nov 9: can't confirm → no longer passes silently
         show(r, emp, go);
       });
     };
@@ -34193,6 +34197,12 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-09-D', version:'2026.11.09d', date:'November 9, 2026',
+    summary:'Reddit: End of Day waits until your posts are checked.',
+    items:[
+      'Before End of Day, every post you logged in Reddit Central in the last 36 hours needs a verdict: stayed up, removed by mods or spam filter.',
+      'If Reddit Central is slow to answer, End of Day now waits and asks you to check again instead of going through.'
+    ] },
   { build:'2026-11-09-C', version:'2026.11.09c', date:'November 9, 2026',
     summary:'A new, calmer look for the portal.',
     items:[
