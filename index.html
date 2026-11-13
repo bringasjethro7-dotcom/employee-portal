@@ -5399,6 +5399,13 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
             <div id="ap-gap-state"></div>
             <div id="ap-gap-tl"></div>
             <div id="ap-gap-chips" class="apg-chips"></div>
+            <div id="ap-any" style="display:none;">
+              <div style="background:var(--bg-deep);border:1px solid var(--border);border-radius:11px;padding:10px 12px;margin:6px 0 8px;font-size:12.5px;color:var(--text-1);line-height:1.45">Reporting the whole day. Say what went wrong and, if you know it, around what time. Your admin checks the tool records for that day and credits only what they prove.</div>
+              <div style="display:flex;gap:10px;align-items:flex-end;">
+                <div style="flex:1;"><span class="ap-mini">Around (from) · optional</span><input id="ap-as" class="ap-in" type="time"></div>
+                <div style="flex:1;"><span class="ap-mini">To · optional</span><input id="ap-ae" class="ap-in" type="time"></div>
+              </div>
+            </div>
             <div id="ap-gap-win" style="display:none;">
               <label class="ap-l">When were you working in this gap?</label>
               <div style="display:flex;gap:10px;align-items:flex-end;">
@@ -5480,7 +5487,7 @@ try{ if (sessionStorage.getItem('emp_data')) document.body.classList.add('app-au
         <div class="wl-vol-head">
           <div class="wl-vol-icon"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#e83d00" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg></div>
           <h3>Recent work</h3>
-          <p>Tagged a task to the wrong project? Use <b>Re-tag</b>. If the portal or timer failed to record your time, report a <b>system error</b> for that gap after the day's EOD. Gaps under 15 minutes can't be reported.</p>
+          <p>Tagged a task to the wrong project? Use <b>Re-tag</b>. If the portal or timer failed to record your time, report a <b>system error</b>: pick a gap, or report the whole day if the problem isn't a gap. Every decision comes with its reason, and you can reply from <b>My reports</b>.</p>
         </div>
         <button onclick="rwlAppeal('untracked')" style="width:100%;background:linear-gradient(135deg,#ff8a4a,#e83d00);color:#fff;border:none;border-radius:10px;padding:11px;font-weight:800;font-size:13px;cursor:pointer;margin:2px 0 8px;">＋ Report a system error</button>
         <div id="recent-wl-list" style="padding:2px;max-height:52vh;overflow:auto;"><div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div></div>
@@ -11611,7 +11618,7 @@ function _postAppeal(p, cb) {
         if (ok) {
           var _tmsg = (d.tool_flag==='partial') ? (' ' + d.tool + ' shows ' + d.tool_mins + ' of ' + d.mins + ' min of work in that window — only those minutes can be approved.')
                     : (d.tool_flag==='none' ? (' It is flagged: ' + d.tool + ' showed no work in that window.') : '');
-          showToast(d.kind==='ticket' ? ('System error report sent for '+(d.window||'that gap')+'. Your admin will check the records and decide.')
+          showToast(d.kind==='ticket_day' ? ('System error report sent for '+(d.date||'that day')+'. Your admin will check the tool records and explain the decision.') : d.kind==='ticket' ? ('System error report sent for '+(d.window||'that gap')+'. Your admin will check the records and decide.')
             : ((d.kind==='untracked' && d.window ? ('Gap appeal sent — '+d.window+' · '+d.claim_hours+' h. Your admin will review it.') : 'Sent to your admin for approval.') + _tmsg));
           if (cb) cb(true, d); return; }
         var retriable = !!(d && (d.retry || d.error === 'BUSY' || d.error === 'EXCEPTION'));
@@ -11661,7 +11668,7 @@ function apGapShift(n){ var el=document.getElementById('ap-gdate'); if(!el||!el.
 function apGapLoad(){
   var dEl=document.getElementById('ap-gdate'), date=dEl.value||_apToday(), st=document.getElementById('ap-gap-state'),
       tl=document.getElementById('ap-gap-tl'), ch=document.getElementById('ap-gap-chips');
-  _apG.date=date; _apG.data=null; _apG.gap=null; _apgShow(false); tl.innerHTML=''; ch.innerHTML='';
+  _apG.date=date; _apG.data=null; _apG.gap=null; _apG.any=false; _apgShow(false); tl.innerHTML=''; ch.innerHTML=''; var _aa0=document.getElementById('ap-any'); if(_aa0) _aa0.style.display='none'; var _tg1=document.getElementById('ap-tk-gap'); if(_tg1) _tg1.style.display='';
   document.getElementById('ap-err').style.display='none';
   st.innerHTML='<div class="apg-state"><span class="ic"></span><div><b>Checking '+escapeHtml(_rwlDayLabel(date))+'…</b>Looking for gaps between your time-in and time-out.</div></div>';
   var id=(typeof attEmpId!=='undefined'&&attEmpId)?attEmpId:'';
@@ -11679,11 +11686,11 @@ function apGapLoad(){
       if(d.locked){ st.innerHTML=_apgState('err','That month is locked', 'Payroll for that month is approved and locked. Message your admin directly.'); return; }
       if(!d.has_time_in){ st.innerHTML=_apgState('err','No time-in that day', 'Only time between your time-in and time-out can be reported, and there’s no time-in on '+escapeHtml(_rwlDayLabel(date))+'. '+prev); return; }
       _apgTimeline(d);
-      if(!d.ended){ st.innerHTML=_apgState('wait','End your day first', 'You can only report after your EOD (Time out). Once you end the day, the gaps on it show up here. '+prev); return; }
+      if(!d.ended){ st.innerHTML=_apgState('wait','Your day is still open', 'Gaps show up here after your EOD (Time out). If something already went wrong today, you can report the day now.'+_apAnyLink()+' '+prev); return; }
       var gaps=(d.gaps||[]);
-      if(!gaps.length){ st.innerHTML=_apgState('good','No gaps to report', d.note ? escapeHtml(d.note) : 'Every minute between your time-in and time-out is tracked, or the gaps are shorter than '+TK_MIN+' minutes. Gaps under '+TK_MIN+' minutes can’t be reported.'); return; }
+      if(!gaps.length){ st.innerHTML=_apgState('good','No gaps on this day', (d.note ? escapeHtml(d.note) : 'Every minute between your time-in and time-out is tracked, or the gaps are shorter than '+TK_MIN+' minutes.')+' Something still went wrong on this day?'+_apAnyLink()); return; }
       var tot=gaps.reduce(function(a,g){ return a+g.mins; },0);
-      st.innerHTML=_apgState('wait', gaps.length+' gap'+(gaps.length>1?'s':'')+' · '+_apgDur(tot)+' untracked', 'Pick the gap the system failed to record. Only gaps of '+TK_MIN+' minutes or longer can be reported.'+(d.note?' '+escapeHtml(d.note):''));
+      st.innerHTML=_apgState('wait', gaps.length+' gap'+(gaps.length>1?'s':'')+' · '+_apgDur(tot)+' untracked', 'Pick the gap the system failed to record. Only gaps of '+TK_MIN+' minutes or longer can be reported.'+(d.note?' '+escapeHtml(d.note):'')+' Problem is not one of these gaps?'+_apAnyLink());
       ch.innerHTML=gaps.map(function(g,i){ return '<button type="button" class="apg-chip" data-gi="'+i+'" onclick="apGapPick('+i+')">'+escapeHtml(g.s_hm)+' – '+escapeHtml(g.e_hm)+' <small>'+_apgDur(g.mins)+'</small></button>'; }).join('');
       if(gaps.length===1) apGapPick(0);
     }).catch(function(){ if(_apG.date===date) st.innerHTML=_apgState('err','Couldn’t check that day','Check your connection and pick the day again.'); });
@@ -11704,7 +11711,21 @@ function _apgTimeline(d){
     '<div class="apg-ends"><span>In <b>'+escapeHtml(bl[0].in_hm)+'</b></span><span>'+(bl.length>1?escapeHtml(ends):'')+'</span><span>Out <b>'+escapeHtml(bl[bl.length-1].out_hm||'—')+'</b></span></div>'+
     '<div class="apg-leg"><span><i style="background:#10b981"></i>Working</span><span><i style="background:rgba(148,163,184,.6)"></i>Idle</span><span><i style="background:#f59e0b"></i>Pending review</span><span><i style="background:#3b82f6"></i>Approved by admin</span><span><i style="background:rgba(239,68,68,.25);box-shadow:inset 0 0 0 1.5px rgba(239,68,68,.6)"></i>Gap</span></div></div>';
 }
+/* 11c (Jeth, Nov 11): "they can also raise a system error in those days that they attended, not just those days that
+   you think they might have a system error" — any day with a time-in can be reported as a whole day. */
+function _apAnyLink(){ return ' <span class="lnk" onclick="apAnyDay()">Report this day instead</span>'; }
+function apAnyDay(){
+  _apG.any=true; _apG.gap=null;
+  document.querySelectorAll('#ap-gap-chips .apg-chip, #ap-gap-tl .apg-seg.gap').forEach(function(el){ el.classList.remove('on'); });
+  var a=document.getElementById('ap-any'); if(a) a.style.display='block';
+  ['ap-as','ap-ae'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+  _apgShow(true);
+  var tg=document.getElementById('ap-tk-gap'); if(tg) tg.style.display='none';
+  if(!Array.isArray(nativeProjects) || !nativeProjects.length){ try{ loadProjects().then(function(){ if(!document.getElementById('ap-project').value) apFillProjects(); }); }catch(e){} }
+  else if(!document.getElementById('ap-project').options.length) apFillProjects();
+}
 function apGapPick(i){
+  _apG.any=false; var _aa=document.getElementById('ap-any'); if(_aa) _aa.style.display='none'; var _tg0=document.getElementById('ap-tk-gap'); if(_tg0) _tg0.style.display='';
   var g=_apG.data && (_apG.data.gaps||[])[i]; if(!g) return;
   _apG.gap={ i:i, sMs:_apgMs(g.s), eMs:_apgMs(g.e), s_hm:g.s_hm, e_hm:g.e_hm, mins:g.mins };
   document.querySelectorAll('#ap-gap-chips .apg-chip, #ap-gap-tl .apg-seg.gap').forEach(function(el){ el.classList.toggle('on', String(el.getAttribute('data-gi'))===String(i)); });
@@ -11761,7 +11782,7 @@ async function openAppeal(mode, opts){
   } else {
     _apEntryId = '';
     document.getElementById('ap-title').textContent = 'Report a system error';
-    document.getElementById('ap-sub').textContent = 'Did the portal or timer fail to record your time? Pick the gap the system recorded on that day and describe what went wrong. Only after you end the day, and only gaps of 15 minutes or longer.';
+    document.getElementById('ap-sub').textContent = 'Did the portal or timer fail to record your time? Pick the day, then the gap the system recorded, or report the whole day if the problem is not a gap. Your admin checks the tool records and explains the decision. You can reply if you disagree.';
     var tkw = document.getElementById('ap-tk-what'); if (tkw) tkw.value = '';
     gapF.style.display = 'block'; lbl.style.display = 'none';
     if (projLbl) projLbl.textContent = 'Project';
@@ -11831,8 +11852,21 @@ function submitAppeal(){
     return;
   }
 
+  if(_apG.any){   // 11c: a whole-day report
+    var whatA=String((document.getElementById('ap-tk-what')||{}).value||'').trim();
+    if(whatA.length<30) return fail('Describe what happened in at least 30 characters: what went wrong, around what time, and what you were working on.');
+    var aS=(document.getElementById('ap-as')||{}).value||'', aE=(document.getElementById('ap-ae')||{}).value||'';
+    if((aS&&!aE)||(!aS&&aE)) return fail('Fill in both times, or leave both empty.');
+    var dA=document.getElementById('ap-desc').value.trim(), pA=document.getElementById('ap-project').value, cA=document.getElementById('ap-category').value, tA=document.getElementById('ap-task').value;
+    if(!dA && !tA) return fail('Say what you were working on — pick the task or describe it.');
+    var fullA=whatA+(tA && dA ? ' · Working on: '+dA : '');
+    var pl={ ticket:1, any_day:1, date:_apG.date, task:(tA||dA), project:(pA||'Untracked'), category:cA, claim_start:aS, claim_end:aE, desc:fullA, reason:'System error report: '+fullA };
+    var bA=document.getElementById('ap-submit'); bA.disabled=true; var oA=bA.innerHTML; bA.textContent='Sending…';
+    _postAppeal(pl, function(ok, d){ bA.disabled=false; bA.innerHTML=oA; if(ok){ closeAppeal(); return; } fail((d&&d.message)||'Could not send — try again.'); });
+    return;
+  }
   // Nov 7i: a system error report — the whole gap the system recorded, a description, no hours
-  var g=_apG.gap; if(!g) return fail('Pick the gap first.');
+  var g=_apG.gap; if(!g) return fail('Pick the gap first, or press Report this day instead.');
   if((g.mins||0)<TK_MIN) return fail('Gaps under '+TK_MIN+' minutes can’t be reported.');
   var what=String((document.getElementById('ap-tk-what')||{}).value||'').trim();
   if(what.length<30) return fail('Describe what happened in at least 30 characters: what you saw on the screen, when it started, and what you did.');
@@ -11941,28 +11975,70 @@ function loadRecentWL(){
       box.innerHTML=html;
     }).catch(function(){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;color:#f87171;">Couldn\'t load. Try again.</div>'; });
 }
+/* 11c (Jeth, Nov 11): every decision carries its reason, and the VA can reply — the 1st reply is reviewed again, the
+   2nd goes to Jeth. The conversation lives on the server (ticket_thread / ticket_reply). */
+var _TKT={ msgs:{}, state:{}, max:2 };
+function _tkThreadHtml(eid, st, day){
+  var ms=_TKT.msgs[eid]||[], S=_TKT.state[eid]||null, h='';
+  if(ms.length){
+    h+='<div class="tk-thread">'+ms.map(function(m){
+      var who=m.by==='va'?'You':(m.by==='jeth'?'Jeth':'Reviewer');
+      var at=''; try{ at=new Date(m.at).toLocaleString('en-US',{ month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone:'Asia/Manila' }); }catch(_d){}
+      return '<div class="tk-msg '+(m.by==='va'?'me':'them')+'"><b>'+who+'</b><span>'+escapeHtml(at)+'</span><p>'+escapeHtml(m.body).replace(/\n/g,'<br>')+'</p></div>';
+    }).join('')+'</div>';
+  }
+  if(st==='pending') return h;
+  if(!S && !ms.length){ var _age=(Date.parse(_apToday()+'T00:00:00')-Date.parse(String(day||'')+'T00:00:00'))/864e5; if(!(_age<=30)) return h; }   // older decisions (before replies existed) stay as they are
+  var s=S?S.status:'answered', n=S?(parseInt(S.va_replies,10)||0):0;
+  if(s==='escalated') return h+'<div class="tk-note esc">With Jeth for review. He checks the records himself and answers here.</div>';
+  if(s==='closed') return h+'<div class="tk-note">This report is closed.</div>';
+  if(s==='va_replied') return h+'<div class="tk-note">Your reply is waiting for an answer.</div>';
+  var last=(n>=_TKT.max-1);
+  return h+'<div class="tk-rep"><textarea id="tk-in-'+escapeHtml(eid)+'" placeholder="Don\'t agree? Tell us what the records are missing: what you were doing, where in the tool it shows, around what time."></textarea>'+
+    '<div class="row"><small>'+(last?'This reply goes to Jeth.':'Your reply is reviewed again.')+'</small><button onclick="tkReply(\''+escapeHtml(eid)+'\', this)">Reply</button></div></div>';
+}
+function tkReply(eid, btn){
+  var ta=document.getElementById('tk-in-'+eid); if(!ta) return; var body=String(ta.value||'').trim();
+  if(body.length<15){ showToast('Write at least 15 characters.'); return; }
+  btn.disabled=true; btn.textContent='Sending…';
+  fetch(APPS_SCRIPT_URL+'?action=ticket_reply&employee_id='+encodeURIComponent(attEmpId)+'&entry_id='+encodeURIComponent(eid)+'&body='+encodeURIComponent(body.slice(0,1500))+'&_='+Date.now())
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok){ showToast(d.message||'Sent.'); loadMyAppeals(); return; }
+      btn.disabled=false; btn.textContent='Reply'; showToast((d&&d.message)||'Could not send — try again.');
+    }).catch(function(){ btn.disabled=false; btn.textContent='Reply'; showToast('Connection failed — try again.'); });
+}
 function loadMyAppeals(){
   var box=document.getElementById('myappeals-list'); box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Loading…</div>';
-  jGet(APPS_SCRIPT_URL+'?action=my_appeals&employee_id='+encodeURIComponent(attEmpId)+'&_='+Date.now())
-    .then(function(r){ return r.json(); }).then(function(d){
+  if(!document.getElementById('tk-css')){ var tcs=document.createElement('style'); tcs.id='tk-css';
+    tcs.textContent='.tk-thread{margin-top:8px;display:flex;flex-direction:column;gap:6px}.tk-msg{border-radius:10px;padding:7px 10px;font-size:12px;line-height:1.45;border:1px solid var(--border)}'+
+      '.tk-msg.them{background:rgba(124,107,214,.08)}.tk-msg.me{background:rgba(242,162,133,.10);margin-left:18px}.tk-msg b{font-size:11px;margin-right:6px}.tk-msg span{font-size:10.5px;color:var(--text-3)}.tk-msg p{margin:3px 0 0;color:var(--text-1)}'+
+      '.tk-rep{margin-top:8px}.tk-rep textarea{width:100%;box-sizing:border-box;min-height:58px;border-radius:9px;border:1px solid var(--border);padding:7px 9px;font:inherit;font-size:12px;background:var(--bg-card,#fff);color:inherit;resize:vertical}'+
+      '.tk-rep .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:5px}.tk-rep small{font-size:11px;color:var(--text-3)}.tk-rep button{border:0;border-radius:99px;padding:6px 14px;font:700 12px inherit;cursor:pointer;background:#7C6BD6;color:#fff}.tk-rep button[disabled]{opacity:.6}'+
+      '.tk-note{margin-top:7px;font-size:11.5px;color:var(--text-2);padding:6px 9px;border-radius:8px;background:rgba(148,163,184,.12)}.tk-note.esc{background:rgba(217,162,31,.14);color:#8a6410}';
+    document.head.appendChild(tcs); }
+  var thr=fetch(APPS_SCRIPT_URL+'?action=ticket_thread&employee_id='+encodeURIComponent(attEmpId)+'&_='+Date.now()).then(function(r){ return r.json(); })
+    .then(function(t){ if(t && t.ok){ _TKT.msgs=t.msgs||{}; _TKT.state=t.state||{}; _TKT.max=t.reply_max||2; } }).catch(function(){});
+  Promise.all([jGet(APPS_SCRIPT_URL+'?action=my_appeals&employee_id='+encodeURIComponent(attEmpId)+'&_='+Date.now()).then(function(r){ return r.json(); }), thr])
+    .then(function(all){ return all[0]; }).then(function(d){
       var rows=(d&&d.appeals)||[];
       if(!rows.length){ box.innerHTML='<div class="cfy-no-entries" style="padding:18px 0;text-align:center;">Nothing sent yet. If the portal or timer fails to record your time, use “Report a system error” after your EOD.</div>'; return; }
       box.innerHTML=rows.map(function(a){
         var st=(a.appeal_status||'pending').toLowerCase();
-        var isRetag=(a.appeal_type||'').toLowerCase()==='retag', isTicket=(a.appeal_type||'').toLowerCase()==='ticket';
+        var isRetag=(a.appeal_type||'').toLowerCase()==='retag', isDay=(a.appeal_type||'').toLowerCase()==='ticket_day', isTicket=(a.appeal_type||'').toLowerCase()==='ticket'||isDay;
         var label=a.task||a.project||'Untracked work';
         var sub, tagChip='';
         if(isRetag){
           tagChip='<span style="font-size:10px;font-weight:700;color:var(--orange-3);background:rgba(255,107,26,.12);border:1px solid rgba(255,107,26,.3);border-radius:20px;padding:1px 7px;margin-left:6px;">retag</span>';
           sub=(a.date?escapeHtml(a.date):'')+' · change to <b>'+escapeHtml(a.new_task||a.new_project||'')+'</b>'+(a.new_project?(' ('+escapeHtml(a.new_project)+')'):'');
         } else {
-          if(isTicket) tagChip='<span style="font-size:10px;font-weight:700;color:#2563eb;background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.3);border-radius:20px;padding:1px 7px;margin-left:6px;">system error</span>';
+          if(isTicket) tagChip='<span style="font-size:10px;font-weight:700;color:#2563eb;background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.3);border-radius:20px;padding:1px 7px;margin-left:6px;">system error'+(isDay?' · whole day':'')+'</span>';
           sub=(a.date?escapeHtml(a.date):'')+(a.win_start&&a.win_end?(' · gap '+escapeHtml(a.win_start)+'–'+escapeHtml(a.win_end)):'')+(a.project?(' · '+escapeHtml(a.project)):'')+
-            (isTicket ? (st==='approved'&&a.claim_hours!==''&&a.claim_hours!=null ? (' · credited '+escapeHtml(a.claim_hours)+'h') : '') : (a.claim_hours?(' · '+escapeHtml(a.claim_hours)+'h'):''));
+            (isTicket ? (st==='approved' ? (' · credited '+escapeHtml(String(a.hours!==''&&a.hours!=null?a.hours:a.claim_hours))+'h') : '') : (a.claim_hours?(' · '+escapeHtml(a.claim_hours)+'h'):''));
         }
-        var _tg=String(a.note||'').match(/^\[tool:(none|partial|ok) (\d+)\/(\d+)m ([^\]]+)\]\s*/), _nt=String(a.note||'').replace(/^\[tool:[^\]]*\]\s*/,'').replace(/^System error report:\s*/,'');   // Oct 20: tool evidence tag
+        var _tg=String(a.note||'').match(/^\[tool:(none|partial|ok) (\d+)\/(\d+)m ([^\]]+)\]\s*/), _nt=String(a.note||'').replace(/^\[tool:[^\]]*\]\s*/,'').replace(/^System error report( \(day\))?:\s*/,'');   // Oct 20: tool evidence tag
         var note=(_tg&&_tg[1]!=='ok'?'<div class="myap-meta" style="color:'+(_tg[1]==='none'?'#e11d48':'#d97706')+';font-weight:600">'+escapeHtml(_tg[1]==='none'?(_tg[4]+' showed no work in this window'):(_tg[4]+' showed '+_tg[2]+' of '+_tg[3]+' min'))+'</div>':'')+
                  (_nt?'<div class="myap-meta" style="color:var(--text-3)">“'+escapeHtml(_nt)+'”</div>':'');
+        if(!isRetag) note+=_tkThreadHtml(String(a.entry_id||''), st, a.date);
         return '<div class="myap-row"><div class="myap-main"><div class="myap-task">'+escapeHtml(label)+tagChip+'</div><div class="myap-meta">'+sub+'</div>'+note+'</div>'+
           '<span class="myap-badge '+st+'">'+(st==='approved'?'Approved':st==='rejected'?'Rejected':'Pending')+'</span></div>';
       }).join('');
@@ -26654,7 +26730,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-11-B';
+var PORTAL_BUILD='2026-11-11-C';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -28302,7 +28378,7 @@ body:not(.app-authed) #sprout-panel{ display:none !important; }
   var KB=[
     { k:['time in','time out','timein','clock in','clock out','timer'], a:'⏰ Time In/Out lives on your Dashboard. Click TIME IN when you start, TIME OUT when you finish. If the button seems stuck, hard-refresh (Ctrl+Shift+R) — your running time is saved on the server, not in the page.' },
     { k:['eod','end of day','report'], a:'📋 The EOD receipt sends automatically when you Time Out — it lists everything you tracked. If a task is missing or short, use the APPEAL button right on the EOD receipt.' },
-    { k:['appeal','missing hours','untracked','wrong task','retag'], a:'🙋 Hours appeals are closed. If the portal or timer failed to record your time, end your day, then open Recent work → Report a system error, pick the gap (15 minutes or longer) and describe what happened. You cannot choose the hours: your admin checks the records and decides. Tagged to the wrong task? Use Wrong task? on the EOD receipt.' },
+    { k:['appeal','missing hours','untracked','wrong task','retag'], a:'If the portal or timer failed to record your time, open Recent work → Report a system error, pick the day, then the gap (15 minutes or longer) or press Report this day instead, and describe what happened. You cannot choose the hours: your admin checks the tool records, decides, and tells you exactly why. You can reply from My reports if you disagree; a second reply goes to Jeth. Tagged to the wrong task? Use Wrong task? on the EOD receipt.' },
     { k:['screenshot','proof','upload','not uploading'], a:'📸 Screenshots upload in the background from the moment you attach them. If one looks stuck: check your internet, keep the tool tab open a minute, then re-attach. Still failing? Send me a bug report (type: report a bug).' },
     { k:['payslip','salary','pay','cutoff'], a:'💰 Payslips: portal → Payslips tab. Cutoffs are 1–15 and 16–31. If a payslip looks wrong, message the admin directly — do not file a tool request for pay issues.' },
     { k:['leave','vacation','absent','sick'], a:'🌴 Leave requests: portal → Leave tab → pick dates + reason → submit. The admin approves from the console and you get a bell notification either way.' },
@@ -34464,6 +34540,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-11-C', version:'2026.11.11c', date:'November 11, 2026',
+    summary:'System error reports: clear reasons, and you can reply.',
+    items:[
+      'Every decision on a system error report now comes with the exact reason. If fewer hours were approved, it says how they were worked out from the tool records.',
+      'You can reply to a decision from Recent work, then My reports. Your first reply is reviewed again. If you still disagree after that, your second reply goes straight to Jeth, who checks the records himself.',
+      'You can now report any day you attended, not only the gaps the portal shows. Pick the day, press Report this day instead, and say what went wrong and around what time. If the records show nothing we can credit, you will be told why.'
+    ] },
   { build:'2026-11-11-B', version:'2026.11.11b', date:'November 11, 2026',
     summary:'Tier 1 and Tier 2 on your scorecard line.',
     items:[
@@ -40149,5 +40232,6 @@ html body.jpl #login-screen .jpl-foot{ margin-top:30px; text-align:center; font-
 })();
 </script>
 <!-- JMB PRO LOGIN · END -->
+<script src="call-coach.js?v=1" defer></script>
 </body>
 </html>
