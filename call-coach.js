@@ -7,7 +7,7 @@
 (function(){
   'use strict';
   if (window.__CC__) return; window.__CC__ = 1;
-  var TRIAL = /^(JMBEAST|ADMIN)$/;          // who sees the launcher during the trial (the server has the real list)
+  var TRIAL = /^[A-Z0-9_-]{2,24}$/;         // Nov 14 (Jeth): open to every VA (the server keeps the real list: call_coach_access)
   var FN = (typeof SUPA_URL !== 'undefined' ? SUPA_URL : 'https://rvyrnkjqxnijxydloujk.supabase.co') + '/functions/v1/call-coach';
   var KEY = (typeof SUPA_KEY !== 'undefined') ? SUPA_KEY : '';
   var DG_URL = 'wss://api.deepgram.com/v1/listen?model=nova-3&language=en&smart_format=true&punctuate=true&interim_results=true&endpointing=350&utterance_end_ms=1000&vad_events=true';
@@ -27,8 +27,13 @@
 
   /* ── styles ── */
   var CSS = '' +
-  '#cc-fab{position:fixed;left:18px;bottom:18px;z-index:9998;border:0;border-radius:999px;padding:11px 18px;font:700 13px/1 Poppins,system-ui,sans-serif;letter-spacing:.02em;color:#fff;background:linear-gradient(135deg,#ff9a5a,#f2652a);box-shadow:0 8px 24px rgba(242,101,42,.35);cursor:pointer}' +
-  '#cc-fab.live{background:linear-gradient(135deg,#3fbf8a,#22a06b);box-shadow:0 8px 24px rgba(34,160,107,.35)}' +
+  'html body #cc-fab{position:relative;display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;border:1px solid rgba(91,64,56,.12);background:#FFF1E8;color:#D9601F;cursor:pointer;padding:0;box-shadow:0 1px 2px rgba(91,64,56,.05),0 8px 18px -12px rgba(91,64,56,.25);transition:box-shadow .25s ease,border-color .25s ease,background .25s ease}' +
+  'html body #cc-fab:hover{border-color:#FFC8A6;box-shadow:0 12px 24px -12px rgba(242,101,42,.45)}' +
+  'html body #cc-fab svg{width:20px;height:20px}' +
+  'html body #cc-fab.live{background:#E3F6EC;color:#1E8A5B;border-color:#BFE8D2}' +
+  'html body #cc-fab.live::after{content:"";position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:#22a06b;box-shadow:0 0 0 2px #fff}' +
+  'html body.jp-night #cc-fab{background:rgba(255,154,90,.14);color:#FFB37E;border-color:rgba(255,255,255,.08)}' +
+  '#cc-fab.float{position:fixed;left:18px;bottom:18px;z-index:9998}' +
   '#cc-panel{position:fixed;top:16px;right:16px;bottom:16px;width:min(460px,calc(100vw - 32px));z-index:9999;display:none;flex-direction:column;background:#fffaf6;color:#2a1d16;border-radius:22px;box-shadow:0 24px 60px rgba(60,30,10,.25),0 0 0 1px rgba(242,101,42,.12);font:14px/1.45 Poppins,system-ui,sans-serif;overflow:hidden}' +
   '#cc-panel.open{display:flex}' +
   'body.cc-pip #cc-panel{position:static;display:flex;width:auto;height:100vh;border-radius:0;box-shadow:none}' +
@@ -61,10 +66,15 @@
   var fab, panel;
   function build(){
     css(document);
-    fab = document.createElement('button'); fab.id = 'cc-fab'; fab.textContent = 'Call Coach';
+    fab = document.createElement('button'); fab.id = 'cc-fab'; fab.type = 'button';
+    fab.title = 'Call Coach: help with English on client calls'; fab.setAttribute('aria-label', 'Call Coach');
+    fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M21 15a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2z"/><path d="M3 15a2 2 0 0 0 2 2h1v-6H5a2 2 0 0 0-2 2z"/><path d="M18 17v1a3 3 0 0 1-3 3h-3"/></svg>';
     fab.onclick = function(){ panel.classList.toggle('open'); render(); };
     panel = document.createElement('div'); panel.id = 'cc-panel';
-    document.body.appendChild(fab); document.body.appendChild(panel);
+    // Nov 14 (Jeth): the button sits in the top bar, just before Messages; floats bottom-left only if the header isn't there
+    var msg = document.getElementById('msg-fab');
+    if (msg && msg.parentNode) msg.parentNode.insertBefore(fab, msg); else { fab.classList.add('float'); document.body.appendChild(fab); }
+    document.body.appendChild(panel);
     render();
   }
   function $(id){ var d = (S.pip && S.pip.document) || document; return d.getElementById(id); }
