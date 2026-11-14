@@ -7798,7 +7798,7 @@ var TOOLG = {
      Alts tab is live now — Threads timers link to it like every other tool, and nobody is excused by default.
      EXEMPT_IDS = people excused (upper-case contractor IDs) — the admin console's tool-exempt pass adds to it. */
   NO_TOOL: /$^/, EXEMPT_IDS: [],
-  applies: function(r){ var id=this.me(); if(!r || !id || id==='ADMIN' || id==='JMBEAST') return ''; if(this.EXEMPT_IDS.indexOf(id)>=0) return ''; var t=this.toolOfR(r); if(!t) return ''; var lbl=(r.project||'')+' '+(r.category||'')+' '+(r.task||'')+' '+(r.description||''); if(this.EXEMPT.test(lbl) || this.NO_TOOL.test(lbl)) return ''; return t; },
+  applies: function(r){ var id=this.me(); if(!r || !id || id==='ADMIN' || id==='JMBEAST') return ''; if(typeof celebPassOn==='function' && celebPassOn()) return ''; if(this.EXEMPT_IDS.indexOf(id)>=0) return ''; var t=this.toolOfR(r); if(!t) return ''; var lbl=(r.project||'')+' '+(r.category||'')+' '+(r.task||'')+' '+(r.description||''); if(this.EXEMPT.test(lbl) || this.NO_TOOL.test(lbl)) return ''; return t; },
   start: function(){ var s=this; if(s._t) return; s._t=setInterval(function(){ s.watch(); }, 60*1000); setInterval(function(){ s.poll(); }, 20*1000); setInterval(function(){ s.gapTick(); }, 20*1000); setInterval(function(){ try{ s.paint(); }catch(e){} }, 1000); setTimeout(function(){ s.poll(); }, 2500); },
   /* the tool's row: last_active (real work), open_at (open + signed in), run_since / run_label (its timer), today_secs */
   cur: null,
@@ -15907,6 +15907,34 @@ function applyJuly4(){
   }
 }
 try { if (document.readyState !== 'loading') applyJuly4(); else document.addEventListener('DOMContentLoaded', applyJuly4); } catch(e) {}
+/* Nov 14 (Jeth): CELEBRATION PASS — on-site VAs only (office network), until 5:00 AM PHT Nov 15.
+   While it is on, the portal never stops the timer by itself: no "no mouse or keyboard" stop, no tool-link stop
+   (Reddit Central / ALTR / Client Hub), no bio-break auto-stop. Work-from-home VAs keep every normal rule.
+   It switches itself off at 5:00 AM, and the countdown pill shows how long is left. */
+var CELEB_PASS = { until: Date.parse('2026-11-15T05:00:00+08:00') };
+function celebPassOn() {
+  try {
+    if (Date.now() >= CELEB_PASS.until) return false;
+    var w = (typeof NETG !== 'undefined' && NETG._why) || '';
+    if (!w && window.WCAM && WCAM.state) { var st = WCAM.state() || {}; w = st.why || ''; if (st.need) return false; }
+    return /^(OFFICE|OFFICE_LEARNED)$/.test(w);
+  } catch (e) { return false; }
+}
+(function celebPill() {
+  function fmt(ms) { var s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h + ':' + (m < 10 ? '0' : '') + m + ':' + (x < 10 ? '0' : '') + x; }
+  function paint() {
+    var on = celebPassOn(), el = document.getElementById('celeb-pass');
+    if (!on) { if (el) el.remove(); if (Date.now() >= CELEB_PASS.until) clearInterval(t); return; }
+    if (!el) {
+      el = document.createElement('div'); el.id = 'celeb-pass';
+      el.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:9997;display:flex;align-items:center;gap:10px;padding:8px 16px;border-radius:999px;background:linear-gradient(135deg,#FFF1E3,#FCE4F0);border:1px solid rgba(242,101,42,.25);box-shadow:0 10px 26px -12px rgba(150,60,20,.45);font:600 12.5px/1.2 Poppins,system-ui,sans-serif;color:#5a3424;pointer-events:none;white-space:nowrap';
+      el.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#22a06b;box-shadow:0 0 0 3px rgba(34,160,107,.18)"></span><span>Celebration pass · your timer will not stop by itself until 5:00 AM</span><b id="celeb-pass-left" style="font-variant-numeric:tabular-nums;color:#D9601F"></b>';
+      (document.body || document.documentElement).appendChild(el);
+    }
+    var l = document.getElementById('celeb-pass-left'); if (l) l.textContent = fmt(CELEB_PASS.until - Date.now()) + ' left';
+  }
+  var t = setInterval(paint, 1000);
+})();
 function trkCheckInactivity() {
   try { TRKLEAD.tick(); } catch(_l) {}   // Oct 15: one tab owns the timer
   try { TRKSYNC.tick(); } catch(_s) {}   // Oct 15: is it still running on the server?
@@ -15927,6 +15955,7 @@ function trkCheckInactivity() {
     trkLastActivity = Date.now();
   }
   if (trkInBioBreak()) { trkLastActivity = Date.now(); hideInactiveWarn(); return; }   // bio breaks are exempt
+  if (celebPassOn()) { trkLastActivity = Date.now(); hideInactiveWarn(); return; }        // Nov 14: celebration pass (on-site, until 5 AM)
   /* Oct 13: on a tool project, real work in Reddit Central / ALTR Studio / Client Hub (its heartbeat) counts as
      activity — phone work there no longer gets the portal timer stopped for "no mouse or keyboard". */
   try { if (typeof TOOLG !== 'undefined' && TOOLG.cur && TOOLG.cur.row && TOOLG.applies(trkRunning) === TOOLG.cur.tool) {
@@ -20159,6 +20188,7 @@ function _bioGuardTick() {
 }
 function _bioDisarm() { if (_bioWatch) _bioWatch.done = true; _bioCdHide(); }
 function _bioEnforce() {
+  try { if (typeof celebPassOn === 'function' && celebPassOn()) { _bioDisarm(); return; } } catch(_cp) {}
   _bioWatch.done = true; _bioCdHide();
   try { stopTimer(); } catch(e) {}
   var emp = (window._currentEmpData && window._currentEmpData.employee_id) || (trkRunning && trkRunning.employee_id) || '';
@@ -26730,7 +26760,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-14-A';
+var PORTAL_BUILD='2026-11-14-B';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34540,6 +34570,13 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-14-B', version:'2026.11.14b', date:'November 14, 2026',
+    summary:'Celebration pass for tonight.',
+    items:[
+      'Tonight we are celebrating in the office while we work. If you are on site, your timer will not stop by itself until 5:00 AM. A small countdown at the top of the portal shows how long the pass has left.',
+      'You still start, pause and stop your timer yourself. At 5:00 AM everything goes back to normal on its own.',
+      'If you work from home tonight, the usual rules still apply.'
+    ] },
   { build:'2026-11-14-A', version:'2026.11.14', date:'November 14, 2026',
     summary:'Call Coach: help with English on client calls.',
     items:[
