@@ -26760,7 +26760,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-14-B';
+var PORTAL_BUILD='2026-11-16-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -35623,12 +35623,17 @@ var WCAM = (function(){
        · no signed IP, a refusal (the network gate handles those) or a grace answer → no change.
      Every switch is logged with the reason and the IP the laptop is using (wfh_cam_log: cam_need / cam_release). */
   var OFFICE_RE=/^(OFFICE|OFFICE_LEARNED|GATE_OFF)$/;
+  /* Nov 16 (Jeth): one-night camera pass — JMB043 works from home tonight but is treated like on site (no camera,
+     no face check). Ends by itself at 9:00 AM PHT Nov 16. */
+  var CAM_PASS={ 'JMB043': Date.parse('2026-11-16T09:00:00+08:00') };
+  function camPass(){ var u=CAM_PASS[String(me()||'').toUpperCase()]; return !!u && Date.now()<u; }
   function ssGet(k){ try{ return sessionStorage.getItem(k+me()); }catch(e){ return null; } }
   function ssSet(k, v){ try{ if(v===null) sessionStorage.removeItem(k+me()); else sessionStorage.setItem(k+me(), v); }catch(e){} }
   function explicit(){ if(ssGet('wcam_wfh_')==='1') return true; try{ return localStorage.getItem('wcam_wfhday_'+me())===day(); }catch(e){ return false; } }
   function markWfh(){ ssSet('wcam_wfh_', '1'); try{ localStorage.setItem('wcam_wfhday_'+me(), day()); }catch(e){} }   // Nov 7g: for the whole day on this laptop, every tab
   function offSave(){ ssSet('wcam_off_', S.offSince?JSON.stringify({ s:S.offSince, n:S.offN }):null); }
   function setNeed(need, why, ip, how){
+    if(need && camPass()) need=false;
     S.need=need; ssSet('wcam_need2_', need?'1':'0');
     if(need) log('cam_need', S.offSince?Math.round((Date.now()-S.offSince)/1000):0, (why+' · '+(ip||'no IP')+' · '+how).slice(0,280));
     else { log('cam_release', 0, ('office network · '+(ip||'no IP')).slice(0,280)); stop('office'); }
@@ -35658,6 +35663,7 @@ var WCAM = (function(){
   async function refresh(){
     var id=me(); if(!id) return null;
     if(id==='ADMIN'){ S.known=true; S.need=false; S.lastRef=Date.now(); return null; }
+    if(camPass()){ S.known=true; S.lastRef=Date.now(); if(S.need) setNeed(false, 'CAM_PASS', '', ''); return null; }
     if(S._rp) return S._rp;
     S._rp=(async function(){
       var out=null;
@@ -36051,7 +36057,7 @@ var WCAM = (function(){
   async function tick(){
     var id=me();
     if(id!==S.emp){ S.emp=id; S.known=false; S.lastRef=0; S.need=false; S.offSince=0; S.offN=0;
-      try{ S.need=!!id && sessionStorage.getItem('wcam_need2_'+id)==='1'; var o=JSON.parse(sessionStorage.getItem('wcam_off_'+id)||'null'); if(o && o.s && Date.now()-o.s<2*3600*1000){ S.offSince=o.s; S.offN=o.n||1; } }catch(e){} }
+      try{ S.need=!!id && sessionStorage.getItem('wcam_need2_'+id)==='1' && !camPass(); var o=JSON.parse(sessionStorage.getItem('wcam_off_'+id)||'null'); if(o && o.s && Date.now()-o.s<2*3600*1000){ S.offSince=o.s; S.offN=o.n||1; } }catch(e){} }
     if(!authed()){ if(S.stream) stop('signout'); if(S.ch) chDown(); paint(); return; }
     try{ camBeat(); }catch(_cb){}   // Nov 7f: the server's camera rule
     var now=Date.now();
