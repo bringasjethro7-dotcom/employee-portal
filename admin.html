@@ -1372,6 +1372,7 @@ body{background-attachment:initial !important}
             <option value="">All statuses</option>
             <option value="pending">Pending only</option>
             <option value="paid">Paid only</option>
+            <option value="archived">Archived</option>
           </select>
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -3765,6 +3766,8 @@ async function loadPayslipsAdmin(){
         var _intOnly=(!((fund.main_by_period||{})[p.period||'']||{})[e.employee_id] && _spl.length && _spl.every(function(x){ return x.f; }));
         if(_intOnly) proj=_spl[0].p;   // only founder-funded (JMB Internal) work this cutoff
         var paid=!!p.paid;
+        /* Nov 17 (Jeth): archived slips leave the board; the "Archived" filter shows only them (with Restore). */
+        if(fStatus==='archived' ? !p.archived : !!p.archived) return;
         if(fStatus==='paid'&&!paid) return;
         if(fStatus==='pending'&&paid) return;
         var _parts=(p.partials||[]).slice(); if(p.partial) _parts.push(p.partial);
@@ -3788,7 +3791,7 @@ async function loadPayslipsAdmin(){
         if(paid) _fs='paid';
         else if(_spl.length>1 && _totH>0) _fs=(_fH>=_totH-0.005) ? 'ready' : (_newH>0.005 ? 'partial' : 'waiting');
         else _fs=(_mainOk || (_totH>0 && _fH>=_totH-0.005)) ? 'ready' : 'waiting';
-        rows.push({empId:e.employee_id,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(_fs==='ready'),fstate:_fs,fShare:(_totH>0?_fH/_totH:0),fNewH:Math.round(_fH*100)/100,fNewP:_fP,fWaitP:_waitP,fWaitH:Math.round(_waitH*100)/100,split:_spl,locked:p.locked||null,rate:(p.locked&&p.locked.rate)||p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100,nd_hours:(p.nd_hours!==undefined?p.nd_hours:'')});
+        rows.push({empId:e.employee_id,archived:!!p.archived,name:e.full_name||e.employee_id,period:p.period||'',hours:p.hours||'',paid:paid,paid_date:p.paid_date||'',project:proj,funded:(_fs==='ready'),fstate:_fs,fShare:(_totH>0?_fH/_totH:0),fNewH:Math.round(_fH*100)/100,fNewP:_fP,fWaitP:_waitP,fWaitH:Math.round(_waitH*100)/100,split:_spl,locked:p.locked||null,rate:(p.locked&&p.locked.rate)||p.rate||e.rate||'',shift:p.shift||'',incentives:p.incentives||'',amount:p.amount||'',qr:e.bank_qr||'',gotyme:payBanks[e.employee_id]||'',deductions:(parseFloat(e.deductions!=null?e.deductions:e.deduction)||0),partials:_parts,partialPaid:Math.round(_partSum*100)/100,nd_hours:(p.nd_hours!==undefined?p.nd_hours:'')});
       });
     });
     /* Settled share minus what earlier ◐ tranches already sent → is anything payable now? (works even when an
@@ -3843,7 +3846,9 @@ async function loadPayslipsAdmin(){
       var action=r.paid
         ? '<span style="color:var(--t3);font-size:12px;">—</span>'
         : '<button class="bsm" onclick="openPayModal('+ri+')" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#16a34a;font-weight:600;white-space:nowrap;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M2 10h20M6 15h4"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>Pay</button>'+
-          (showPartial?' <button class="bsm" onclick="openPartialModal('+ri+')" title="Pay only the portion funded by a settled client" style="background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.4);color:#2563eb;font-weight:600;white-space:nowrap;">◐ Partial</button>':'');
+          (showPartial?' <button class="bsm" onclick="openPartialModal('+ri+')" title="Pay only the portion funded by a settled client" style="background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.4);color:#2563eb;font-weight:600;white-space:nowrap;">◐ Partial</button>':'')+
+          ' <button class="bsm" onclick="payArchive('+ri+')" title="Archive this payslip (it leaves the board, nothing is deleted)" style="background:transparent;border:1px solid var(--bd,#d4d4d8);color:var(--t3);font-weight:600;white-space:nowrap;">Archive</button>';
+      if(r.archived) action='<button class="bsm" onclick="payArchive('+ri+',1)" style="font-weight:600;white-space:nowrap;">Restore</button>';
       var trStyle=(!r.paid && r.funded)?' style="background:rgba(34,197,94,.07);"':'';
       return '<tr'+trStyle+'><td><strong>'+payEsc(r.name)+'</strong></td><td>'+payEsc(r.period||'—')+'</td><td>'+projCell+'</td><td>'+(r.hours?payEsc(String(r.hours))+' hrs':'—')+'</td><td style="color:var(--t3);font-size:12px;white-space:nowrap;">'+(r.paid_date?payEsc(r.paid_date):'—')+'</td><td style="white-space:nowrap;">'+status+'</td><td>'+action+'</td></tr>';
     }).join('');
@@ -3897,6 +3902,15 @@ function payNowOf(r){
   if(r.fstate==='ready') return left;
   if(r.fstate==='partial') return Math.max(0, Math.min(left, Math.round((payNet(r)*(r.fShare||0)-(r.partialPaid||0))*100)/100));
   return 0;
+}
+/* Nov 17 (Jeth): archive / restore a payslip (backend payslip_archive, owner only). */
+function payArchive(idx, undo){
+  var r=(window._payRows||[])[idx]; if(!r) return;
+  if(!undo && !confirm('Archive '+r.name+' — '+r.period+'?\n\nIt leaves the pay board. Nothing is deleted; you can restore it from the "Archived" filter.')) return;
+  fetch(API+'?action=payslip_archive&employee_id='+encodeURIComponent(r.empId)+'&period='+encodeURIComponent(r.period)+(undo?'&undo=1':'')+'&_='+Date.now())
+    .then(function(x){ return x.json(); })
+    .then(function(d){ if(d && d.success){ try{ jBust(); }catch(_b){} loadPayslipsAdmin(); } else alert('Could not '+(undo?'restore':'archive')+': '+((d&&(d.message||d.error))||'unknown error')); })
+    .catch(function(e){ alert('Could not reach the server: '+e); });
 }
 function openPayModal(idx){
   var r=(window._payRows||[])[idx]; if(!r) return; window._payCur=r;
