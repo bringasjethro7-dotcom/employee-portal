@@ -14420,10 +14420,15 @@ var AUL = {
   workApprovedDate: '',       // ...and only for this PHT date (one lunch, never a standing pass)
   enabled: null,              // backend switch (AUTO_LUNCH_ON); null until the first lunch_state reply
   request: null,              // their working-lunch request for today, if any
+  SHORT: 30,                  // Nov 18 (Jeth): after 30 minutes the VA may end lunch
+  shortDate: '',              // PHT date on which this VA ended lunch at 30 minutes
+  askedDate: '',              // PHT date the 30-minute question was answered (or timed out)
+  _askT: null, _askLeft: 0, _quietLeave: false,
   _wasActive: null,           // previous tick's state, for edge detection
   _tick: null, _cdTick: null, _synced: 0,
 
   now: function(){ return Date.now() + (this.skew || 0); },
+  minsToday: function(){ var p = this.parts(); return (p && this.shortDate && this.shortDate === p.date) ? this.SHORT : this.MINS; },
   parts: function(ms){
     var o = {};
     try {
@@ -14453,14 +14458,14 @@ var AUL = {
     var p = this.parts(); if (!p) return null;
     var st = this.startMins(), n = this.now();
     var start = n - ((p.mins - st) * 60000 + p.secs * 1000);
-    return { start: start, end: start + this.MINS*60000, shift: this.shift() };
+    return { start: start, end: start + this.minsToday()*60000, shift: this.shift() };
   },
   active: function(){
     if (this.enabled !== true) return false;   // switch off on this backend, or not confirmed yet → never stop a timer
     if (this.workApproved && this.workApprovedDate && this.workApprovedDate === ((this.parts()||{}).date||'')) return false;   // approved for THIS lunch only
     var p = this.parts(); if (!p) return false;
     var st = this.startMins();
-    return p.mins >= st && p.mins < st + this.MINS;
+    return p.mins >= st && p.mins < st + this.minsToday();
   },
   minsLeft: function(){ var w = this.win(); return w ? Math.max(0, Math.ceil((w.end - this.now())/60000)) : 0; },
   label: function(ms){
@@ -14493,6 +14498,7 @@ var AUL = {
            overnight (or a failed noon sync) can never carry yesterday's approval into today (Oct 6, 2026). */
         self.workApprovedDate = self.workApproved ? String((d.now_pht||'').slice(0,10) || ((self.parts()||{}).date||'')) : '';
         self.request = d.request || null;
+        if (d.short_lunch) { var _sd = String((d.now_pht||'').slice(0,10) || ((self.parts()||{}).date||'')); self.shortDate = _sd; self.askedDate = _sd; }
         if (self.workApproved && !wasApproved) { self.hide(); showToast('Working lunch approved — your timer is yours again.'); }
         self.paint();
       })
@@ -14532,8 +14538,9 @@ var AUL = {
     this.sync(true);
   },
   leave: function(){
-    this.hide();
-    try { showToast('Lunch is over. Start your next task whenever you are ready.'); } catch(e){}
+    this.hide(); this.askHide();
+    if (this._quietLeave) this._quietLeave = false;
+    else { try { showToast('Lunch is over. Start your next task whenever you are ready.'); } catch(e){} }
     try { loadTodayEntries(); } catch(e){}
   },
 
@@ -14597,7 +14604,7 @@ var AUL = {
     var arc = document.getElementById('aul-arc');
     if (arc) {
       var C = 2 * Math.PI * 52;
-      var frac = Math.max(0, Math.min(1, left / (this.MINS*60000)));
+      var frac = Math.max(0, Math.min(1, left / (this.minsToday()*60000)));
       arc.setAttribute('stroke-dasharray', C);
       arc.setAttribute('stroke-dashoffset', String(C * (1 - frac)));
     }
@@ -14609,6 +14616,12 @@ var AUL = {
       else if (st === 'rejected'){ req.textContent = 'Admin declined today'; req.disabled = true; }
       else { req.textContent = 'I have to work through lunch'; req.disabled = false; }
     }
+    /* Nov 18: 30 minutes in, ask once — back to work, or the rest of lunch? */
+    try {
+      var _pd = (this.parts()||{}).date || '';
+      if (this.active() && !this.shortDate && this.askedDate !== _pd && !this._askT
+          && (this.now() - w.start) >= this.SHORT*60000 && (w.end - this.now()) > 90000) this.ask();
+    } catch(_a) {}
     // Also keep any tracker-side notice honest.
     var chip = document.getElementById('aul-chip');
     if (chip) {
@@ -14616,6 +14629,89 @@ var AUL = {
       chip.style.display = on ? 'inline-flex' : 'none';
       if (on) chip.textContent = 'On lunch until ' + this.label(w.end);
     }
+  },
+
+  /* ── 30-MINUTE OPTION (Nov 18 2026, Jeth) ──
+     At 30 minutes: "Back to work" ends lunch now (lunch_skip on the server, so the hour is not
+     deducted past 30 minutes and the tracker opens). "Keep my lunch" — or no answer in one
+     minute — keeps the full hour, the default. */
+  ask: function(){
+    var self = this;
+    var a = document.getElementById('aul-ask');
+    if (!a) {
+      a = document.createElement('div');
+      a.id = 'aul-ask';
+      a.innerHTML =
+        '<div class="aul-ask-card" role="dialog" aria-live="assertive" aria-label="30 minutes of lunch are up">'
+      +   '<div class="aul-eyebrow">Lunch · 30 minutes</div>'
+      +   '<h2 class="aul-h">Back to work, or the rest of your lunch?</h2>'
+      +   '<p class="aul-sub">If you do nothing, your lunch continues to the full hour in <b id="aul-ask-cd">60</b> seconds.</p>'
+      +   '<div class="aul-ask-btns">'
+      +     '<button type="button" class="aul-ghost" id="aul-ask-keep" onclick="AUL.askKeep()">Keep my lunch</button>'
+      +     '<button type="button" class="aul-send" id="aul-ask-go" onclick="AUL.skip()">Back to work</button>'
+      +   '</div>'
+      +   '<div class="aul-ferr" id="aul-ask-err"></div>'
+      + '</div>';
+      document.body.appendChild(a);
+    }
+    var err = document.getElementById('aul-ask-err'); if (err) err.textContent = '';
+    var go = document.getElementById('aul-ask-go'); if (go) { go.disabled = false; go.textContent = 'Back to work'; }
+    a.classList.add('on');
+    try { if (typeof playChime === 'function') playChime(); } catch(_c) {}
+    self._askLeft = 60;
+    var cd = document.getElementById('aul-ask-cd'); if (cd) cd.textContent = '60';
+    if (self._askT) clearInterval(self._askT);
+    self._askT = setInterval(function(){
+      self._askLeft--;
+      var c = document.getElementById('aul-ask-cd'); if (c) c.textContent = String(Math.max(0, self._askLeft));
+      if (self._askLeft <= 0) self.askKeep(true);
+    }, 1000);
+  },
+  askHide: function(){
+    if (this._askT) { clearInterval(this._askT); this._askT = null; }
+    var a = document.getElementById('aul-ask'); if (a) a.classList.remove('on');
+  },
+  askKeep: function(timedOut){
+    this.askedDate = (this.parts()||{}).date || '';
+    this.askHide();
+    var w = this.win();
+    try { showToast((timedOut ? 'No answer — ' : '') + 'Enjoy your lunch. It continues until ' + (w ? this.label(w.end) : '1:00') + '.'); } catch(e){}
+  },
+  skip: function(){
+    var self = this, go = document.getElementById('aul-ask-go'), err = document.getElementById('aul-ask-err');
+    if (self._askT) { clearInterval(self._askT); self._askT = null; }   // they answered — stop the countdown
+    if (go) { go.disabled = true; go.textContent = 'Ending lunch…'; }
+    var data = trkEmpData || window._currentEmpData || {};
+    var url = APPS_SCRIPT_URL + '?action=lunch_skip&employee_id=' + encodeURIComponent(attEmpId)
+            + '&full_name=' + encodeURIComponent(data.full_name || attEmpId);
+    function fail(m){
+      if (go) { go.disabled = false; go.textContent = 'Back to work'; }
+      if (err) err.textContent = m;
+      /* keep the one-minute rule: if they don't try again, lunch carries on */
+      if (!self._askT) { self._askLeft = Math.max(20, self._askLeft); self._askT = setInterval(function(){
+        self._askLeft--; var c = document.getElementById('aul-ask-cd'); if (c) c.textContent = String(Math.max(0, self._askLeft));
+        if (self._askLeft <= 0) self.askKeep(true); }, 1000); }
+    }
+    (function attempt(n){
+      fetch(url + '&_=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+        if (d && d.ok) {
+          var pd = (self.parts()||{}).date || '';
+          self.shortDate = pd; self.askedDate = pd;
+          self.askHide(); self.hide();
+          self._quietLeave = true;   // the edge watcher will see lunch end — this toast says it instead
+          try { showToast('Lunch ended. Welcome back — start your next task.'); } catch(_t){}
+          try { self.tick(); } catch(_k){}
+          try { loadTodayEntries(); } catch(_l){}
+          return;
+        }
+        if (d && (d.error === 'BUSY' || d.error === 'EXCEPTION') && n < 3) { setTimeout(function(){ attempt(n+1); }, 700*n); return; }
+        if (d && d.error === 'TOO_EARLY') return fail(d.message || 'You can end lunch after 30 minutes.');
+        fail((d && d.message && d.error !== 'UNKNOWN_ACTION') ? d.message : 'Could not end lunch right now — your lunch continues.');
+      }).catch(function(){
+        if (n < 3) setTimeout(function(){ attempt(n+1); }, 800*n);
+        else fail('No connection — your lunch continues.');
+      });
+    })(1);
   },
 
   /* The one thing a VA can do about lunch: ask admin for permission to work through it.
@@ -26760,7 +26856,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-16-A';
+var PORTAL_BUILD='2026-11-18-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -29436,6 +29532,23 @@ html body.app-authed .dashboard-hero.ora-alert{ --ora-a:#FBBF24; --ora-b:#FB923C
   color:var(--au-ink3,#7f859c); cursor:pointer; padding:5px 9px; border-radius:8px; transition:color .2s, background .2s; }
 #aul-veil .aul-link:hover:not(:disabled){ color:var(--au-ink2,#b9bdd0); background:rgba(255,255,255,.05); }
 #aul-veil .aul-link:disabled{ opacity:.55; cursor:default; }
+/* Nov 18: 30-minute lunch question */
+#aul-ask{ position:fixed; inset:0; z-index:9700; display:none; align-items:center; justify-content:center; padding:22px;
+  background:rgba(6,6,12,.62); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+#aul-ask.on{ display:flex; animation:aul-in .3s ease both; }
+#aul-ask .aul-ask-card{ width:100%; max-width:420px; border-radius:24px; padding:28px 24px 22px; text-align:center;
+  background:linear-gradient(170deg,#1a1723 0%,#131019 100%); border:1px solid rgba(255,255,255,.10);
+  box-shadow:0 40px 110px -34px rgba(0,0,0,.92); color:#F5F6FA; animation:aul-rise .45s cubic-bezier(.2,.8,.25,1) both; }
+#aul-ask .aul-eyebrow{ font-size:10.5px; font-weight:800; letter-spacing:.24em; text-transform:uppercase; color:#6EE7D6; }
+#aul-ask .aul-h{ margin:9px 0 8px; font-size:22px; font-weight:800; line-height:1.22; }
+#aul-ask .aul-sub{ margin:0 0 18px; font-size:13.5px; color:#b9bdd0; line-height:1.5; }
+#aul-ask .aul-sub b{ color:#F5F6FA; font-variant-numeric:tabular-nums; }
+#aul-ask .aul-ask-btns{ display:flex; gap:10px; }
+#aul-ask button{ flex:1; height:46px; border-radius:14px; font:inherit; font-size:14.5px; font-weight:700; cursor:pointer; }
+#aul-ask .aul-ghost{ border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.07); color:#F5F6FA; }
+#aul-ask .aul-send{ border:none; background:#14B8A6; color:#06121a; }
+#aul-ask button:disabled{ opacity:.6; cursor:default; }
+#aul-ask .aul-ferr{ min-height:16px; margin-top:10px; font-size:12.5px; color:#fca5a5; }
 #aul-chip{ display:none; align-items:center; gap:6px; margin-top:8px; padding:5px 11px; border-radius:999px;
   font-size:11.5px; font-weight:700; letter-spacing:.02em; color:var(--au-tl,#6EE7D6);
   background:rgba(20,184,166,.12); border:1px solid rgba(20,184,166,.28); }
@@ -34570,6 +34683,14 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-18-A', version:'2026.11.18a', date:'November 18, 2026',
+    summary:'New: the 30-minute lunch option.',
+    items:[
+      'Lunch still starts by itself and lasts one hour by default.',
+      'After 30 minutes, the portal asks if you want to go back to work or keep the rest of your lunch.',
+      'Choose Back to work and your lunch ends right away. Start your next task when you are ready.',
+      'If you do not answer within 1 minute, your lunch simply continues to the full hour.'
+    ] },
   { build:'2026-11-14-B', version:'2026.11.14b', date:'November 14, 2026',
     summary:'Celebration pass for tonight.',
     items:[
