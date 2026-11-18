@@ -15921,6 +15921,279 @@ window.addEventListener('message', function(ev){
     try { ev.source.postMessage({ jmbSSO: { id: me.id, name: me.name, sess: (typeof JMB_SESS !== 'undefined' ? JMB_SESS : '') } }, PHONEWORK.TOOL_ORIGIN); } catch(e){}
   }
 });
+/* ══════════ ◧ SIDE BY SIDE (Jeth, Nov 19) ══════════
+   "My VAs struggle with a separate browser window for the portal and the tool. Merge them on one screen, like split view
+   on the iPad, resizable. On the portal side just the Attendance & timer section; on the tool side just the task being
+   done — none of the tool's things that aren't used regularly."
+   Desktop only (1000 px+). One screen, two panes:
+   • the portal pane: the REAL Attendance & Time card (moved in while side by side is open, moved back after) — Time In,
+     EOD, laptop, project, timer, Start/Stop, the tool link, all working exactly as on the Attendance tab;
+   • the tool pane: the tool (Reddit Central, Client Hub tab, Slaybae, ALTR Studio) in its work-only view (?sv=1), signed
+     in with the portal's sign-in (no PIN), every click in it counting as activity for the no-activity rule.
+   Drag the divider to resize (remembered; double-click resets), swap sides, or shrink the portal pane to a slim rail.
+   "Full portal" steps out with a pill to come back; the timer keeps running either way. Reopens after a reload if it
+   was on. Portal boxes (pairing, stop alarm, lunch question, checks) still show on top. */
+var SPLITV = {
+  on: false, tool: '', url: '', _t: null, _runId: null, _booted: false, _home: null,
+  ORIGIN: 'https://internals.jmbvirtuals.com',
+  TOOLS: [['reddit', 'Reddit Central'], ['clients', 'Client Hub'], ['altr', 'ALTR Studio']],
+  allowed: function(){
+    try { if (typeof isMobileDevice === 'function' && isMobileDevice()) return false; } catch(e){}
+    return innerWidth >= 1000 && document.body.classList.contains('app-authed');
+  },
+  me: function(){ try { return PHONEWORK.me(); } catch(e){ return { id:'', name:'' }; } },
+  k: function(n){ return 'sv_' + n + '_' + (this.me().id || 'x'); },
+  get: function(n, d){ try { var v = localStorage.getItem(this.k(n)); return v == null ? d : v; } catch(e){ return d; } },
+  put: function(n, v){ try { if (v == null) localStorage.removeItem(this.k(n)); else localStorage.setItem(this.k(n), String(v)); } catch(e){} },
+  rNow: function(){ try { return PHONEWORK.rNow(); } catch(e){ return {}; } },
+  toolOf: function(x){ try { return PHONEWORK.toolOf(x); } catch(e){ return ''; } },
+  projectNow: function(){ try { return PHONEWORK.projectNow(); } catch(e){ return ''; } },
+  card: function(){ return document.getElementById('tab-attendance'); },
+  /* after sign-in: reopen if it was on; show the "Side by side" button on the Attendance card */
+  boot: function(){
+    var self = this; if (self._booted) return; self._booted = true;
+    var n = 0, iv = setInterval(function(){
+      if (++n > 400) { clearInterval(iv); return; }
+      if (!self.me().id || !document.body.classList.contains('app-authed')) return;
+      clearInterval(iv); self.css(); self.cta();
+      if (self.get('on', '') === '1' && self.allowed()) setTimeout(function(){ self.launch(); }, 1500);
+    }, 2000);
+    setInterval(function(){ self.cta(); if (self.on && !self.allowed()) { self.close(true); } }, 4000);
+  },
+  cta: function(){
+    var c = document.getElementById('sv-cta');
+    if (!this.allowed()) { if (c) c.style.display = 'none'; return; }
+    var top = document.querySelector('.at-card .at-top'); if (!top) return;
+    if (!c) {
+      var self = this; c = document.createElement('button'); c.id = 'sv-cta'; c.type = 'button';
+      c.title = 'Your Attendance & timer and your tool on one screen';
+      c.innerHTML = '<span class="sv-cta-ic"><i></i><i></i></span><span class="sv-cta-l">Side by side</span>';
+      c.onclick = function(){ if (self.on) self.close(); else self.launch(); };
+      top.appendChild(c);
+    }
+    c.style.display = '';
+    var l = c.querySelector('.sv-cta-l'), t = this.on ? 'Back to full portal' : 'Side by side'; if (l && l.textContent !== t) l.textContent = t;
+  },
+  /* make sure the tracker exists (initClockify builds it inside the Attendance card), then open */
+  launch: function(tool, href){
+    var self = this;
+    if (!self.allowed()) { try { showToast('Side by side needs a laptop screen at least 1000 px wide.'); } catch(e){} return; }
+    var ready = function(){ return !!(typeof cfyInited !== 'undefined' && cfyInited && document.getElementById('cfy-project')); };
+    if (ready()) { self.open(tool, href); return; }
+    try { var tb = document.getElementById('tabbtn-attendance'); if (tb) tb.click(); } catch(e){}
+    var n = 0, iv = setInterval(function(){ if (ready() || ++n > 40) { clearInterval(iv); self.open(tool, href); } }, 250);
+  },
+  /* the real Attendance & Time card moves into the portal pane, and back */
+  takeCard: function(){
+    var c = this.card(), dock = document.getElementById('sv-card'); if (!c || !dock || c.parentNode === dock) return;
+    if (!this._home) { this._home = document.createComment('sv-card-home'); c.parentNode.insertBefore(this._home, c); }
+    dock.appendChild(c);
+  },
+  giveCard: function(){
+    var c = document.querySelector('#sv-card > #tab-attendance'); if (!c || !this._home || !this._home.parentNode) return;
+    this._home.parentNode.insertBefore(c, this._home);
+  },
+  open: function(tool, href){
+    var self = this; this.css();
+    if (!document.getElementById('sv')) {
+      var el = document.createElement('div'); el.id = 'sv'; el.setAttribute('role', 'region'); el.setAttribute('aria-label', 'Side by side: portal and tool');
+      el.innerHTML =
+        '<aside class="sv-dock" id="sv-dock">' +
+          '<div class="sv-hd"><span class="sv-brand">JMB Portal</span>' +
+            '<button type="button" class="sv-ic" id="sv-mini" title="Slim the portal side">–</button>' +
+            '<button type="button" class="sv-ic" id="sv-swap" title="Swap sides">⇄</button>' +
+            '<button type="button" class="sv-ic sv-txt" id="sv-full" title="Show the full portal (the tool stays open)">Full portal</button>' +
+            '<button type="button" class="sv-ic" id="sv-x" title="Close side by side">✕</button></div>' +
+          '<div class="sv-tbar"><span>Tool</span><div class="sv-tools" id="sv-tools"></div></div>' +
+          '<div class="sv-card" id="sv-card"></div>' +
+          '<div class="sv-rail" id="sv-rail"><button type="button" class="sv-ic" id="sv-max" title="Show the portal side">+</button><span class="sv-dot" id="sv-dot"></span><span class="sv-rclock" id="sv-rclock"></span><button type="button" class="sv-rgo" id="sv-rgo" title="Start / Stop">▶</button></div>' +
+        '</aside>' +
+        '<div class="sv-handle" id="sv-handle" title="Drag to resize · double-click to reset"><i></i></div>' +
+        '<section class="sv-tool"><div class="sv-pick" id="sv-pick"></div><iframe id="sv-frame" title="Your tool" allow="clipboard-read; clipboard-write; fullscreen"></iframe><div class="sv-shield" id="sv-shield"></div></section>';
+      document.body.appendChild(el);
+      var on = function(id, f){ var b = document.getElementById(id); if (b) b.onclick = f; };
+      on('sv-x', function(){ self.close(); });
+      on('sv-full', function(){ self.step(); });
+      on('sv-swap', function(){ var s = document.getElementById('sv'); s.classList.toggle('swap'); self.put('swap', s.classList.contains('swap') ? '1' : null); });
+      on('sv-mini', function(){ self.mini(true); });
+      on('sv-max', function(){ self.mini(false); });
+      on('sv-rgo', function(){ self.go(this); });
+      document.getElementById('sv-tools').onclick = function(ev){ var b = ev.target.closest && ev.target.closest('button[data-t]'); if (!b) return; var t = b.getAttribute('data-t'); if (t === 'reload') { self.reload(); return; } self.ensureTool(t, self.projectNow(), '', true); };
+      this.drag();
+      if (this.get('swap', '') === '1') el.classList.add('swap');
+      if (this.get('mini', '') === '1') el.classList.add('mini');
+    }
+    this.takeCard();
+    this.width(+this.get('w', 0) || 0);
+    document.getElementById('sv').style.display = 'grid';
+    document.body.classList.add('sv-on'); this.on = true; this.put('on', '1');
+    var back = document.getElementById('sv-back'); if (back) back.style.display = 'none';
+    var R = this.rNow();
+    this.ensureTool(tool || this.toolOf(R) || this.get('tool', ''), (window.TOOLG && TOOLG.lbl ? TOOLG.lbl(R) : '') || this.projectNow(), href || '');
+    this.cta(); this.paint();
+    if (!this._t) this._t = setInterval(function(){ self.paint(); }, 1000);
+  },
+  close: function(quiet){
+    var el = document.getElementById('sv'); if (el) el.style.display = 'none';
+    var back = document.getElementById('sv-back'); if (back) back.style.display = 'none';
+    this.giveCard();
+    document.body.classList.remove('sv-on'); this.on = false;
+    if (quiet !== true) this.put('on', null);
+    if (this._t) { clearInterval(this._t); this._t = null; }
+    var fr = document.getElementById('sv-frame'); if (fr && quiet !== true) { fr.src = 'about:blank'; this.tool = ''; this.url = ''; }
+    this.cta();
+    if (quiet !== true) { var running = false; try { running = !!trkRunning; } catch(e){}
+      try { showToast(running ? 'Side by side closed. Your timer is still running.' : 'Side by side closed.'); } catch(e){} }
+  },
+  /* the full portal for a moment (Messages, Feed, a box) — the card goes home, the tool stays loaded, a pill brings it back */
+  step: function(){
+    var el = document.getElementById('sv'); if (el) el.style.display = 'none';
+    this.giveCard();
+    document.body.classList.remove('sv-on'); this.on = false;
+    if (this._t) { clearInterval(this._t); this._t = null; }
+    var self = this, back = document.getElementById('sv-back');
+    if (!back) { back = document.createElement('button'); back.id = 'sv-back'; back.type = 'button'; back.textContent = 'Back to side by side'; back.onclick = function(){ self.open(); }; document.body.appendChild(back); }
+    back.style.display = 'block'; this.cta();
+  },
+  mini: function(v){ var s = document.getElementById('sv'); if (!s) return; s.classList.toggle('mini', !!v); this.put('mini', v ? '1' : null); this.width(+this.get('w', 0) || 0); },
+  width: function(px){
+    var s = document.getElementById('sv'); if (!s) return;
+    if (s.classList.contains('mini')) { s.style.setProperty('--svw', '64px'); return; }
+    var max = Math.max(380, Math.round(innerWidth * 0.55)), w = px || 400;
+    w = Math.max(340, Math.min(max, w));
+    s.style.setProperty('--svw', w + 'px');
+  },
+  drag: function(){
+    var self = this, h = document.getElementById('sv-handle'), sh = document.getElementById('sv-shield'), s = document.getElementById('sv');
+    h.addEventListener('pointerdown', function(ev){
+      if (s.classList.contains('mini')) return;
+      ev.preventDefault(); sh.style.display = 'block'; s.classList.add('dragging');
+      var mv = function(e){ var x = e.clientX; self.width(s.classList.contains('swap') ? (innerWidth - x) : x); };
+      var up = function(){ sh.style.display = 'none'; s.classList.remove('dragging');
+        self.put('w', parseInt(s.style.getPropertyValue('--svw'), 10) || 400);
+        removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
+      addEventListener('pointermove', mv); addEventListener('pointerup', up);
+    });
+    h.addEventListener('dblclick', function(){ self.put('w', null); self.width(0); });
+    addEventListener('resize', function(){ if (self.on) self.width(+self.get('w', 0) || 0); });
+  },
+  /* the slim rail's button: Time in → Start → Stop (Time in opens the full card again: camera / network steps live there) */
+  go: async function(btn){
+    var st = {}; try { st = MINI.state(); } catch(e){}
+    if (btn) btn.disabled = true;
+    try {
+      if (st.running) await toggleTimer();
+      else { this.mini(false); if (!st.timedIn) showToast('Time in first.'); else if (typeof trkRequirementsMet === 'function' && !trkRequirementsMet()) showToast('Pick your laptop, project and task first.'); else await toggleTimer(); }
+    } catch(e){}
+    if (btn) btn.disabled = false;
+    this.paint();
+  },
+  ensureTool: function(tool, proj, href, byHand){
+    var pick = document.getElementById('sv-pick'), fr = document.getElementById('sv-frame'); if (!fr) return;
+    var self = this;
+    this.tabs(tool || this.tool);
+    if (!tool) {
+      if (this.tool) return;
+      pick.style.display = 'flex'; fr.style.display = 'none';
+      pick.innerHTML = '<b>Your tool shows here</b><span>Pick your project on the left and its tool opens by itself, or open one now:</span>' +
+        '<div class="sv-pick-b">' + this.TOOLS.map(function(t){ return '<button type="button" data-t="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>';
+      pick.onclick = function(ev){ var b = ev.target.closest && ev.target.closest('button[data-t]'); if (b) self.ensureTool(b.getAttribute('data-t'), self.projectNow(), '', true); };
+      return;
+    }
+    var url = href || ''; if (!url) { try { url = TOOLG.link(tool, proj); } catch(e){} } if (!url) return;
+    pick.style.display = 'none'; fr.style.display = 'block';
+    if (this.tool === tool && (this.url === url || (!byHand && !href))) return;
+    this.tool = tool; this.url = url; this.put('tool', tool);
+    fr.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'pw=1&sv=1';
+    this.tabs(tool);
+  },
+  reload: function(){ var fr = document.getElementById('sv-frame'), u = this.url; if (!fr || !u) return; fr.src = 'about:blank'; setTimeout(function(){ fr.src = u + (u.indexOf('?') >= 0 ? '&' : '?') + 'pw=1&sv=1&r=' + Date.now(); }, 60); },
+  tabs: function(cur){
+    var box = document.getElementById('sv-tools'); if (!box) return;
+    var html = this.TOOLS.map(function(t){ return '<button type="button" data-t="' + t[0] + '" class="' + (t[0] === cur ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') +
+      '<button type="button" data-t="reload" class="sv-rl" title="Reload the tool">Reload</button>';
+    if (box.__h !== html) { box.innerHTML = html; box.__h = html; }
+  },
+  paint: function(){
+    if (!this.on) return;
+    var st = {}; try { st = MINI.state(); } catch(e){}
+    var rc = document.getElementById('sv-rclock'), t = st.running ? st.time.slice(0, 5) : '--:--'; if (rc && rc.textContent !== t) rc.textContent = t;
+    var cls = st.running ? 'run' : (st.lunch ? 'lunch' : (st.timedIn ? 'ready' : 'idle'));
+    var dot = document.getElementById('sv-dot'); if (dot && dot.className !== 'sv-dot ' + cls) dot.className = 'sv-dot ' + cls;
+    var rg = document.getElementById('sv-rgo'); if (rg) { var rt = st.running ? '■' : '▶'; if (rg.textContent !== rt) rg.textContent = rt; rg.classList.toggle('stop', !!st.running); }
+    /* the card must stay in the pane (a tab redraw could rebuild it elsewhere) */
+    try { this.takeCard(); } catch(e){}
+    /* a newly started task decides the tool (once per task, so a tool picked by hand isn't fought over) */
+    try { var r = trkRunning; if (r && r.entry_id !== this._runId) { this._runId = r.entry_id; var tl = this.toolOf(r); if (tl) this.ensureTool(tl, TOOLG.lbl(r)); } else if (!r) this._runId = null; } catch(e){}
+  },
+  css: function(){
+    if (document.getElementById('sv-css')) return;
+    var s = document.createElement('style'); s.id = 'sv-css';
+    s.textContent = [
+      '#sv{--svw:400px;position:fixed;inset:0;z-index:1100;display:none;grid-template-columns:var(--svw) 8px 1fr;grid-template-areas:"dock handle tool";background:var(--bg,#f6f2ee)}',
+      '#sv.swap{grid-template-columns:1fr 8px var(--svw);grid-template-areas:"tool handle dock"}',
+      'body.sv-on{overflow:hidden!important}',
+      '.sv-dock{grid-area:dock;min-width:0;display:flex;flex-direction:column;background:var(--bg,#f6f2ee);overflow:hidden}',
+      '.sv-hd{flex:none;display:flex;align-items:center;gap:4px;padding:10px 10px 8px 14px}',
+      '.sv-brand{flex:1;min-width:0;font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--t3,#a0675a)}',
+      '.sv-ic{flex:none;min-width:28px;height:28px;padding:0 8px;border-radius:9px;border:0;background:rgba(160,103,90,.10);color:var(--t2,#7a4d43);font:800 12.5px Inter,system-ui,sans-serif;cursor:pointer}',
+      '.sv-ic:hover{background:rgba(160,103,90,.18)}',
+      '.sv-card{flex:1;min-height:0;overflow:auto;padding:0 10px 200px}',
+      '.sv-card{container-type:inline-size}',
+      'html body.app-authed #sv-card > #tab-attendance{display:block!important;opacity:1!important;transform:none!important;animation:none!important;padding:0!important;margin:0!important}',
+      'html body.app-authed #sv #tab-attendance .at-card{margin:0!important;max-width:none!important;width:auto!important}',
+      '@container (max-width:560px){',
+      '  html body.app-authed #sv #tab-attendance .at-card .cfy-project-row,html body.app-authed #sv #tab-attendance .at-card .trkx-steps{grid-template-columns:1fr!important}',
+      '  html body.app-authed #sv #tab-attendance .at-card .cfy-timer-right{grid-template-columns:1fr!important;grid-template-areas:"now" "disp" "btn" "hint"!important}',
+      '  html body.app-authed #sv #tab-attendance .at-card .at-top{flex-wrap:wrap!important;gap:8px!important}',
+      '}',
+      '@container (min-width:561px) and (max-width:820px){',
+      '  html body.app-authed #sv #tab-attendance .at-card .cfy-project-row{grid-template-columns:repeat(2,minmax(0,1fr))!important}',
+      '}',
+      '.sv-tbar{flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 10px}',
+      '.sv-tbar>span{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--t3,#a0675a)}',
+      '.sv-tools{display:flex;flex-wrap:wrap;gap:6px}',
+      '.sv-tools button{height:28px;padding:0 10px;border-radius:999px;border:1px solid rgba(120,90,80,.16);background:var(--card,#fff);color:var(--t2,#5b4740);font:700 12px Inter,system-ui,sans-serif;cursor:pointer}',
+      '.sv-tools button.on{background:#3b2f2a;color:#fff;border-color:#3b2f2a}.sv-tools .sv-rl{opacity:.75}',
+      '.sv-rail{display:none;flex-direction:column;align-items:center;gap:10px;padding:12px 0}',
+      '#sv.mini .sv-hd,#sv.mini .sv-card,#sv.mini .sv-tbar{display:none}#sv.mini .sv-rail{display:flex}#sv.mini .sv-handle{cursor:default}',
+      '.sv-dot{width:12px;height:12px;border-radius:50%;background:#c9b8b2}.sv-dot.run{background:#10b981;animation:svPulse 1.4s ease-out infinite}.sv-dot.ready{background:#f59e0b}.sv-dot.lunch{background:#14b8a6}',
+      '@keyframes svPulse{0%{box-shadow:0 0 0 0 rgba(16,185,129,.55)}100%{box-shadow:0 0 0 7px rgba(16,185,129,0)}}',
+      '.sv-rclock{font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--t2,#5b4740)}',
+      '.sv-rgo{width:40px;height:40px;border-radius:12px;border:0;color:#fff;font-size:14px;cursor:pointer;background:linear-gradient(135deg,#F2A285,#E99AAE)}.sv-rgo.stop{background:linear-gradient(135deg,#f08a9a,#d9536b)}',
+      '.sv-handle{grid-area:handle;position:relative;cursor:col-resize;background:rgba(120,90,80,.07);touch-action:none}',
+      '.sv-handle i{position:absolute;left:50%;top:50%;width:4px;height:44px;margin:-22px 0 0 -2px;border-radius:4px;background:rgba(120,90,80,.32)}',
+      '.sv-handle:hover i,#sv.dragging .sv-handle i{background:#E99AAE}',
+      '.sv-tool{grid-area:tool;position:relative;min-width:0;background:#f4f5f9}',
+      '#sv-frame{display:block;width:100%;height:100%;border:0;background:#f4f5f9}',
+      '.sv-shield{position:absolute;inset:0;display:none;cursor:col-resize}',
+      '.sv-pick{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;color:#3b2f2a;font:14px Inter,system-ui,sans-serif}',
+      '.sv-pick b{font-size:17px}.sv-pick span{color:#8a7a74;max-width:340px}.sv-pick-b{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:6px}',
+      '.sv-pick-b button{height:40px;padding:0 16px;border-radius:12px;border:1px solid rgba(120,90,80,.18);background:#fff;font:700 14px Inter,system-ui,sans-serif;color:#3b2f2a;cursor:pointer}',
+      '#sv-back{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:1101;display:none;height:40px;padding:0 18px;border-radius:999px;border:0;cursor:pointer;color:#fff;font:800 13.5px Inter,system-ui,sans-serif;background:linear-gradient(135deg,#F2A285,#E99AAE);box-shadow:0 12px 26px -10px rgba(233,154,174,.9)}',
+      'body:not(.app-authed) #sv-back,body:not(.app-authed) #sv{display:none!important}',
+      '#sv-cta{display:inline-flex;align-items:center;gap:8px;height:32px;margin-left:auto;padding:0 12px 0 10px;border-radius:999px;border:1px solid rgba(233,154,174,.45);background:linear-gradient(135deg,#fff3ec,#f6eefb);color:#7a4d43;font:800 12.5px Inter,system-ui,sans-serif;cursor:pointer;white-space:nowrap}',
+      '#sv-cta:hover{border-color:#E99AAE}',
+      '.sv-cta-ic{display:inline-flex;gap:2px}.sv-cta-ic i{width:6px;height:12px;border-radius:2px;background:#F2A285}.sv-cta-ic i+i{width:9px;background:#A99BDB}',
+      '@media (max-width:999px){#sv-cta{display:none!important}}',
+      '@media (prefers-reduced-motion:reduce){.sv-dot.run{animation:none}}'
+    ].join('\n');
+    document.head.appendChild(s);
+  }
+};
+/* the tool inside side by side: activity pings and the sign-in hand-off — only from the frame this page opened */
+window.addEventListener('message', function(ev){
+  if (ev.origin !== SPLITV.ORIGIN) return;
+  var d = ev.data || {}; if (!d || typeof d !== 'object' || !d.jmbTool) return;
+  var fr = document.getElementById('sv-frame'); if (!fr || ev.source !== fr.contentWindow) return;
+  if (d.jmbTool === 'activity') { try { trkLastActivity = Date.now(); } catch(e){} }
+  else if (d.jmbTool === 'sso?') {
+    var me = SPLITV.me(); if (!me.id || !document.body.classList.contains('app-authed')) return;
+    try { ev.source.postMessage({ jmbSSO: { id: me.id, name: me.name, sess: (typeof JMB_SESS !== 'undefined' ? JMB_SESS : '') } }, SPLITV.ORIGIN); } catch(e){}
+  }
+});
+try { SPLITV.boot(); } catch(e){}
+
 document.addEventListener('visibilitychange', function(){ if (!document.hidden && PHONEWORK.on) PHONEWORK.wake(true); });
 /* on the phone, "Open Reddit Central ↗ / Client Hub ↗ / ALTR Studio ↗" links open the tool in work mode, not a new tab
    (a new tab would freeze this page and its timer) */
@@ -26856,7 +27129,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-18-A';
+var PORTAL_BUILD='2026-11-19-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34683,6 +34956,15 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-19-A', version:'2026.11.19a', date:'November 19, 2026',
+    summary:'New: Side by side, your timer and your tool on one screen.',
+    items:[
+      'On the Attendance & Time card, press Side by side. Your Attendance & Time section opens on one side and your tool opens on the other, signed in for you.',
+      'Drag the line in the middle to make either side bigger. The portal remembers your size.',
+      'Use the swap button to put the portal on the right, or the minus button to shrink the portal to a slim strip with just your timer.',
+      'Full portal takes you back to everything else (Messages, Feed and the rest). Your tool stays open, and a button at the bottom brings you back.',
+      'Your timer keeps running the same way. Work you do in the tool still counts as activity.'
+    ] },
   { build:'2026-11-18-A', version:'2026.11.18a', date:'November 18, 2026',
     summary:'New: the 30-minute lunch option.',
     items:[
