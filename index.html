@@ -16020,6 +16020,20 @@ var SPLITV = {
     try { var tb = document.getElementById('tabbtn-attendance'); if (tb) tb.click(); } catch(e){}
     var n = 0, iv = setInterval(function(){ if (ready() || ++n > 40) { clearInterval(iv); self.open(tool, href); } }, 250);
   },
+  /* Nov 21 (Jeth): the night check word, presence code, "Are you still there?", output prompt, EOD receipt… live inside
+     #dashboard-screen, which is its own layer (z-index 1) — so side by side (a body layer at 1100) covered every one of
+     them. Fixed overlays are moved out to <body> once, where their own z-index (4000–6000) puts them above both panes.
+     They work the same anywhere (found by id, position:fixed), so they stay there. */
+  lift: function(){
+    var ds = document.getElementById('dashboard-screen'); if (!ds) return;
+    var list = ds.querySelectorAll('.wl-warn-overlay, .wl-vol-overlay, .daylog-overlay, .gc-modal, [id$="-modal"], #eod-receipt, #idle-stopped, #timeout-confirm, #worklog-warn, #att-resolve, #reset-reminder, #rate-gate');
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i]; if (!el.parentNode || el.closest('#sv')) continue;
+      var pos = ''; try { pos = getComputedStyle(el).position; } catch(e){}
+      if (pos !== 'fixed') continue;
+      document.body.appendChild(el);
+    }
+  },
   /* the real Attendance & Time card moves into the portal pane, and back */
   takeCard: function(){
     var c = this.card(), dock = document.getElementById('sv-card'); if (!c || !dock || c.parentNode === dock) return;
@@ -16046,7 +16060,7 @@ var SPLITV = {
           '<div class="sv-rail" id="sv-rail"><button type="button" class="sv-ic" id="sv-max" title="Show the portal side">+</button><span class="sv-dot" id="sv-dot"></span><span class="sv-rclock" id="sv-rclock"></span><button type="button" class="sv-rgo" id="sv-rgo" title="Start / Stop">▶</button></div>' +
         '</aside>' +
         '<div class="sv-handle" id="sv-handle" title="Drag to resize · double-click to reset"><i></i></div>' +
-        '<section class="sv-tool"><div class="sv-pick" id="sv-pick"></div><iframe id="sv-frame" title="Your tool" allow="clipboard-read; clipboard-write; fullscreen"></iframe><div class="sv-shield" id="sv-shield"></div></section>';
+        '<section class="sv-tool"><button type="button" class="sv-chip" id="sv-chip" title="Your timer · click to show or slim the portal side (Alt+S)"><span class="sv-cdot" id="sv-cdot"></span><span class="sv-ctask" id="sv-ctask">No task running</span><b class="sv-ctime" id="sv-ctime">--:--:--</b></button><div class="sv-pick" id="sv-pick"></div><iframe id="sv-frame" title="Your tool" allow="clipboard-read; clipboard-write; fullscreen"></iframe><div class="sv-shield" id="sv-shield"></div></section>';
       document.body.appendChild(el);
       var on = function(id, f){ var b = document.getElementById(id); if (b) b.onclick = f; };
       on('sv-x', function(){ self.close(); });
@@ -16055,12 +16069,13 @@ var SPLITV = {
       on('sv-mini', function(){ self.mini(true); });
       on('sv-max', function(){ self.mini(false); });
       on('sv-rgo', function(){ self.go(this); });
+      on('sv-chip', function(){ self.toggleMini(); });
       document.getElementById('sv-tools').onclick = function(ev){ var b = ev.target.closest && ev.target.closest('button[data-t]'); if (!b) return; var t = b.getAttribute('data-t'); if (t === 'reload') { self.reload(); return; } self.ensureTool(t, self.projectNow(), '', true); };
       this.drag();
       if (this.get('swap', '') === '1') el.classList.add('swap');
       if (this.get('mini', '') === '1') el.classList.add('mini');
     }
-    this.takeCard();
+    this.takeCard(); this.lift(); this.keys();
     this.width(+this.get('w', 0) || 0);
     document.getElementById('sv').style.display = 'grid';
     document.body.classList.add('sv-on'); this.on = true; this.put('on', '1');
@@ -16091,6 +16106,21 @@ var SPLITV = {
     var self = this, back = document.getElementById('sv-back');
     if (!back) { back = document.createElement('button'); back.id = 'sv-back'; back.type = 'button'; back.textContent = 'Back to side by side'; back.onclick = function(){ self.open(); }; document.body.appendChild(back); }
     back.style.display = 'block'; this.cta();
+  },
+  toggleMini: function(){ var s = document.getElementById('sv'); if (!s) return; this.mini(!s.classList.contains('mini')); },
+  /* Alt+S (here, or forwarded by the tool frame) slims / restores the portal side */
+  keys: function(){
+    if (this._keys) return; this._keys = true; var self = this;
+    addEventListener('keydown', function(e){
+      if (!self.on || !e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.code === 'KeyS' || String(e.key).toLowerCase() === 's') { e.preventDefault(); self.toggleMini(); }
+    }, true);
+  },
+  /* a check or prompt is up (night word, presence code, "Are you still there?", output, timer stopped…) */
+  alertUp: function(){
+    var ids = ['night-check', 'presence-modal', 'inactive-warn-modal', 'night-stopped', 'presence-stopped', 'idle-stopped', 'worklog-volume', 'timeout-confirm'];
+    for (var i = 0; i < ids.length; i++) { var el = document.getElementById(ids[i]); if (el && el.classList.contains('show')) return ids[i]; }
+    return '';
   },
   mini: function(v){ var s = document.getElementById('sv'); if (!s) return; s.classList.toggle('mini', !!v); this.put('mini', v ? '1' : null); this.width(+this.get('w', 0) || 0); },
   width: function(px){
@@ -16157,9 +16187,18 @@ var SPLITV = {
     var rc = document.getElementById('sv-rclock'), t = st.running ? st.time.slice(0, 5) : '--:--'; if (rc && rc.textContent !== t) rc.textContent = t;
     var cls = st.running ? 'run' : (st.lunch ? 'lunch' : (st.timedIn ? 'ready' : 'idle'));
     var dot = document.getElementById('sv-dot'); if (dot && dot.className !== 'sv-dot ' + cls) dot.className = 'sv-dot ' + cls;
+    var cd = document.getElementById('sv-cdot'); if (cd && cd.className !== 'sv-cdot ' + cls) cd.className = 'sv-cdot ' + cls;
+    var ct = document.getElementById('sv-ctime'), cv = st.running ? st.time : (st.lunch ? 'Lunch' : (st.timedIn ? 'Ready' : 'Not timed in')); if (ct && ct.textContent !== cv) ct.textContent = cv;
+    var ck = document.getElementById('sv-ctask'), kv = st.running ? (st.task || 'Working') : 'No task running'; if (ck && ck.textContent !== kv) { ck.textContent = kv; ck.title = kv; }
+    /* a check popped up while the portal side is slim: open it, so the VA sees the timer when they answer */
+    var up = this.alertUp(), svEl = document.getElementById('sv');
+    if (up && !this._alert) { this._alert = up; if (svEl && svEl.classList.contains('mini')) { this._autoOpened = true; this.mini(false); } }
+    else if (!up && this._alert) { this._alert = ''; if (this._autoOpened) { this._autoOpened = false; this.mini(true); } }
+    var chip = document.getElementById('sv-chip'); if (chip) chip.classList.toggle('alert', !!up);
     var rg = document.getElementById('sv-rgo'); if (rg) { var rt = st.running ? '■' : '▶'; if (rg.textContent !== rt) rg.textContent = rt; rg.classList.toggle('stop', !!st.running); }
     /* the card must stay in the pane (a tab redraw could rebuild it elsewhere) */
     try { this.takeCard(); } catch(e){}
+    try { if (!this._lt || Date.now() - this._lt > 5000) { this._lt = Date.now(); this.lift(); } } catch(e){}
     /* a newly started task decides the tool (once per task, so a tool picked by hand isn't fought over) */
     try { var r = trkRunning; if (r && r.entry_id !== this._runId) { this._runId = r.entry_id; var tl = this.toolOf(r); if (tl) this.ensureTool(tl, TOOLG.lbl(r)); } else if (!r) this._runId = null; } catch(e){}
   },
@@ -16170,6 +16209,7 @@ var SPLITV = {
       '#sv{--svw:400px;position:fixed;inset:0;z-index:1100;display:none;grid-template-columns:var(--svw) 8px 1fr;grid-template-areas:"dock handle tool";background:var(--bg,#f6f2ee)}',
       '#sv.swap{grid-template-columns:1fr 8px var(--svw);grid-template-areas:"tool handle dock"}',
       'body.sv-on{overflow:hidden!important}',
+      'body.sv-on #toast{z-index:7000!important}',
       '.sv-dock{grid-area:dock;min-width:0;display:flex;flex-direction:column;background:var(--bg,#f6f2ee);overflow:hidden}',
       '.sv-hd{flex:none;display:flex;align-items:center;gap:4px;padding:10px 10px 8px 14px}',
       '.sv-brand{flex:1;min-width:0;font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--t3,#a0675a)}',
@@ -16202,6 +16242,11 @@ var SPLITV = {
       '.sv-handle i{position:absolute;left:50%;top:50%;width:4px;height:44px;margin:-22px 0 0 -2px;border-radius:4px;background:rgba(120,90,80,.32)}',
       '.sv-handle:hover i,#sv.dragging .sv-handle i{background:#E99AAE}',
       '.sv-tool{grid-area:tool;position:relative;min-width:0;background:#f4f5f9}',
+      '.sv-chip{position:absolute;right:14px;bottom:14px;z-index:3;display:flex;align-items:center;gap:8px;max-width:min(360px,70%);height:34px;padding:0 12px 0 10px;border-radius:999px;border:1px solid rgba(120,90,80,.18);background:rgba(255,255,255,.94);box-shadow:0 10px 26px -12px rgba(60,40,30,.45);font:700 12px Inter,system-ui,sans-serif;color:#3b2f2a;cursor:pointer;backdrop-filter:blur(6px)}',
+      '.sv-chip:hover{border-color:#E99AAE}.sv-ctask{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#7a6a64}.sv-ctime{flex:none;font-variant-numeric:tabular-nums}',
+      '.sv-cdot{flex:none;width:9px;height:9px;border-radius:50%;background:#c9b8b2}.sv-cdot.run{background:#10b981;animation:svPulse 1.4s ease-out infinite}.sv-cdot.ready{background:#f59e0b}.sv-cdot.lunch{background:#14b8a6}',
+      '.sv-chip.alert{border-color:#f87171;box-shadow:0 0 0 3px rgba(248,113,113,.35),0 10px 26px -12px rgba(60,40,30,.45)}',
+      '#sv.dragging .sv-chip{pointer-events:none}',
       '#sv-frame{display:block;width:100%;height:100%;border:0;background:#f4f5f9}',
       '.sv-shield{position:absolute;inset:0;display:none;cursor:col-resize}',
       '.sv-pick{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;color:#3b2f2a;font:14px Inter,system-ui,sans-serif}',
@@ -16224,6 +16269,7 @@ window.addEventListener('message', function(ev){
   var d = ev.data || {}; if (!d || typeof d !== 'object' || !d.jmbTool) return;
   var fr = document.getElementById('sv-frame'); if (!fr || ev.source !== fr.contentWindow) return;
   if (d.jmbTool === 'activity') { try { trkLastActivity = Date.now(); } catch(e){} }
+  else if (d.jmbTool === 'hotkey') { if (SPLITV.on && d.k === 's') SPLITV.toggleMini(); }
   else if (d.jmbTool === 'sso?') {
     var me = SPLITV.me(); if (!me.id || !document.body.classList.contains('app-authed')) return;
     try { ev.source.postMessage({ jmbSSO: { id: me.id, name: me.name, sess: (typeof JMB_SESS !== 'undefined' ? JMB_SESS : '') } }, SPLITV.ORIGIN); } catch(e){}
@@ -27166,7 +27212,7 @@ async function wfhSubmit(btn){
    hard-refresh — "I uploaded it twice and nothing changed." Now every open tab checks the
    server every 10 minutes; when a new build is detected it reloads itself — immediately if
    no task timer is running, or the moment the timer stops (never mid-task). */
-var PORTAL_BUILD='2026-11-20-B';
+var PORTAL_BUILD='2026-11-21-A';
 (function(){
   var pending=false;
   setInterval(function(){
@@ -34994,6 +35040,15 @@ var TA=(function(){
    this browser; a VA who was offline during the update sees it on their next sign-in. Add an entry here (newest
    first) with every build that changes something a VA will notice. */
 var PORTAL_NOTES=[
+  { build:'2026-11-21-A', version:'2026.11.21a', date:'November 21, 2026',
+    summary:'Side by side: checks now show on top, plus a timer on the tool side.',
+    items:[
+      'The night check word, the presence code and "Are you still there?" now appear on top of both sides, and the typing box is ready for you. Before, they were hidden and your timer could stop without you seeing them.',
+      'Your output prompt, End of Day receipt and portal messages also show on top now.',
+      'A small timer now sits at the bottom right of your tool: your task and running time. Click it to slim or open the portal side.',
+      'Press Alt+S (in the portal or in your tool) to slim or open the portal side.',
+      'When a check pops up while the portal side is slim, it opens by itself, then slims again after you answer.'
+    ] },
   { build:'2026-11-20-B', version:'2026.11.20b', date:'November 20, 2026',
     summary:'Removed: Time analysis.',
     items:[
